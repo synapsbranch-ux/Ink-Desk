@@ -203,7 +203,9 @@ Develops `scope.md > The POC Boundary`.
 - **Refusal by the image model** — the frame says the panel couldn't be drawn as written and offers **"Rewrite panel"**, which asks Claude to rephrase **only that panel's visual description** — action, camera angle, background — and retries. **The dialogue stays exactly the same**, since dialogue editing is deferred. A refusal is a *wording* problem, not a *waiting* problem, so it gets a different button.
 - **No raw error codes on screen, ever.** And a failure never wipes panels that already succeeded.
 - **Persistence — one chapter, same browser.** Everything generated comes back exactly where it was left: synopsis, cast proposals, locked sheets with their DNA, page script, finished panels **and their version history**, and which station the user was on. Closing the tab and returning tomorrow on the same browser restores the same chapter. Each save is confirmed by the **"Saved to desk"** label.
-- **Reload mid-generation** — panels that were in flight come back in the **failed state with "Try again."** Nothing spins forever; nothing finished is lost. *"A stray refresh during the demo never costs me six generations."*
+- **Reload mid-generation** — **generation survives the reload.** Because panels are generated server-side (`spec.md > Persistence and Image Storage`), a reload shows each in-flight panel either **finished** or **still inking**, and it keeps going. *"A stray refresh during the demo never costs me six generations."*
+  - **Safety net:** a panel still marked inking after a **generation timeout**, or after the **server restarted**, falls back to the original **failed state with "Try again."** In development Next.js restarts the server on every code change, which kills in-flight requests — without this, such a panel would spin forever. **Nothing spins forever; nothing finished is lost.**
+  - *Changed from the approved version — see **Changes Since Approval**.*
 - **New chapter** — an explicit action, with a confirmation, that clears everything and starts fresh.
 - **Accepting a new synopsis from Story** — same effect as New chapter, with a confirmation warning that the cast and page will be cleared.
 - **No accounts, no list of saved chapters.** One chapter at a time.
@@ -227,6 +229,7 @@ Develops `scope.md > The POC Boundary`.
 - **A redraw never blanks a panel.** The current art stays up while redrawing and stays up if the redraw fails, so the page is never less finished than it was.
 - **Rewrite only touches the visuals.** Action, camera angle, and background get rephrased; dialogue is untouched, consistent with dialogue editing being deferred.
 - **A visible image counter, but no hard cap in the product.** Awareness beats enforcement at this size — a server-side safety limit is a technical decision, not a product one.
+- **A reload does not cancel generation, but nothing may spin forever.** Added in `4-spec`. Server-side generation makes surviving a reload nearly free, which is strictly better for the demo than discarding work in flight. The timeout-and-restart fallback exists because the dev server kills in-flight requests on every code change, so "keeps generating" needs a floor. See **Changes Since Approval**.
 
 ---
 
@@ -241,7 +244,7 @@ Everything the proof of concept must do to be complete:
 5. Ink & Publish: full-page reveal, right-to-left toggle, PNG export compositing art and bubbles.
 6. Station rail with prerequisite gating, hover hints, and the back-navigation rules.
 7. Failure handling: silent single retry, "Try again" for transient failures, "Rewrite panel" for refusals, plain language only.
-8. One-chapter persistence with "Saved to desk" confirmation, restore-on-reload including version history and current station, mid-generation panels restored as failed, and New chapter with confirmation.
+8. One-chapter persistence with "Saved to desk" confirmation, restore-on-reload including version history and current station, **in-flight panels that keep generating across a reload** with a timeout/restart fallback to the failed state, and New chapter with confirmation.
 9. A visible "Images this chapter" counter in the header.
 
 ---
@@ -287,11 +290,36 @@ From `scope.md > Explicitly Cut`, plus what will tempt during the build:
 
 ---
 
+## Changes Since Approval
+
+This PRD was approved before `4-spec`. One behavior changed there, recorded here
+rather than edited in silently.
+
+### Reload mid-generation — generation now survives the reload
+
+| | |
+|---|---|
+| **Was (approved)** | In-flight panels come back in the **failed state with "Try again."** |
+| **Now** | Generation **continues server-side** across a reload; the panel shows as **finished** or **still inking**. A panel still inking after a **generation timeout**, or after a **server restart**, falls back to the failed state with "Try again." |
+| **Why** | `spec.md > Persistence and Image Storage` puts generation and chapter state on the server, which makes surviving a reload nearly free — and losing four panels to a stray refresh is the worse demo. |
+| **Why the fallback** | In development Next.js restarts the server on every code change, killing in-flight requests. Without a floor, such a panel would spin forever — violating the original rule, which is kept. |
+| **Decided by** | The learner, in `4-spec`. |
+
+Everything else in this document stands as approved.
+
+---
+
 ## Open Questions
+
+**Resolved in `4-spec`** — kept for the record rather than deleted:
+
+- ~~**Which GPT Image model and endpoint accept reference images, and how many per request.**~~ **Verified.** `POST /v1/images/edits` accepts an array of reference images; Ink Desk needs one. Model pinned to `gpt-image-2.5-sunburst-2026-09-08`, because `gpt-image-1` shuts down 2026-10-23. See `spec.md > Verified: Image Model and Reference-Image Support`.
+- ~~**Panel generation concurrency.**~~ **Resolved: 2**, as the learner preferred. See `spec.md > Rate Limits and Concurrency`.
+- ~~**A server-side safety limit on images per chapter.**~~ **Resolved: not built**, since the app stays local-only. It becomes a requirement if deployment is ever revisited. See `spec.md > Where It Runs and How Someone Tries It`.
+
+**Still open, none blocking:**
 
 - **Does the page script get its own rail entry, or live inside Storyboard?** Drafted as a step inside Storyboard, since the user doesn't act on it. Cosmetic and reversible — does **not** block `4-spec`.
 - **Should the genre and tone chip sets stay exactly as the mockup has them?** Assumed yes. Does not block `4-spec`.
 - **How long the ink-in reveal should run in the reader** versus the mockup's ~1.4s per panel. A four-panel sequential reveal may want faster per-panel timing to stay watchable. Tune during build; does not block `4-spec`.
-- **Panel generation concurrency.** The learner's preference going into `4-spec` is a **small concurrency limit — around two at a time** — so panels still fill out of order without firing four image requests at once. Firing all four is the most likely way to trip a rate limit, which would put the failure state on camera. **Final call in `4-spec`.**
-- **A server-side safety limit on images per chapter.** The product shows a counter but enforces nothing. Whether to cap it technically is a `4-spec` decision.
-- Carried from `scope.md > Needs Verifying in 4-spec`, still open and **does** need answering in `4-spec`: **which GPT Image model and endpoint accept reference images, and how many per request.** The entire kernel rests on it. Verify before building Cast.
+- **The generation timeout that trips the "still inking" fallback.** Needs a real number, which depends on how slow `gpt-image-2.5-sunburst` actually is at `high`. Measured in the kernel test and set in `5-build`.

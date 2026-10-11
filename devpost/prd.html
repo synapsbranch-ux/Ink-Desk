@@ -584,10 +584,17 @@
       </div>
       <div class="state">
         <h3>Reload mid-generation</h3>
-        <p style="font-size:14.5px">In-flight panels come back in the <strong>failed state with “Try again.”</strong>
-          Nothing spins forever; nothing finished is lost.</p>
+        <p style="font-size:14.5px"><strong>Generation survives the reload.</strong> Panels are generated server-side, so
+          a reload shows each in-flight panel either <strong>finished</strong> or <strong>still inking</strong> — and it
+          keeps going.</p>
+        <p style="font-size:14.5px;margin-top:var(--s2)"><strong>Safety net:</strong> a panel still inking after a
+          <strong>generation timeout</strong>, or after the <strong>server restarted</strong>, falls back to the
+          <strong>failed state with “Try again.”</strong> The dev server kills in-flight requests on every code change, so
+          “keeps generating” needs a floor. Nothing spins forever; nothing finished is lost.</p>
         <p class="note" style="margin-top:var(--s2);font-size:14px">“A stray refresh during the demo never costs me six
           generations.”</p>
+        <p class="quiet" style="margin-top:var(--s2);font-size:13.5px">Changed in <code>4-spec</code> from the approved
+          version, which failed in-flight panels outright.</p>
       </div>
       <div class="state">
         <h3>Starting over</h3>
@@ -649,7 +656,8 @@
           <li><strong>Station rail</strong> — prerequisite gating, hover hints, the three back-navigation rules.</li>
           <li><strong>Failure handling</strong> — silent single retry, Try again, Rewrite panel, plain language only.</li>
           <li><strong>One-chapter persistence</strong> — “Saved to desk”, restore including versions and station,
-            mid-generation panels restored as failed, New chapter with confirmation.</li>
+            in-flight panels that keep generating across a reload with a timeout/restart fallback to the failed state,
+            New chapter with confirmation.</li>
         </ul>
       </div>
     </details>
