@@ -1,0 +1,29 @@
+# Personal learning context — keep out of commits by default
+/devpost/learner-profile.md
+
+# Local credentials
+.env
+.env.*
+!.env.example
+
+# Local machine config
+.claude/settings.local.json
+
+# Generated chapter data — AI output, never committed.
+# Image bytes and chapter state are reproducible and can be large.
+/data/
+
+# Safety net: generated art anywhere. Scoped so the hand-made logo
+# files in /assets and the mockup in /reference stay tracked.
+/public/chapter/
+/public/generated/
+*.generated.png
+*.generated.webp
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+.DS_Store

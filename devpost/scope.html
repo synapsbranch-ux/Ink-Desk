@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ink Desk — Scope</title>
+<style>
+  :root{
+    --paper:#f3f2f2; --surface:#eae9e9; --ink:#201f1d;
+    --hanko:#b5382e; --hanko-900:#3e140f; --hanko-100:#fcecea; --hanko-300:#eba49d;
+    --gold:#b68235;
+    --n100:#f8f4f4; --n200:#eae7e7; --n300:#d7d3d3; --n400:#bab6b6;
+    --n500:#9b9797; --n600:#7d7979; --n700:#605d5d; --n800:#444141; --n900:#2d2b2b;
+    --font-head:"Cormorant Garamond", Garamond, Georgia, serif;
+    --font-body:"Lora", Georgia, "Times New Roman", serif;
+    --font-letter:"Comic Neue", "Comic Sans MS", cursive;
+    --font-mono:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --s1:4px; --s2:8px; --s3:12px; --s4:20px; --s5:32px; --s6:52px;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    background:var(--paper); color:var(--ink);
+    font-family:var(--font-body); font-size:16px; line-height:1.65;
+    background-image:radial-gradient(circle, rgba(32,31,29,.13) 1px, transparent 1.5px);
+    background-size:7px 7px;
+    padding:var(--s5) var(--s4) var(--s6);
+  }
+  .wrap{max-width:900px;margin:0 auto}
+  .sheet{
+    background:var(--paper); border:1.5px solid var(--ink);
+    box-shadow:5px 5px 0 rgba(32,31,29,.15);
+    padding:var(--s5) var(--s5) var(--s6);
+  }
+  @media (max-width:640px){ .sheet{padding:var(--s4) var(--s4) var(--s5)} body{padding:var(--s3)} }
+
+  /* ---------- type ---------- */
+  h1{font-family:var(--font-head);font-size:clamp(38px,7vw,62px);line-height:1;font-weight:600;letter-spacing:-.01em}
+  h2{font-family:var(--font-head);font-size:clamp(25px,4vw,34px);font-weight:600;line-height:1.15;margin:0 0 var(--s3)}
+  h3{font-family:var(--font-head);font-size:21px;font-weight:600;margin:0 0 var(--s2)}
+  p{margin:0 0 var(--s3)} p:last-child{margin-bottom:0}
+  a{color:var(--hanko)}
+  strong{font-weight:700}
+  em{font-style:italic}
+  code,.mono{font-family:var(--font-mono);font-size:.87em;background:var(--n200);padding:1px 5px;border-radius:2px}
+  .eyebrow{font-size:11.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--n700);font-family:var(--font-body)}
+  .lede{font-size:19px;line-height:1.55;color:var(--n800)}
+  .quiet{color:var(--n700);font-size:14.5px}
+
+  section{margin-top:var(--s6);scroll-margin-top:var(--s4)}
+  .rule{border:0;border-top:1.5px solid var(--ink);margin:var(--s5) 0 0}
+  .rule-thin{border:0;border-top:1px solid var(--n300);margin:var(--s4) 0}
+
+  /* ---------- header ---------- */
+  header.top{display:flex;gap:var(--s4);align-items:flex-start;flex-wrap:wrap}
+  .mark{width:58px;height:58px;flex:none}
+  .mark svg{display:block;width:100%;height:100%;border-radius:12px}
+  .titleblock{flex:1 1 240px;min-width:0}
+  .metarow{display:flex;gap:var(--s2);flex-wrap:wrap;margin-top:var(--s3);align-items:center}
+
+  /* ---------- tags / stamps ---------- */
+  .tag{display:inline-flex;align-items:center;gap:5px;font-size:12px;letter-spacing:.09em;
+    text-transform:uppercase;border:1px solid var(--ink);padding:3px 9px;background:var(--paper);white-space:nowrap}
+  .tag-red{color:var(--hanko);border-color:var(--hanko);background:var(--hanko-100)}
+  .tag-solid{background:var(--ink);color:var(--paper)}
+  .tag-quiet{border-color:var(--n400);color:var(--n700)}
+  .stamp{
+    display:inline-block;font-family:var(--font-body);font-size:12.5px;font-weight:700;
+    letter-spacing:.22em;text-transform:uppercase;color:var(--hanko);
+    border:2.5px solid var(--hanko);padding:5px 11px;transform:rotate(-7deg);
+    background:rgba(252,236,234,.75);
+  }
+
+  /* ---------- kernel callout ---------- */
+  .kernel{border:1.5px solid var(--ink);background:var(--n100);padding:var(--s4);position:relative}
+  .kernel .stamp{position:absolute;top:-14px;right:14px;background:var(--paper)}
+  .kernel-line{font-family:var(--font-head);font-size:clamp(23px,3.6vw,31px);font-weight:600;line-height:1.2;margin-bottom:var(--s3)}
+
+  /* ---------- prompt anatomy ---------- */
+  figure{margin:0}
+  figcaption{margin-top:var(--s2);font-size:13.5px;color:var(--n700);font-style:italic}
+  .svgbox{border:1px solid var(--n300);background:var(--n100);padding:var(--s3);overflow-x:auto}
+  .svgbox svg{display:block;min-width:620px;width:100%;height:auto}
+
+  /* ---------- stepper ---------- */
+  .stepnav{display:flex;gap:0;flex-wrap:wrap;border:1.5px solid var(--ink);margin-bottom:-1.5px}
+  .stepnav button{
+    flex:1 1 auto;appearance:none;border:0;border-right:1px solid var(--n300);
+    background:var(--surface);color:var(--n700);font-family:var(--font-body);
+    font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;
+    padding:10px 8px;cursor:pointer;line-height:1.3;
+  }
+  .stepnav button:last-child{border-right:0}
+  .stepnav button:hover{background:var(--n200);color:var(--ink)}
+  .stepnav button[aria-selected="true"]{background:var(--ink);color:var(--paper)}
+  .stepnav button span{display:block;font-size:10px;letter-spacing:.14em;opacity:.7;margin-top:2px}
+  .steppanel{border:1.5px solid var(--ink);padding:var(--s4);background:var(--paper)}
+  .steppanel[hidden]{display:none}
+  .io{display:grid;gap:var(--s3);grid-template-columns:repeat(auto-fit,minmax(215px,1fr));margin-top:var(--s3)}
+  .io div{border-left:3px solid var(--n300);padding-left:var(--s3)}
+  .io .is-lock{border-left-color:var(--hanko)}
+  .io dt{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--n600);margin-bottom:3px}
+  .io dd{margin:0;font-size:14.5px;line-height:1.5}
+
+  /* ---------- page grid ---------- */
+  .pagegrid{display:grid;grid-template-columns:1fr 1fr;gap:var(--s3);max-width:470px}
+  .panel{border:1.5px solid var(--ink);aspect-ratio:4/3;position:relative;background:var(--n100);
+    background-image:radial-gradient(circle, var(--n400) 1px, transparent 1.5px);background-size:6px 6px;
+    display:flex;flex-direction:column;justify-content:flex-end;padding:var(--s2);overflow:hidden}
+  .panel::before{content:attr(data-no);position:absolute;top:0;left:0;background:var(--ink);color:var(--paper);
+    font-size:11px;letter-spacing:.1em;padding:2px 7px;font-family:var(--font-mono)}
+  .panel b{font-family:var(--font-head);font-size:19px;display:block;line-height:1.1}
+  .panel small{font-size:12px;color:var(--n700);display:block}
+  .panel .bub{background:var(--paper);border:1.5px solid var(--ink);border-radius:14px;
+    font-family:var(--font-letter);font-size:12.5px;line-height:1.25;padding:5px 9px;margin-bottom:var(--s2);
+    align-self:flex-start;max-width:92%}
+  .panel.k{box-shadow:inset 0 0 0 3px var(--hanko-300)}
+  .legend{display:flex;gap:var(--s4);flex-wrap:wrap;margin-top:var(--s3);font-size:13.5px}
+  .swatch{display:inline-block;width:13px;height:13px;border:1.5px solid var(--ink);vertical-align:-2px;margin-right:6px}
+
+  /* ---------- reveals ---------- */
+  details{border:1.5px solid var(--ink);margin-bottom:var(--s3);background:var(--paper)}
+  details[open]{background:var(--n100)}
+  summary{cursor:pointer;padding:var(--s3) var(--s4);font-family:var(--font-head);font-size:21px;font-weight:600;
+    display:flex;align-items:center;gap:var(--s3);list-style:none}
+  summary::-webkit-details-marker{display:none}
+  summary::after{content:"+";margin-left:auto;font-family:var(--font-mono);font-size:19px;color:var(--n600);font-weight:400}
+  details[open] summary::after{content:"\2013"}
+  summary:hover{background:var(--n200)}
+  .dbody{padding:0 var(--s4) var(--s4);border-top:1px solid var(--n300);padding-top:var(--s3)}
+  .cnt{font-family:var(--font-mono);font-size:12px;border:1px solid var(--n400);color:var(--n700);
+    padding:1px 7px;font-weight:400}
+  ul{margin:0;padding-left:var(--s4)} li{margin-bottom:var(--s2)} li:last-child{margin-bottom:0}
+  ul.reasons{list-style:none;padding-left:0}
+  ul.reasons li{border-left:3px solid var(--n300);padding-left:var(--s3)}
+  ul.reasons li b{display:block}
+
+  /* ---------- table ---------- */
+  .tablewrap{overflow-x:auto;border:1px solid var(--n300)}
+  table{border-collapse:collapse;width:100%;min-width:520px;font-size:14.5px;background:var(--paper)}
+  th,td{text-align:left;padding:var(--s3);border-bottom:1px solid var(--n300);vertical-align:top}
+  th{background:var(--surface);font-family:var(--font-body);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--n800)}
+  tr:last-child td{border-bottom:0}
+
+  /* ---------- misc blocks ---------- */
+  .warn{border:1.5px solid var(--hanko);background:var(--hanko-100);padding:var(--s4)}
+  .warn h3{color:var(--hanko-900)}
+  .note{border-left:3px solid var(--n400);padding:var(--s1) 0 var(--s1) var(--s3);color:var(--n800);font-style:italic}
+  .cols{display:grid;gap:var(--s4);grid-template-columns:repeat(auto-fit,minmax(255px,1fr))}
+  .card{border:1px solid var(--n300);background:var(--n100);padding:var(--s4)}
+  footer{margin-top:var(--s6);padding-top:var(--s4);border-top:1.5px solid var(--ink);font-size:13.5px;color:var(--n700)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="sheet">
+
+  <header class="top">
+    <div class="mark">
+      <svg viewBox="0 0 512 512" role="img" aria-label="Ink Desk logo">
+        <defs><mask id="m"><rect width="512" height="512" rx="104" fill="#fff"/>
+          <path d="M-20 216L532 180M321.2 193.7L226 560" stroke="#000" stroke-width="22"/></mask></defs>
+        <g mask="url(#m)"><rect width="512" height="512" fill="#b5382e"/>
+          <polygon points="321.2,193.7 540,179.5 540,540 231.2,540" fill="#141414"/></g>
+        <g fill="#fff"><ellipse cx="408" cy="352" rx="74" ry="52"/><path d="M352 366 L392 392 L314 424 Z"/></g>
+      </svg>
+    </div>
+    <div class="titleblock">
+      <p class="eyebrow">Devpost Learn · Build With AI: Basics · Scope</p>
+      <h1>Ink Desk</h1>
+      <p class="lede">An AI manga creator studio: you pitch a story idea, and the app turns it into a real manga page
+        with your own characters drawn consistently across every panel.</p>
+      <div class="metarow">
+        <span class="tag tag-red">Approved</span>
+        <span class="tag tag-quiet">Proof of concept</span>
+        <span class="tag tag-quiet">2–4 hours active</span>
+        <span class="tag tag-red">Canonical: scope.md</span>
+      </div>
+    </div>
+  </header>
+
+  <hr class="rule">
+
+  <!-- ===================== KERNEL ===================== -->
+  <section id="kernel">
+    <p class="eyebrow">The unique kernel</p>
+    <h2>Locked appearance, free action</h2>
+    <div class="kernel">
+      <span class="stamp">Locked</span>
+      <p class="kernel-line">The app can change what a character <em>does</em> in a panel — never what they <em>look like</em>.</p>
+      <p>Each character gets a model sheet generated once, then frozen. Locking freezes <strong>two</strong> things, and
+        both travel with <strong>every single panel request</strong>:</p>
+      <div class="io">
+        <div class="is-lock"><dt>1 · Visual reference</dt>
+          <dd>The <strong>sheet image itself</strong>, sent to the image model — “so the face, hair and outfit come from
+            a picture and not just from words.”</dd></div>
+        <div class="is-lock"><dt>2 · Visual DNA</dt>
+          <dd>Text Claude writes <strong>once</strong> at character creation — hair, eyes, face shape, outfit, colors,
+            one or two distinguishing marks. Pasted word for word into every panel prompt, <strong>never rewritten</strong>.</dd></div>
+      </div>
+      <hr class="rule-thin">
+      <p class="quiet">Why this is the kernel: most AI comic tools change the hero’s face in every panel. Delete this
+        and Ink Desk is a generic prompt-to-image toy.</p>
+    </div>
+  </section>
+
+  <!-- ===================== PROMPT ANATOMY ===================== -->
+  <section id="anatomy">
+    <p class="eyebrow">How a panel gets made</p>
+    <h2>Anatomy of one panel prompt</h2>
+    <p>Three quarters of every panel request is frozen. Claude only ever authors the variable part.</p>
+    <figure>
+      <div class="svgbox">
+        <svg viewBox="0 0 860 330" role="img"
+             aria-label="Diagram: a locked sheet image, locked visual DNA text, fixed style rules and Claude's per-panel script combine into one panel image with no text in it.">
+          <defs>
+            <pattern id="dots" width="6" height="6" patternUnits="userSpaceOnUse">
+              <circle cx="1.5" cy="1.5" r="1" fill="#bab6b6"/>
+            </pattern>
+            <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="#201f1d"/>
+            </marker>
+          </defs>
+
+          <!-- locked group -->
+          <rect x="8" y="34" width="286" height="214" fill="#fcecea" stroke="#b5382e" stroke-width="1.5"/>
+          <text x="20" y="25" font-family="Georgia,serif" font-size="12" letter-spacing="2.4" fill="#b5382e">FROZEN AT LOCK TIME</text>
+
+          <!-- sheet image -->
+          <rect x="24" y="52" width="110" height="86" fill="url(#dots)" stroke="#201f1d" stroke-width="1.5"/>
+          <rect x="34" y="60" width="38" height="68" fill="none" stroke="#9b9797"/>
+          <rect x="80" y="60" width="44" height="30" fill="none" stroke="#9b9797"/>
+          <rect x="80" y="96" width="44" height="32" fill="none" stroke="#9b9797"/>
+          <text x="24" y="152" font-family="Georgia,serif" font-size="12.5" font-weight="bold" fill="#201f1d">Sheet image</text>
+          <text x="24" y="167" font-family="Georgia,serif" font-size="11" fill="#605d5d">one frame: front,</text>
+          <text x="24" y="180" font-family="Georgia,serif" font-size="11" fill="#605d5d">¾, expressions</text>
+
+          <!-- DNA -->
+          <rect x="152" y="52" width="126" height="86" fill="#f8f4f4" stroke="#201f1d" stroke-width="1.5"/>
+          <g stroke="#bab6b6" stroke-width="2">
+            <path d="M162 68h104M162 80h104M162 92h86M162 104h104M162 116h62"/>
+          </g>
+          <text x="152" y="152" font-family="Georgia,serif" font-size="12.5" font-weight="bold" fill="#201f1d">Visual DNA text</text>
+          <text x="152" y="167" font-family="Georgia,serif" font-size="11" fill="#605d5d">verbatim, every panel</text>
+
+          <!-- lock stamp -->
+          <g transform="rotate(-7 151 212)">
+            <rect x="96" y="196" width="110" height="30" fill="none" stroke="#b5382e" stroke-width="2.5"/>
+            <text x="151" y="216" text-anchor="middle" font-family="Georgia,serif" font-size="13"
+                  font-weight="bold" letter-spacing="3.4" fill="#b5382e">LOCKED</text>
+          </g>
+
+          <!-- style rules -->
+          <rect x="310" y="52" width="150" height="58" fill="#eae9e9" stroke="#201f1d" stroke-width="1.5"/>
+          <text x="320" y="74" font-family="Georgia,serif" font-size="12.5" font-weight="bold" fill="#201f1d">Style rules</text>
+          <text x="320" y="92" font-family="Georgia,serif" font-size="11" fill="#605d5d">manga ink, halftone —</text>
+          <text x="320" y="104" font-family="Georgia,serif" font-size="11" fill="#605d5d">fixed for the whole page</text>
+
+          <!-- variable part -->
+          <rect x="310" y="130" width="150" height="118" fill="#fff" stroke="#201f1d" stroke-width="1.5" stroke-dasharray="6 4"/>
+          <text x="320" y="152" font-family="Georgia,serif" font-size="12.5" font-weight="bold" fill="#201f1d">Panel script</text>
+          <text x="320" y="167" font-family="Georgia,serif" font-size="11" fill="#b5382e">the only variable part</text>
+          <g font-family="Georgia,serif" font-size="11" fill="#444141">
+            <text x="320" y="187">· character (one)</text>
+            <text x="320" y="202">· action</text>
+            <text x="320" y="217">· camera angle</text>
+            <text x="320" y="232">· background</text>
+          </g>
+          <text x="310" y="266" font-family="Georgia,serif" font-size="11" font-style="italic" fill="#605d5d">written by Claude Sonnet</text>
+
+          <!-- arrows into image model -->
+          <path d="M466 140 L532 140" stroke="#201f1d" stroke-width="1.5" marker-end="url(#ar)"/>
+          <path d="M466 190 L532 160" stroke="#201f1d" stroke-width="1.5" marker-end="url(#ar)"/>
+          <path d="M300 95 L532 125" stroke="#201f1d" stroke-width="1.5" marker-end="url(#ar)" opacity=".55"/>
+
+          <!-- image model -->
+          <rect x="536" y="112" width="128" height="74" fill="#201f1d"/>
+          <text x="600" y="142" text-anchor="middle" font-family="Georgia,serif" font-size="14" fill="#f3f2f2">GPT Image</text>
+          <text x="600" y="162" text-anchor="middle" font-family="Georgia,serif" font-size="11" fill="#bab6b6">server side</text>
+
+          <path d="M668 149 L716 149" stroke="#201f1d" stroke-width="1.5" marker-end="url(#ar)"/>
+
+          <!-- output panel -->
+          <rect x="720" y="92" width="126" height="106" fill="url(#dots)" stroke="#201f1d" stroke-width="1.5"/>
+          <text x="783" y="150" text-anchor="middle" font-family="Georgia,serif" font-size="13" fill="#201f1d">panel art</text>
+          <text x="783" y="168" text-anchor="middle" font-family="Georgia,serif" font-size="10.5" fill="#605d5d">no text in image</text>
+          <text x="720" y="218" font-family="Georgia,serif" font-size="11.5" fill="#201f1d">Bubbles overlaid by the app</text>
+          <text x="720" y="233" font-family="Georgia,serif" font-size="11.5" fill="#605d5d">in Comic Neue, after</text>
+
+          <!-- redraw loop -->
+          <path d="M783 198 C 783 290, 390 300, 386 252" stroke="#b5382e" stroke-width="1.5"
+                fill="none" stroke-dasharray="5 4" marker-end="url(#ar)"/>
+          <text x="560" y="296" text-anchor="middle" font-family="Georgia,serif" font-size="11.5" fill="#b5382e">
+            Redraw panel — same references, keeps previous version, touches nothing else</text>
+        </svg>
+      </div>
+      <figcaption>Everything inside the red box is immutable once a sheet is locked. The dashed box is the only thing
+        that changes per panel — which is precisely why the face holds.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ===================== STEPPER ===================== -->
+  <section id="loop">
+    <p class="eyebrow">The core loop</p>
+    <h2>Five stations, start to page</h2>
+    <p>Click through to see what each station asks of the user, what each model produces, and where the lock lands.</p>
+
+    <div class="stepnav" role="tablist" aria-label="Stations">
+      <button role="tab" id="t0" aria-controls="p0" aria-selected="true">Story<span>pitch desk</span></button>
+      <button role="tab" id="t1" aria-controls="p1" aria-selected="false">Cast<span>model sheets</span></button>
+      <button role="tab" id="t2" aria-controls="p2" aria-selected="false">Page script<span>breakdown</span></button>
+      <button role="tab" id="t3" aria-controls="p3" aria-selected="false">Storyboard<span>main studio</span></button>
+      <button role="tab" id="t4" aria-controls="p4" aria-selected="false">Ink &amp; Publish<span>the reader</span></button>
+    </div>
+
+    <div class="steppanel" role="tabpanel" id="p0" aria-labelledby="t0">
+      <h3>Station 1 · Story — the pitch desk</h3>
+      <p>One prompt box, plus genre and tone selection. Claude returns a synopsis you accept or rewrite — <em>“editable,
+        never final.”</em></p>
+      <div class="io">
+        <div><dt>You do</dt><dd>Type a story pitch. Pick a genre and a tone.</dd></div>
+        <div><dt>Claude Sonnet writes</dt><dd>An editable synopsis.</dd></div>
+        <div><dt>Nothing locks yet</dt><dd>No images generated at this station.</dd></div>
+      </div>
+    </div>
+
+    <div class="steppanel" role="tabpanel" id="p1" aria-labelledby="t1" hidden>
+      <h3>Station 2 · Cast — model sheets</h3>
+      <p><strong>This is where the kernel is built.</strong> Two characters. Each gets DNA text from Claude and
+        <strong>one single image laid out as a real model sheet</strong> — front, three-quarter and a few expressions
+        in one frame. That one image is the canonical reference. No cropping it into separate frames.</p>
+      <div class="io">
+        <div><dt>You do</dt><dd>Describe each character in a line. Then hit lock.</dd></div>
+        <div><dt>Claude Sonnet writes</dt><dd>The visual DNA text.</dd></div>
+        <div><dt>GPT Image draws</dt><dd>One sheet image per character — 2 generations.</dd></div>
+        <div class="is-lock"><dt>Locks</dt><dd><strong>Sheet image + DNA text.</strong> Unlocking and editing a sheet
+          is out of scope.</dd></div>
+      </div>
+    </div>
+
+    <div class="steppanel" role="tabpanel" id="p2" aria-labelledby="t2" hidden>
+      <h3>Station 3 · Page script — the breakdown</h3>
+      <p>Once the synopsis is accepted, Claude writes the script for all four panels. This step is load-bearing: the
+        script <em>is</em> the variable half of every panel prompt.</p>
+      <div class="io">
+        <div><dt>Claude Sonnet writes</dt><dd>Per panel: which character, the action, the camera angle, the background,
+          and the dialogue.</dd></div>
+        <div class="is-lock"><dt>Hard constraint</dt><dd>Exactly <strong>one locked character per panel</strong>, so
+          each request carries a single reference.</dd></div>
+        <div><dt>Feeds</dt><dd>The dashed box in the diagram above.</dd></div>
+      </div>
+    </div>
+
+    <div class="steppanel" role="tabpanel" id="p3" aria-labelledby="t3" hidden>
+      <h3>Station 4 · Storyboard — the main studio</h3>
+      <p>Four panels generated against the locks, each prompt carrying only that panel’s character sheet and DNA.
+        Panels generate <strong>in the background with visible per-panel progress</strong>.</p>
+      <div class="io">
+        <div><dt>GPT Image draws</dt><dd>4 panels — one generation each, never two.</dd></div>
+        <div><dt>You do</dt><dd>Check each face against the sheet. <strong>Redraw panel</strong> if it misses.</dd></div>
+        <div><dt>Redraw means</dt><dd>Same request, same references. Keeps the previous version so you can switch back.
+          Never touches other panels.</dd></div>
+        <div><dt>No manual painting</dt><dd>If a redraw is still off, you accept the best one.</dd></div>
+      </div>
+    </div>
+
+    <div class="steppanel" role="tabpanel" id="p4" aria-labelledby="t4" hidden>
+      <h3>Station 5 · Ink &amp; Publish — the reader</h3>
+      <p>Full-page reading. The pencil-to-ink reveal plays once the page is ready.</p>
+      <div class="io">
+        <div><dt>The ink-in effect</dt><dd><strong>Theatrical, not real.</strong> A reveal animation over the finished
+          image — same look on camera, half the generations.</dd></div>
+        <div><dt>Lettering</dt><dd>Bubbles overlaid in Comic Neue, never drawn by the image model.</dd></div>
+        <div><dt>Controls</dt><dd>Right-to-left toggle (kept — it’s a CSS flip and very manga for the cost).</dd></div>
+        <div><dt>Export</dt><dd>PNG, compositing image and bubbles together.</dd></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== PROOF ===================== -->
+  <section id="proof">
+    <p class="eyebrow">What “working” looks like</p>
+    <h2>The money shot</h2>
+    <div class="warn">
+      <h3>Success criterion</h3>
+      <p style="font-size:19px;line-height:1.45;margin-bottom:var(--s3)"><strong>Each character is recognizably
+        themselves in every panel they appear in.</strong></p>
+      <p class="quiet" style="color:var(--hanko-900)">Stated per-character on purpose: shot/reverse-shot means no one
+        appears in all four panels. Kaito is in 1 and 3, Mio in 2 and 4. The claim is continuity across
+        <em>their</em> panels — not one face across the whole page.</p>
+    </div>
+
+    <hr class="rule-thin">
+
+    <p>The demo video, in the learner’s words:</p>
+    <p class="note">Split screen. On the left, Kaito’s model sheet with the red “Locked” stamp landing on it. On the
+      right, a 4-panel page inking in one panel at a time, from pencil sketch to final art. Kaito is recognizably the
+      same person in every panel: same face, same scarf, from a close-up and from a wide shot. Then the speech bubbles
+      pop in, in Comic Neue, with the actual dialogue Claude wrote.</p>
+    <p>The “oh, that’s cool” beat is <strong>the sheet and the page side by side, showing the same face.</strong>
+      Everything in scope serves that shot.</p>
+
+    <hr class="rule-thin">
+
+    <h3>Page structure — shot / reverse-shot</h3>
+    <div class="pagegrid" aria-label="Four panel page layout">
+      <div class="panel k" data-no="1"><span class="bub">Last delivery before sunrise.</span>
+        <b>Kaito</b><small>wide · rooftops, dawn</small></div>
+      <div class="panel" data-no="2"><span class="bub">That letter isn’t yours to carry.</span>
+        <b>Mio</b><small>close-up · back alley</small></div>
+      <div class="panel k" data-no="3"><span class="bub">Wait. This is my handwriting.</span>
+        <b>Kaito</b><small>close-up · the consistency proof</small></div>
+      <div class="panel" data-no="4"><span class="bub">Then you already know how it ends.</span>
+        <b>Mio</b><small>reacting</small></div>
+    </div>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--hanko-300)"></span>Kaito — compare panels 1 and 3</span>
+      <span><span class="swatch" style="background:var(--n100)"></span>Mio — compare panels 2 and 4</span>
+    </div>
+    <p class="quiet" style="margin-top:var(--s3)">Sample story and cast come from the existing mockup: “The Unwritten
+      Letter,” neo-Osaka rooftops.</p>
+  </section>
+
+  <!-- ===================== NOW / LATER / CUT ===================== -->
+  <section id="boundary">
+    <p class="eyebrow">The boundary</p>
+    <h2>Now, later, cut</h2>
+    <p>Nothing disappears silently. Open each to see what’s inside and why.</p>
+
+    <details open>
+      <summary><span class="tag tag-red">Now</span> In the proof of concept <span class="cnt">5 stations</span></summary>
+      <div class="dbody">
+        <ul>
+          <li><strong>Story</strong> — pitch box, genre and tone, editable Claude synopsis.</li>
+          <li><strong>Cast</strong> — two characters, each with DNA text and one single sheet image, locked.</li>
+          <li><strong>Page script</strong> — Claude’s 4-panel breakdown, one locked character per panel.</li>
+          <li><strong>Storyboard</strong> — 4 panels generated against the locks, per-panel Redraw with version switching,
+            dialogue overlaid as bubbles in Comic Neue.</li>
+          <li><strong>Ink &amp; Publish</strong> — full-page read, pencil-to-ink reveal, right-to-left toggle, PNG export
+            compositing image and bubbles.</li>
+        </ul>
+        <hr class="rule-thin">
+        <p class="eyebrow" style="margin-bottom:var(--s2)">Three deliberate risk cuts</p>
+        <ul class="reasons">
+          <li><b>The ink-in effect is theatrical.</b> One generation per panel; the transition is a reveal animation.
+            Same look on camera, no second consistency risk.</li>
+          <li><b>One reference image per request.</b> Single-character panels mean the app never sends two sheets at once.</li>
+          <li><b>No text in generated images.</b> Lettering is app-side overlay, so the image model is never asked to
+            render type.</li>
+        </ul>
+        <hr class="rule-thin">
+        <p><strong>Budget:</strong> roughly <strong>2 sheets + 4 panels = 6 images</strong> per full run, plus redraws.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary><span class="tag tag-quiet">Later</span> Worth doing, just not now <span class="cnt">9 items</span></summary>
+      <div class="dbody">
+        <ul>
+          <li><strong>A panel with both characters together</strong> — needs multi-reference generation. The main reason
+            it’s deferred.</li>
+          <li><strong>Director’s Chair</strong> chat for directing Claude on a selected panel.</li>
+          <li><strong>Script Strip</strong> for editing dialogue line by line.</li>
+          <li><strong>Backgrounds and scenes shelf</strong> as separately generated, reusable assets. For now, background
+            folds into the panel prompt.</li>
+          <li>Multiple page layouts — the mockup has three (5-panel, 3-panel splash, 4-panel with an SFX insert).</li>
+          <li>PDF export; share link.</li>
+          <li>Unlocking and editing a sheet after it’s locked.</li>
+          <li>External comic APIs such as <strong>LlamaGen</strong>.</li>
+          <li>Deployment — optional for this hackathon.</li>
+        </ul>
+      </div>
+    </details>
+
+    <details>
+      <summary><span class="tag">Cut</span> Named, with reasons <span class="cnt">5 items</span></summary>
+      <div class="dbody">
+        <ul class="reasons">
+          <li><b>Real two-pass pencil→ink generation</b> Doubles image cost and adds a second chance for the face to
+            drift, for an effect on screen for ~1.4 seconds. A CSS reveal is indistinguishable on camera.</li>
+          <li><b>Five-frame model sheets</b> Separate front / three-quarter / expression images cost five times as much,
+            drift five ways, and leave no single canonical reference to send. One sheet image solves all three.</li>
+          <li><b>Manual panel touch-up or painting</b> The only repair is Redraw. Keeps the loop honest and the build small.</li>
+          <li><b>A third character</b> The mockup’s Old Tetsu. Two characters prove the lock isn’t a fluke; a third adds
+            cost without adding proof.</li>
+          <li><b>Reusing the mockup’s code</b> It’s a design reference, and it fakes all art with CSS. The styling
+            language carries over; the implementation does not.</li>
+        </ul>
+      </div>
+    </details>
+  </section>
+
+  <!-- ===================== IDENTITY ===================== -->
+  <section id="identity">
+    <p class="eyebrow">Inspiration &amp; identity</p>
+    <h2>A manga studio that stays beginner friendly</h2>
+    <p>Paper background, ink-black lines, halftone textures, one red stamp accent like a hanko seal for primary actions.
+      Panels “ink in” from pencil sketch to final art.</p>
+    <div class="cols" style="margin-top:var(--s4)">
+      <div class="card">
+        <p class="eyebrow">Palette — from the mockup</p>
+        <p style="margin-top:var(--s2)">
+          <span class="tag" style="background:#f3f2f2">paper #f3f2f2</span>
+          <span class="tag" style="background:#eae9e9">surface #eae9e9</span><br>
+          <span class="tag tag-solid">ink #201f1d</span>
+          <span class="tag tag-red">hanko #b5382e</span>
+        </p>
+        <p class="quiet" style="margin-top:var(--s3)"><strong>#b5382e is the single brand red</strong> — the logo files
+          are being regenerated in it, so brand and UI share one accent. Plus a full 9-step ramp.</p>
+      </div>
+      <div class="card">
+        <p class="eyebrow">Type</p>
+        <p style="font-family:var(--font-head);font-size:25px;margin-top:var(--s2)">Cormorant Garamond</p>
+        <p class="quiet">headings</p>
+        <p style="font-family:var(--font-body);margin-top:var(--s2)">Lora</p>
+        <p class="quiet">body</p>
+        <p style="font-family:var(--font-letter);font-size:19px;margin-top:var(--s2)">Comic Neue</p>
+        <p class="quiet">dialogue lettering</p>
+      </div>
+      <div class="card">
+        <p class="eyebrow">Texture</p>
+        <div style="height:62px;margin-top:var(--s2);border:1px solid var(--ink);
+          background-image:radial-gradient(circle, var(--n700) 1.1px, transparent 1.6px);background-size:6px 6px"></div>
+        <p class="quiet" style="margin-top:var(--s2)">Halftone built in pure CSS — <code>radial-gradient</code> dot
+          screens and <code>repeating-linear-gradient</code> tone bands.</p>
+      </div>
+    </div>
+    <p class="note" style="margin-top:var(--s4)">The mockup fakes all art with CSS. The look is already solved — the
+      build’s real work is replacing dot-screen placeholders with generated images that hold a face steady.</p>
+  </section>
+
+  <!-- ===================== PROVIDERS ===================== -->
+  <section id="providers">
+    <p class="eyebrow">Model providers</p>
+    <h2>Explicit, so the build never guesses</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Concern</th><th>Provider</th><th>Key</th></tr></thead>
+        <tbody>
+          <tr><td>Synopsis, visual DNA, page script, dialogue</td>
+              <td><strong>Anthropic API</strong><br><span class="quiet">Claude Sonnet</span></td>
+              <td><code>ANTHROPIC_API_KEY</code></td></tr>
+          <tr><td>Model sheet images, panel images</td>
+              <td><strong>OpenAI API</strong><br><span class="quiet">GPT Image model family — the same image generation
+                as ChatGPT</span></td>
+              <td><code>OPENAI_API_KEY</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="margin-top:var(--s3)">Both called <strong>server side</strong>. Both keys live in <code>.env</code> only —
+      never in chat, never committed, never shipped to the browser.</p>
+  </section>
+
+  <!-- ===================== OPEN ===================== -->
+  <section id="open">
+    <p class="eyebrow">Carried forward</p>
+    <h2>Open questions, by owner</h2>
+    <div class="cols">
+      <div class="card" style="border-color:var(--hanko);background:var(--hanko-100)">
+        <p class="eyebrow" style="color:var(--hanko-900)">Verify in 4-spec</p>
+        <ul style="margin-top:var(--s2)">
+          <li><strong>Which GPT Image model and endpoint accept reference images, and how many per request.</strong>
+            The whole kernel rests on this. Verify <em>before</em> building Cast — it’s the one assumption that could
+            force a redesign.</li>
+          <li>Image cost and rate limits at ~6 images per run plus redraws.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <p class="eyebrow">Resolve in 3-prd</p>
+        <ul style="margin-top:var(--s2)">
+          <li>What the user sees while panels generate — per-panel progress, partial page reveal.</li>
+          <li><strong>Hard failure handling</strong> — not “the face is wrong,” but 429s, timeouts, refusals, malformed
+            responses.</li>
+        </ul>
+        <hr class="rule-thin">
+        <p class="quiet"><strong>Latency direction already set:</strong> panels generate in the background with visible
+          per-panel progress; the reveal plays once the page is ready. The demo video may trim the waiting, but the
+          generation itself has to be real — no pre-baked images.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== DISCLOSURE ===================== -->
+  <section id="disclosure">
+    <p class="eyebrow">Attribution</p>
+    <h2>Pre-existing work to disclose in the README</h2>
+    <p>Both made by the learner <strong>before</strong> this project. Neither is code to reuse; both are references.</p>
+    <ul>
+      <li><code>reference/Ink&nbsp;Desk.html</code> — the standalone UI mockup (visual and layout reference).</li>
+      <li><strong>The Ink Desk logo</strong> — SVG mark and wordmark in <code>assets/svg/</code>, with PNG and WebP variants.</li>
+    </ul>
+  </section>
+
+  <footer>
+    <p><strong>devpost/scope.md</strong> is canonical — this page is a companion view and gets regenerated after
+      revisions. Next: <strong>3-prd</strong>, where every screen, behavior, state and edge case gets pinned down.</p>
+  </footer>
+
+</div>
+</div>
+
+<script>
+  (function () {
+    var tabs = Array.prototype.slice.call(document.querySelectorAll('.stepnav [role="tab"]'));
+    function show(i) {
+      tabs.forEach(function (t, j) {
+        t.setAttribute('aria-selected', String(j === i));
+        document.getElementById(t.getAttribute('aria-controls')).hidden = (j !== i);
+      });
+    }
+    tabs.forEach(function (t, i) {
+      t.addEventListener('click', function () { show(i); });
+      t.addEventListener('keydown', function (e) {
+        var d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+        if (!d) return;
+        e.preventDefault();
+        var n = (i + d + tabs.length) % tabs.length;
+        show(n); tabs[n].focus();
+      });
+    });
+  })();
+</script>
+</body>
+</html>
