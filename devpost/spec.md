@@ -125,7 +125,7 @@ The browser never holds image bytes. Every `<img>` points at
 |---|---|---|
 | Framework | **Next.js, App Router** | https://nextjs.org/docs/app |
 | Language | TypeScript | https://www.typescriptlang.org/docs/ |
-| Text generation | **Anthropic — `claude-sonnet-5`** | https://docs.claude.com/en/api/messages |
+| Text generation | **Anthropic — `claude-sonnet-5-5`** | https://docs.claude.com/en/api/messages |
 | Image generation | **OpenAI — `gpt-image-2.5-sunburst-2026-09-08`** | https://developers.openai.com/api/docs/guides/image-generation |
 | Structured JSON from Claude | `zod` + the SDK's `zodOutputFormat` helper | https://docs.claude.com/en/docs/build-with-claude/structured-outputs |
 | Fonts | `next/font/google` — Cormorant Garamond, Lora, Comic Neue | https://nextjs.org/docs/app/api-reference/components/font |
@@ -168,13 +168,20 @@ npm install
 cp .env.example .env     # then paste both API keys into .env
 ```
 
-**Prove the model ID and the kernel before any UI exists:**
+**Prove both models and the kernel before any UI exists:**
 
 ```bash
-node scripts/kernel-test.mjs --probe-only   # ~$0.006, proves the pinned model resolves
-node scripts/kernel-test.mjs                # ~$0.05, proves the face holds
+node scripts/kernel-test.mjs --probe-only   # ~$0.006 — both model IDs + structured output
+node scripts/kernel-test.mjs                # ~$0.06 — proves the face holds
 open data/kernel-test/index.html            # sheet, close-up and wide, side by side
 ```
+
+`--probe-only` runs two probes. The **text probe** is one tiny
+structured-output call that proves `ANTHROPIC_MODEL` resolves *and* that
+`output_config.format` works on it — and, because it deliberately sends no
+sampling parameters, it would also catch that mistake. The **image probe** is
+one `low` generation proving `OPENAI_IMAGE_MODEL` resolves. Between them, every
+provider assumption in this spec is checked for well under a cent.
 
 **Run the app:**
 
@@ -226,6 +233,64 @@ CSS custom properties in `app/globals.css`, ported from the mockup:
 
 The stack honors all of this: it's hand-written CSS in a React app, with no
 component library imposing its own look.
+
+---
+
+## The Page Layout
+
+`prd.md > Deferred From the POC` builds **one** 4-panel layout, so it can be
+fixed here rather than discovered during the build. The shot order comes from
+`scope.md > What "Working" Looks Like`: **Kaito → Mio → Kaito close-up → Mio
+reacting.**
+
+```
+┌─────────────────────────────────────────┐
+│  1   KAITO · wide establishing          │   1536×1024   landscape
+│                                         │
+├──────────────────────┬──────────────────┤
+│  2   MIO             │  3   KAITO       │   1024×1024   square
+│      medium          │      close-up    │   1024×1024   square
+├──────────────────────┴──────────────────┤
+│  4   MIO · reaction, wide               │   1536×1024   landscape
+│                                         │
+└─────────────────────────────────────────┘
+```
+
+| Panel | Character | Shot | Generated size | Page slot |
+|---|---|---|---|---|
+| 1 | Kaito | wide establishing | `1536×1024` | full width, top |
+| 2 | Mio | medium | `1024×1024` | middle left |
+| 3 | Kaito | **close-up** | `1024×1024` | middle right |
+| 4 | Mio | reaction, wide | `1536×1024` | full width, bottom |
+
+**Each panel's size is fixed, and passed in its own request.** The three sizes
+the model offers are `1024×1024`, `1536×1024` and `1024×1536`; the two in use
+here are chosen so the generated aspect ratio already matches the slot it will
+sit in. Nothing is scaled to fit, which means **nothing is ever cropped through
+a face** — the one failure that would undo the kernel after the model got it
+right.
+
+**The framing also goes in the prompt**, not just the request, so the model
+composes for the shape it's drawing:
+
+- Square close-up — *"Centre his face in frame with headroom above and below;
+  keep his eyes on the upper third line and nothing important near the edges."*
+- Wide landscape — *"Place him off-centre in the left third, full body inside
+  the frame with clear margin on every side."*
+
+**The model sheet is landscape, `1536×1024`** — it's a row of poses (front,
+three-quarter, a few expressions in one frame, per
+`scope.md > The POC Boundary`), so a square would either crowd them or waste
+half the image.
+
+The two landscape panels bookending two squares is also just good manga page
+design: a wide establishing shot to open, the tight shot/reverse-shot pair in
+the middle, and a wide reaction to close.
+
+> **Sizes live in `.env`** as `OPENAI_SHEET_SIZE`, `OPENAI_PANEL_SIZE_WIDE` and
+> `OPENAI_PANEL_SIZE_SQUARE`, with the per-panel assignment in
+> `lib/prompts.ts` beside the framing lines — so layout and framing stay
+> together rather than drifting apart.
 
 ---
 
@@ -290,6 +355,10 @@ Implements `prd.md > Storyboard — The Main Studio`. **Per-panel independence i
 the governing rule** — one panel's failure never touches another, and panels
 fill in whatever order they finish.
 
+Each panel renders at its own aspect ratio from **The Page Layout** — two
+landscape, two square — and the image it holds was generated at that ratio, so
+the art is displayed at its native shape and never scaled into a crop.
+
 ### Speech Bubble
 
 Positioned over the panel art as app UI in Comic Neue, never drawn by the image
@@ -316,13 +385,131 @@ call in `prd.md > Open Questions`. Each finished panel writes to
 `chapter.json` immediately, so the browser's poll sees panels appear
 independently and out of order.
 
+### Singletons and the Dev Server
+
+Three pieces of process-level state — the panel queue, the `update()` lock, and
+`serverRunId` — have to be **genuinely single** for any of the guarantees above
+to hold. Next.js hot-reloads modules on every code change, which re-evaluates
+module scope and would quietly give you a *second* queue running alongside the
+first (so 4 concurrent generations instead of 2) and a *second* lock (so the
+lost-update bug comes back).
+
+Pin them to `globalThis`, which survives module re-evaluation:
+
+```ts
+// lib/singleton.ts
+const g = globalThis as typeof globalThis & { __inkdesk?: InkDeskGlobals }
+
+export const singletons = (g.__inkdesk ??= {
+  serverRunId: crypto.randomUUID(),   // stamped once per real process
+  queue: createQueue(Number(process.env.PANEL_CONCURRENCY ?? 2)),
+  chapterLock: Promise.resolve(),
+})
+```
+
+`serverRunId` on `globalThis` also keeps the restart fallback honest: it must
+change when the **process** restarts and *not* when a module reloads, which is
+exactly what this gives.
+
+**Every route handler declares the Node runtime:**
+
+```ts
+export const runtime = 'nodejs'
+```
+
+Without it a handler could be evaluated on the Edge runtime, where there is no
+`fs` and no long-lived process — so disk writes and the in-memory queue both
+fail. Making it explicit in all nine handlers is cheaper than debugging it once.
+
+**Background work continues after the response returns.** `POST
+/api/panels/start` queues four jobs and responds immediately; the generations
+finish afterwards and write to `chapter.json` on their own. That is fine in a
+local long-lived `next dev` process and is what makes "generation survives a
+reload" work at all. It is **not** fine on a serverless host, where the
+function may be frozen or killed the moment the response is sent — so this is
+the third independent reason deployment is real work rather than a flag,
+alongside the ephemeral filesystem and the missing image cap.
+
+### Prompts and Schemas (`lib/prompts.ts`, `lib/schemas.ts`)
+
+Every prompt in one file, including the **frozen style rules** pasted into each
+panel request verbatim. Keeping them in one place is what makes "the frozen half
+never changes" checkable rather than aspirational.
+
+Alongside them, the four `zod` schemas that are Claude's output contracts. See
+**External Services and Dependencies** for the call shape and the three
+constraints that are a 400 rather than a warning.
+
+Serves `scope.md > The Unique Kernel` and `scope.md > Lettering`.
+
+### Image Writer (`lib/images.ts`)
+
+Both OpenAI endpoints return **base64, never a URL**. This decodes once, writes
+`data/images/<id>.png`, and returns only the id — which is why the browser only
+ever sees `/api/image/<id>` and never carries image bytes around. Also bumps
+`imageCount` for the header counter.
+
 ### Chapter Store (`lib/chapter.ts`)
 
 The only code that reads or writes `data/chapter.json`. Every mutation goes
-through one `update()` function that reads, applies a change, and writes —
-**write to a temp file then rename**, so a crash mid-write can never leave a
-half-written chapter. Each successful write is what the *"Saved to desk"* label
-reports.
+through one `update()` function that reads, applies a change, and writes.
+
+**Two separate guarantees are needed here, and they solve different problems.**
+
+**1. No torn files — temp file then rename.** Write to `chapter.json.tmp`, then
+`rename()` it over the real file. Rename is atomic, so a crash mid-write can
+never leave a half-written chapter on disk.
+
+**2. No lost updates — one in-process lock.** This is the one that actually
+bites: with concurrency 2, two panels can finish within milliseconds of each
+other. Both `update()` calls read the same chapter, each applies *its own*
+panel, and the second write **erases the first panel's result**. The art file is
+on disk, but the chapter no longer points at it — so a finished panel silently
+reverts to a pencil placeholder. Atomic rename does not help, because both
+writes are individually well-formed; they're just based on stale reads.
+
+The fix is to serialize every `update()` through a single promise chain, so
+read-modify-write is never interleaved:
+
+```ts
+let lock: Promise<unknown> = Promise.resolve()
+
+export function update(fn: (c: Chapter) => Chapter): Promise<Chapter> {
+  // Each call chains onto the previous one, so the read inside `run`
+  // always sees the previous call's write.
+  const run = async () => {
+    const chapter = await read()          // fresh read, inside the lock
+    const next = fn(chapter)
+    await writeAtomic(next)               // tmp + rename
+    return next
+  }
+  // `.then(run, run)` so one failed update doesn't wedge the chain.
+  const result = lock.then(run, run)
+  lock = result.catch(() => {})
+  return result
+}
+```
+
+Note `fn` receives the chapter and returns the next one — callers must not close
+over a chapter they read earlier, or they reintroduce the stale read the lock
+exists to prevent.
+
+Each successful write is what the *"Saved to desk"* label reports.
+
+**Acceptance check for this component** — `5-build` should not call it done
+without it:
+
+- [ ] Two panels completing at the same moment **both** survive in
+      `chapter.json`. Drive it by starting two panel generations together and
+      asserting both have `status: 'done'` and distinct `imageId`s afterwards;
+      or directly, by firing two `update()` calls in the same tick and checking
+      both mutations are present.
+- [ ] `imageCount` after four panels is 4, not fewer. A lost update shows up
+      here too, which makes the header counter a free canary.
+
+A single-process in-memory lock is sufficient *because* this is a local
+single-process app — which is one more thing that would need rethinking before
+deployment. See **Singletons and the Dev Server**.
 
 ---
 
@@ -443,23 +630,30 @@ ink.desk/
 │   ├── prompts.ts                   # every prompt; the frozen style rules live here
 │   ├── claude.ts                    # Anthropic client + the text calls
 │   ├── openai-image.ts              # generations (sheets) + edits (panels)
-│   ├── chapter.ts                   # atomic read/write of data/chapter.json
+│   ├── chapter.ts                   # serialized, atomic read/write of chapter.json
+│   ├── singleton.ts                 # globalThis-pinned queue, lock, serverRunId
 │   ├── images.ts                    # b64 → data/images/<id>.png
 │   ├── queue.ts                     # concurrency-2 panel queue
 │   └── gates.ts                     # which stations are unlocked, derived
 ├── scripts/
-│   └── kernel-test.mjs              # build slices 1 and 2 — proves model ID, then the lock
+│   └── kernel-test.mjs              # slices 1 and 2 — probes both models, then the lock
 ├── data/                            # GITIGNORED — created at runtime
 │   ├── chapter.json
 │   ├── images/<id>.png
 │   └── kernel-test/                 # sheet + two panels + index.html to compare
 ├── devpost/                         # the planning workspace
-├── reference/Ink Desk.html          # visual reference only; disclosed in the README
-├── assets/{svg,png,webp}/           # the learner's logo, pre-existing
+├── assets/{svg,png,webp}/           # the learner's logo, pre-existing, tracked
 ├── .env.example
 ├── .env                             # GITIGNORED
 └── README.md                        # setup, run, and the pre-existing-work disclosure
 ```
+
+**Not in the repo:** `reference/Ink Desk.html`, the pre-existing UI mockup, is
+gitignored — it stays on the learner's disk as a visual reference and is
+**still disclosed in the README at ship time** as pre-existing work, per
+`scope.md > Pre-Existing Work to Disclose in the README`. Ignoring the file does
+not remove the disclosure obligation; `6-ship` still has to write it. The logo
+files under `assets/` are tracked, because the app actually loads them.
 
 ---
 
@@ -467,11 +661,15 @@ ink.desk/
 
 ### Anthropic — Claude (text)
 
-- **Model:** `claude-sonnet-5` (the learner's choice in `scope.md > Model
-  Providers`). 1M context, 128K max output. **$3 / $15 per million tokens**
-  input/output, with introductory $2 / $10 through 2026-08-31. Every text call
-  here is a few hundred tokens, so the whole text side of a run costs well
-  under a cent — the image bill is the only one worth watching.
+- **Model:** `claude-sonnet-5-5` — the current Sonnet, released 2026-09-28,
+  superseding `claude-sonnet-5`. The learner's tier choice comes from
+  `scope.md > Model Providers`; the exact ID was corrected from the official
+  models page during spec review. 1M context, 128K max output.
+  **$2 / $10 per million tokens** input/output. Every text call here is a few
+  hundred tokens, so the whole text side of a run costs well under a cent — the
+  image bill is the only one worth watching.
+- **Pinned and configurable** as `ANTHROPIC_MODEL`, the same way the image model
+  is, so a newer Sonnet is a one-line change rather than a code edit.
 - **Endpoint:** `POST /v1/messages`, via `@anthropic-ai/sdk`.
 - **Docs:** https://docs.claude.com/en/api/messages
 
@@ -484,7 +682,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod'
 
 const res = await client.messages.parse({
-  model: process.env.ANTHROPIC_MODEL,          // claude-sonnet-5
+  model: process.env.ANTHROPIC_MODEL,          // claude-sonnet-5-5
   max_tokens: 2048,
   thinking: { type: 'disabled' },              // short calls; latency is on camera
   output_config: {
@@ -495,6 +693,17 @@ const res = await client.messages.parse({
 })
 res.parsed_output   // typed, already validated
 ```
+
+**Re-verified against `claude-sonnet-5-5` specifically during spec review**, not
+carried over from the previous Sonnet:
+
+- **Structured outputs are supported** on it — `output_config.format` with
+  `type: "json_schema"`, documented as combinable with `output_config.effort`.
+  `zodOutputFormat` just produces that shape, so the helper is fine.
+- **Sampling parameters are still rejected.** A non-default `temperature`,
+  `top_p` or `top_k` returns a 400 on the 5.5 family. The rule stands.
+- **Adaptive thinking is still on by default**, so `thinking: { type:
+  'disabled' }` has to be set explicitly.
 
 Four schemas in `lib/schemas.ts`: `SynopsisSchema`, `CastSchema`, `DnaSchema`,
 `PageScriptSchema`. **The one-locked-character-per-panel rule from
@@ -509,18 +718,18 @@ Three constraints worth knowing before writing the schemas, because each is a
 - Every object needs `additionalProperties: false` — `zodOutputFormat` handles
   this. No recursive schemas; no `min`/`max` on numbers or strings.
 - **Do not send `temperature`, `top_p`, or `top_k`.** They are rejected on
-  `claude-sonnet-5`. Prompt wording is the only steering lever.
+  `claude-sonnet-5-5`. Prompt wording is the only steering lever.
 - **No assistant-message prefills.** `output_config.format` is the replacement,
   which is what we're using anyway.
 
 `thinking: { type: 'disabled' }` plus `effort: 'low'` is the starting point:
 these calls are short, structured, and their latency is visible on camera.
-Adaptive thinking is **on by default** on `claude-sonnet-5`, so this has to be
+Adaptive thinking is **on by default** on `claude-sonnet-5-5`, so this has to be
 set explicitly. If the synopsis or dialogue reads flat, dropping `thinking` from
 those two calls is a one-line change — try that before touching the prompts.
 
 Prompt caching is **not** used: the minimum cacheable prefix on
-`claude-sonnet-5` is 1024 tokens and these prompts are far shorter, so a
+`claude-sonnet-5-5` is 1024 tokens and these prompts are far shorter, so a
 `cache_control` marker would pay the write premium and never be read.
 
 ### OpenAI — GPT Image (pictures)
@@ -530,21 +739,24 @@ Prompt caching is **not** used: the minimum cacheable prefix on
 - **Docs:** https://developers.openai.com/api/docs/guides/image-generation
 - **Prompting guide:** https://developers.openai.com/api/docs/guides/image-prompting
 
-**Sheet — `POST /v1/images/generations`.** Text to image, from the DNA. JSON
-body; returns `{ data: [{ b64_json }] }`.
+**Sheet — `POST /v1/images/generations`.** Text to image, from the DNA.
+Landscape, because a model sheet is a row of poses. JSON body; returns
+`{ data: [{ b64_json }] }`.
 
 ```ts
-{ model, prompt: sheetPrompt(dna), size: '1024x1024', quality: SHEET_QUALITY, n: 1 }
+{ model, prompt: sheetPrompt(dna), size: SHEET_SIZE,   // 1536x1024
+  quality: SHEET_QUALITY, n: 1 }
 ```
 
 **Panel — `POST /v1/images/edits`.** This is the kernel. `multipart/form-data`,
-with the locked sheet attached as the reference:
+with the locked sheet attached as the reference and the panel's own size from
+**The Page Layout**:
 
 ```ts
 const form = new FormData()
 form.append('model', MODEL)
-form.append('prompt', panelPrompt(dna, panel))   // locked DNA verbatim + Claude's variable part
-form.append('size', '1024x1024')
+form.append('prompt', panelPrompt(dna, panel))   // locked DNA verbatim + framing + Claude's variable part
+form.append('size', panel.size)                  // 1536x1024 or 1024x1024
 form.append('quality', PANEL_QUALITY)
 form.append('image', new Blob([sheetPng], { type: 'image/png' }), 'sheet.png')
 ```
@@ -590,35 +802,71 @@ are judged against. A sheet drawn by one model and panels by another would
 differ in line weight and rendering style even with the face held steady —
 exactly the mismatch `scope.md > What "Working" Looks Like` is testing for.
 
-> **Unverified string, proven in build slice 1.** The snapshot ID
-> `gpt-image-2.5-sunburst-2026-09-08` comes from the learner reading the official
-> model page; it did not appear in the documentation fetched during verification.
-> `node scripts/kernel-test.mjs --probe-only` makes one `low`-quality call to
-> prove the pinned ID resolves, for about $0.006, before any UI depends on it.
-> If it 404s, fall back to the floating `gpt-image-2.5-sunburst` alias and record
+> **Both pinned IDs are confirmed on the official model pages** — the image
+> snapshot `gpt-image-2.5-sunburst-2026-09-08` and the text model
+> `claude-sonnet-5-5`. Slice 1 still probes both, not because they're doubted
+> but because a wrong ID or a bad key fails identically and confusingly, and
+> `--probe-only` turns that into a two-second answer for about $0.006 instead
+> of a confusing failure three stations into the build. If the image snapshot
+> ever 404s, fall back to the floating `gpt-image-2.5-sunburst` alias and record
 > the working ID here.
 
 ### Quality, Cost, and the `.env` Switch
 
-Five paid quality levels. Output cost per image at 1024×1024:
+Five paid quality levels. Verified output cost per image at **1024×1024**:
 
-| Quality | Cost | Used for |
-|---|---|---|
-| `low` | ~$0.006 | **development builds** |
-| `medium` | ~$0.013 | **the kernel test** |
-| `high` | ~$0.053 | **panels**, filming |
-| `xhigh` | ~$0.094 | — |
-| `max` | ~$0.211 | **sheets**, filming |
+| Quality | `1024×1024` | `1536×1024` *(est.)* | Used for |
+|---|---|---|---|
+| `low` | ~$0.006 | ~$0.009 | **development builds** |
+| `medium` | ~$0.013 | ~$0.020 | **the kernel test** |
+| `high` | ~$0.053 | ~$0.080 | **panels**, filming |
+| `xhigh` | ~$0.094 | ~$0.141 | — |
+| `max` | ~$0.211 | ~$0.317 | **sheets**, filming |
+
+> **The landscape column is an estimate, stated as one.** Image output is billed
+> per output token and tokens scale with pixels, so `1536×1024` is ~1.5× the
+> `1024×1024` figure. Only the square column is from the official model page.
+> Confirm the real landscape cost from the usage dashboard after the kernel
+> test, which generates two landscape images.
 
 **Quality plan:** sheets at `max` (only two per chapter, and each is the
 canonical reference every panel is compared against — worth the spend), panels
 at `high`.
 
-A full filming run — 2 sheets at `max` + 4 panels at `high` — is about
-**$0.63**, plus ~$0.05 per panel redraw. The same run at `low` throughout is
-about **$0.04**. That ratio is what makes iterating on prompts affordable.
-`scope.md > The POC Boundary` budgeted "roughly 6 images per full run"; that
-holds.
+**A full filming run**, with the sizes from **The Page Layout**:
+
+| Images | Size | Quality | Subtotal |
+|---|---|---|---|
+| 2 sheets | `1536×1024` | `max` | ~$0.63 |
+| 2 panels (1, 4) | `1536×1024` | `high` | ~$0.16 |
+| 2 panels (2, 3) | `1024×1024` | `high` | ~$0.11 |
+| | | **total** | **~$0.90** |
+
+Plus ~$0.05–$0.08 per panel redraw, depending on which slot. The same run at
+`low` throughout is about **$0.05**. That ratio is what makes iterating on
+prompts affordable. `scope.md > The POC Boundary` budgeted "roughly 6 images per
+full run"; that holds — the sizes moved, the count didn't.
+
+The full list lives in `.env.example`; these are the ones that change behavior:
+
+```
+OPENAI_IMAGE_MODEL=gpt-image-2.5-sunburst-2026-09-08   # pinned
+ANTHROPIC_MODEL=claude-sonnet-5-5                      # pinned
+
+OPENAI_SHEET_SIZE=1536x1024         # a model sheet is a row of poses
+OPENAI_PANEL_SIZE_WIDE=1536x1024    # panels 1 and 4
+OPENAI_PANEL_SIZE_SQUARE=1024x1024  # panels 2 and 3
+
+OPENAI_SHEET_QUALITY=low      # filming: max
+OPENAI_PANEL_QUALITY=low      # filming: high
+KERNEL_TEST_QUALITY=medium    # deliberately not low — see The Useful Unknown
+
+PANEL_CONCURRENCY=2
+GENERATION_TIMEOUT_MS=180000  # placeholder; set from the kernel test
+```
+
+`.env.example` ships with the **development** values, so a fresh clone builds
+cheaply and only filming opts into the expensive ones.
 
 ### Rate Limits and Concurrency
 
@@ -713,8 +961,27 @@ specifies and which is labelled as a sample on screen.
   `/v1/images/generations`.** Derived from the verification.
 - **Sheets at `max`, panels at `high`, both `.env`-configurable.** Learner's
   choice, so development runs at `low` and only filming pays.
+- **Text model `claude-sonnet-5-5`, pinned and `.env`-configurable.** The
+  learner caught that `claude-sonnet-5` was superseded on 2026-09-28; the ID was
+  corrected from the official models page, and structured-output support plus
+  the sampling-parameter rejection were re-verified against the 5.5 family
+  rather than inherited. Slice 1 now probes the text model too.
+- **One 4-panel page layout with fixed per-panel sizes** — wide / two squares /
+  wide, passed in each request and echoed as a framing line in each prompt.
+  Learner's call. Chosen so a generated panel never has to be scaled into its
+  slot, which is the one way to lose a face *after* the model got it right.
+- **The model sheet is landscape `1536×1024`.** Learner's call: a sheet is a row
+  of poses, so a square would crowd them or waste half the image.
 - **Next.js App Router, TypeScript, both keys in server route handlers.**
   Learner's choice.
+- **`update()` is serialized through one in-process lock, and the queue, lock
+  and `serverRunId` live on `globalThis`.** The learner identified the
+  lost-update race: with concurrency 2, two panels finishing together would both
+  read-modify-write and the second write would erase the first, silently
+  reverting a finished panel to a placeholder. Atomic rename does not prevent
+  it. `globalThis` keeps hot reload from creating a second queue or a second
+  lock. Route handlers declare `runtime = 'nodejs'`. This design is
+  single-process by assumption — a fourth reason deployment is real work.
 - **Server-side disk storage: `data/images/<id>.png` plus one
   `data/chapter.json`; the browser only ever sees `/api/image/<id>`.** Learner's
   choice. They confirmed *"same browser"* in the PRD meant no accounts and one
@@ -751,7 +1018,8 @@ same scar, same scarf, from both distances?*
 
 Run at **`medium`**, at the learner's insistence and for a good reason: at
 `low`, a drifted face could be the quality rather than the method, so the test
-would prove nothing. About **$0.05** for all four images.
+would prove nothing. About **$0.06** for all four images, at the same sizes the
+real page uses.
 
 **This runs before any UI exists.** If the kernel doesn't hold, that is worth
 knowing on day one rather than after five stations are built on top of it. It

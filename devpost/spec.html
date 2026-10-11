@@ -1,0 +1,1088 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ink Desk — Technical Spec</title>
+<style>
+  :root{
+    --paper:#f3f2f2; --surface:#eae9e9; --ink:#201f1d;
+    --hanko:#b5382e; --hanko-900:#3e140f; --hanko-100:#fcecea; --hanko-300:#eba49d;
+    --gold:#b68235;
+    --n100:#f8f4f4; --n200:#eae7e7; --n300:#d7d3d3; --n400:#bab6b6;
+    --n500:#9b9797; --n600:#7d7979; --n700:#605d5d; --n800:#444141; --n900:#2d2b2b;
+    --font-head:"Cormorant Garamond", Garamond, Georgia, serif;
+    --font-body:"Lora", Georgia, "Times New Roman", serif;
+    --font-letter:"Comic Neue", "Comic Sans MS", cursive;
+    --font-mono:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --s1:4px; --s2:8px; --s3:12px; --s4:20px; --s5:32px; --s6:52px;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    background:var(--paper); color:var(--ink);
+    font-family:var(--font-body); font-size:16px; line-height:1.65;
+    background-image:radial-gradient(circle, rgba(32,31,29,.13) 1px, transparent 1.5px);
+    background-size:7px 7px; padding:var(--s5) var(--s4) var(--s6);
+  }
+  .wrap{max-width:900px;margin:0 auto}
+  .sheet{background:var(--paper);border:1.5px solid var(--ink);
+    box-shadow:5px 5px 0 rgba(32,31,29,.15);padding:var(--s5) var(--s5) var(--s6)}
+  @media (max-width:640px){ .sheet{padding:var(--s4) var(--s4) var(--s5)} body{padding:var(--s3)} }
+
+  h1{font-family:var(--font-head);font-size:clamp(34px,6.4vw,56px);line-height:1;font-weight:600;letter-spacing:-.01em}
+  h2{font-family:var(--font-head);font-size:clamp(25px,4vw,34px);font-weight:600;line-height:1.15;margin:0 0 var(--s3)}
+  h3{font-family:var(--font-head);font-size:21px;font-weight:600;margin:0 0 var(--s2)}
+  h4{font-family:var(--font-body);font-size:12px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--n700);margin:var(--s4) 0 var(--s2);font-weight:400}
+  p{margin:0 0 var(--s3)} p:last-child{margin-bottom:0}
+  strong{font-weight:700} em{font-style:italic}
+  code{font-family:var(--font-mono);font-size:.87em;background:var(--n200);padding:1px 5px;border-radius:2px}
+  .eyebrow{font-size:11.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--n700)}
+  .lede{font-size:18.5px;line-height:1.55;color:var(--n800)}
+  .quiet{color:var(--n700);font-size:14.5px}
+  section{margin-top:var(--s6)}
+  .rule{border:0;border-top:1.5px solid var(--ink);margin:var(--s5) 0 0}
+  .rule-thin{border:0;border-top:1px solid var(--n300);margin:var(--s4) 0}
+
+  header.top{display:flex;gap:var(--s4);align-items:flex-start;flex-wrap:wrap}
+  .mark{width:54px;height:54px;flex:none}
+  .mark svg{display:block;width:100%;height:100%;border-radius:11px}
+  .titleblock{flex:1 1 240px;min-width:0}
+  .metarow{display:flex;gap:var(--s2);flex-wrap:wrap;margin-top:var(--s3);align-items:center}
+
+  .tag{display:inline-flex;align-items:center;gap:5px;font-size:12px;letter-spacing:.09em;
+    text-transform:uppercase;border:1px solid var(--ink);padding:3px 9px;background:var(--paper);white-space:nowrap}
+  .tag-red{color:var(--hanko);border-color:var(--hanko);background:var(--hanko-100)}
+  .tag-solid{background:var(--ink);color:var(--paper)}
+  .tag-quiet{border-color:var(--n400);color:var(--n700)}
+  .stamp{display:inline-block;font-size:12.5px;font-weight:700;letter-spacing:.22em;text-transform:uppercase;
+    color:var(--hanko);border:2.5px solid var(--hanko);padding:5px 11px;transform:rotate(-7deg);
+    background:rgba(252,236,234,.75)}
+
+  figure{margin:0}
+  figcaption{margin-top:var(--s2);font-size:13.5px;color:var(--n700);font-style:italic}
+  .svgbox{border:1px solid var(--n300);background:var(--n100);padding:var(--s3);overflow-x:auto}
+  .svgbox svg{display:block;min-width:660px;width:100%;height:auto}
+  .svgbox text{font-family:var(--font-body)}
+  .svgbox .mono{font-family:var(--font-mono)}
+  .svgbox .lbl{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;fill:var(--n600)}
+
+  .stepnav{display:flex;flex-wrap:wrap;border:1.5px solid var(--ink);margin-bottom:-1.5px}
+  .stepnav button{flex:1 1 auto;appearance:none;border:0;border-right:1px solid var(--n300);
+    background:var(--surface);color:var(--n700);font-family:var(--font-body);font-size:12.5px;
+    letter-spacing:.08em;text-transform:uppercase;padding:10px 8px;cursor:pointer;line-height:1.3}
+  .stepnav button:last-child{border-right:0}
+  .stepnav button:hover{background:var(--n200);color:var(--ink)}
+  .stepnav button[aria-selected="true"]{background:var(--ink);color:var(--paper)}
+  .stepnav button span{display:block;font-size:10px;letter-spacing:.14em;opacity:.7;margin-top:2px}
+  .steppanel{border:1.5px solid var(--ink);padding:var(--s4);background:var(--paper)}
+  .steppanel[hidden]{display:none}
+  .gatebar{font-size:12.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--hanko);
+    border:1px dashed var(--hanko);padding:5px 10px;display:inline-block;margin-bottom:var(--s3)}
+  .wire{font-family:var(--font-mono);font-size:13px;background:var(--n100);border:1px solid var(--n300);
+    padding:var(--s3);margin-top:var(--s3);overflow-x:auto;white-space:pre;line-height:1.7}
+  .wire b{color:var(--hanko)}
+
+  details{border:1.5px solid var(--ink);margin-bottom:var(--s3);background:var(--paper)}
+  details[open]{background:var(--n100)}
+  summary{cursor:pointer;padding:var(--s3) var(--s4);font-family:var(--font-head);font-size:21px;font-weight:600;
+    display:flex;align-items:center;gap:var(--s3);list-style:none;flex-wrap:wrap}
+  summary::-webkit-details-marker{display:none}
+  summary::after{content:"+";margin-left:auto;font-family:var(--font-mono);font-size:19px;color:var(--n600);font-weight:400}
+  details[open] summary::after{content:"\2013"}
+  summary:hover{background:var(--n200)}
+  .dbody{padding:0 var(--s4) var(--s4);border-top:1px solid var(--n300);padding-top:var(--s3)}
+  .cnt{font-family:var(--font-mono);font-size:12px;border:1px solid var(--n400);color:var(--n700);padding:1px 7px;font-weight:400}
+  .cnt-red{border-color:var(--hanko);color:var(--hanko);background:var(--hanko-100)}
+
+  ul{margin:0;padding-left:var(--s4)} li{margin-bottom:var(--s2)} li:last-child{margin-bottom:0}
+  ul.reasons{list-style:none;padding-left:0}
+  ul.reasons li{border-left:3px solid var(--n300);padding-left:var(--s3)}
+  ul.reasons li b{display:block}
+  ul.reasons li.is-lock{border-left-color:var(--hanko)}
+
+  .tablewrap{overflow-x:auto;border:1px solid var(--n300)}
+  table{border-collapse:collapse;width:100%;min-width:520px;font-size:14.5px;background:var(--paper)}
+  th,td{text-align:left;padding:var(--s3);border-bottom:1px solid var(--n300);vertical-align:top}
+  th{background:var(--surface);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--n800)}
+  tr:last-child td{border-bottom:0}
+  td.num{font-family:var(--font-mono);white-space:nowrap}
+  tr.hl td{background:var(--hanko-100)}
+
+  .note{border-left:3px solid var(--n400);padding:var(--s1) 0 var(--s1) var(--s3);color:var(--n800);font-style:italic}
+  .warn{border:1.5px solid var(--hanko);background:var(--hanko-100);padding:var(--s4)}
+  .card{border:1px solid var(--n300);background:var(--n100);padding:var(--s4)}
+  .cols{display:grid;gap:var(--s4);grid-template-columns:repeat(auto-fit,minmax(255px,1fr))}
+  .tree{font-family:var(--font-mono);font-size:12.5px;line-height:1.75;background:var(--n100);
+    border:1px solid var(--n300);padding:var(--s4);overflow-x:auto;white-space:pre}
+  .tree b{color:var(--hanko);font-weight:400}
+  .tree i{color:var(--n600);font-style:normal}
+  footer{margin-top:var(--s6);padding-top:var(--s4);border-top:1.5px solid var(--ink);font-size:13.5px;color:var(--n700)}
+</style>
+</head>
+<body>
+<div class="wrap"><div class="sheet">
+
+<header class="top">
+  <div class="mark">
+    <svg viewBox="0 0 512 512" role="img" aria-label="Ink Desk logo">
+      <defs><mask id="m"><rect width="512" height="512" rx="104" fill="#fff"/>
+        <path d="M-20 216L532 180M321.2 193.7L226 560" stroke="#000" stroke-width="22"/></mask></defs>
+      <g mask="url(#m)"><rect width="512" height="512" fill="#b5382e"/>
+        <polygon points="321.2,193.7 540,179.5 540,540 231.2,540" fill="#141414"/></g>
+      <g fill="#fff"><ellipse cx="408" cy="352" rx="74" ry="52"/><path d="M352 366 L392 392 L314 424 Z"/></g>
+    </svg>
+  </div>
+  <div class="titleblock">
+    <p class="eyebrow">Devpost Learn · Build With AI: Basics · Technical Spec</p>
+    <h1>Ink Desk</h1>
+    <p class="lede">One Next.js app, two AI providers called from the server,
+      one chapter of work kept on disk.</p>
+    <div class="metarow">
+      <span class="tag tag-solid">Next.js · App Router</span>
+      <span class="tag">claude-sonnet-5-5</span>
+      <span class="tag tag-red">gpt-image-2.5-sunburst</span>
+      <span class="tag tag-quiet">Local only</span>
+    </div>
+  </div>
+</header>
+
+<hr class="rule">
+
+<!-- ============================= VERIFICATION ============================= -->
+<section>
+  <h2>The verification that changed the plan</h2>
+  <p><code>scope.md &gt; Needs Verifying in 4-spec</code> flagged one assumption that could
+    force a redesign: <em>which GPT Image model and endpoint accept reference images, and
+    how many per request.</em> The whole kernel rested on it.</p>
+
+  <div class="warn">
+    <h3 style="color:var(--hanko)">⚠ <code>gpt-image-1</code> shuts down 2026-10-23</h3>
+    <p><code>gpt-image-1.5</code> follows on 2026-12-01. The &ldquo;GPT Image model family&rdquo;
+      named in <code>scope.md &gt; Model Providers</code> would have gone dark
+      <strong>mid-hackathon</strong>. Both are out.</p>
+    <p style="margin-bottom:0">Pinned replacement:
+      <code>gpt-image-2.5-sunburst-2026-09-08</code> &mdash; for sheets <em>and</em> panels.</p>
+  </div>
+
+  <h4>What came back good</h4>
+  <ul class="reasons">
+    <li class="is-lock"><b>Reference images work, with room to spare.</b>
+      <code>POST /v1/images/edits</code> takes an <code>image</code> <strong>array</strong>, not a
+      single file &mdash; OpenAI's own guide example passes four. Ink Desk sends exactly
+      <strong>one</strong>, so the limit is never in play.
+      <code>scope.md &gt; The Unique Kernel</code> is buildable as written.</li>
+    <li class="is-lock"><b><code>input_fidelity</code> is gone, and that's a gift.</b>
+      It was the <code>1.x</code> knob that forced the model to preserve facial features.
+      The docs now say <em>&ldquo;omit this parameter when migrating to GPT Image 2, which always
+      uses high input fidelity.&rdquo;</em> Face preservation is the default rather than a setting
+      that can be misconfigured.</li>
+    <li><b>Same model for both surfaces.</b> The sheet is the reference the panels are judged
+      against. A sheet drawn by one model and panels by another would differ in line weight
+      even with the face held steady &mdash; the exact mismatch
+      <code>scope.md &gt; What &quot;Working&quot; Looks Like</code> is testing for.
+      <code>flare</code> is generation-only, so it can't carry a reference at all.</li>
+  </ul>
+
+  <h4>Both pinned IDs are confirmed &mdash; and still probed</h4>
+  <p>The image snapshot <code>gpt-image-2.5-sunburst-2026-09-08</code> and the text model
+    <code>claude-sonnet-5-5</code> are both confirmed on the official model pages. Slice 1 probes
+    them anyway &mdash; not because they&#8217;re doubted, but because a wrong ID or a bad key
+    fails <em>identically and confusingly</em>, and this turns that into a two-second answer for
+    about <strong>$0.006</strong> instead of a confusing failure three stations in.</p>
+  <div class="wire">node scripts/kernel-test.mjs <b>--probe-only</b>
+
+  [0a] text model + structured output   <span class="quiet">claude-sonnet-5-5 · ~free</span>
+  [0b] image model                      <span class="quiet">gpt-image-2.5-sunburst · ~$0.006</span></div>
+  <p class="quiet" style="margin-top:var(--s3)">The text probe sends <strong>no sampling
+    parameters</strong>, so it would also catch that mistake &mdash; a non-default
+    <code>temperature</code>, <code>top_p</code> or <code>top_k</code> is a 400 on this model
+    family. If the image snapshot ever 404s, fall back to the floating
+    <code>gpt-image-2.5-sunburst</code> alias.</p>
+</section>
+
+<hr class="rule">
+
+<!-- ============================= ARCHITECTURE ============================= -->
+<section>
+  <h2>How this works, in plain language</h2>
+  <p>Ink Desk is <strong>one Next.js app</strong> &mdash; a single program that serves the web
+    page <em>and</em> answers requests from it. Nothing else has to be running.</p>
+
+  <figure>
+    <div class="svgbox">
+      <svg viewBox="0 0 900 430" role="img" aria-label="Architecture: the browser calls server route handlers, which call Claude and OpenAI and write to a data folder on disk">
+        <defs>
+          <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0 0 L10 5 L0 10 z" fill="#201f1d"/></marker>
+          <marker id="arR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0 0 L10 5 L0 10 z" fill="#b5382e"/></marker>
+        </defs>
+
+        <!-- BROWSER -->
+        <rect x="14" y="44" width="176" height="212" fill="#f3f2f2" stroke="#201f1d" stroke-width="1.5"/>
+        <text class="lbl" x="24" y="34">The studio</text>
+        <text x="102" y="74" text-anchor="middle" font-size="17" font-weight="700" fill="#201f1d">Browser</text>
+        <text x="102" y="100" text-anchor="middle" font-size="12.5" fill="#605d5d">Five stations, drawn in React</text>
+        <line x1="34" y1="116" x2="170" y2="116" stroke="#d7d3d3"/>
+        <text x="102" y="140" text-anchor="middle" font-size="12.5" fill="#444141">holds no keys</text>
+        <text x="102" y="162" text-anchor="middle" font-size="12.5" fill="#444141">holds no image bytes</text>
+        <text x="102" y="184" text-anchor="middle" font-size="12.5" fill="#444141">generates nothing</text>
+        <rect x="34" y="204" width="136" height="36" fill="#eae9e9" stroke="#bab6b6"/>
+        <text class="mono" x="102" y="227" text-anchor="middle" font-size="11" fill="#605d5d">&lt;img src="/api/image/.."&gt;</text>
+
+        <!-- SERVER -->
+        <rect x="258" y="44" width="316" height="212" fill="#f3f2f2" stroke="#201f1d" stroke-width="1.5"/>
+        <text class="lbl" x="268" y="34">The only code that sees your keys</text>
+        <text x="416" y="74" text-anchor="middle" font-size="17" font-weight="700" fill="#201f1d">Server route handlers</text>
+        <g class="mono" font-size="11" fill="#444141">
+          <rect x="274" y="88" width="138" height="24" fill="#f8f4f4" stroke="#d7d3d3"/><text x="282" y="104">/api/synopsis</text>
+          <rect x="420" y="88" width="138" height="24" fill="#f8f4f4" stroke="#d7d3d3"/><text x="428" y="104">/api/cast</text>
+          <rect x="274" y="118" width="138" height="24" fill="#fcecea" stroke="#eba49d"/><text x="282" y="134" fill="#3e140f">/api/sheet</text>
+          <rect x="420" y="118" width="138" height="24" fill="#f8f4f4" stroke="#d7d3d3"/><text x="428" y="134">/api/script</text>
+          <rect x="274" y="148" width="284" height="24" fill="#fcecea" stroke="#eba49d"/><text x="282" y="164" fill="#3e140f">/api/panels/[index]   ← the kernel</text>
+          <rect x="274" y="178" width="138" height="24" fill="#f8f4f4" stroke="#d7d3d3"/><text x="282" y="194">/api/chapter</text>
+          <rect x="420" y="178" width="138" height="24" fill="#f8f4f4" stroke="#d7d3d3"/><text x="428" y="194">/api/image/[id]</text>
+        </g>
+        <text x="416" y="228" text-anchor="middle" font-size="12" fill="#605d5d">queue: at most 2 panels at once</text>
+        <text x="416" y="246" text-anchor="middle" font-size="12" fill="#605d5d">retry once, silently, then ask</text>
+
+        <!-- PROVIDERS -->
+        <rect x="660" y="60" width="226" height="78" fill="#f3f2f2" stroke="#201f1d" stroke-width="1.5"/>
+        <text x="773" y="86" text-anchor="middle" font-size="15" font-weight="700">Claude</text>
+        <text class="mono" x="773" y="104" text-anchor="middle" font-size="10.5" fill="#605d5d">claude-sonnet-5-5</text>
+        <text x="773" y="124" text-anchor="middle" font-size="12" fill="#444141">all the words</text>
+
+        <rect x="660" y="162" width="226" height="94" fill="#fcecea" stroke="#b5382e" stroke-width="1.5"/>
+        <text x="773" y="188" text-anchor="middle" font-size="15" font-weight="700" fill="#3e140f">OpenAI</text>
+        <text class="mono" x="773" y="206" text-anchor="middle" font-size="10.5" fill="#605d5d">gpt-image-2.5-sunburst</text>
+        <text x="773" y="226" text-anchor="middle" font-size="12" fill="#444141">all the pictures</text>
+        <text x="773" y="244" text-anchor="middle" font-size="11.5" fill="#605d5d">returns base64, never a URL</text>
+
+        <!-- DISK -->
+        <rect x="258" y="310" width="316" height="100" fill="#eae9e9" stroke="#201f1d" stroke-width="1.5"/>
+        <text class="lbl" x="268" y="300">The desk — a folder on your laptop</text>
+        <g class="mono" font-size="12" fill="#201f1d">
+          <text x="276" y="338">data/chapter.json</text>
+          <text x="276" y="360">data/images/&lt;id&gt;.png</text>
+        </g>
+        <text x="276" y="388" font-size="11.5" fill="#605d5d">one chapter · each write = "Saved to desk"</text>
+
+        <!-- ARROWS -->
+        <line x1="190" y1="112" x2="252" y2="112" stroke="#201f1d" stroke-width="1.5" marker-end="url(#ar)"/>
+        <text x="221" y="104" text-anchor="middle" font-size="10.5" fill="#605d5d">fetch</text>
+        <line x1="252" y1="190" x2="196" y2="190" stroke="#b5382e" stroke-width="1.5" marker-end="url(#arR)"/>
+        <text x="223" y="182" text-anchor="middle" font-size="10.5" fill="#b5382e">png</text>
+
+        <line x1="574" y1="100" x2="654" y2="100" stroke="#201f1d" stroke-width="1.5" marker-end="url(#ar)"/>
+        <line x1="574" y1="196" x2="654" y2="196" stroke="#b5382e" stroke-width="1.5" marker-end="url(#arR)"/>
+        <text class="mono" x="614" y="190" text-anchor="middle" font-size="9.5" fill="#b5382e">+ sheet.png</text>
+
+        <line x1="416" y1="256" x2="416" y2="304" stroke="#201f1d" stroke-width="1.5" marker-end="url(#ar)"/>
+        <text x="430" y="284" font-size="10.5" fill="#605d5d">write</text>
+        <line x1="356" y1="304" x2="356" y2="262" stroke="#201f1d" stroke-width="1.5" marker-end="url(#ar)"/>
+        <text x="300" y="284" font-size="10.5" fill="#605d5d">read</text>
+      </svg>
+    </div>
+    <figcaption>The browser asks; the server does. Every <code>&lt;img&gt;</code> points at
+      <code>/api/image/&lt;id&gt;</code>, which streams a file off the disk &mdash; so no image bytes
+      ever reach the browser as data.</figcaption>
+  </figure>
+
+  <h4>Why this shape, and not something more elaborate</h4>
+  <ul class="reasons">
+    <li><b>No database.</b> One chapter of one story is a single JSON object. A database would
+      add a service, a schema-migration story and a connection string, and prove nothing about
+      the kernel.</li>
+    <li><b>No accounts.</b> <code>prd.md &gt; States and Boundaries</code> says one chapter at
+      a time.</li>
+    <li><b>No separate backend.</b> Next.js route handlers already run on the server &mdash;
+      nothing extra to start on camera.</li>
+    <li class="is-lock"><b>Images as plain files, on purpose.</b> The hardest question in this
+      build is <em>&ldquo;did the face actually hold?&rdquo;</em> The fastest way to answer it is
+      to put <code>sheet.png</code> next to <code>panel-1.png</code> and look.</li>
+  </ul>
+</section>
+
+<hr class="rule">
+
+<!-- ============================= THE KERNEL ============================= -->
+<section>
+  <h2>The kernel, mechanically</h2>
+  <p>Every panel request is split in two. One half is <strong>frozen at lock and never
+    rewritten</strong>; the other half is the only thing Claude authors per panel. That split
+    <em>is</em> <code>scope.md &gt; The Unique Kernel</code>.</p>
+
+  <figure>
+    <div class="svgbox">
+      <svg viewBox="0 0 900 350" role="img" aria-label="A panel request combines the frozen locked sheet image and DNA text with the variable action, camera and background from Claude">
+        <defs>
+          <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0 0 L10 5 L0 10 z" fill="#201f1d"/></marker>
+        </defs>
+
+        <!-- FROZEN -->
+        <rect x="14" y="40" width="300" height="162" fill="#fcecea" stroke="#b5382e" stroke-width="2"/>
+        <text class="lbl" x="24" y="30" fill="#b5382e">Frozen at lock · travels with every panel</text>
+        <rect x="32" y="60" width="124" height="94" fill="#f3f2f2" stroke="#201f1d" stroke-width="1.5"/>
+        <text class="mono" x="94" y="84" text-anchor="middle" font-size="10" fill="#605d5d">sheet.png</text>
+        <circle cx="94" cy="110" r="15" fill="none" stroke="#201f1d" stroke-width="1.5"/>
+        <path d="M80 134 q14 -12 28 0" fill="none" stroke="#201f1d" stroke-width="1.5"/>
+        <path d="M70 104 l14 -5" stroke="#b5382e" stroke-width="2"/>
+        <text x="94" y="170" text-anchor="middle" font-size="11.5" fill="#3e140f">the reference picture</text>
+
+        <rect x="170" y="60" width="128" height="94" fill="#f3f2f2" stroke="#201f1d" stroke-width="1.5"/>
+        <text class="mono" x="234" y="80" text-anchor="middle" font-size="10" fill="#605d5d">visual DNA</text>
+        <g font-size="10" fill="#444141">
+          <text x="180" y="98">messy black hair</text>
+          <text x="180" y="112">amber eyes</text>
+          <text x="180" y="126">scar, right brow</text>
+          <text x="180" y="140">frayed red scarf</text>
+        </g>
+        <text x="234" y="170" text-anchor="middle" font-size="11.5" fill="#3e140f">pasted word for word</text>
+
+        <!-- VARIABLE -->
+        <rect x="14" y="228" width="300" height="104" fill="#f8f4f4" stroke="#201f1d" stroke-width="1.5"/>
+        <text class="lbl" x="24" y="220">Claude writes this, per panel</text>
+        <g font-size="12.5" fill="#201f1d">
+          <text x="32" y="254">action</text><text x="124" y="254" fill="#605d5d">mid-air across a gap</text>
+          <text x="32" y="276">camera</text><text x="124" y="276" fill="#605d5d">wide, high angle</text>
+          <text x="32" y="298">background</text><text x="124" y="298" fill="#605d5d">neo-Osaka rooftops</text>
+          <text x="32" y="320">dialogue</text><text x="124" y="320" fill="#605d5d">overlaid, not drawn</text>
+        </g>
+
+        <!-- STYLE RULES -->
+        <rect x="352" y="40" width="186" height="292" fill="#eae9e9" stroke="#201f1d" stroke-width="1.5"/>
+        <text class="lbl" x="362" y="30">Fixed style rules</text>
+        <g font-size="12" fill="#201f1d">
+          <text x="368" y="70">B&amp;W manga art</text>
+          <text x="368" y="94">screentone shading</text>
+          <text x="368" y="118">inked linework</text>
+          <text x="368" y="142">seinen style</text>
+        </g>
+        <line x1="368" y1="166" x2="522" y2="166" stroke="#bab6b6"/>
+        <text x="368" y="194" font-size="13" font-weight="700" fill="#b5382e">NO TEXT.</text>
+        <g font-size="11.5" fill="#444141">
+          <text x="368" y="216">no speech bubbles</text>
+          <text x="368" y="236">no sound effects</text>
+          <text x="368" y="256">no panel borders</text>
+        </g>
+        <text x="368" y="290" font-size="11" fill="#605d5d" font-style="italic">lettering is the</text>
+        <text x="368" y="306" font-size="11" fill="#605d5d" font-style="italic">app&#8217;s job, never</text>
+        <text x="368" y="322" font-size="11" fill="#605d5d" font-style="italic">the model&#8217;s</text>
+
+        <!-- ARROWS INTO REQUEST -->
+        <line x1="314" y1="120" x2="346" y2="120" stroke="#201f1d" stroke-width="1.5" marker-end="url(#ar2)"/>
+        <line x1="314" y1="278" x2="346" y2="278" stroke="#201f1d" stroke-width="1.5" marker-end="url(#ar2)"/>
+        <line x1="538" y1="186" x2="580" y2="186" stroke="#201f1d" stroke-width="1.5" marker-end="url(#ar2)"/>
+
+        <!-- REQUEST -->
+        <rect x="588" y="100" width="298" height="172" fill="#f3f2f2" stroke="#201f1d" stroke-width="2"/>
+        <text class="lbl" x="598" y="90">One request, one reference image</text>
+        <text class="mono" x="737" y="130" text-anchor="middle" font-size="12.5" font-weight="700">POST /v1/images/edits</text>
+        <g class="mono" font-size="10.5" fill="#444141">
+          <text x="602" y="156">model      pinned snapshot</text>
+          <text x="602" y="176">image      sheet.png  ← reference</text>
+          <text x="602" y="196">prompt     DNA + variable + rules</text>
+          <text x="602" y="216">quality    high</text>
+        </g>
+        <line x1="602" y1="230" x2="872" y2="230" stroke="#d7d3d3"/>
+        <text x="737" y="252" text-anchor="middle" font-size="11.5" fill="#b5382e">input_fidelity is NOT sent — always high on 2.x</text>
+
+        <text x="737" y="306" text-anchor="middle" font-size="13.5" fill="#201f1d">The app can change what a character
+          <tspan font-style="italic">does</tspan>,</text>
+        <text x="737" y="326" text-anchor="middle" font-size="13.5" font-weight="700" fill="#b5382e">never what they look like.</text>
+      </svg>
+    </div>
+    <figcaption>Two frozen artifacts cannot contradict each other, because the sheet is generated
+      <em>from</em> the DNA &mdash; see the Cast station below for why that ordering is load-bearing.</figcaption>
+  </figure>
+</section>
+
+<hr class="rule">
+
+<!-- ============================= JOURNEY STEPPER ============================= -->
+<section>
+  <h2>The core journey through the system</h2>
+  <p><code>prd.md &gt; The Core Journey</code>, traced through the pieces above. Each step names
+    the file that implements it.</p>
+
+  <div class="stepnav" role="tablist" aria-label="Core journey steps">
+    <button role="tab" id="t1" aria-controls="p1" aria-selected="true">Story<span>pitch desk</span></button>
+    <button role="tab" id="t2" aria-controls="p2" aria-selected="false">Cast<span>model sheets</span></button>
+    <button role="tab" id="t3" aria-controls="p3" aria-selected="false">Script<span>the breakdown</span></button>
+    <button role="tab" id="t4" aria-controls="p4" aria-selected="false">Storyboard<span>main studio</span></button>
+    <button role="tab" id="t5" aria-controls="p5" aria-selected="false">Publish<span>the reader</span></button>
+  </div>
+
+  <div class="steppanel" role="tabpanel" id="p1" aria-labelledby="t1">
+    <span class="gatebar">Always available</span>
+    <h3>Story &mdash; the pitch desk</h3>
+    <p>Type a pitch (or hit <strong>&ldquo;Try the sample&rdquo;</strong>, which fills the
+      <em>pitch text only</em>), pick a genre and a tone, and Claude returns a synopsis in an
+      editable field. <strong>Accepting is the gate</strong> that unlocks Cast.</p>
+    <div class="wire">POST <b>/api/synopsis</b>   pitch + genre + tone  ──▶  Claude
+    ↳ structured JSON, so there is no prose to parse
+    ↳ writes synopsis into data/chapter.json</div>
+    <p class="quiet" style="margin-top:var(--s3)">Implements <code>prd.md &gt; Story — The Pitch Desk</code>
+      · <code>app/api/synopsis/route.ts</code> · <code>components/StoryStation.tsx</code></p>
+  </div>
+
+  <div class="steppanel" role="tabpanel" id="p2" aria-labelledby="t2" hidden>
+    <span class="gatebar">Unlocks when a synopsis is accepted</span>
+    <h3>Cast &mdash; where the kernel is built</h3>
+    <p>Claude proposes two characters; you edit the text freely and <strong>Reroll</strong> is
+      cheap because it's text only. Then <strong>Draw sheet</strong>, and the card shows the
+      <strong>DNA text beside the image</strong> so you can check the picture against the words
+      before <strong>Lock</strong>.</p>
+    <div class="wire">POST <b>/api/sheet</b>
+    (a) edited description  ──▶  Claude   → visual DNA text
+    (b) <b>that DNA text</b>      ──▶  OpenAI   → sheet image
+                                      /v1/images/generations
+    ↳ decodes base64 → data/images/&lt;id&gt;.png</div>
+    <p style="margin-top:var(--s3)"><strong>Both steps live in one handler, deliberately.</strong>
+      The sheet is a picture of the DNA <em>by construction</em>, so the two frozen artifacts
+      cannot contradict each other. A contradiction here would be sent to the image model on
+      every single panel &mdash; the exact drift the kernel exists to prevent.</p>
+    <p class="quiet">Implements <code>prd.md &gt; Cast — Model Sheets</code>
+      · <code>app/api/sheet/route.ts</code> · <code>components/CharacterCard.tsx</code></p>
+  </div>
+
+  <div class="steppanel" role="tabpanel" id="p3" aria-labelledby="t3" hidden>
+    <span class="gatebar">Unlocks when both sheets are locked</span>
+    <h3>Page script &mdash; the variable half</h3>
+    <p>Claude writes all four panels at once: which character, the action, the camera angle, the
+      background, the dialogue. Shot/reverse-shot, so Kaito is in panels 1 and 3 and Mio in 2
+      and 4.</p>
+    <div class="wire">POST <b>/api/script</b>   synopsis + both locked DNA  ──▶  Claude
+
+characterId: <b>z.enum([kaitoId, mioId])</b>
+    ↳ one locked character per panel is enforced by the API,
+      not by a check somebody has to remember to write</div>
+    <p style="margin-top:var(--s3)">That schema line is the whole trick: a panel naming two
+      characters, or a character who isn't locked, is rejected at the boundary rather than
+      discovered later as a broken page.</p>
+    <p class="quiet">Implements <code>prd.md &gt; Page Script</code>
+      · <code>lib/schemas.ts</code> · <code>components/PageScript.tsx</code></p>
+  </div>
+
+  <div class="steppanel" role="tabpanel" id="p4" aria-labelledby="t4" hidden>
+    <span class="gatebar">Unlocks when the page script exists</span>
+    <h3>Storyboard &mdash; four independent panels</h3>
+    <p>Four pencil-sketch placeholders, then art arriving <strong>in whatever order it
+      finishes</strong>, each playing the ink-in reveal as it lands. Per-panel independence is
+      the governing rule: one panel's failure never touches another.</p>
+    <div class="wire">POST <b>/api/panels/start</b>   queues 4 jobs, <b>2 at a time</b>
+
+per panel:  reads data/images/&lt;sheet&gt;.png
+            sends it <b>as the reference image</b>  ──▶  OpenAI
+            + locked DNA verbatim                      /v1/images/edits
+            + Claude&#8217;s action / angle / background
+            + &ldquo;no text in the image&rdquo;
+
+GET <b>/api/chapter</b> every ~1.5s  →  per-panel status</div>
+    <p style="margin-top:var(--s3)"><strong>Redraw</strong> reruns the same request with the same
+      references and keeps the last three versions. During a redraw the current art
+      <em>stays visible</em> and Ink &amp; Publish <em>stays open</em> &mdash; a failed redraw never
+      leaves a panel empty.</p>
+    <p class="quiet">Implements <code>prd.md &gt; Storyboard — The Main Studio</code>
+      · <code>app/api/panels/[index]/route.ts</code> · <code>lib/queue.ts</code>
+      · <code>components/Panel.tsx</code></p>
+  </div>
+
+  <div class="steppanel" role="tabpanel" id="p5" aria-labelledby="t5" hidden>
+    <span class="gatebar">Unlocks when all four panels have art</span>
+    <h3>Ink &amp; Publish &mdash; the shot that gets filmed</h3>
+    <p>Full-page reading with the ink-in reveal replaying panel by panel on entry, a
+      right-to-left toggle, and PNG export.</p>
+    <div class="wire">export:  draw art + bubbles onto an off-screen &lt;canvas&gt;
+         → canvas.toBlob()
+    ↳ in the browser — no server round trip, no extra dependency
+    ↳ uses each panel&#8217;s <b>currently displayed</b> version</div>
+    <p style="margin-top:var(--s3)"><strong>Success, stated precisely:</strong> each character is
+      recognizably themselves in every panel they appear in. Kaito's locked sheet beside panels
+      1 and 3, same face, same scarf, from a close-up <em>and</em> a wide shot.</p>
+    <p class="quiet">Implements <code>prd.md &gt; Ink &amp; Publish — The Reader</code>
+      · <code>components/ReaderStation.tsx</code> · <code>components/SpeechBubble.tsx</code></p>
+  </div>
+</section>
+
+<hr class="rule">
+
+<!-- ============================= PAGE LAYOUT ============================= -->
+<section>
+  <h2>The page layout, fixed now</h2>
+  <p>The PRD builds <strong>one</strong> 4-panel layout, so it can be settled here rather than
+    discovered mid-build. Shot order from <code>scope.md &gt; What &quot;Working&quot; Looks
+    Like</code>: <strong>Kaito → Mio → Kaito close-up → Mio reacting.</strong></p>
+
+  <figure>
+    <div class="svgbox">
+      <svg viewBox="0 0 900 330" role="img" aria-label="Page layout: a wide landscape panel on top, two square panels in the middle, a wide landscape panel at the bottom">
+        <!-- page -->
+        <rect x="140" y="16" width="420" height="300" fill="#ffffff" stroke="#201f1d" stroke-width="2"/>
+        <!-- panel 1 -->
+        <rect x="156" y="32" width="388" height="78" fill="#f8f4f4" stroke="#201f1d" stroke-width="1.5"/>
+        <text x="350" y="64" text-anchor="middle" font-size="13" font-weight="700">1 &middot; KAITO</text>
+        <text x="350" y="84" text-anchor="middle" font-size="11.5" fill="#605d5d">wide establishing</text>
+        <text class="mono" x="350" y="102" text-anchor="middle" font-size="10" fill="#b5382e">1536&times;1024</text>
+        <!-- panel 2 -->
+        <rect x="156" y="120" width="188" height="104" fill="#f8f4f4" stroke="#201f1d" stroke-width="1.5"/>
+        <text x="250" y="156" text-anchor="middle" font-size="13" font-weight="700">2 &middot; MIO</text>
+        <text x="250" y="176" text-anchor="middle" font-size="11.5" fill="#605d5d">medium</text>
+        <text class="mono" x="250" y="196" text-anchor="middle" font-size="10" fill="#b5382e">1024&times;1024</text>
+        <!-- panel 3 -->
+        <rect x="356" y="120" width="188" height="104" fill="#fcecea" stroke="#b5382e" stroke-width="1.5"/>
+        <text x="450" y="156" text-anchor="middle" font-size="13" font-weight="700" fill="#3e140f">3 &middot; KAITO</text>
+        <text x="450" y="176" text-anchor="middle" font-size="11.5" fill="#605d5d">close-up</text>
+        <text class="mono" x="450" y="196" text-anchor="middle" font-size="10" fill="#b5382e">1024&times;1024</text>
+        <!-- panel 4 -->
+        <rect x="156" y="234" width="388" height="66" fill="#f8f4f4" stroke="#201f1d" stroke-width="1.5"/>
+        <text x="350" y="262" text-anchor="middle" font-size="13" font-weight="700">4 &middot; MIO</text>
+        <text x="350" y="281" text-anchor="middle" font-size="11.5" fill="#605d5d">reaction, wide</text>
+        <text class="mono" x="464" y="281" font-size="10" fill="#b5382e">1536&times;1024</text>
+
+        <!-- annotations -->
+        <text class="lbl" x="18" y="70">landscape</text>
+        <text x="18" y="90" font-size="11.5" fill="#605d5d">opens the page</text>
+        <text class="lbl" x="18" y="166">two squares</text>
+        <text x="18" y="186" font-size="11.5" fill="#605d5d">shot /</text>
+        <text x="18" y="202" font-size="11.5" fill="#605d5d">reverse-shot</text>
+        <text class="lbl" x="18" y="268">landscape</text>
+        <text x="18" y="288" font-size="11.5" fill="#605d5d">closes the page</text>
+
+        <text x="596" y="56" font-size="13" font-weight="700" fill="#b5382e">Nothing is scaled to fit.</text>
+        <text x="596" y="80" font-size="12.5" fill="#444141">Each panel is generated at the</text>
+        <text x="596" y="98" font-size="12.5" fill="#444141">aspect ratio of the slot it sits in,</text>
+        <text x="596" y="116" font-size="12.5" fill="#444141">so the art is never cropped</text>
+        <text x="596" y="134" font-size="12.5" font-weight="700" fill="#201f1d">through a face</text>
+        <text x="596" y="152" font-size="12.5" fill="#444141">&mdash; the one way to lose the</text>
+        <text x="596" y="170" font-size="12.5" fill="#444141">face after the model got it right.</text>
+
+        <line x1="596" y1="196" x2="872" y2="196" stroke="#d7d3d3"/>
+        <text class="lbl" x="596" y="222">The sheet is landscape too</text>
+        <text class="mono" x="596" y="244" font-size="11" fill="#b5382e">1536&times;1024</text>
+        <text x="596" y="266" font-size="12" fill="#444141">A model sheet is a row of poses.</text>
+        <text x="596" y="284" font-size="12" fill="#444141">Square would crowd them, or</text>
+        <text x="596" y="302" font-size="12" fill="#444141">waste half the image.</text>
+      </svg>
+    </div>
+    <figcaption>Only three sizes exist on this model &mdash; <code>1024&times;1024</code>,
+      <code>1536&times;1024</code>, <code>1024&times;1536</code>. Two of them cover the page.</figcaption>
+  </figure>
+
+  <h4>The framing goes in the prompt too, not just the request</h4>
+  <p>So the model composes for the shape it is drawing:</p>
+  <ul class="reasons">
+    <li><b>Square close-up</b><em>&ldquo;Centre his face in frame with headroom above and below;
+      keep his eyes on the upper third line and nothing important near the edges.&rdquo;</em></li>
+    <li><b>Wide landscape</b><em>&ldquo;Place him off-centre in the left third, full body inside
+      the frame with clear margin on every side.&rdquo;</em></li>
+  </ul>
+  <p class="quiet" style="margin-top:var(--s3)">Sizes live in <code>.env</code>; the per-panel
+    assignment sits in <code>lib/prompts.ts</code> beside the framing lines, so layout and framing
+    stay together rather than drifting apart.</p>
+</section>
+
+<hr class="rule">
+
+<!-- ============================= COMPONENTS ============================= -->
+<section>
+  <h2>Components</h2>
+  <p class="quiet">Each one names the PRD heading it serves and the file it lives in.
+    <code>5-build</code> cites these.</p>
+
+  <details>
+    <summary>Chapter Store <span class="cnt">lib/chapter.ts</span></summary>
+    <div class="dbody">
+      <p>The only code that reads or writes <code>data/chapter.json</code>. Every mutation goes
+        through one <code>update()</code>. <strong>Two separate guarantees are needed, and they
+        solve different problems.</strong></p>
+      <h4 style="margin-top:0">1 &middot; No torn files &mdash; temp file then rename</h4>
+      <p>Write <code>chapter.json.tmp</code>, then <code>rename()</code> over the real file.
+        Rename is atomic, so a crash mid-write can never leave a half-written chapter on disk.</p>
+      <h4>2 &middot; No lost updates &mdash; one in-process lock</h4>
+      <p>This is the one that actually bites. With concurrency 2, two panels can finish
+        milliseconds apart. Both <code>update()</code> calls read the same chapter, each applies
+        <em>its own</em> panel, and the second write <strong>erases the first panel&#8217;s
+        result</strong>. The art file is on disk, but the chapter no longer points at it &mdash;
+        so a finished panel silently reverts to a pencil placeholder.</p>
+      <p class="note">Atomic rename does not help here. Both writes are individually
+        well-formed; they are just based on stale reads.</p>
+      <div class="wire">let lock = Promise.resolve()
+
+update(fn) {
+  const run = async () =&gt; {
+    const chapter = await read()   <b>// fresh read, inside the lock</b>
+    const next = fn(chapter)
+    await writeAtomic(next)        <b>// tmp + rename</b>
+    return next
+  }
+  const result = lock.then(run, run)  <b>// then(run, run): a failure
+  lock = result.catch(() =&gt; {})          doesn&#8217;t wedge the chain</b>
+  return result
+}</div>
+      <p style="margin-top:var(--s3)"><code>fn</code> receives the chapter and returns the next
+        one &mdash; callers must not close over a chapter they read earlier, or they reintroduce
+        the stale read the lock exists to prevent.</p>
+      <h4>Acceptance check &mdash; <code>5-build</code> doesn&#8217;t call this done without it</h4>
+      <ul>
+        <li>Two panels completing at the same moment <strong>both</strong> survive in
+          <code>chapter.json</code>: start two generations together, then assert both are
+          <code>done</code> with distinct <code>imageId</code>s.</li>
+        <li><code>imageCount</code> after four panels is <strong>4</strong>, not fewer &mdash; a
+          lost update shows up here too, which makes the header counter a free canary.</li>
+      </ul>
+      <p class="quiet">Serves <code>prd.md &gt; States and Boundaries</code>. A single in-memory
+        lock is sufficient <em>because</em> this is a local single-process app &mdash; one more
+        thing deployment would have to rethink.</p>
+    </div>
+  </details>
+
+  <details>
+    <summary>Panel Queue <span class="cnt cnt-red">lib/queue.ts</span></summary>
+    <div class="dbody">
+      <p>An in-memory queue in the server process that runs at most <strong>2</strong> panel
+        generations at once &mdash; resolving the concurrency call left open in the PRD. Each
+        finished panel writes to <code>chapter.json</code> immediately, so the browser's poll
+        sees panels appear independently and out of order.</p>
+      <p class="quiet">Serves <code>prd.md &gt; Storyboard — The Main Studio</code>,
+        <code>prd.md &gt; Open Questions</code></p>
+    </div>
+  </details>
+
+  <details>
+    <summary>Singletons &amp; the Dev Server <span class="cnt cnt-red">lib/singleton.ts</span></summary>
+    <div class="dbody">
+      <p>Three pieces of process state must be <strong>genuinely single</strong> or the guarantees
+        above collapse: the panel queue, the <code>update()</code> lock, and
+        <code>serverRunId</code>. Next.js re-evaluates module scope on every hot reload, which
+        would quietly give you a <em>second</em> queue beside the first &mdash; 4 concurrent
+        generations instead of 2 &mdash; and a <em>second</em> lock, bringing the lost-update bug
+        straight back.</p>
+      <div class="wire">const g = globalThis as typeof globalThis &amp; { __inkdesk?: InkDeskGlobals }
+
+export const singletons = (g.__inkdesk ??= {
+  serverRunId: crypto.randomUUID(),   <b>// once per real process</b>
+  queue: createQueue(Number(process.env.PANEL_CONCURRENCY ?? 2)),
+  chapterLock: Promise.resolve(),
+})</div>
+      <p style="margin-top:var(--s3)">Pinning <code>serverRunId</code> here is also what keeps the
+        restart fallback honest: it must change when the <strong>process</strong> restarts and
+        <em>not</em> when a module reloads.</p>
+      <h4>Every route handler declares the Node runtime</h4>
+      <div class="wire">export const runtime = 'nodejs'</div>
+      <p style="margin-top:var(--s3)">Without it a handler could be evaluated on the Edge runtime
+        &mdash; no <code>fs</code>, no long-lived process &mdash; so disk writes and the in-memory
+        queue both fail. Declaring it in all nine handlers is cheaper than debugging it once.</p>
+      <h4>Background work outlives the response</h4>
+      <p><code>POST /api/panels/start</code> queues four jobs and responds immediately; the
+        generations finish afterwards and write to <code>chapter.json</code> on their own. That is
+        fine in a long-lived <code>next dev</code> process and is what makes &ldquo;generation
+        survives a reload&rdquo; work at all. It is <strong>not</strong> fine on a serverless
+        host, where the function may be frozen the moment the response is sent.</p>
+      <p class="quiet">Deployment therefore needs rework for four independent reasons: the
+        ephemeral filesystem, the missing image cap, background work after the response, and the
+        single-process lock.</p>
+    </div>
+  </details>
+
+  <details>
+    <summary>Derived Gates <span class="cnt">lib/gates.ts</span></summary>
+    <div class="dbody">
+      <p>One function, <code>gates(chapter)</code>, returns which stations are unlocked.
+        <strong>Computed from chapter state, never stored</strong> &mdash; storing them would let
+        them drift out of sync with the thing they describe.</p>
+      <p>The same principle covers speech-bubble placement: a small lookup keyed on the panel's
+        camera angle picks a corner, so Claude never has to return coordinates and there is
+        nothing extra to get wrong.</p>
+      <p class="quiet">Serves <code>prd.md &gt; Screens and Layout</code></p>
+    </div>
+  </details>
+
+  <details>
+    <summary>Prompts <span class="cnt cnt-red">lib/prompts.ts</span></summary>
+    <div class="dbody">
+      <p>Every prompt in one file, including the <strong>frozen style rules</strong> that are
+        pasted into each panel request verbatim. Keeping them in one place is what makes
+        &ldquo;the frozen half never changes&rdquo; checkable rather than aspirational.</p>
+      <p class="quiet">Serves <code>scope.md &gt; The Unique Kernel</code>,
+        <code>scope.md &gt; Lettering</code></p>
+    </div>
+  </details>
+
+  <details>
+    <summary>Schemas <span class="cnt">lib/schemas.ts</span></summary>
+    <div class="dbody">
+      <p>Four <code>zod</code> schemas &mdash; <code>SynopsisSchema</code>,
+        <code>CastSchema</code>, <code>DnaSchema</code>, <code>PageScriptSchema</code> &mdash;
+        passed to the Anthropic SDK's <code>zodOutputFormat</code> helper so the API
+        <em>constrains</em> the response rather than being asked nicely for JSON.</p>
+      <p>Three things that are a 400 rather than a warning, worth knowing before writing them:
+        every object needs <code>additionalProperties: false</code>; no recursive schemas and no
+        <code>min</code>/<code>max</code>; and <strong>never send
+        <code>temperature</code>, <code>top_p</code> or <code>top_k</code></strong> &mdash; they
+        are rejected outright on <code>claude-sonnet-5-5</code> &mdash; re-verified against that
+        exact model, not inherited. Prompt wording is the only
+        steering lever.</p>
+    </div>
+  </details>
+
+  <details>
+    <summary>Image Writer <span class="cnt">lib/images.ts</span></summary>
+    <div class="dbody">
+      <p>Both OpenAI endpoints return <strong>base64, never a URL</strong>. This decodes once,
+        writes <code>data/images/&lt;id&gt;.png</code>, and hands back only the id &mdash; which is
+        why the browser only ever sees <code>/api/image/&lt;id&gt;</code> and never carries image
+        bytes around.</p>
+    </div>
+  </details>
+</section>
+
+<hr class="rule">
+
+<!-- ============================= DATA + RELOAD ============================= -->
+<section>
+  <h2>Where every piece of data lives</h2>
+  <p>One file, <code>data/chapter.json</code>. <strong>Nothing lives only in the browser</strong> &mdash;
+    React holds a copy for rendering; the file is the truth.</p>
+
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Data</th><th>Lives in</th><th>Updated by</th><th>On reload</th></tr></thead>
+      <tbody>
+        <tr><td>Pitch, genre, tone</td><td class="num">chapter.json</td><td>debounced as you type</td><td>restored</td></tr>
+        <tr><td>Synopsis</td><td class="num">chapter.json</td><td><code>/api/synopsis</code> + edits</td><td>restored, with accepted state</td></tr>
+        <tr><td>Cast text</td><td class="num">chapter.json</td><td><code>/api/cast</code>, <code>/reroll</code>, edits</td><td>restored</td></tr>
+        <tr class="hl"><td><strong>Locked DNA</strong></td><td class="num">chapter.json</td><td><code>/api/sheet</code>, frozen at lock</td><td>restored</td></tr>
+        <tr class="hl"><td><strong>Sheet images</strong></td><td class="num">data/images/</td><td><code>/api/sheet</code></td><td>restored, served by id</td></tr>
+        <tr><td>Page script</td><td class="num">chapter.json</td><td><code>/api/script</code></td><td>restored</td></tr>
+        <tr><td>Panel art + history</td><td class="num">data/images/ + versions[]</td><td><code>/api/panels/[i]</code></td><td>restored, stepper included</td></tr>
+        <tr><td>Current station</td><td class="num">chapter.json</td><td>every navigation</td><td>restored</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p style="margin-top:var(--s4)" class="note">&ldquo;Same browser&rdquo; in the PRD meant
+    <strong>no accounts and one chapter</strong>, not a storage mandate &mdash; confirmed with the
+    learner. Just as well: 14 images at filming quality is tens of megabytes, far past the ~5 MB
+    <code>localStorage</code> ceiling, and base64 inflates it by a third again.</p>
+
+  <h3 style="margin-top:var(--s5)">Reload mid-generation &mdash; and the floor underneath it</h3>
+  <p>This is the one behavior that <strong>changed from the approved PRD</strong>; it's recorded
+    in <code>prd.md &gt; Changes Since Approval</code>.</p>
+  <div class="cols">
+    <div class="card">
+      <h4 style="margin-top:0">Was</h4>
+      <p style="margin-bottom:0">In-flight panels come back in the <strong>failed state with
+        &ldquo;Try again.&rdquo;</strong> Four generations lost to a stray refresh.</p>
+    </div>
+    <div class="card" style="border-color:var(--hanko);background:var(--hanko-100)">
+      <h4 style="margin-top:0;color:var(--hanko)">Now</h4>
+      <p style="margin-bottom:0">Generation <strong>continues server-side</strong>. A reload shows
+        each panel <strong>finished</strong> or <strong>still inking</strong> &mdash; and it keeps
+        going.</p>
+    </div>
+  </div>
+  <p style="margin-top:var(--s4)">The floor exists because <strong>Next.js restarts the dev server
+    on every code change</strong> and silently kills in-flight requests. Two conditions demote a
+    stale <code>inking</code> panel to <code>failed</code> on read:</p>
+  <div class="wire">timeout         startedAt older than GENERATION_TIMEOUT_MS
+server restart  <b>startedByRun !== serverRunId</b>
+                ↳ serverRunId is stamped once at boot, so every
+                  panel that was mid-flight is recognisably orphaned</div>
+  <p style="margin-top:var(--s3)">So the original rule from the PRD is kept intact:
+    <strong>nothing spins forever; nothing finished is lost.</strong></p>
+</section>
+
+<hr class="rule">
+
+<!-- ============================= COST ============================= -->
+<section>
+  <h2>What a run costs, and the switch that makes iterating affordable</h2>
+  <p>Five paid quality levels. Model and both quality levels are
+    <strong><code>.env</code>-configurable</strong>, so the build runs at <code>low</code> and only
+    filming pays.</p>
+
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Quality</th><th>1024&times;1024<br><span style="text-transform:none;letter-spacing:0">verified</span></th><th>1536&times;1024<br><span style="text-transform:none;letter-spacing:0">estimate</span></th><th>Used for</th></tr></thead>
+      <tbody>
+        <tr><td class="num">low</td><td class="num">~$0.006</td><td class="num">~$0.009</td><td><strong>development builds</strong></td></tr>
+        <tr><td class="num">medium</td><td class="num">~$0.013</td><td class="num">~$0.020</td><td><strong>the kernel test</strong></td></tr>
+        <tr class="hl"><td class="num">high</td><td class="num">~$0.053</td><td class="num">~$0.080</td><td><strong>panels</strong>, filming</td></tr>
+        <tr><td class="num">xhigh</td><td class="num">~$0.094</td><td class="num">~$0.141</td><td>&mdash;</td></tr>
+        <tr class="hl"><td class="num">max</td><td class="num">~$0.211</td><td class="num">~$0.317</td><td><strong>sheets</strong>, filming</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note" style="margin-top:var(--s3)">The landscape column is an <strong>estimate, stated
+    as one</strong>. Image output is billed per output token and tokens scale with pixels, so
+    <code>1536&times;1024</code> is ~1.5&times; the square figure. Only the first column is from
+    the official model page. Confirm the real number from the usage dashboard after the kernel
+    test, which generates two landscape images.</p>
+
+  <div class="cols" style="margin-top:var(--s4)">
+    <div class="card">
+      <h4 style="margin-top:0">A full filming run</h4>
+      <p style="font-size:26px;font-family:var(--font-head);margin-bottom:var(--s1)">~$0.90</p>
+      <p class="quiet" style="margin-bottom:0">2 landscape sheets at <code>max</code> (~$0.63) +
+        2 landscape and 2 square panels at <code>high</code> (~$0.27). Redraws ~$0.05&ndash;$0.08
+        each, depending on the slot.</p>
+    </div>
+    <div class="card">
+      <h4 style="margin-top:0">The same run while building</h4>
+      <p style="font-size:26px;font-family:var(--font-head);margin-bottom:var(--s1)">~$0.05</p>
+      <p class="quiet" style="margin-bottom:0">Everything at <code>low</code>. This ratio is the
+        point.</p>
+    </div>
+    <div class="card">
+      <h4 style="margin-top:0">Text, all four calls</h4>
+      <p style="font-size:26px;font-family:var(--font-head);margin-bottom:var(--s1)">&lt;$0.01</p>
+      <p class="quiet" style="margin-bottom:0">A few hundred tokens each. The image bill is the
+        only one worth watching.</p>
+    </div>
+  </div>
+
+  <p style="margin-top:var(--s4)"><strong>Concurrency: 2.</strong> Published tiers are Build
+    20 IPM / Launch 150 IPM / Grow 250 IPM, so even four-at-once wouldn't trip the limit &mdash;
+    this is margin rather than necessity. It costs nothing, it keeps panels filling out of order,
+    and it keeps a 429 off camera. <em>Confirm your own tier at Settings → Organization → Limits
+    before filming.</em></p>
+</section>
+
+<hr class="rule">
+
+<!-- ============================= FILE TREE ============================= -->
+<section>
+  <h2>File structure</h2>
+  <div class="tree">ink.desk/
+├── app/
+│   ├── layout.tsx                  <i># fonts, html shell</i>
+│   ├── page.tsx                    <i># the studio: rail + active station</i>
+│   ├── globals.css                 <i># design tokens + halftone, ported from the mockup</i>
+│   └── api/
+│       ├── chapter/route.ts        <i># GET chapter · POST edits · DELETE = new chapter</i>
+│       ├── synopsis/route.ts       <i># pitch+genre+tone → synopsis            (Claude)</i>
+│       ├── cast/route.ts           <i># synopsis → two characters              (Claude)</i>
+│       ├── cast/reroll/route.ts    <i># replace exactly one character          (Claude)</i>
+│       ├── <b>sheet/route.ts</b>          <i># description → DNA → sheet image  (Claude + OpenAI)</i>
+│       ├── script/route.ts         <i># synopsis + locked DNA → 4 panels       (Claude)</i>
+│       ├── panels/start/route.ts   <i># queue all four panels</i>
+│       ├── <b>panels/[index]/route.ts</b> <i># generate or redraw one panel           (OpenAI)</i>
+│       ├── panels/[index]/rewrite/route.ts  <i># rephrase visuals, then redraw</i>
+│       └── image/[id]/route.ts     <i># streams data/images/&lt;id&gt;.png</i>
+├── components/
+│   ├── StationRail.tsx   StoryStation.tsx   CastStation.tsx
+│   ├── <b>CharacterCard.tsx</b>        <i># DNA beside sheet, Draw/Redraw/Lock</i>
+│   ├── PageScript.tsx    StoryboardStation.tsx
+│   ├── <b>Panel.tsx</b>                <i># placeholder · ink-in · stepper · failure</i>
+│   ├── PencilPlaceholder.tsx   SpeechBubble.tsx
+│   └── ReaderStation.tsx         <i># full page, RTL toggle, PNG export</i>
+├── lib/
+│   ├── types.ts      <i># Chapter, Character, Panel, PanelVersion</i>
+│   ├── schemas.ts    <i># zod schemas = Claude&#8217;s output contracts</i>
+│   ├── <b>prompts.ts</b>    <i># every prompt; the frozen style rules live here</i>
+│   ├── claude.ts     openai-image.ts
+│   ├── chapter.ts    <i># serialized, atomic read/write of chapter.json</i>
+│   ├── <b>singleton.ts</b>  <i># globalThis-pinned queue, lock, serverRunId</i>
+│   ├── images.ts     <i># b64 → data/images/&lt;id&gt;.png</i>
+│   ├── queue.ts      <i># concurrency-2 panel queue</i>
+│   └── gates.ts      <i># which stations are unlocked, derived</i>
+├── scripts/
+│   └── <b>kernel-test.mjs</b>   <i># slices 1 and 2 — proves model ID, then the lock</i>
+├── data/             <i># GITIGNORED — created at runtime</i>
+│   ├── chapter.json
+│   ├── images/&lt;id&gt;.png
+│   └── kernel-test/  <i># sheet + two panels + index.html to compare</i>
+├── devpost/          assets/{svg,png,webp}/   <i># logo is tracked</i>
+├── .env.example      .env <i># GITIGNORED</i>
+└── README.md         <i># setup, run, pre-existing-work disclosure</i></div>
+</section>
+
+<hr class="rule">
+
+<!-- ============================= FAILURE ============================= -->
+<section>
+  <h2>Where this will actually break</h2>
+  <p>Behavior is specified in <code>prd.md &gt; States and Boundaries</code>; this is the mapping.
+    <strong>No raw error codes on screen, ever</strong> &mdash; provider errors go to the terminal
+    in full, the browser gets a sentence.</p>
+
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>What breaks</th><th>What the user sees</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>429 or timeout</strong> on a panel</td>
+          <td>One <strong>silent retry</strong>. If that fails too:
+            <em>&ldquo;Panel 3 didn't come back, the studio is busy&rdquo;</em> + <strong>Try
+            again</strong>. The other three are untouched.</td>
+        </tr>
+        <tr>
+          <td><strong>The image model refuses</strong> a panel</td>
+          <td><strong>Rewrite panel</strong> &mdash; Claude rephrases only that panel's action,
+            angle and background. Never the dialogue, never the DNA. A refusal is a <em>wording</em>
+            problem, so it gets a different button than a timeout.</td>
+        </tr>
+        <tr>
+          <td><strong>A redraw fails</strong></td>
+          <td>The <strong>previous version stays on screen</strong> and Ink &amp; Publish stays
+            open. A failed redraw never leaves a panel empty.</td>
+        </tr>
+        <tr class="hl">
+          <td><strong>Dev server restarts</strong> mid-generation <span class="quiet">(every code
+            change does this)</span></td>
+          <td>Orphaned panels are caught by the <code>startedByRun</code> check and demoted to
+            <strong>Try again</strong> on the next read.</td>
+        </tr>
+        <tr>
+          <td><strong>Wrong model ID or key</strong></td>
+          <td>Every image call fails identically and confusingly &mdash; which is exactly why
+            slice 1 is a single <code>--probe-only</code> call before any UI exists.</td>
+        </tr>
+        <tr>
+          <td><strong>Claude names an unlocked or second character</strong></td>
+          <td>Rejected by the <code>z.enum</code> of locked ids at the API boundary, not
+            discovered later as a broken page.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<hr class="rule">
+
+<!-- ============================= THE UNKNOWN ============================= -->
+<section>
+  <h2>The useful unknown &mdash; does the lock actually hold?</h2>
+  <div class="warn">
+    <p>Your stated learning goal is <em>&ldquo;how to keep character art consistent across
+      AI-generated panels.&rdquo;</em> Verification settled the <strong>mechanism</strong>: a
+      reference image plus frozen DNA is supported, and <code>sunburst</code> always runs at high
+      input fidelity.</p>
+    <p style="margin-bottom:0"><strong>It cannot settle the result.</strong> Whether one sheet plus
+      verbatim DNA actually holds a face across a close-up <em>and</em> a wide shot is not in any
+      documentation. Only a generation can answer it.</p>
+  </div>
+
+  <h4>The agreed investigation, as build slice 2</h4>
+  <div class="wire">node scripts/kernel-test.mjs
+
+  [0a]  text + image probes          — both pinned model IDs
+  [1/3] sheet      1536x1024 medium  — one Kaito sheet, generated from the DNA
+  [2/3] close-up   1024x1024 medium  — sheet attached <b>as the reference</b>
+  [3/3] wide shot  1536x1024 medium  — same sheet, same DNA, different shot
+
+  → data/kernel-test/index.html     sheet · close-up · wide, side by side</div>
+
+  <p style="margin-top:var(--s4)">Run at <strong><code>medium</code>, not <code>low</code></strong>,
+    and that correction was yours: at <code>low</code> a drifted face could be the quality rather
+    than the method, so the test would prove nothing. About <strong>$0.06</strong> for all four
+    images &mdash; and <strong>at the exact sizes the real page uses</strong>, so it exercises the
+    production framing rather than a square stand-in.</p>
+  <p><strong>This runs before any UI exists.</strong> If the kernel doesn't hold, that is worth
+    knowing on day one rather than after five stations are built on top of it. It also produces a
+    second useful number &mdash; the slowest call's duration, which is what
+    <code>GENERATION_TIMEOUT_MS</code> gets set from.</p>
+  <p class="note">The only question the comparison page asks: is this recognizably the same
+    person &mdash; same face, same scar through the right eyebrow, same frayed scarf &mdash; from
+    a close-up <em>and</em> from a wide shot?</p>
+</section>
+
+<hr class="rule">
+
+<!-- ============================= DECISIONS ============================= -->
+<section>
+  <h2>Decisions and what&#8217;s still open</h2>
+
+  <h4>Decided</h4>
+  <ul class="reasons">
+    <li class="is-lock"><b>Image model <code>gpt-image-2.5-sunburst-2026-09-08</code>, pinned, for
+      both surfaces.</b> Forced by the <code>gpt-image-1</code> shutdown; pinned so the art style
+      can't shift mid-build. Tradeoff accepted: it's the slower model, which the placeholder
+      states already cover.</li>
+    <li class="is-lock"><b>Sheets at <code>max</code>, panels at <code>high</code>, both
+      <code>.env</code>-configurable.</b> Build at <code>low</code>, pay only when filming.</li>
+    <li class="is-lock"><b>Text model <code>claude-sonnet-5-5</code>, pinned and
+      <code>.env</code>-configurable.</b> You caught that <code>claude-sonnet-5</code> was
+      superseded on 2026-09-28. Structured-output support and the sampling-parameter rejection
+      were re-verified against the 5.5 family rather than inherited, and slice 1 now probes the
+      text model too.</li>
+    <li class="is-lock"><b>One 4-panel layout with fixed per-panel sizes</b> &mdash; wide / two
+      squares / wide, passed in each request and echoed as a framing line in each prompt, so a
+      panel is never scaled into its slot. Sheet is landscape, because it&#8217;s a row of
+      poses.</li>
+    <li class="is-lock"><b><code>update()</code> serialized through one lock; queue, lock and
+      <code>serverRunId</code> on <code>globalThis</code>.</b> You found the lost-update race:
+      two panels finishing together would both read-modify-write, and the second write would
+      silently revert the first to a placeholder. Route handlers declare
+      <code>runtime = 'nodejs'</code>.</li>
+    <li><b>Next.js App Router, TypeScript, both keys in server route handlers.</b> Tradeoff
+      accepted: React rather than Angular, and the mockup's CSS is ported rather than reused.</li>
+    <li class="is-lock"><b>Server-side disk storage.</b>
+      <code>data/images/&lt;id&gt;.png</code> + one <code>data/chapter.json</code>; the browser
+      only ever sees <code>/api/image/&lt;id&gt;</code>. Tradeoff accepted: this is a local-only
+      design, and a deployed version would need real object storage.</li>
+    <li><b>Generation survives a reload, with a timeout-and-restart floor.</b> A change to the
+      approved PRD, recorded there rather than edited in silently.</li>
+    <li><b>Local only; deployment stays in Later</b> &mdash; and when revisited, it comes with a
+      server-side image cap, because a public URL would otherwise expose the image budget.</li>
+    <li><b>Panel concurrency 2.</b> Margin rather than necessity at Build-tier limits.</li>
+    <li><b>Structured JSON output with <code>zod</code> on all four text calls.</b> An
+      implementation detail derived from the above, not a product decision &mdash; it also turns
+      the one-character-per-panel rule into something the API enforces.</li>
+  </ul>
+
+  <h4>Open &mdash; none of it blocks the build</h4>
+  <ul>
+    <li><strong>The generation timeout value.</strong> Needs a real number; the kernel test
+      measures it. Placeholder <code>180000</code> in <code>.env.example</code>.</li>
+    <li><strong>Your OpenAI tier.</strong> Build / Launch / Grow changes the IPM ceiling.
+      Concurrency 2 is safe on all three &mdash; confirm before filming.</li>
+    <li><strong>The exact Next.js version.</strong> Whatever <code>create-next-app@latest</code>
+      installs; nothing here depends on a specific major.</li>
+    <li>Carried from the PRD: page script as its own rail entry vs. a step inside Storyboard
+      (drafted as a step); genre and tone chip sets (as the mockup has them); ink-in reveal timing
+      in the reader (tune during build).</li>
+    <li><strong>A server-side image cap</strong> &mdash; not built, since the app stays local-only.
+      Becomes required if deployment is revisited.</li>
+  </ul>
+</section>
+
+<footer>
+  <p><strong>Ink Desk — Technical Spec.</strong> Visual companion to
+    <code>devpost/spec.md</code>, which stays canonical. Regenerated after revisions.</p>
+  <p style="margin-bottom:0"><code>reference/Ink Desk.html</code> and the Ink Desk logo are
+    pre-existing work by the learner, made before this project. The mockup is
+    <strong>gitignored</strong> &mdash; it stays on disk as a reference and is not in the repo;
+    the logo files are tracked because the app loads them. Either way both are
+    <strong>disclosed in the README at ship time</strong>: ignoring a file does not remove the
+    disclosure obligation.</p>
+</footer>
+
+</div></div>
+<script>
+  (function () {
+    var tabs = Array.prototype.slice.call(document.querySelectorAll('.stepnav button'));
+    function show(i) {
+      tabs.forEach(function (t, j) {
+        t.setAttribute('aria-selected', j === i ? 'true' : 'false');
+        document.getElementById(t.getAttribute('aria-controls')).hidden = j !== i;
+      });
+    }
+    tabs.forEach(function (t, i) {
+      t.addEventListener('click', function () { show(i); });
+      t.addEventListener('keydown', function (e) {
+        var d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+        if (!d) return;
+        e.preventDefault();
+        var n = (i + d + tabs.length) % tabs.length;
+        show(n); tabs[n].focus();
+      });
+    });
+  })();
+</script>
+</body>
+</html>

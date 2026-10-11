@@ -13,8 +13,12 @@
 # Image bytes and chapter state are reproducible and can be large.
 /data/
 
+# The pre-existing UI mockup. Visual reference only, kept out of the repo —
+# still disclosed in the README at ship time as pre-existing work.
+/reference/
+
 # Safety net: generated art anywhere. Scoped so the hand-made logo
-# files in /assets and the mockup in /reference stay tracked.
+# files in /assets stay tracked.
 /public/chapter/
 /public/generated/
 *.generated.png
