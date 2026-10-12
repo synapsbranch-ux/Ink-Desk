@@ -1,0 +1,691 @@
+/* Ink Desk — design tokens and the studio shell.
+   Ported from reference/Ink Desk.html (the pre-existing mockup), per
+   devpost/spec.md > Look and Feel. The mockup's code is not reused; its
+   values are. */
+
+:root {
+  /* Palette */
+  --paper: #f3f2f2;
+  --surface: #eae9e9;
+  --ink: #201f1d;
+  --hanko: #b5382e; /* the single brand red */
+  --hanko-100: #fcecea;
+  --hanko-200: #f6d0cc;
+  --hanko-300: #eba49d;
+  --hanko-400: #d9746b;
+  --hanko-500: #c24a3f;
+  --hanko-600: #a2352b;
+  --hanko-700: #82281f;
+  --hanko-800: #5f1d17;
+  --hanko-900: #3e140f;
+  --neutral-100: #f8f4f4;
+  --neutral-200: #eae7e7;
+  --neutral-300: #d7d3d3;
+  --neutral-400: #bab6b6;
+  --neutral-500: #9b9797;
+  --neutral-600: #7d7979;
+  --neutral-700: #605d5d;
+  --neutral-800: #444141;
+  --neutral-900: #2d2b2b;
+  --divider: color-mix(in srgb, var(--ink) 16%, transparent);
+
+  /* Motion */
+  --ink-speed: 1.4s; /* pencil → ink reveal, from the mockup */
+
+  /* Rhythm — the mockup's exact scale */
+  --space-1: 4.6px;
+  --space-2: 9.2px;
+  --space-3: 13.8px;
+  --space-4: 18.4px;
+  --space-6: 27.6px;
+  --space-8: 36.8px;
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 7px;
+  --shadow-sm: 0 1px 2px color-mix(in srgb, var(--neutral-900) 14%, transparent);
+  --shadow-md: 0 3px 10px color-mix(in srgb, var(--neutral-900) 16%, transparent);
+  --shadow-lg: 0 12px 32px color-mix(in srgb, var(--neutral-900) 22%, transparent);
+
+  /* Halftone, in pure CSS — dot screens and tone bands */
+  --halftone-dots: radial-gradient(circle, var(--neutral-400) 1.2px, transparent 1.8px) 0 0 / 8px 8px;
+  --halftone-dots-fine: radial-gradient(circle, var(--neutral-700) 1.1px, transparent 1.6px) 0 0 / 6px 6px;
+  --halftone-bands: repeating-linear-gradient(0deg, var(--neutral-300) 0 1px, transparent 1px 6px);
+  --halftone-sketch: repeating-linear-gradient(25deg, var(--neutral-300) 0 1px, transparent 1px 11px);
+
+  /* Type: --font-heading, --font-body and --font-letter are set on <html>
+     by next/font in app/layout.tsx. */
+  --font-heading-weight: 600;
+}
+
+/* --- Base ------------------------------------------------------------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  min-height: 100vh;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body), Georgia, serif;
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  white-space: nowrap;
+}
+
+a {
+  color: var(--hanko-700);
+}
+a:hover {
+  color: var(--hanko-600);
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-family: var(--font-heading), Georgia, serif;
+  font-weight: var(--font-heading-weight);
+}
+
+.eyebrow {
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--neutral-700);
+}
+.eyebrow-sm {
+  font-size: 11px;
+}
+
+.hr {
+  height: 1px;
+  background: var(--divider);
+}
+
+/* --- Buttons, chips, cards, inputs ------------------------------------ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  text-decoration: none;
+  font-family: var(--font-heading), Georgia, serif;
+  font-weight: var(--font-heading-weight);
+  font-size: 14px;
+  line-height: 1.2;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid transparent;
+  padding: var(--space-2) calc(var(--space-3) * 1.2);
+  border-radius: var(--radius-md);
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.btn-lg {
+  font-size: 17px;
+  padding: calc(var(--space-2) * 1.2) var(--space-4);
+}
+.btn-primary {
+  color: var(--hanko);
+  border-color: var(--hanko);
+}
+.btn-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--hanko) 12%, transparent);
+}
+.btn-secondary {
+  border-color: var(--divider);
+}
+.btn-secondary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+}
+.btn-ghost {
+  color: var(--hanko);
+  padding-inline: var(--space-1);
+}
+.btn-ghost:hover:not(:disabled) {
+  color: var(--hanko-700);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.chip {
+  font: inherit;
+  font-size: 15px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  border: 1px solid var(--divider);
+  background: transparent;
+  color: var(--ink);
+}
+.chip:hover {
+  border-color: var(--neutral-500);
+}
+.chip.is-selected {
+  border-color: var(--hanko);
+  background: var(--hanko-100);
+  color: var(--hanko-800);
+}
+.chip-tone {
+  font-style: italic;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: transparent;
+  border: 1px solid var(--divider);
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  padding: 3px 10px;
+  border-radius: calc(var(--radius-md) * 0.75);
+}
+.tag-outline {
+  border: 1px solid var(--hanko);
+  color: var(--hanko);
+}
+.tag-neutral {
+  background: var(--neutral-100);
+  color: var(--neutral-800);
+}
+
+.input {
+  width: 100%;
+  font: inherit;
+  color: var(--ink);
+  caret-color: var(--hanko);
+  background: transparent;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-md);
+  padding: 6px 10px;
+}
+.input:focus-visible {
+  outline: none;
+  border-color: var(--hanko);
+}
+
+/* The hanko seal. Reserved for primary actions and the Locked/Accepted
+   badge; it should feel like a stamp landing. */
+.stamp {
+  position: absolute;
+  top: var(--space-6);
+  right: var(--space-6);
+  border: 2px solid var(--hanko);
+  color: var(--hanko);
+  border-radius: var(--radius-sm);
+  padding: 4px 12px;
+  font-family: var(--font-heading), Georgia, serif;
+  font-weight: 600;
+  font-size: 18px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  transform: rotate(-7deg);
+  mix-blend-mode: multiply;
+  animation: stamp-land 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+@keyframes stamp-land {
+  0% {
+    opacity: 0;
+    transform: rotate(-7deg) scale(1.8);
+  }
+  60% {
+    opacity: 1;
+    transform: rotate(-7deg) scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: rotate(-7deg) scale(1);
+  }
+}
+
+/* A pencil-sketch surface with a slow shimmer — the "something is being
+   drawn" state. Reused by the panel placeholders later. */
+.sketch {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-md);
+  background: var(--halftone-sketch), var(--neutral-200);
+}
+.sketch::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 25%, rgba(255, 255, 255, 0.55) 50%, transparent 75%);
+  transform: translateX(-100%);
+  animation: shimmer 1.8s ease-in-out infinite;
+}
+@keyframes shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+.sketch-label {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-heading), Georgia, serif;
+  font-size: 20px;
+  font-style: italic;
+  color: var(--neutral-700);
+}
+
+.notice {
+  padding: var(--space-3) var(--space-4);
+  border-left: 3px solid var(--hanko);
+  background: var(--surface);
+  font-size: 15px;
+}
+
+/* --- Studio shell ----------------------------------------------------- */
+
+.studio {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.studio-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  padding: 0 var(--space-6);
+  height: 60px;
+  border-bottom: 1px solid var(--divider);
+  flex-shrink: 0;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.brand-mark {
+  display: block;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+}
+.brand-name {
+  font-family: var(--font-heading), Georgia, serif;
+  font-weight: 600;
+  font-size: 25px;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+.header-divider {
+  width: 1px;
+  height: 26px;
+  background: var(--divider);
+}
+.chapter-title {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.chapter-title-text {
+  font-family: var(--font-heading), Georgia, serif;
+  font-size: 19px;
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.header-spacer {
+  flex: 1;
+}
+.header-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  font-size: 13px;
+  color: var(--neutral-700);
+  white-space: nowrap;
+}
+.image-counter {
+  font-variant-numeric: tabular-nums;
+}
+.save-label {
+  font-style: italic;
+  transition: color 0.2s;
+}
+.save-label.is-saving {
+  color: var(--neutral-500);
+}
+.save-label.is-error {
+  color: var(--hanko-600);
+  font-style: normal;
+}
+
+/* The station rail: progress indicator and navigation in one. */
+.rail {
+  display: flex;
+  align-items: stretch;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--divider);
+  padding: 0 var(--space-6);
+  flex-shrink: 0;
+}
+.rail-station {
+  position: relative;
+  flex: 1;
+  min-width: 160px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-2);
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--ink);
+  transition: background 0.15s;
+}
+.rail-station:hover {
+  background: var(--neutral-200);
+}
+.rail-station:focus-visible {
+  outline: 2px solid var(--hanko);
+  outline-offset: -2px;
+}
+.rail-station.is-active {
+  border-bottom-color: var(--hanko);
+}
+.rail-mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1.5px solid var(--ink);
+  display: grid;
+  place-items: center;
+  font-family: var(--font-heading), Georgia, serif;
+  font-size: 17px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.rail-station.is-active .rail-mark {
+  border-color: var(--hanko);
+  color: var(--hanko);
+}
+.rail-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  white-space: nowrap;
+}
+.rail-name {
+  font-family: var(--font-heading), Georgia, serif;
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+.rail-sub {
+  font-size: 12px;
+  color: var(--neutral-700);
+  font-style: italic;
+}
+.rail-line {
+  flex: 1;
+  height: 1px;
+  background: var(--divider);
+  margin-left: var(--space-3);
+}
+
+/* Locked stations: not disabled, so hover still works everywhere — clicks
+   are ignored in the handler and the hint explains why. */
+.rail-station.is-locked {
+  cursor: not-allowed;
+  color: var(--neutral-500);
+}
+.rail-station.is-locked:hover {
+  background: transparent;
+}
+.rail-station.is-locked .rail-mark {
+  border-color: var(--neutral-400);
+  border-style: dashed;
+  color: var(--neutral-500);
+}
+.rail-station.is-locked .rail-sub {
+  color: var(--neutral-500);
+}
+.rail-hint {
+  position: absolute;
+  left: var(--space-2);
+  top: calc(100% + 6px);
+  z-index: 20;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 13px;
+  font-style: italic;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  box-shadow: var(--shadow-md);
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition:
+    opacity 0.15s,
+    transform 0.15s;
+}
+.rail-station.is-locked:hover .rail-hint,
+.rail-station.is-locked:focus-visible .rail-hint {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* --- Stations --------------------------------------------------------- */
+
+.station {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-8) var(--space-6);
+}
+.station-inner {
+  max-width: 860px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+.station-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.station-title {
+  font-family: var(--font-heading), Georgia, serif;
+  font-weight: 400;
+  font-size: 68px;
+  line-height: 1;
+  letter-spacing: -0.01em;
+}
+.station-lede {
+  max-width: 620px;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--neutral-800);
+  text-wrap: pretty;
+}
+.studio-opening {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-heading), Georgia, serif;
+  font-size: 22px;
+  font-style: italic;
+  color: var(--neutral-700);
+}
+
+/* Story — the pitch desk */
+.pitch-box {
+  font-family: var(--font-heading), Georgia, serif;
+  font-size: 28px;
+  line-height: 1.3;
+  padding: var(--space-4);
+  min-height: 0;
+  resize: vertical;
+}
+.pitch-box::placeholder {
+  color: var(--neutral-500);
+  font-style: italic;
+}
+.pitch-aside {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: calc(var(--space-2) * -1);
+  font-size: 14px;
+  font-style: italic;
+  color: var(--neutral-700);
+}
+.options-grid {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr);
+  gap: var(--space-3) var(--space-4);
+  align-items: center;
+}
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.action-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.helper {
+  font-size: 14px;
+  color: var(--neutral-700);
+  font-style: italic;
+}
+
+.synopsis-empty {
+  height: 220px;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-md);
+  background: var(--halftone-dots);
+  display: grid;
+  place-items: center;
+}
+.synopsis-empty > span {
+  background: var(--paper);
+  border: 1px solid var(--ink);
+  padding: var(--space-3) var(--space-4);
+  font-family: var(--font-heading), Georgia, serif;
+  font-size: 20px;
+  font-style: italic;
+}
+.synopsis-loading {
+  height: 220px;
+}
+
+.synopsis-card {
+  position: relative;
+  padding: var(--space-6);
+  gap: var(--space-3);
+}
+.synopsis-title {
+  width: 100%;
+  font-family: var(--font-heading), Georgia, serif;
+  font-weight: 500;
+  font-size: 40px;
+  line-height: 1.1;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  background: transparent;
+  color: var(--ink);
+  padding: 0;
+  outline: none;
+}
+.synopsis-title:focus {
+  border-bottom-color: var(--hanko);
+}
+.synopsis-body {
+  width: 100%;
+  font-family: var(--font-body), Georgia, serif;
+  font-size: 17px;
+  line-height: 1.6;
+  text-align: justify;
+  hyphens: auto;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  padding: 0;
+  resize: none;
+  outline: none;
+}
+.synopsis-text {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.6;
+  text-align: justify;
+  hyphens: auto;
+  white-space: pre-wrap;
+}
+.synopsis-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--divider);
+}
+
+@media (max-width: 720px) {
+  .studio-header {
+    gap: var(--space-3);
+    padding: 0 var(--space-4);
+  }
+  .chapter-title {
+    display: none;
+  }
+  .header-divider {
+    display: none;
+  }
+  .station {
+    padding: var(--space-6) var(--space-4);
+  }
+  .station-title {
+    font-size: 44px;
+  }
+  .pitch-box {
+    font-size: 22px;
+  }
+  .options-grid {
+    grid-template-columns: 1fr;
+  }
+}
