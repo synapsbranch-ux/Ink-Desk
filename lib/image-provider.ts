@@ -1,155 +1,136 @@
-// One OpenRouter call, for both surfaces. Server only — this is the second of
-// the two files that see an API key.
-// See `devpost/spec.md > External Services and Dependencies > OpenRouter —
-// GPT Image (pictures)`.
+// The one OpenRouter call. Server only — the second of the two files that
+// see an API key. See `devpost/spec.md > External Services and Dependencies
+// > OpenRouter — GPT Image (pictures)`.
 //
-// The structural point: OpenRouter has ONE image route. A sheet is this call
-// without `references`; a panel is this call with one. That is the whole
-// difference, which is why the kernel is a single extra field rather than a
-// different endpoint. Proven end to end by `scripts/kernel-test.mjs`.
-//
-// No SDK: the body shape (`aspect_ratio`, `input_references`) is not the
-// OpenAI images API, so a client would hide the request rather than help.
-import { ProviderError } from './claude'
+// One endpoint for both surfaces: a sheet is this call without `references`,
+// a panel is this call with one. Proven by `scripts/kernel-test.mjs` in
+// slices 1–2 and ported from it:
+//   • `aspect_ratio`, never `size` — there is no pixel parameter on this model;
+//   • the reference travels as a base64 data URI inside the JSON body;
+//   • the response is `b64_json` plus a `media_type`, never a URL;
+//   • `usage.cost` is the real price of the call, logged every time.
+import { ProviderError } from './errors'
 
-const API = 'https://openrouter.ai/api/v1'
+const API = 'https://openrouter.ai/api/v1/images'
 
-export const IMAGE_MODEL = process.env.IMAGE_MODEL ?? 'openai/gpt-image-2.5-sunburst'
-export const SHEET_ASPECT = process.env.IMAGE_SHEET_ASPECT ?? '3:2'
-export const PANEL_ASPECT_WIDE = process.env.IMAGE_PANEL_ASPECT_WIDE ?? '3:2'
-export const PANEL_ASPECT_SQUARE = process.env.IMAGE_PANEL_ASPECT_SQUARE ?? '1:1'
-export const SHEET_QUALITY = process.env.IMAGE_SHEET_QUALITY ?? 'low'
-export const PANEL_QUALITY = process.env.IMAGE_PANEL_QUALITY ?? 'low'
-
-/** `media_type` picks the extension — never a hardcoded `.png`. Writing JPEG
- *  bytes into a `.png` name produces a file some viewers open, the canvas
- *  export may not, and nobody thinks to suspect. Unknown types are a hard
- *  failure rather than a guess. */
-const EXT_BY_MEDIA_TYPE: Record<string, string> = {
-  'image/png': 'png',
-  'image/jpeg': 'jpg',
-  'image/webp': 'webp',
-}
-
-export type GeneratedImage = {
-  bytes: Buffer
-  ext: string
-  mediaType: string
-  /** The real dollar cost of this one call, straight from the provider. */
-  cost: number | null
-  ms: number
-}
-
-type Options = {
+export type ImageRequest = {
   prompt: string
   aspect: string
   quality: string
-  /** The kernel. Present for a panel, absent for a sheet. */
-  references?: Buffer[]
-  /** Prefixes the terminal log line, e.g. `sheet` or `panel 3`. */
+  /** Locked sheets, as raw bytes. Absent for a sheet; one entry for a panel. */
+  references?: { bytes: Buffer; mediaType: string }[]
+  /** For the terminal log only, e.g. "sheet · Kaito Ren". */
   label: string
 }
 
-/**
- * Generate one image. Throws `ProviderError` with a sentence fit for the
- * browser; the raw cause is logged by the caller and never sent on.
- */
-export async function generateImage({
-  prompt,
-  aspect,
-  quality,
-  references = [],
-  label,
-}: Options): Promise<GeneratedImage> {
+export type GeneratedImage = {
+  b64: string
+  mediaType: string
+  costUsd: number | null
+  ms: number
+}
+
+/** Read at call time, so a `.env` edit needs only a dev-server restart. */
+export function imageConfig() {
+  return {
+    model: process.env.IMAGE_MODEL ?? 'openai/gpt-image-2.5-sunburst',
+    sheetAspect: process.env.IMAGE_SHEET_ASPECT ?? '3:2',
+    sheetQuality: process.env.IMAGE_SHEET_QUALITY ?? 'low',
+    panelAspectWide: process.env.IMAGE_PANEL_ASPECT_WIDE ?? '3:2',
+    panelAspectSquare: process.env.IMAGE_PANEL_ASPECT_SQUARE ?? '1:1',
+    panelQuality: process.env.IMAGE_PANEL_QUALITY ?? 'low',
+    timeoutMs: Number(process.env.GENERATION_TIMEOUT_MS ?? 360000),
+  }
+}
+
+const BUSY = 'The image model didn’t answer just now.'
+
+type ImagesResponse = {
+  data?: { b64_json?: string; media_type?: string }[]
+  usage?: { cost?: number }
+}
+
+export async function generateImage(req: ImageRequest): Promise<GeneratedImage> {
   const key = process.env.OPENROUTER_API_KEY
   if (!key) {
     throw new ProviderError(
-      'The studio isn’t connected to the art board yet. Add OPENROUTER_API_KEY to .env and restart the dev server.',
+      'The studio isn’t connected to the image model yet. Add OPENROUTER_API_KEY to .env and restart the dev server.',
       'config'
     )
   }
+  const cfg = imageConfig()
 
-  const body: Record<string, unknown> = { model: IMAGE_MODEL, prompt, aspect_ratio: aspect, quality, n: 1 }
-
-  // References travel as base64 data URIs inside the JSON body — no FormData,
-  // no Blob. This makes the body ~4/3 the size of the PNG, which is fine for
-  // the one reference a panel ever sends.
-  if (references.length) {
-    body.input_references = references.map((png) => ({
+  const body: Record<string, unknown> = {
+    model: cfg.model,
+    prompt: req.prompt,
+    aspect_ratio: req.aspect,
+    quality: req.quality,
+    n: 1,
+  }
+  if (req.references?.length) {
+    body.input_references = req.references.map((r) => ({
       type: 'image_url',
-      image_url: { url: `data:image/png;base64,${png.toString('base64')}` },
+      image_url: { url: `data:${r.mediaType};base64,${r.bytes.toString('base64')}` },
     }))
   }
 
   const started = Date.now()
   let res: Response
   try {
-    res = await fetch(`${API}/images`, {
+    res = await fetch(API, {
       method: 'POST',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(cfg.timeoutMs),
     })
   } catch (err) {
-    throw new ProviderError('The art board didn’t answer just now. Try again in a moment.', 'provider', err)
+    // A timeout or a network failure. Slice 6 adds the one silent retry.
+    throw new ProviderError(BUSY, 'provider', err)
   }
+  if (!res.ok) throw await failure(res, req.label)
 
-  if (!res.ok) throw await providerFailure(res, label)
-
-  const json = (await res.json()) as {
-    data?: { b64_json?: string; media_type?: string }[]
-    usage?: { cost?: number }
-  }
+  const json = (await res.json()) as ImagesResponse
   const item = json.data?.[0]
   if (!item?.b64_json) {
-    throw new ProviderError(
-      'The art board sent back nothing to draw. Try again in a moment.',
-      'provider',
-      JSON.stringify(json).slice(0, 600)
-    )
+    throw new ProviderError(BUSY, 'provider', JSON.stringify(json).slice(0, 600))
   }
 
-  const mediaType = item.media_type ?? 'image/png'
-  const ext = EXT_BY_MEDIA_TYPE[mediaType]
-  if (!ext) {
-    throw new ProviderError(
-      'The art board sent an image this studio can’t read. Try again in a moment.',
-      'provider',
-      `unrecognised media_type "${mediaType}" — add it to EXT_BY_MEDIA_TYPE rather than guessing`
-    )
-  }
-
-  const cost = json.usage?.cost ?? null
   const ms = Date.now() - started
-  // The real price of this call, better than any table in the spec.
+  const costUsd = json.usage?.cost ?? null
+  const mediaType = item.media_type ?? 'image/png'
   console.log(
-    `[image] ${label} · ${quality} ${aspect} · ${(ms / 1000).toFixed(1)}s · ${
-      cost == null ? 'cost not reported' : `$${cost.toFixed(4)}`
-    }`
+    `[image] ${req.label} — ${(ms / 1000).toFixed(1)}s · ${costUsd == null ? 'cost not reported' : `$${costUsd.toFixed(4)}`} · ${mediaType} · ${cfg.model} ${req.quality} ${req.aspect}`
   )
-
-  return { bytes: Buffer.from(item.b64_json, 'base64'), ext, mediaType, cost, ms }
+  return { b64: item.b64_json, mediaType, costUsd, ms }
 }
 
 /**
- * 402 is the one that will actually happen, and it fails every image at once
- * rather than one unlucky panel. The terminal gets the four-line explanation
- * with the real fix; the browser gets a calm sentence, per
- * `devpost/spec.md > Important Failure Modes`.
+ * The browser gets a sentence; the terminal gets the cause. 402 gets the full
+ * explanation because it is the one failure that hits every image at once,
+ * and the calm "busy" sentence in the browser is honest but incomplete.
  */
-async function providerFailure(res: Response, label: string): Promise<ProviderError> {
-  const detail = await res.text().catch(() => '')
+async function failure(res: Response, label: string): Promise<ProviderError> {
+  const text = await res.text().catch(() => '')
 
   if (res.status === 402) {
-    console.error(`[image] ${label} — OpenRouter returned 402, out of credits.`)
-    console.error('        The balance is at or below $1, which is where OpenRouter stops serving.')
-    console.error('        Top up at https://openrouter.ai/settings/credits.')
-    console.error('        A full filming run needs about $2.50 of headroom.')
-    return new ProviderError('The studio is out of ink for today.', 'provider', `402 ${detail.slice(0, 300)}`)
+    console.error(
+      [
+        `✗ OpenRouter returned 402 — out of credits (${label}).`,
+        '  The balance is at or below $1, which is where OpenRouter stops serving.',
+        '  Top up at https://openrouter.ai/settings/credits and try again.',
+        '  A full filming run needs about $2.50 of headroom.',
+      ].join('\n')
+    )
+    return new ProviderError(BUSY, 'provider', `402 ${text.slice(0, 300)}`)
   }
 
-  const calm =
-    res.status === 429
-      ? 'The art board is busy. Try again in a moment.'
-      : 'The art board didn’t come back. Try again in a moment.'
-  return new ProviderError(calm, 'provider', `HTTP ${res.status} ${detail.slice(0, 600)}`)
+  if (res.status === 400 && /moderation|safety|content[_ ]policy|refus|not allowed/i.test(text)) {
+    return new ProviderError(
+      'The image model wouldn’t draw that description as written. Edit the look and draw again.',
+      'refused',
+      `400 ${text.slice(0, 600)}`
+    )
+  }
+
+  return new ProviderError(BUSY, 'provider', `HTTP ${res.status} ${text.slice(0, 600)}`)
 }

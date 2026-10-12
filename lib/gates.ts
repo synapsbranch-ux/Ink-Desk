@@ -15,7 +15,7 @@ export function gates(chapter: Chapter): Gates {
   const bothLocked = cast.length === 2 && unlocked.length === 0
   const storyboardHint =
     cast.length === 2 && unlocked.length === 1
-      ? `Lock ${unlocked[0].name}'s sheet first.`
+      ? `Lock ${unlocked[0].name}’s sheet first.`
       : 'Lock both model sheets first.'
 
   const panels = chapter.script ?? []
