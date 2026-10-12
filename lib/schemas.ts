@@ -23,6 +23,7 @@ export const CharacterProposalSchema = z.object({
   traits: z.array(z.string()).describe('Three short personality traits.'),
   look: z.string().describe('A short description of how they look, two or three sentences.'),
 })
+export type CharacterProposal = z.infer<typeof CharacterProposalSchema>
 
 /** Exactly two characters, by construction. */
 export const CastSchema = z.object({
@@ -63,6 +64,18 @@ export function pageScriptSchema(lockedIds: [string, string]) {
 
 export const StationSchema = z.enum(['story', 'cast', 'storyboard', 'reader'])
 
+/** One card's edit. `locked: true` is the Lock click; there is no unlock. */
+const CharacterEditSchema = z
+  .object({
+    name: z.string(),
+    role: z.string(),
+    traits: z.array(z.string()),
+    look: z.string(),
+    locked: z.literal(true),
+  })
+  .partial()
+  .strict()
+
 export const ChapterPatchSchema = z
   .object({
     station: StationSchema.optional(),
@@ -71,6 +84,8 @@ export const ChapterPatchSchema = z
       .object({ title: z.string(), body: z.string(), accepted: z.boolean() })
       .partial()
       .optional(),
+    /** Keyed by character id. */
+    cast: z.record(z.string(), CharacterEditSchema).optional(),
   })
   .strict()
 
@@ -78,4 +93,12 @@ export const SynopsisRequestSchema = z.object({
   pitch: z.string().trim().min(1),
   genre: z.string().min(1),
   tone: z.string().min(1),
+})
+
+export const RerollRequestSchema = z.object({ id: z.string().min(1) })
+
+export const SheetRequestSchema = z.object({
+  id: z.string().min(1),
+  /** Redraw: keep the DNA on the card. Draw / after a look edit: write it fresh. */
+  reuseDna: z.boolean().optional(),
 })

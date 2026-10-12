@@ -9,7 +9,8 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "kernel-test": "node scripts/kernel-test.mjs",
-    "check:store": "tsx scripts/chapter-store-check.mts"
+    "check:store": "tsx scripts/chapter-store-check.mts",
+    "check:cast": "tsx scripts/cast-check.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",

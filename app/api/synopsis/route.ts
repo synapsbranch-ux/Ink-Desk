@@ -1,7 +1,8 @@
 // Pitch + genre + tone → Claude → a synopsis, written to the desk unaccepted.
 // Calling it again is "Rewrite": the new draft replaces the old one.
 import { update } from '@/lib/chapter'
-import { ProviderError, writeSynopsis } from '@/lib/claude'
+import { writeSynopsis } from '@/lib/claude'
+import { errorResponse } from '@/lib/errors'
 import { SynopsisRequestSchema } from '@/lib/schemas'
 
 export const runtime = 'nodejs'
@@ -15,23 +16,15 @@ export async function POST(req: Request) {
   }
   const { pitch, genre, tone } = parsed.data
 
-  let synopsis
   try {
-    synopsis = await writeSynopsis({ pitch, genre, tone })
+    const synopsis = await writeSynopsis({ pitch, genre, tone })
+    const chapter = await update((c) => ({
+      ...c,
+      pitch: { text: pitch, genre, tone },
+      synopsis: { title: synopsis.title, body: synopsis.body, accepted: false },
+    }))
+    return Response.json(chapter)
   } catch (err) {
-    // The terminal gets the real cause; the browser gets a sentence.
-    if (err instanceof ProviderError) {
-      console.error(`[synopsis] ${err.message}`, err.cause ?? '')
-      return Response.json({ error: err.kind === 'config' ? err.message : CALM }, { status: 502 })
-    }
-    console.error('[synopsis] unexpected failure:', err)
-    return Response.json({ error: CALM }, { status: 502 })
+    return errorResponse(err, 'synopsis', CALM)
   }
-
-  const chapter = await update((c) => ({
-    ...c,
-    pitch: { text: pitch, genre, tone },
-    synopsis: { title: synopsis.title, body: synopsis.body, accepted: false },
-  }))
-  return Response.json(chapter)
 }

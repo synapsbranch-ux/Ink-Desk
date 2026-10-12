@@ -139,3 +139,105 @@ export function panelPrompt(
     STYLE_RULES,
   ].join('\n')
 }
+
+// --- Cast station ---------------------------------------------------------
+//
+// Three text calls. The cast and reroll prompts produce the editable words on
+// a card; the DNA prompt produces the paragraph that is frozen at lock and
+// pasted verbatim into every image request — the words half of the kernel.
+
+export type CharacterText = { name: string; role: string; traits: string[]; look: string }
+
+const CHARACTER_RULES = [
+  '- role: their part in the story in a few words, e.g. "Lead · rooftop courier".',
+  '- traits: three short personality traits, one or two words each.',
+  '- look: two or three sentences describing only what can be seen — apparent age',
+  '  and build, hair, eyes, face, skin, clothes — ending with one or two',
+  '  distinguishing marks an artist could spot from across the street: a scar, a',
+  '  scarf, an eyepatch, a cap. Those marks are what keep a character recognizable',
+  '  between a close-up and a wide shot, so make them specific.',
+  '- Plain prose, no markdown, suitable for a general audience.',
+]
+
+export function castPrompt(synopsis: { title: string; body: string }): string {
+  return [
+    'You are the character designer at Ink Desk, a small manga studio. The story',
+    'editor has accepted this synopsis for a one-page, four-panel chapter. Propose',
+    'the two characters it names, for the artist to draw model sheets from.',
+    '',
+    `Title: ${synopsis.title}`,
+    `Synopsis: ${synopsis.body}`,
+    '',
+    'Requirements:',
+    '- Exactly two characters: "first" is the lead, "second" is the counterpart.',
+    '  Use the names the synopsis gives them.',
+    '- Make the two easy to tell apart at a glance: different builds, hair and',
+    '  clothing, not two variations of one design.',
+    ...CHARACTER_RULES,
+  ].join('\n')
+}
+
+export function rerollPrompt(
+  synopsis: { title: string; body: string },
+  keep: CharacterText,
+  replace: CharacterText
+): string {
+  return [
+    'You are the character designer at Ink Desk, a small manga studio. The',
+    'storyteller wants a fresh take on one of the two characters in this synopsis.',
+    '',
+    `Title: ${synopsis.title}`,
+    `Synopsis: ${synopsis.body}`,
+    '',
+    `Keep this character exactly as they are: ${keep.name} — ${keep.role}.`,
+    '',
+    `Replace this proposal for ${replace.name}:`,
+    `  role: ${replace.role}`,
+    `  traits: ${replace.traits.join(', ')}`,
+    `  look: ${replace.look}`,
+    '',
+    'Requirements:',
+    `- Keep the name ${replace.name}, since the story uses it. Everything else is a`,
+    '  genuinely different proposal: a new look with new distinguishing marks, a',
+    '  different set of traits, a fresh role line.',
+    `- Still easy to tell apart from ${keep.name} at a glance.`,
+    ...CHARACTER_RULES,
+  ].join('\n')
+}
+
+/**
+ * The DNA prompt. The paragraph it returns is the sheet prompt's subject and,
+ * once locked, is pasted word for word into every panel request — see
+ * `devpost/scope.md > The Unique Kernel`. It asks for exactly the things the
+ * kernel test showed hold across shots: a full outfit and one or two marks
+ * visible from any distance.
+ */
+export function dnaPrompt(character: CharacterText, synopsis: { title: string; body: string }): string {
+  return [
+    'You are the character designer at Ink Desk, a small manga studio. Write the',
+    `visual DNA for ${character.name}: one paragraph that will be pasted, word for`,
+    'word, into every image request this character appears in, so the artist',
+    'draws the same person on the model sheet and in every panel after it.',
+    '',
+    `Story: ${synopsis.title} — ${synopsis.body}`,
+    '',
+    'The character, as the storyteller described them:',
+    `  name: ${character.name}`,
+    `  role: ${character.role}`,
+    `  traits: ${character.traits.join(', ')}`,
+    `  look: ${character.look}`,
+    '',
+    'Requirements:',
+    '- Start with their name, apparent age and sex. Then hair (length, cut, colour,',
+    '  how it falls), eyes, face shape, skin tone, build, and the full outfit from',
+    '  head to foot with its colours.',
+    '- End with one or two distinguishing marks that stay visible from a distance',
+    '  and from any angle — a scar, a scarf, a cap, an eyepatch, a pendant. These',
+    '  are what hold the character together between a close-up and a wide shot.',
+    '- Only what can be drawn. No personality, no backstory, no motion, no setting.',
+    '- Keep everything the storyteller’s look says; add only what it leaves out.',
+    '  Nothing that contradicts it.',
+    '- One paragraph of plain prose, no line breaks, no lists, no markdown.',
+    '  Suitable for a general audience.',
+  ].join('\n')
+}

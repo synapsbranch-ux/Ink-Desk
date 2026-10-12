@@ -665,6 +665,221 @@ h3 {
   border-top: 1px solid var(--divider);
 }
 
+/* Cast — model sheets. The card is the mockup's: a bordered article with a
+   header, a figure grid, chips and a footer, with the hanko stamp landing on
+   the sheet art at lock. */
+.station-inner.is-wide {
+  max-width: 1240px;
+}
+.cast-head {
+  flex-direction: row;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-6);
+  flex-wrap: wrap;
+}
+.cast-head-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 280px;
+}
+.cast-next {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+  text-align: right;
+}
+.cast-loading {
+  height: 300px;
+}
+.cast-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.cast-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: var(--space-6);
+  align-items: start;
+}
+
+.cast-card {
+  position: relative;
+  padding: 0;
+  gap: 0;
+}
+.cast-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--divider);
+}
+.cast-card-id {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.cast-name {
+  width: 100%;
+  margin: 0;
+  font-family: var(--font-heading), Georgia, serif;
+  font-weight: 600;
+  font-size: 28px;
+  line-height: 1.1;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  padding: 0;
+  outline: none;
+}
+.cast-role {
+  width: 100%;
+  font-family: var(--font-body), Georgia, serif;
+  font-size: 14px;
+  font-style: italic;
+  color: var(--neutral-700);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  padding: 0;
+  outline: none;
+}
+input.cast-name:focus,
+input.cast-role:focus {
+  border-bottom-color: var(--hanko);
+}
+input.cast-name:disabled,
+input.cast-role:disabled,
+.cast-card .input:disabled {
+  opacity: 0.6;
+}
+/* The hanko lands on the card header, never over the sheet — the art is the
+   reference every panel is compared against, so nothing is drawn across it. */
+.cast-card .stamp {
+  top: var(--space-4);
+  right: var(--space-4);
+  z-index: 1;
+}
+
+.sheet-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: var(--space-4);
+  padding: var(--space-4);
+}
+.sheet-figure {
+  position: relative;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.sheet-art {
+  aspect-ratio: 3 / 2;
+  border: 1px solid var(--ink);
+  background: var(--neutral-100);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+.sheet-art.sketch {
+  border-radius: 0;
+  border-color: var(--ink);
+}
+.sheet-art img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #fff;
+}
+.sheet-empty {
+  background: var(--halftone-dots), var(--neutral-100);
+  border-style: dashed;
+  border-color: var(--neutral-500);
+}
+.sheet-empty > span {
+  background: var(--paper);
+  border: 1px solid var(--ink);
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-heading), Georgia, serif;
+  font-size: 17px;
+  font-style: italic;
+}
+.dna {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.dna-text,
+.dna-empty {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  hyphens: auto;
+}
+.dna-empty {
+  font-style: italic;
+  color: var(--neutral-700);
+}
+
+.cast-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 var(--space-4) var(--space-3);
+}
+.traits-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.traits-input {
+  font-size: 14px;
+}
+.cast-look {
+  font-size: 15px;
+  line-height: 1.5;
+  resize: vertical;
+}
+.cast-look-text {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+}
+.cast-card .notice {
+  margin: 0 var(--space-4) var(--space-3);
+}
+.cast-card-foot {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--divider);
+}
+.foot-helper {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
+}
+.cast-card.is-locked .cast-card-foot {
+  justify-content: flex-start;
+}
+
 @media (max-width: 720px) {
   .studio-header {
     gap: var(--space-3);
@@ -687,5 +902,18 @@ h3 {
   }
   .options-grid {
     grid-template-columns: 1fr;
+  }
+  .cast-grid {
+    grid-template-columns: 1fr;
+  }
+  .sheet-grid {
+    grid-template-columns: 1fr;
+  }
+  .cast-next {
+    align-items: flex-start;
+    text-align: left;
+  }
+  .foot-helper {
+    display: none;
   }
 }
