@@ -688,18 +688,23 @@ ink.desk/
 │   ├── images/<id>.png
 │   └── kernel-test/                 # sheet + two panels + index.html to compare
 ├── devpost/                         # the planning workspace
+├── reference/Ink Desk.html          # the pre-existing UI mockup, tracked
 ├── assets/{svg,png,webp}/           # the learner's logo, pre-existing, tracked
 ├── .env.example
 ├── .env                             # GITIGNORED
 └── README.md                        # setup, run, and the pre-existing-work disclosure
 ```
 
-**Not in the repo:** `reference/Ink Desk.html`, the pre-existing UI mockup, is
-gitignored — it stays on the learner's disk as a visual reference and is
-**still disclosed in the README at ship time** as pre-existing work, per
-`scope.md > Pre-Existing Work to Disclose in the README`. Ignoring the file does
-not remove the disclosure obligation; `6-ship` still has to write it. The logo
-files under `assets/` are tracked, because the app actually loads them.
+**Pre-existing work in the repo:** `reference/Ink Desk.html`, the UI mockup, is
+**tracked**, reversing the earlier decision to gitignore it — the learner needs
+it on more than one machine, and slice 3 ports its look. Its code is still not
+reused; it is a visual reference that now travels with the clone. It is
+**disclosed in the README at ship time** as pre-existing work, per
+`scope.md > Pre-Existing Work to Disclose in the README` — tracking it makes
+that obligation more visible rather than removing it, and `6-ship` still has to
+write it. The logo files under `assets/` are tracked for the same reason, with
+the difference that the app actually loads those. See
+`checklist.md > Revisions`.
 
 ---
 

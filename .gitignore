@@ -13,9 +13,10 @@
 # Image bytes and chapter state are reproducible and can be large.
 /data/
 
-# The pre-existing UI mockup. Visual reference only, kept out of the repo —
-# still disclosed in the README at ship time as pre-existing work.
-/reference/
+# The pre-existing UI mockup is now TRACKED, so the look can be ported from a
+# clone on any machine. It is pre-existing work and `6-ship` still has to
+# disclose it in the README — being in the repo makes that obligation more
+# visible, not less. See checklist.md > Revisions.
 
 # Safety net: generated art anywhere. Scoped so the hand-made logo
 # files in /assets stay tracked.
