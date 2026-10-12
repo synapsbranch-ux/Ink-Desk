@@ -138,6 +138,7 @@ Once both sheets are locked, Claude writes the script for all four panels. Per p
 - The script is the **variable part** of each panel prompt; the sheet image, DNA, and style rules are the frozen part.
 - Panels alternate characters, shot/reverse-shot. For the sample: Kaito → Mio → Kaito close-up → Mio reacting.
 - **Dialogue is not editable in this version** — line-by-line editing is the deferred Script Strip.
+  - *Changed from the approved version — bubble text is now editable in place; see **Changes Since Approval**.*
 
 - [ ] The script names one character per panel, and no panel names two
 - [ ] Each panel has an action, a camera angle, a background, and dialogue
@@ -163,6 +164,8 @@ Four panels generate **in the background**, each request carrying only that pane
 **Redraw in progress:** the panel's **current art stays visible** with a small *"Inking…"* indicator, and **Ink & Publish stays open** — the panel still has art, so the gate is not re-closed. If the redraw fails, the **previous version stays displayed** and the failure message offers **Try again**. *A failed redraw never leaves a panel empty.*
 
 **Lettering** — `scope.md > Lettering`: speech bubbles are **overlaid by the app** in Comic Neue, never drawn by the image model.
+
+- *Changed from the approved version — bubbles are now editable SVG lettering (shape, text, position, size, tail), stored per panel; see **Changes Since Approval**.*
 
 - [ ] All four panels show pencil placeholders with per-panel labels before art arrives
 - [ ] A panel that finishes first displays its art while others are still generating
@@ -255,7 +258,7 @@ Named so none of them slip into the build unnoticed. From `scope.md > Later`:
 
 - **A panel with both characters together** — needs multi-reference generation. The single-character-per-panel rule is what keeps every request simple.
 - **Director's Chair** chat for directing Claude on a selected panel.
-- **Script Strip** — line-by-line dialogue editing. Dialogue is display-only in this version.
+- **Script Strip** — line-by-line dialogue editing. Dialogue is display-only in this version. *The bubble half was un-deferred at the slice 4–5 checkpoint — text edits in place, in the bubble; see **Changes Since Approval**. The strip itself stays deferred.*
 - **Backgrounds and scenes shelf** as separately generated, reusable assets. Background folds into the panel prompt for now.
 - **Unlocking and editing a locked sheet.** Back-to-Cast is view-only because of this.
 - **Claude automatically checking the sheet image against the DNA** — the human does this check before locking.
@@ -292,8 +295,9 @@ From `scope.md > Explicitly Cut`, plus what will tempt during the build:
 
 ## Changes Since Approval
 
-This PRD was approved before `4-spec`. One behavior changed there, recorded here
-rather than edited in silently.
+Behavior changes after approval are recorded here rather than edited in
+silently. The first came from `4-spec`; the second from the slice 4–5
+checkpoint in `5-build`.
 
 ### Reload mid-generation — generation now survives the reload
 
@@ -304,6 +308,16 @@ rather than edited in silently.
 | **Why** | `spec.md > Persistence and Image Storage` puts generation and chapter state on the server, which makes surviving a reload nearly free — and losing four panels to a stray refresh is the worse demo. |
 | **Why the fallback** | In development Next.js restarts the server on every code change, killing in-flight requests. Without a floor, such a panel would spin forever — violating the original rule, which is kept. |
 | **Decided by** | The learner, in `4-spec`. |
+
+### Speech bubbles — from derived overlay to editable lettering
+
+| | |
+|---|---|
+| **Was (approved)** | Bubbles are app-overlaid Comic Neue at a **derived corner**, and **dialogue is not editable** — line-by-line editing is the deferred **Script Strip**. |
+| **Now** | Bubbles are **proper manga bubbles drawn as SVG paths** — a clean rounded oval with a smooth tail, ink outline, white fill — not CSS boxes. **Click edits the text in place** in Comic Neue; **drag moves** the bubble, **handles resize** it, and **dragging the tail tip** points it at the speaker. Each panel's bubble **position, size, and tail are stored in `chapter.json` as percentages of the panel**, so they survive a reload and the slice 7 PNG export composites **exactly the same layout**. Claude's dialogue is the starting text; the user's edits replace it. The derived corner stays as the default until a bubble is first touched. |
+| **Why** | The slice 4–5 checkpoint: the CSS bubbles read as a broken, generic approximation of manga lettering, and the user wants the same authorship over the lettering they have over the cast. |
+| **What this un-defers** | Only the **bubble half** of the Script Strip. A line-by-line script-editing strip stays deferred, and **Rewrite panel** (slice 6) still never touches dialogue. |
+| **Decided by** | The learner, 2026-10-12, at the slice 4–5 checkpoint. |
 
 Everything else in this document stands as approved.
 
