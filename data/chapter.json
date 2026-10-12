@@ -1,0 +1,121 @@
+{
+  "version": 1,
+  "serverRunId": "a4136a4d-8151-4801-b748-7884330a46b5",
+  "station": "storyboard",
+  "pitch": {
+    "text": "A 15-year-old Haitian student, obsessed with quantum physics, leaves school at 4 p.m. and gets hit by a bus while crossing the street. He wakes up in a strange, futuristic world, face to face with two agents of a secret agency that can travel through time and space. They tell him one of their agents saved his life, but the rescue left a strange liquid inside his body that he must constantly renew whenever he returns to his own time and world. Since he now belongs to their universe, they make him an offer: become an agent and go on missions with them.",
+    "genre": "Shonen",
+    "tone": "Fast-paced"
+  },
+  "synopsis": {
+    "title": "The Offer Beyond the Bus Stop",
+    "body": "Wendy, a fifteen-year-old Haitian student who dreams in equations about quantum superposition, wakes on a gleaming platform in a futuristic city and finds Commander Odile Rainier standing over him, her uniform stitched with the crest of a secret agency that moves through time and space. She explains that one of her agents pulled him from the path of the bus, and that the rescue left a strange glowing liquid in his veins that he must renew each time he returns to his own world. Wendy stares at the faint light pulsing beneath his skin, fear giving way to the same wonder that fills his notebooks, and realizes he is living inside the very physics he has been chasing. Odile offers him her open hand and a place on her team, and the scene closes on Wendy's grin as he reaches out to accept.",
+    "accepted": true
+  },
+  "cast": [
+    {
+      "id": "3eef5b03-d67e-4fd7-a2db-817e63690933",
+      "name": "Marisol Toussaint-Reyes",
+      "role": "Lead \ted student pulled across time",
+      "traits": [
+        "restless and fast-talking",
+        "stubbornly curious",
+        "hides fear behind jokes"
+      ],
+      "look": "A small, wiry fourteen-year-old girl with a cloud of tight black curls bound in a bright yellow scarf and a gap-toothed grin. She wears an oversized mustard-yellow rain jacket over a patched denim jumper, mismatched sneakers, and a battered canvas satchel bulging with notebooks. A faint blue-white glow pulses beneath the brown skin of her wrists and forearms.",
+      "dna": "Marisol Toussaint-Reyes is a fourteen-year-old girl, small and wiry, slight-framed with narrow shoulders and long, quick-looking limbs. Her hair is a dense cloud of tight black curls that spring outward to roughly shoulder length, pulled back and bound at the crown by a bright yellow scarf, with a few coils always escaping around the temples and nape. Her eyes are large, round, and dark brown, set under thick, expressive black brows. Her face is heart-shaped, narrowing from a broad forehead to a small pointed chin, with a small nose and a gap between her two upper front teeth. Her skin is a warm medium-brown, and a faint blue-white glow pulses beneath the skin of her wrists and forearms, visible like light through thin cloth. She wears an oversized mustard-yellow rain jacket that hangs past her hips with sleeves that bunch at the wrists, over a denim jumper dress in faded blue denim covered in mismatched, hand-stitched patches. Below the jumper she wears mismatched sneakers, one scuffed white and one a faded red, with unmatched laces. Across her body hangs a battered canvas satchel, its flap held down by a buckle and stuffed so full of dog-eared notebooks that the corners poke out. Her unmistakable marks are the glowing blue-white veins in her forearms and the bright yellow scarf and mustard rain jacket pairing, which makes her the brightest figure in any frame.",
+      "sheetImageId": "ccfa58a3-336d-422a-a050-2e4cf706dc31.png",
+      "locked": true
+    },
+    {
+      "id": "76161614-273a-44ee-b0ec-0629918d6f5a",
+      "name": "Commander Odile Rainier",
+      "role": "Counterpart · time-agency commander",
+      "traits": [
+        "Commanding",
+        "Warm-hearted",
+        "Dry-witted"
+      ],
+      "look": "She now wears a long storm-grey coat over a high-collared uniform, with a silver time-sigil pinned at the throat.",
+      "dna": "Commander Odile Rainier, a woman of about fifty with a tall, straight-backed, broad-shouldered build, solid and athletic rather than slight. Her hair is silver-streaked charcoal, worn at jaw length in a blunt, heavy cut with a deep side part, falling straight and smooth behind her ears and framing her face. Her eyes are a deep amber-brown, slightly hooded, with fine crow's-feet at the corners. Her face is a strong oval with a firm squared jaw, high cheekbones, and a straight nose. Her skin is a warm medium brown with a matte finish and faint laugh lines around the mouth. She wears a long storm-grey wool coat that falls to mid-calf, with wide lapels, a double row of dull pewter buttons, and a slightly weathered hem, worn open over a high-collared uniform of deep midnight-navy fabric buttoned to the chin, with narrow slate-grey piping down the front placket and along the cuffs. Beneath that come tailored charcoal trousers and black knee-high leather boots with low stacked heels and worn toes, and fitted black leather gloves. Her most unmistakable mark is the silver time-sigil pinned at her throat on the collar, a circular brooch about the size of a coin, engraved with a ring of tiny hour-notches around an open spiral at its center. A second mark is a thin pale scar running from her left temple down into the hairline just above the ear, visible against her silver-streaked hair.",
+      "sheetImageId": "742f951d-ad72-4307-8910-f1a4ece7631d.png",
+      "locked": true
+    }
+  ],
+  "script": [
+    {
+      "index": 0,
+      "characterId": "3eef5b03-d67e-4fd7-a2db-817e63690933",
+      "action": "Marisol sits up on the platform floor, one hand braced beside her, yellow scarf crooked and satchel half-twisted around her body, eyes wide and mouth open in dazed disbelief.",
+      "camera": "Wide establishing shot at eye level, her figure placed in the left third of the frame.",
+      "background": "A gleaming white-and-silver platform floats above a futuristic city of spiraling glass towers, with sleek transit pods gliding along luminous rails under a pale gold sky.",
+      "dialogue": "Okay, this is definitely not the bus stop.",
+      "versions": [
+        {
+          "imageId": "panel-504afa33-b52d-4d1a-8103-67e0d2fe56b5.png",
+          "createdAt": "2026-10-12T22:58:04.590Z"
+        }
+      ],
+      "currentVersion": 0,
+      "status": "done",
+      "startedAt": null,
+      "startedByRun": null
+    },
+    {
+      "index": 1,
+      "characterId": "76161614-273a-44ee-b0ec-0629918d6f5a",
+      "action": "Commander Odile stands tall with her storm-grey coat open, one gloved hand gesturing calmly, a dry half-smile on her face as she explains.",
+      "camera": "Medium shot at eye level, framed from the waist up and centred.",
+      "background": "Behind her rises a curved wall of brushed metal and glass, with soft light panels glowing along its edge and a distant tower blurred in the haze.",
+      "dialogue": "One of my agents pulled you from the bus. The glow is the price.",
+      "versions": [
+        {
+          "imageId": "panel-108567dd-de51-4731-8f33-d1b12449f417.png",
+          "createdAt": "2026-10-12T22:57:26.652Z"
+        }
+      ],
+      "currentVersion": 0,
+      "status": "done",
+      "startedAt": null,
+      "startedByRun": null
+    },
+    {
+      "index": 2,
+      "characterId": "3eef5b03-d67e-4fd7-a2db-817e63690933",
+      "action": "Marisol stares downward at her own forearm, the blue-white glow pulsing beneath her skin, her fear melting into awestruck wonder as a gap-toothed grin begins to form.",
+      "camera": "Close-up at eye level, tilted slightly downward toward her face and glowing wrist.",
+      "background": "The silver platform floor reflects soft blue-white light, with the blurred shimmer of the city skyline faint behind her curls.",
+      "dialogue": "I'm inside the physics. I'm actually inside superposition.",
+      "versions": [
+        {
+          "imageId": "panel-04d98c86-d6f1-4a35-b2ff-ca9bffb33902.png",
+          "createdAt": "2026-10-12T22:59:35.885Z"
+        }
+      ],
+      "currentVersion": 0,
+      "status": "done",
+      "startedAt": null,
+      "startedByRun": null
+    },
+    {
+      "index": 3,
+      "characterId": "76161614-273a-44ee-b0ec-0629918d6f5a",
+      "action": "Commander Odile extends her gloved hand forward, open-palmed, a warm, knowing smile softening her firm jaw, the silver time-sigil glinting at her collar.",
+      "camera": "Slightly low angle, three-quarter view, her figure standing in the right third of the frame.",
+      "background": "The open platform edge stretches behind her, with the glittering futuristic city and gliding transit pods spread wide under the golden sky.",
+      "dialogue": "Join my team, Marisol. The universe could use your questions.",
+      "versions": [
+        {
+          "imageId": "panel-d811c65f-474b-49e4-ba68-63457efa9ea9.png",
+          "createdAt": "2026-10-12T23:00:38.984Z"
+        }
+      ],
+      "currentVersion": 0,
+      "status": "done",
+      "startedAt": null,
+      "startedByRun": null
+    }
+  ],
+  "imageCount": 7,
+  "updatedAt": "2026-10-12T23:11:24.318Z"
+}
