@@ -6,41 +6,59 @@
  * that a locked model sheet sent as a reference image holds a character's
  * face across different shots.  See `devpost/scope.md > The Unique Kernel`.
  *
- * Slice 1 — two probes, so a wrong model ID or key fails here and not
- * three stations into the build:
- *   0a. TEXT PROBE  — one tiny structured-output call to Claude. Proves the
- *                     pinned text model resolves AND that output_config.format
- *                     works on it. Effectively free.
- *   0b. IMAGE PROBE — cheapest possible `low` generation. Proves the pinned
- *                     image model resolves. ~$0.006.
+ * Images go through OPENROUTER, not the OpenAI API. Claude stays on the
+ * Anthropic API directly. See `devpost/spec.md > Changes Since Approval`.
+ *
+ * Slice 1 — three probes, so a wrong model ID, a bad key or a silently
+ * dropped parameter fails here and not three stations into the build:
+ *   0a. CAPABILITY PROBE — GET /images/models. FREE, no generation. Asserts
+ *                          the model is listed, that `input_references` is in
+ *                          its supported_parameters, and that the configured
+ *                          aspect ratios and quality are in their published
+ *                          enums. This is the probe that caught `size` being
+ *                          replaced by `aspect_ratio`.
+ *   0b. TEXT PROBE       — one tiny structured-output call to Claude. Proves
+ *                          the pinned text model resolves AND that
+ *                          output_config.format works on it. Effectively free.
+ *   0c. IMAGE PROBE      — cheapest possible `low` generation. Proves the
+ *                          model actually renders through OpenRouter and that
+ *                          the response carries data[0].b64_json. ~$0.008.
  *
  * Slice 2 — the kernel itself:
- *   1. SHEET  — one model sheet generated *from the visual DNA text*
- *               (`/v1/images/generations`, no reference image). Landscape,
- *               because a model sheet is a row of poses.
- *   2. CLOSE  — a close-up panel, sheet sent as the reference
- *               (`/v1/images/edits`). Square, as panel 3 is on the page.
+ *   1. SHEET  — one model sheet generated *from the visual DNA text*, with no
+ *               input_references. Landscape, because a sheet is a row of poses.
+ *   2. CLOSE  — a close-up panel, sheet sent in `input_references`.
+ *               Square, as panel 3 is on the page.
  *   3. WIDE   — a wide panel, same sheet, same DNA, different shot.
  *               Landscape, as panels 1 and 4 are on the page.
  *
- * Sizes match production exactly, so the test exercises the real framing
+ * Sheets and panels are the SAME endpoint and the same body. The only
+ * difference is whether `input_references` is present.
+ *
+ * Ratios match production exactly, so the test exercises the real framing
  * rather than a square stand-in.
  *
  * Then look at CLOSE and WIDE next to SHEET. Same person, or not?
  * That is the entire test. Open data/kernel-test/index.html to compare.
  *
- * Cost at the default `medium`: about $0.06 for all four images.
+ * Besides the answer, this run reports three numbers the spec is currently
+ * guessing at: the slowest call (sets GENERATION_TIMEOUT_MS), the real
+ * usage.cost per image (the cost table is an estimate until this runs), and
+ * the actual pixel dimensions, which stopped being ours to choose when `size`
+ * went away.
+ *
+ * Cost at the default `medium`: about $0.08 for all four images.
  *
  * Usage:
  *   node scripts/kernel-test.mjs              # probes, then the kernel test
- *   node scripts/kernel-test.mjs --probe-only # just prove both model IDs
+ *   node scripts/kernel-test.mjs --probe-only # just prove the setup
  */
 
 import { writeFile, mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 const OUT_DIR = 'data/kernel-test'
-const API = 'https://api.openai.com/v1'
+const API = 'https://openrouter.ai/api/v1'
 const ANTHROPIC_API = 'https://api.anthropic.com/v1'
 
 // ---------------------------------------------------------------------------
@@ -63,18 +81,22 @@ async function loadEnv() {
 
 await loadEnv()
 
-const KEY = process.env.OPENAI_API_KEY
+const KEY = process.env.OPENROUTER_API_KEY
 const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY
-const MODEL = process.env.OPENAI_IMAGE_MODEL ?? 'gpt-image-2.5-sunburst-2026-09-08'
+const MODEL = process.env.IMAGE_MODEL ?? 'openai/gpt-image-2.5-sunburst'
 const TEXT_MODEL = process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-5-5'
 const QUALITY = process.env.KERNEL_TEST_QUALITY ?? 'medium'
 
-// Production sizes. Only 1024x1024, 1536x1024 and 1024x1536 are valid.
-const SIZE_WIDE = process.env.OPENAI_PANEL_SIZE_WIDE ?? '1536x1024'
-const SIZE_SQUARE = process.env.OPENAI_PANEL_SIZE_SQUARE ?? '1024x1024'
-const SIZE_SHEET = process.env.OPENAI_SHEET_SIZE ?? '1536x1024'
+// Production aspect ratios. OpenRouter takes `aspect_ratio`, NOT `size` —
+// there is no pixel-dimension parameter on this model.
+const ASPECT_WIDE = process.env.IMAGE_PANEL_ASPECT_WIDE ?? '3:2'
+const ASPECT_SQUARE = process.env.IMAGE_PANEL_ASPECT_SQUARE ?? '1:1'
+const ASPECT_SHEET = process.env.IMAGE_SHEET_ASPECT ?? '3:2'
 
-for (const [name, value] of [['OPENAI_API_KEY', KEY], ['ANTHROPIC_API_KEY', ANTHROPIC_KEY]]) {
+for (const [name, value] of [
+  ['OPENROUTER_API_KEY', KEY],
+  ['ANTHROPIC_API_KEY', ANTHROPIC_KEY],
+]) {
   if (!value) {
     console.error(`\n  ${name} is not set. Copy .env.example to .env and add your keys.\n`)
     process.exit(1)
@@ -125,7 +147,7 @@ const SHEET_PROMPT = [
 // The variable half — what Claude authors per panel. Only action, camera and
 // background change between these two. Appearance comes from the sheet + DNA.
 //
-// `size` and `framing` mirror the production page layout: panel 3 is a square
+// `aspect` and `framing` mirror the production page layout: panel 3 is a square
 // close-up, panels 1 and 4 are landscape. The framing line goes in the prompt
 // as well as the request, so the model composes for the shape it is drawing
 // and nothing important sits where a crop would cut it.
@@ -133,7 +155,7 @@ const PANELS = [
   {
     id: 'close',
     label: 'Panel A — close-up (square)',
-    size: SIZE_SQUARE,
+    aspect: ASPECT_SQUARE,
     framing: 'Square panel. Centre his face in frame with headroom above and below; keep his eyes on the upper third line and nothing important near the edges.',
     camera: 'Extreme close-up on his face, slight low angle.',
     action: 'He is breathing hard, jaw set, eyes narrowed against the wind.',
@@ -142,7 +164,7 @@ const PANELS = [
   {
     id: 'wide',
     label: 'Panel B — wide shot (landscape)',
-    size: SIZE_WIDE,
+    aspect: ASPECT_WIDE,
     framing: 'Wide landscape panel. Place him off-centre in the left third, full body inside the frame with clear margin on every side.',
     camera: 'Wide establishing shot, high angle looking down, character small in frame.',
     action: 'He is sprinting across a rooftop gap in mid-air, scarf streaming behind him.',
@@ -172,18 +194,139 @@ function panelPrompt(p) {
 }
 
 // ---------------------------------------------------------------------------
-// API calls
+// Helpers
 // ---------------------------------------------------------------------------
+
+const EXT_BY_MEDIA_TYPE = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/webp': 'webp',
+}
+
+/**
+ * Pixel dimensions straight out of the PNG IHDR chunk. We only need this for
+ * the report — `size` is no longer a parameter, so the resolution the provider
+ * picks is information rather than something we asked for.
+ */
+function pngSize(buf) {
+  const isPng = buf.length > 24 && buf.readUInt32BE(0) === 0x89504e47
+  if (!isPng) return null
+  return { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) }
+}
 
 async function fail(label, res) {
   const body = await res.text()
+
+  // 402 is the one that will actually happen, and it fails every image at
+  // once rather than one unlucky panel. Say so plainly — the app maps this
+  // to "the studio is busy", so the terminal is the only honest channel.
+  if (res.status === 402) {
+    console.error(`\n  ✗ ${label} failed — OpenRouter returned 402, out of credits.`)
+    console.error('    The balance is at or below $1, which is where OpenRouter stops serving.')
+    console.error('    Top up at https://openrouter.ai/settings/credits and try again.')
+    console.error('    A full filming run needs about $2.50 of headroom.\n')
+    process.exit(1)
+  }
+
   console.error(`\n  ✗ ${label} failed — HTTP ${res.status}`)
   console.error(`  ${body.slice(0, 600)}\n`)
   if (res.status === 404 || body.includes('model')) {
-    console.error('  If the model ID is wrong, try the floating alias:')
-    console.error('    OPENAI_IMAGE_MODEL=gpt-image-2.5-sunburst node scripts/kernel-test.mjs\n')
+    console.error('  Check the slug is still listed:')
+    console.error('    curl -H "Authorization: Bearer $OPENROUTER_API_KEY" \\')
+    console.error(`      ${API}/images/models | grep ${MODEL}\n`)
   }
   process.exit(1)
+}
+
+// ---------------------------------------------------------------------------
+// API calls
+// ---------------------------------------------------------------------------
+
+/**
+ * FREE. Reads the model's published capabilities and checks every assumption
+ * this script makes against them, before a cent is spent.
+ *
+ * This is the probe that earns its place: `size` was silently replaced by
+ * `aspect_ratio`, and because OpenRouter passes through only `moderation`, a
+ * stale `size` would have been ignored rather than rejected — images would
+ * come back the wrong shape with a 200 and no complaint.
+ */
+async function capabilityProbe() {
+  const started = Date.now()
+  const res = await fetch(`${API}/images/models`, {
+    headers: { Authorization: `Bearer ${KEY}` },
+  })
+  if (!res.ok) await fail('Capability probe', res)
+
+  const { data } = await res.json()
+  const model = data.find((m) => m.id === MODEL)
+
+  if (!model) {
+    console.error(`\n  ✗ "${MODEL}" is not in OpenRouter's image model list.`)
+    const near = data.filter((m) => m.id.startsWith('openai/gpt-image')).map((m) => m.id)
+    if (near.length) {
+      console.error('\n  OpenAI image models currently listed:')
+      for (const id of near) console.error(`    ${id}`)
+    }
+    console.error('\n  Set IMAGE_MODEL in .env to one of these.\n')
+    process.exit(1)
+  }
+
+  const params = model.supported_parameters ?? {}
+  const problems = []
+
+  // The kernel itself. Without this there is no product.
+  if (!params.input_references) {
+    problems.push(
+      'input_references is NOT supported — the kernel cannot be built on this model.\n' +
+        '      This is a stop-everything finding, not a config error.'
+    )
+  } else if ((params.input_references.max ?? 0) < 1) {
+    problems.push(`input_references max is ${params.input_references.max}, need at least 1.`)
+  }
+
+  // `size` must not have come back, and `aspect_ratio` must still be there.
+  if (params.size) {
+    problems.push('a `size` parameter now exists — the spec assumes aspect_ratio; re-check it.')
+  }
+  if (!params.aspect_ratio) {
+    problems.push('aspect_ratio is gone. How dimensions are passed has changed again.')
+  } else {
+    const allowed = params.aspect_ratio.values ?? []
+    for (const [name, value] of [
+      ['IMAGE_SHEET_ASPECT', ASPECT_SHEET],
+      ['IMAGE_PANEL_ASPECT_WIDE', ASPECT_WIDE],
+      ['IMAGE_PANEL_ASPECT_SQUARE', ASPECT_SQUARE],
+    ]) {
+      if (!allowed.includes(value)) {
+        problems.push(`${name}="${value}" is not valid. Allowed: ${allowed.join(', ')}`)
+      }
+    }
+  }
+
+  if (!params.quality) {
+    problems.push('quality is no longer a parameter on this model.')
+  } else if (!(params.quality.values ?? []).includes(QUALITY)) {
+    problems.push(
+      `KERNEL_TEST_QUALITY="${QUALITY}" is not valid. ` +
+        `Allowed: ${(params.quality.values ?? []).join(', ')}`
+    )
+  }
+
+  if (problems.length) {
+    console.error(`\n  ✗ Capability probe failed for "${MODEL}":\n`)
+    for (const p of problems) console.error(`    • ${p}`)
+    console.error('\n  Nothing was generated, so this cost nothing. Fix .env or devpost/spec.md')
+    console.error('  before spending anything.\n')
+    process.exit(1)
+  }
+
+  return {
+    ms: Date.now() - started,
+    refMax: params.input_references.max,
+    aspects: params.aspect_ratio.values,
+    qualities: params.quality.values,
+  }
 }
 
 /**
@@ -241,42 +384,72 @@ async function textProbe() {
   return { ms: Date.now() - started, usage: json.usage }
 }
 
-/** Text -> image. Used for the model sheet. No reference image. */
-async function generate({ prompt, quality, size, label }) {
+/**
+ * One function for both surfaces, because OpenRouter has one endpoint.
+ *
+ * A sheet is this call without `references`. A panel is this call with one.
+ * That is the whole difference, and it is why the kernel stopped being a
+ * separate endpoint when images moved to OpenRouter.
+ *
+ * NOTE: `input_fidelity` is not sent and cannot be — it was a gpt-image-1.x
+ * parameter, and OpenRouter passes through only `moderation` for this model.
+ * Face preservation is the model's default behavior.
+ */
+async function generateImage({ prompt, quality, aspect, label, references = [] }) {
   const started = Date.now()
-  const res = await fetch(`${API}/images/generations`, {
+
+  const body = {
+    model: MODEL,
+    prompt,
+    aspect_ratio: aspect,
+    quality,
+    n: 1,
+  }
+
+  // The sheet travels as a base64 data URI in the JSON body — no FormData,
+  // no Blob. An HTTP(S) URL would also be accepted, but the sheet is a local
+  // file. Note this makes the body ~4/3 the size of the PNG.
+  if (references.length) {
+    body.input_references = references.map((png) => ({
+      type: 'image_url',
+      image_url: { url: `data:image/png;base64,${png.toString('base64')}` },
+    }))
+  }
+
+  const res = await fetch(`${API}/images`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: MODEL, prompt, size, quality, n: 1 }),
+    body: JSON.stringify(body),
   })
   if (!res.ok) await fail(label, res)
-  const json = await res.json()
-  return { b64: json.data[0].b64_json, ms: Date.now() - started }
-}
 
-/**
- * Image + text -> image. This is the kernel.
- *
- * NOTE: `input_fidelity` is deliberately NOT sent. It is a gpt-image-1.x
- * parameter; gpt-image-2.x always uses high input fidelity.
- */
-async function edit({ prompt, referencePng, quality, size, label }) {
-  const started = Date.now()
-  const form = new FormData()
-  form.append('model', MODEL)
-  form.append('prompt', prompt)
-  form.append('size', size)
-  form.append('quality', quality)
-  form.append('image', new Blob([referencePng], { type: 'image/png' }), 'sheet.png')
-
-  const res = await fetch(`${API}/images/edits`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${KEY}` },
-    body: form,
-  })
-  if (!res.ok) await fail(label, res)
   const json = await res.json()
-  return { b64: json.data[0].b64_json, ms: Date.now() - started }
+  const item = json.data?.[0]
+  if (!item?.b64_json) {
+    console.error(`\n  ✗ ${label}: no b64_json in the response.`)
+    console.error(`  ${JSON.stringify(json).slice(0, 600)}\n`)
+    process.exit(1)
+  }
+
+  // Extension comes from media_type, never a hardcoded .png — writing JPEG
+  // bytes into a .png name is the kind of bug nobody thinks to suspect.
+  const mediaType = item.media_type ?? 'image/png'
+  const ext = EXT_BY_MEDIA_TYPE[mediaType]
+  if (!ext) {
+    console.error(`\n  ✗ ${label}: unrecognised media_type "${mediaType}".`)
+    console.error('  Add it to EXT_BY_MEDIA_TYPE rather than guessing an extension.\n')
+    process.exit(1)
+  }
+
+  const buf = Buffer.from(item.b64_json, 'base64')
+  return {
+    buf,
+    ext,
+    mediaType,
+    ms: Date.now() - started,
+    cost: json.usage?.cost ?? null,
+    dims: pngSize(buf),
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -285,69 +458,93 @@ async function edit({ prompt, referencePng, quality, size, label }) {
 
 await mkdir(OUT_DIR, { recursive: true })
 const timings = {}
+const costs = {}
+const dims = {}
+
+const money = (n) => (n == null ? 'cost not reported' : `$${n.toFixed(4)}`)
+const shape = (d) => (d ? `${d.w}x${d.h}` : 'unknown')
 
 console.log(`\n  Ink Desk kernel test`)
-console.log(`  text    ${TEXT_MODEL}`)
-console.log(`  image   ${MODEL}`)
+console.log(`  text    ${TEXT_MODEL}            (Anthropic, direct)`)
+console.log(`  image   ${MODEL}  (OpenRouter)`)
 console.log(`  quality ${QUALITY} (image probe at low)`)
-console.log(`  sizes   sheet ${SIZE_SHEET} · wide ${SIZE_WIDE} · square ${SIZE_SQUARE}`)
+console.log(`  ratios  sheet ${ASPECT_SHEET} · wide ${ASPECT_WIDE} · square ${ASPECT_SQUARE}`)
 console.log(`  output  ${OUT_DIR}/\n`)
 
-// ---- Slice 1: both probes ------------------------------------------------
+// ---- Slice 1: three probes ----------------------------------------------
 
-process.stdout.write('  [0a]  probing text model + structured output ... ')
+process.stdout.write('  [0a]  probing model capabilities ... ')
+const caps = await capabilityProbe()
+timings.capabilityProbe = caps.ms
+console.log(`ok (${(caps.ms / 1000).toFixed(1)}s) — free`)
+console.log(`        input_references supported, up to ${caps.refMax} — the kernel is buildable`)
+console.log(`        aspect_ratio ${caps.aspects.join(' ')}`)
+console.log(`        quality      ${caps.qualities.join(' ')}`)
+
+process.stdout.write('  [0b]  probing text model + structured output ... ')
 const tp = await textProbe()
 timings.textProbe = tp.ms
 console.log(`ok (${(tp.ms / 1000).toFixed(1)}s) — "${TEXT_MODEL}" resolves, JSON schema honored`)
 
-process.stdout.write('  [0b]  probing image model ... ')
-const probe = await generate({
+process.stdout.write('  [0c]  probing image model ... ')
+const probe = await generateImage({
   prompt: 'A single small black ink dot centred on plain white paper. No text.',
   quality: 'low',
-  size: SIZE_SQUARE,
+  aspect: ASPECT_SQUARE,
   label: 'Image model probe',
 })
 timings.imageProbe = probe.ms
-console.log(`ok (${(probe.ms / 1000).toFixed(1)}s) — "${MODEL}" resolves`)
+costs.imageProbe = probe.cost
+console.log(`ok (${(probe.ms / 1000).toFixed(1)}s) — renders · ${money(probe.cost)} · ${shape(probe.dims)} ${probe.mediaType}`)
 
 if (process.argv.includes('--probe-only')) {
-  console.log('\n  --probe-only: stopping here. Both pinned model IDs are valid.\n')
+  console.log('\n  --probe-only: stopping here. Everything this spec assumes is confirmed.')
+  console.log(`  Spent ${money(probe.cost)}.\n`)
   process.exit(0)
 }
 
 // ---- Slice 2: the kernel -------------------------------------------------
 
-process.stdout.write(`  [1/3] model sheet from DNA (${SIZE_SHEET}) ... `)
-const sheet = await generate({
+process.stdout.write(`  [1/3] model sheet from DNA (${ASPECT_SHEET}) ... `)
+const sheet = await generateImage({
   prompt: SHEET_PROMPT,
   quality: QUALITY,
-  size: SIZE_SHEET,
+  aspect: ASPECT_SHEET,
   label: 'Model sheet',
 })
-const sheetPng = Buffer.from(sheet.b64, 'base64')
-await writeFile(join(OUT_DIR, '0-sheet.png'), sheetPng)
+const sheetFile = `0-sheet.${sheet.ext}`
+await writeFile(join(OUT_DIR, sheetFile), sheet.buf)
 timings.sheet = sheet.ms
-console.log(`ok (${(sheet.ms / 1000).toFixed(1)}s)`)
+costs.sheet = sheet.cost
+dims.sheet = sheet.dims
+console.log(`ok (${(sheet.ms / 1000).toFixed(1)}s) · ${money(sheet.cost)} · ${shape(sheet.dims)}`)
 
-// Panels, each carrying the sheet as its reference, at its production size.
+// Panels, each carrying the sheet as its reference, at its production ratio.
+const panelFiles = {}
 for (const [i, p] of PANELS.entries()) {
   process.stdout.write(`  [${i + 2}/3] ${p.label} ... `)
-  const out = await edit({
+  const out = await generateImage({
     prompt: panelPrompt(p),
-    referencePng: sheetPng,
+    references: [sheet.buf],
     quality: QUALITY,
-    size: p.size,
+    aspect: p.aspect,
     label: p.label,
   })
-  await writeFile(join(OUT_DIR, `${i + 1}-${p.id}.png`), Buffer.from(out.b64, 'base64'))
+  panelFiles[p.id] = `${i + 1}-${p.id}.${out.ext}`
+  await writeFile(join(OUT_DIR, panelFiles[p.id]), out.buf)
   timings[p.id] = out.ms
-  console.log(`ok (${(out.ms / 1000).toFixed(1)}s)`)
+  costs[p.id] = out.cost
+  dims[p.id] = out.dims
+  console.log(`ok (${(out.ms / 1000).toFixed(1)}s) · ${money(out.cost)} · ${shape(out.dims)}`)
 }
 
 // A comparison page, so the sheet and both panels sit side by side.
 // Slowest counts only the real image calls — the low-quality probe and the
 // text call aren't representative of what a panel costs in wall-clock.
 const slowest = Math.max(timings.sheet, timings.close, timings.wide)
+const reported = Object.values(costs).filter((c) => c != null)
+const totalCost = reported.length ? reported.reduce((a, b) => a + b, 0) : null
+
 await writeFile(
   join(OUT_DIR, 'index.html'),
   `<!doctype html><meta charset="utf-8"><title>Ink Desk — kernel test</title>
@@ -362,29 +559,46 @@ await writeFile(
   figcaption{margin-top:10px;font-size:14px;color:#6b6762}
   b{color:#b5382e}
   .q{margin-top:36px;padding:20px 24px;border-left:3px solid #b5382e;background:#eae9e9}
+  .nums{margin-top:28px;padding:16px 20px;background:#eae9e9;font-size:14px}
+  .nums code{background:#f3f2f2;padding:1px 5px}
 </style>
 <h1>Kernel test — does the face hold?</h1>
-<p class="sub">${MODEL} &middot; quality <b>${QUALITY}</b> &middot; slowest image call ${(slowest / 1000).toFixed(1)}s
-  &middot; set <code>GENERATION_TIMEOUT_MS</code> above this</p>
+<p class="sub">${MODEL} via OpenRouter &middot; quality <b>${QUALITY}</b>
+  &middot; slowest image call ${(slowest / 1000).toFixed(1)}s
+  &middot; total ${totalCost == null ? 'cost not reported' : '<b>$' + totalCost.toFixed(4) + '</b>'}</p>
 <div class="row">
-  <figure><img src="0-sheet.png"><figcaption><b>The sheet.</b> ${SIZE_SHEET} &middot; generated from the DNA text alone. This is the reference.</figcaption></figure>
-  <figure><img src="1-close.png"><figcaption><b>Close-up.</b> ${SIZE_SQUARE} &middot; sheet sent as reference image.</figcaption></figure>
-  <figure><img src="2-wide.png"><figcaption><b>Wide shot.</b> ${SIZE_WIDE} &middot; same sheet, same DNA, different shot.</figcaption></figure>
+  <figure><img src="${sheetFile}"><figcaption><b>The sheet.</b> ${ASPECT_SHEET} &middot; ${shape(dims.sheet)} &middot; generated from the DNA text alone, no references. This is the reference.</figcaption></figure>
+  <figure><img src="${panelFiles.close}"><figcaption><b>Close-up.</b> ${ASPECT_SQUARE} &middot; ${shape(dims.close)} &middot; sheet sent in <code>input_references</code>.</figcaption></figure>
+  <figure><img src="${panelFiles.wide}"><figcaption><b>Wide shot.</b> ${ASPECT_WIDE} &middot; ${shape(dims.wide)} &middot; same sheet, same DNA, different shot.</figcaption></figure>
 </div>
 <div class="q"><strong>The only question:</strong> is this recognizably the same person in all three &mdash;
 same face, same scar through the right eyebrow, same frayed scarf &mdash; from a close-up <em>and</em> from a wide shot?
-If yes, the kernel holds and the build can proceed. If no, that is worth knowing before five stations are built on top of it.</div>`
+If yes, the kernel holds and the build can proceed. If no, that is worth knowing before five stations are built on top of it.</div>
+<div class="nums"><strong>Three numbers the spec was guessing at.</strong>
+  Set <code>GENERATION_TIMEOUT_MS</code> above <b>${(slowest / 1000).toFixed(1)}s</b> &mdash; try <code>${Math.ceil((slowest * 3) / 10000) * 10000}</code>.
+  Real cost at <code>${QUALITY}</code>: <b>${money(costs.sheet)}</b> for ${ASPECT_SHEET}, <b>${money(costs.close)}</b> for ${ASPECT_SQUARE}
+  &mdash; update the cost table in <code>devpost/spec.md</code>, which is currently an estimate.
+  Returned dimensions: <b>${shape(dims.sheet)}</b> at ${ASPECT_SHEET}, <b>${shape(dims.close)}</b> at ${ASPECT_SQUARE}
+  &mdash; not ours to request any more, so size panel CSS from the ratio.</div>`
 )
 
 await writeFile(
   join(OUT_DIR, 'manifest.json'),
   JSON.stringify(
     {
+      provider: 'openrouter',
+      endpoint: `${API}/images`,
       imageModel: MODEL,
+      imageModelPinned: false,
       textModel: TEXT_MODEL,
+      textProvider: 'anthropic-direct',
       quality: QUALITY,
-      sizes: { sheet: SIZE_SHEET, wide: SIZE_WIDE, square: SIZE_SQUARE },
+      aspects: { sheet: ASPECT_SHEET, wide: ASPECT_WIDE, square: ASPECT_SQUARE },
+      capabilities: { inputReferencesMax: caps.refMax, aspects: caps.aspects, qualities: caps.qualities },
       timingsMs: timings,
+      costsUsd: costs,
+      totalCostUsd: totalCost,
+      dimensions: dims,
       dna: KAITO_DNA,
     },
     null,
@@ -394,5 +608,9 @@ await writeFile(
 
 console.log(`\n  Done. Compare them:`)
 console.log(`    ${OUT_DIR}/index.html`)
-console.log(`\n  Slowest image call was ${(slowest / 1000).toFixed(1)}s. Set`)
-console.log(`  GENERATION_TIMEOUT_MS comfortably above it — try ${Math.ceil((slowest * 3) / 10000) * 10000}.\n`)
+console.log(`\n  Three numbers to carry back into devpost/spec.md:`)
+console.log(`    1. Slowest image call ${(slowest / 1000).toFixed(1)}s — set`)
+console.log(`       GENERATION_TIMEOUT_MS to about ${Math.ceil((slowest * 3) / 10000) * 10000}.`)
+console.log(`    2. Real cost at ${QUALITY}: ${money(costs.sheet)} (${ASPECT_SHEET}), ${money(costs.close)} (${ASPECT_SQUARE}).`)
+console.log(`       Total for this run ${money(totalCost)}. The spec's cost table is an estimate.`)
+console.log(`    3. Dimensions returned: ${shape(dims.sheet)} at ${ASPECT_SHEET}, ${shape(dims.close)} at ${ASPECT_SQUARE}.\n`)

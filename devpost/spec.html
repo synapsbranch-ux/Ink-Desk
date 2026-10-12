@@ -142,7 +142,8 @@
     <div class="metarow">
       <span class="tag tag-solid">Next.js · App Router</span>
       <span class="tag">claude-sonnet-5-5</span>
-      <span class="tag tag-red">gpt-image-2.5-sunburst</span>
+      <span class="tag tag-red">openai/gpt-image-2.5-sunburst</span>
+      <span class="tag">via OpenRouter</span>
       <span class="tag tag-quiet">Local only</span>
     </div>
   </div>
@@ -156,28 +157,27 @@
   <p><code>scope.md &gt; Needs Verifying in 4-spec</code> flagged one assumption that could
     force a redesign: <em>which GPT Image model and endpoint accept reference images, and
     how many per request.</em> The whole kernel rested on it.</p>
-
-  <div class="warn">
-    <h3 style="color:var(--hanko)">⚠ <code>gpt-image-1</code> shuts down 2026-10-23</h3>
-    <p><code>gpt-image-1.5</code> follows on 2026-12-01. The &ldquo;GPT Image model family&rdquo;
-      named in <code>scope.md &gt; Model Providers</code> would have gone dark
-      <strong>mid-hackathon</strong>. Both are out.</p>
-    <p style="margin-bottom:0">Pinned replacement:
-      <code>gpt-image-2.5-sunburst-2026-09-08</code> &mdash; for sheets <em>and</em> panels.</p>
-  </div>
+  <p><strong>Re-verified against OpenRouter on 2026-10-12</strong>, because the provider changed
+    and the old answer was about the OpenAI API. The check was
+    <code>GET /api/v1/images/models</code>, which returns each model&#8217;s capabilities as
+    <em>data</em> &mdash; so this is read off the API, not off a docs page.</p>
 
   <h4>What came back good</h4>
   <ul class="reasons">
     <li class="is-lock"><b>Reference images work, with room to spare.</b>
-      <code>POST /v1/images/edits</code> takes an <code>image</code> <strong>array</strong>, not a
-      single file &mdash; OpenAI's own guide example passes four. Ink Desk sends exactly
-      <strong>one</strong>, so the limit is never in play.
-      <code>scope.md &gt; The Unique Kernel</code> is buildable as written.</li>
-    <li class="is-lock"><b><code>input_fidelity</code> is gone, and that's a gift.</b>
-      It was the <code>1.x</code> knob that forced the model to preserve facial features.
-      The docs now say <em>&ldquo;omit this parameter when migrating to GPT Image 2, which always
-      uses high input fidelity.&rdquo;</em> Face preservation is the default rather than a setting
-      that can be misconfigured.</li>
+      <code>openai/gpt-image-2.5-sunburst</code> publishes <code>input_references</code> as a
+      range of <strong>0&ndash;16</strong>. Ink Desk sends exactly <strong>one</strong>, so the
+      limit is never in play. <code>scope.md &gt; The Unique Kernel</code> survives the provider
+      change unchanged in substance.</li>
+    <li class="is-lock"><b><code>quality</code> carried over untouched.</b> Same five paid names,
+      same spelling &mdash; <code>low</code>, <code>medium</code>, <code>high</code>,
+      <code>xhigh</code>, <code>max</code>. Nothing in the quality plan had to move.</li>
+    <li class="is-lock"><b>One endpoint instead of two.</b> The OpenAI API split
+      <code>/v1/images/generations</code> from <code>/v1/images/edits</code>, with different
+      content types. OpenRouter has a single <code>POST /api/v1/images</code>, and the
+      <em>only</em> difference between a sheet and a panel is whether
+      <code>input_references</code> is present. The kernel stops being a different endpoint and
+      becomes one extra field.</li>
     <li><b>Same model for both surfaces.</b> The sheet is the reference the panels are judged
       against. A sheet drawn by one model and panels by another would differ in line weight
       even with the face held steady &mdash; the exact mismatch
@@ -185,21 +185,70 @@
       <code>flare</code> is generation-only, so it can't carry a reference at all.</li>
   </ul>
 
-  <h4>Both pinned IDs are confirmed &mdash; and still probed</h4>
-  <p>The image snapshot <code>gpt-image-2.5-sunburst-2026-09-08</code> and the text model
-    <code>claude-sonnet-5-5</code> are both confirmed on the official model pages. Slice 1 probes
-    them anyway &mdash; not because they&#8217;re doubted, but because a wrong ID or a bad key
-    fails <em>identically and confusingly</em>, and this turns that into a two-second answer for
-    about <strong>$0.006</strong> instead of a confusing failure three stations in.</p>
+  <h4>The one thing that changed shape: <code>size</code> &rarr; <code>aspect_ratio</code></h4>
+  <p><strong>There is no <code>size</code> parameter.</strong> The previous revision passed
+    <code>size: "1536x1024"</code>. This model through OpenRouter takes
+    <code>aspect_ratio: "3:2"</code> instead &mdash; and because <code>size</code> is not in its
+    passthrough list, it would have been <strong>dropped silently</strong> rather than rejected
+    with a 400. That is the dangerous kind of breaking change: everything keeps working and
+    quietly returns the wrong shape.</p>
+
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Was</th><th>Now</th><th>Used for</th></tr></thead>
+      <tbody>
+        <tr><td class="num">1536&times;1024</td><td class="num">3:2</td><td>sheets, panels 1 and 4</td></tr>
+        <tr><td class="num">1024&times;1024</td><td class="num">1:1</td><td>panels 2 and 3</td></tr>
+        <tr><td class="num">1024&times;1536</td><td class="num">2:3</td><td>unused, as before</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note" style="margin-top:var(--s3)">The mapping is <strong>exact</strong>, which is why
+    this was a rewrite and not a redesign. <strong>The no-crop guarantee survives</strong> &mdash;
+    it was always a claim about <em>ratios</em> matching slots, never about pixel counts. What is
+    genuinely lost is control over resolution: the provider picks it. The kernel test now records
+    the dimensions it actually receives, so that stops being unknown on day one.</p>
+
+  <p class="quiet"><strong><code>gpt-image-1</code> still shuts down 2026-10-23, and
+    <code>gpt-image-1.5</code> on 2026-12-01.</strong> The &ldquo;GPT Image model family&rdquo;
+    named in <code>scope.md &gt; Model Providers</code> would have gone dark mid-hackathon, so both
+    remain out. OpenRouter lists them; that does not make them safe to build on.</p>
+
+  <div class="warn">
+    <h3 style="color:var(--hanko)">⚠ The model is no longer pinned &mdash; a real regression</h3>
+    <p>The previous revision pinned the dated snapshot
+      <code>gpt-image-2.5-sunburst-2026-09-08</code> specifically so <em>&ldquo;an upstream
+      revision cannot change the art style mid-build.&rdquo;</em>
+      <strong>OpenRouter publishes no dated snapshot for this model.</strong> The alias is the
+      only id available, so that protection is gone and cannot be recovered by configuration.</p>
+    <p>The risk is precise: the style shifting between the day a sheet is locked and the day the
+      panels are drawn would look <em>exactly</em> like the kernel failing, while actually being
+      the model moving underneath it. The one thing this project measures is the one thing the
+      alias puts at risk.</p>
+    <p style="margin-bottom:0"><strong>Mitigations, given the build is days not months:</strong>
+      the sheet is an image on disk rather than a prompt, so drift is damped by the kernel itself;
+      <strong>re-run the kernel test before filming</strong> as a style canary, not just once at
+      the start; regenerate <em>both</em> sheets if the style moves, since mixed-era art is worse
+      than restyled art; and if it really bites, the escape hatch is calling OpenAI directly,
+      where the snapshot still exists &mdash; a change to one file, which is what
+      <code>lib/image-provider.ts</code> is named for.</p>
+  </div>
+
+  <h4>Slice 1 now leads with a free probe</h4>
+  <p>The capability check is the probe that would have caught the <code>size</code> change
+    <em>before</em> a single image was paid for &mdash; which is exactly why it now runs first.</p>
   <div class="wire">node scripts/kernel-test.mjs <b>--probe-only</b>
 
-  [0a] text model + structured output   <span class="quiet">claude-sonnet-5-5 · ~free</span>
-  [0b] image model                      <span class="quiet">gpt-image-2.5-sunburst · ~$0.006</span></div>
-  <p class="quiet" style="margin-top:var(--s3)">The text probe sends <strong>no sampling
-    parameters</strong>, so it would also catch that mistake &mdash; a non-default
-    <code>temperature</code>, <code>top_p</code> or <code>top_k</code> is a 400 on this model
-    family. If the image snapshot ever 404s, fall back to the floating
-    <code>gpt-image-2.5-sunburst</code> alias.</p>
+  [0a] model capabilities               <span class="quiet">input_references · aspect_ratio · quality · free</span>
+  [0b] text model + structured output   <span class="quiet">claude-sonnet-5-5 · ~free</span>
+  [0c] image model renders              <span class="quiet">openai/gpt-image-2.5-sunburst · ~$0.008</span></div>
+  <p class="quiet" style="margin-top:var(--s3)">Probe <b>0a</b> asserts the model is listed, that
+    <code>input_references</code> is in its <code>supported_parameters</code>, and that the
+    configured ratios and quality are in their published enums &mdash; all without generating
+    anything. The text probe sends <strong>no sampling parameters</strong>, so it would also catch
+    that mistake &mdash; a non-default <code>temperature</code>, <code>top_p</code> or
+    <code>top_k</code> is a 400 on this model family. Probe <b>0c</b> prints
+    <code>usage.cost</code>, the first real price this project has seen.</p>
 </section>
 
 <hr class="rule">
@@ -212,7 +261,7 @@
 
   <figure>
     <div class="svgbox">
-      <svg viewBox="0 0 900 430" role="img" aria-label="Architecture: the browser calls server route handlers, which call Claude and OpenAI and write to a data folder on disk">
+      <svg viewBox="0 0 900 430" role="img" aria-label="Architecture: the browser calls server route handlers, which call Claude on the Anthropic API and an image model through OpenRouter, and write to a data folder on disk">
         <defs>
           <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
             <path d="M0 0 L10 5 L0 10 z" fill="#201f1d"/></marker>
@@ -255,10 +304,10 @@
         <text x="773" y="124" text-anchor="middle" font-size="12" fill="#444141">all the words</text>
 
         <rect x="660" y="162" width="226" height="94" fill="#fcecea" stroke="#b5382e" stroke-width="1.5"/>
-        <text x="773" y="188" text-anchor="middle" font-size="15" font-weight="700" fill="#3e140f">OpenAI</text>
-        <text class="mono" x="773" y="206" text-anchor="middle" font-size="10.5" fill="#605d5d">gpt-image-2.5-sunburst</text>
-        <text x="773" y="226" text-anchor="middle" font-size="12" fill="#444141">all the pictures</text>
-        <text x="773" y="244" text-anchor="middle" font-size="11.5" fill="#605d5d">returns base64, never a URL</text>
+        <text x="773" y="186" text-anchor="middle" font-size="15" font-weight="700" fill="#3e140f">OpenRouter</text>
+        <text class="mono" x="773" y="204" text-anchor="middle" font-size="10" fill="#605d5d">openai/gpt-image-2.5-sunburst</text>
+        <text x="773" y="223" text-anchor="middle" font-size="12" fill="#444141">all the pictures</text>
+        <text x="773" y="241" text-anchor="middle" font-size="11.5" fill="#605d5d">returns base64, never a URL</text>
 
         <!-- DISK -->
         <rect x="258" y="310" width="316" height="100" fill="#eae9e9" stroke="#201f1d" stroke-width="1.5"/>
@@ -277,7 +326,7 @@
 
         <line x1="574" y1="100" x2="654" y2="100" stroke="#201f1d" stroke-width="1.5" marker-end="url(#ar)"/>
         <line x1="574" y1="196" x2="654" y2="196" stroke="#b5382e" stroke-width="1.5" marker-end="url(#arR)"/>
-        <text class="mono" x="614" y="190" text-anchor="middle" font-size="9.5" fill="#b5382e">+ sheet.png</text>
+        <text class="mono" x="614" y="190" text-anchor="middle" font-size="9.5" fill="#b5382e">+ input_references</text>
 
         <line x1="416" y1="256" x2="416" y2="304" stroke="#201f1d" stroke-width="1.5" marker-end="url(#ar)"/>
         <text x="430" y="284" font-size="10.5" fill="#605d5d">write</text>
@@ -378,17 +427,19 @@
         <line x1="538" y1="186" x2="580" y2="186" stroke="#201f1d" stroke-width="1.5" marker-end="url(#ar2)"/>
 
         <!-- REQUEST -->
-        <rect x="588" y="100" width="298" height="172" fill="#f3f2f2" stroke="#201f1d" stroke-width="2"/>
+        <rect x="588" y="100" width="298" height="182" fill="#f3f2f2" stroke="#201f1d" stroke-width="2"/>
         <text class="lbl" x="598" y="90">One request, one reference image</text>
-        <text class="mono" x="737" y="130" text-anchor="middle" font-size="12.5" font-weight="700">POST /v1/images/edits</text>
-        <g class="mono" font-size="10.5" fill="#444141">
-          <text x="602" y="156">model      pinned snapshot</text>
-          <text x="602" y="176">image      sheet.png  ← reference</text>
-          <text x="602" y="196">prompt     DNA + variable + rules</text>
-          <text x="602" y="216">quality    high</text>
+        <text class="mono" x="737" y="128" text-anchor="middle" font-size="12" font-weight="700">POST /api/v1/images</text>
+        <g class="mono" font-size="10" fill="#444141">
+          <text x="602" y="152">model             openai/gpt-image-2.5-sunburst</text>
+          <text x="602" y="170">input_references  [ sheet as data URI ]</text>
+          <text x="602" y="188">prompt            DNA + variable + rules</text>
+          <text x="602" y="206">aspect_ratio      3:2  or  1:1</text>
+          <text x="602" y="224">quality           high</text>
         </g>
-        <line x1="602" y1="230" x2="872" y2="230" stroke="#d7d3d3"/>
-        <text x="737" y="252" text-anchor="middle" font-size="11.5" fill="#b5382e">input_fidelity is NOT sent — always high on 2.x</text>
+        <line x1="602" y1="236" x2="872" y2="236" stroke="#d7d3d3"/>
+        <text x="737" y="256" text-anchor="middle" font-size="11" fill="#b5382e">JSON, not multipart — and the sheet request is this</text>
+        <text x="737" y="270" text-anchor="middle" font-size="11" fill="#b5382e">same call minus input_references</text>
 
         <text x="737" y="306" text-anchor="middle" font-size="13.5" fill="#201f1d">The app can change what a character
           <tspan font-style="italic">does</tspan>,</text>
@@ -437,9 +488,10 @@
       <strong>DNA text beside the image</strong> so you can check the picture against the words
       before <strong>Lock</strong>.</p>
     <div class="wire">POST <b>/api/sheet</b>
-    (a) edited description  ──▶  Claude   → visual DNA text
-    (b) <b>that DNA text</b>      ──▶  OpenAI   → sheet image
-                                      /v1/images/generations
+    (a) edited description  ──▶  Claude      → visual DNA text
+    (b) <b>that DNA text</b>      ──▶  OpenRouter  → sheet image
+                                      POST /api/v1/images
+                                      <b>no</b> input_references
     ↳ decodes base64 → data/images/&lt;id&gt;.png</div>
     <p style="margin-top:var(--s3)"><strong>Both steps live in one handler, deliberately.</strong>
       The sheet is a picture of the DNA <em>by construction</em>, so the two frozen artifacts
@@ -476,10 +528,10 @@ characterId: <b>z.enum([kaitoId, mioId])</b>
     <div class="wire">POST <b>/api/panels/start</b>   queues 4 jobs, <b>2 at a time</b>
 
 per panel:  reads data/images/&lt;sheet&gt;.png
-            sends it <b>as the reference image</b>  ──▶  OpenAI
-            + locked DNA verbatim                      /v1/images/edits
-            + Claude&#8217;s action / angle / background
-            + &ldquo;no text in the image&rdquo;
+            sends it in <b>input_references</b>     ──▶  OpenRouter
+            + locked DNA verbatim                      POST /api/v1/images
+            + Claude&#8217;s action / angle / background    <i>(same call as the
+            + &ldquo;no text in the image&rdquo;                   sheet, plus one field)</i>
 
 GET <b>/api/chapter</b> every ~1.5s  →  per-panel status</div>
     <p style="margin-top:var(--s3)"><strong>Redraw</strong> reruns the same request with the same
@@ -526,22 +578,22 @@ GET <b>/api/chapter</b> every ~1.5s  →  per-panel status</div>
         <rect x="156" y="32" width="388" height="78" fill="#f8f4f4" stroke="#201f1d" stroke-width="1.5"/>
         <text x="350" y="64" text-anchor="middle" font-size="13" font-weight="700">1 &middot; KAITO</text>
         <text x="350" y="84" text-anchor="middle" font-size="11.5" fill="#605d5d">wide establishing</text>
-        <text class="mono" x="350" y="102" text-anchor="middle" font-size="10" fill="#b5382e">1536&times;1024</text>
+        <text class="mono" x="350" y="102" text-anchor="middle" font-size="10" fill="#b5382e">3:2</text>
         <!-- panel 2 -->
         <rect x="156" y="120" width="188" height="104" fill="#f8f4f4" stroke="#201f1d" stroke-width="1.5"/>
         <text x="250" y="156" text-anchor="middle" font-size="13" font-weight="700">2 &middot; MIO</text>
         <text x="250" y="176" text-anchor="middle" font-size="11.5" fill="#605d5d">medium</text>
-        <text class="mono" x="250" y="196" text-anchor="middle" font-size="10" fill="#b5382e">1024&times;1024</text>
+        <text class="mono" x="250" y="196" text-anchor="middle" font-size="10" fill="#b5382e">1:1</text>
         <!-- panel 3 -->
         <rect x="356" y="120" width="188" height="104" fill="#fcecea" stroke="#b5382e" stroke-width="1.5"/>
         <text x="450" y="156" text-anchor="middle" font-size="13" font-weight="700" fill="#3e140f">3 &middot; KAITO</text>
         <text x="450" y="176" text-anchor="middle" font-size="11.5" fill="#605d5d">close-up</text>
-        <text class="mono" x="450" y="196" text-anchor="middle" font-size="10" fill="#b5382e">1024&times;1024</text>
+        <text class="mono" x="450" y="196" text-anchor="middle" font-size="10" fill="#b5382e">1:1</text>
         <!-- panel 4 -->
         <rect x="156" y="234" width="388" height="66" fill="#f8f4f4" stroke="#201f1d" stroke-width="1.5"/>
         <text x="350" y="262" text-anchor="middle" font-size="13" font-weight="700">4 &middot; MIO</text>
         <text x="350" y="281" text-anchor="middle" font-size="11.5" fill="#605d5d">reaction, wide</text>
-        <text class="mono" x="464" y="281" font-size="10" fill="#b5382e">1536&times;1024</text>
+        <text class="mono" x="464" y="281" font-size="10" fill="#b5382e">3:2</text>
 
         <!-- annotations -->
         <text class="lbl" x="18" y="70">landscape</text>
@@ -562,14 +614,16 @@ GET <b>/api/chapter</b> every ~1.5s  →  per-panel status</div>
 
         <line x1="596" y1="196" x2="872" y2="196" stroke="#d7d3d3"/>
         <text class="lbl" x="596" y="222">The sheet is landscape too</text>
-        <text class="mono" x="596" y="244" font-size="11" fill="#b5382e">1536&times;1024</text>
+        <text class="mono" x="596" y="244" font-size="11" fill="#b5382e">3:2</text>
         <text x="596" y="266" font-size="12" fill="#444141">A model sheet is a row of poses.</text>
         <text x="596" y="284" font-size="12" fill="#444141">Square would crowd them, or</text>
         <text x="596" y="302" font-size="12" fill="#444141">waste half the image.</text>
       </svg>
     </div>
-    <figcaption>Only three sizes exist on this model &mdash; <code>1024&times;1024</code>,
-      <code>1536&times;1024</code>, <code>1024&times;1536</code>. Two of them cover the page.</figcaption>
+    <figcaption>Ratios, not pixel sizes &mdash; OpenRouter takes <code>aspect_ratio</code> and
+      this model has no size parameter at all. Eight ratios are available; two cover the page.
+      Resolution is the provider&#8217;s choice, which is fine, because a <code>3:2</code> image
+      drops into a <code>3:2</code> slot uncropped at any resolution.</figcaption>
   </figure>
 
   <h4>The framing goes in the prompt too, not just the request</h4>
@@ -580,9 +634,12 @@ GET <b>/api/chapter</b> every ~1.5s  →  per-panel status</div>
     <li><b>Wide landscape</b><em>&ldquo;Place him off-centre in the left third, full body inside
       the frame with clear margin on every side.&rdquo;</em></li>
   </ul>
-  <p class="quiet" style="margin-top:var(--s3)">Sizes live in <code>.env</code>; the per-panel
-    assignment sits in <code>lib/prompts.ts</code> beside the framing lines, so layout and framing
-    stay together rather than drifting apart.</p>
+  <p class="quiet" style="margin-top:var(--s3)">Ratios live in <code>.env</code> as
+    <code>IMAGE_SHEET_ASPECT</code>, <code>IMAGE_PANEL_ASPECT_WIDE</code> and
+    <code>IMAGE_PANEL_ASPECT_SQUARE</code>; the per-panel assignment sits in
+    <code>lib/prompts.ts</code> beside the framing lines, so layout and framing stay together
+    rather than drifting apart. <strong>Size panels in CSS from the ratio</strong>, not from
+    hardcoded pixel numbers &mdash; those are no longer ours to set.</p>
 </section>
 
 <hr class="rule">
@@ -732,10 +789,32 @@ export const singletons = (g.__inkdesk ??= {
   <details>
     <summary>Image Writer <span class="cnt">lib/images.ts</span></summary>
     <div class="dbody">
-      <p>Both OpenAI endpoints return <strong>base64, never a URL</strong>. This decodes once,
-        writes <code>data/images/&lt;id&gt;.png</code>, and hands back only the id &mdash; which is
-        why the browser only ever sees <code>/api/image/&lt;id&gt;</code> and never carries image
-        bytes around.</p>
+      <p>OpenRouter returns <strong>base64, never a URL</strong>. This decodes once, writes the
+        file, and hands back only the id &mdash; which is why the browser only ever sees
+        <code>/api/image/&lt;id&gt;</code> and never carries image bytes around.</p>
+      <p style="margin-bottom:0"><strong>Pick the extension from <code>media_type</code>, not from
+        a hardcoded <code>.png</code>.</strong> Each response item carries its own
+        <code>media_type</code> beside <code>b64_json</code>. This model should return
+        <code>image/png</code> every time &mdash; but writing a JPEG&#8217;s bytes into a
+        <code>.png</code> filename produces a file some viewers open, the <code>&lt;canvas&gt;</code>
+        export may not, and nobody would think to suspect. One lookup removes a whole class of
+        confusing bug for two lines. An unrecognised <code>media_type</code> is a hard failure
+        rather than a guess.</p>
+    </div>
+  </details>
+
+  <details>
+    <summary>Image Provider <span class="cnt cnt-red">lib/image-provider.ts</span></summary>
+    <div class="dbody">
+      <p>One function, one endpoint, for both surfaces. A sheet is a call without
+        <code>input_references</code>; a panel is the same call with one. Plain
+        <code>fetch</code> &mdash; no SDK, because OpenRouter&#8217;s body is not the OpenAI images
+        body and the <code>openai</code> package would not fit it even with a
+        <code>baseURL</code> override.</p>
+      <p style="margin-bottom:0"><strong>This file is the provider seam</strong>, and it is named
+        for that rather than for OpenRouter on purpose: it is the one file that changes if images
+        ever move again &mdash; which is also the escape hatch if the unpinned alias restyles
+        mid-build.</p>
     </div>
   </details>
 </section>
@@ -801,55 +880,75 @@ server restart  <b>startedByRun !== serverRunId</b>
 <!-- ============================= COST ============================= -->
 <section>
   <h2>What a run costs, and the switch that makes iterating affordable</h2>
-  <p>Five paid quality levels. Model and both quality levels are
-    <strong><code>.env</code>-configurable</strong>, so the build runs at <code>low</code> and only
-    filming pays.</p>
+  <p><strong>OpenRouter bills images per token, not per image</strong> &mdash; the other thing the
+    provider change altered, and it makes the old per-image table no longer quotable. Verified
+    rates for this model: <strong>$30</strong> per million <code>output_image</code> tokens,
+    $8 per million <code>input_image</code>, $5 per million <code>input_text</code>. Output tokens
+    scale with quality and pixel count, and no token count per quality tier is published.</p>
 
   <div class="tablewrap">
     <table>
-      <thead><tr><th>Quality</th><th>1024&times;1024<br><span style="text-transform:none;letter-spacing:0">verified</span></th><th>1536&times;1024<br><span style="text-transform:none;letter-spacing:0">estimate</span></th><th>Used for</th></tr></thead>
+      <thead><tr><th>Quality</th><th>1:1<br><span style="text-transform:none;letter-spacing:0">estimate</span></th><th>3:2<br><span style="text-transform:none;letter-spacing:0">estimate</span></th><th>Used for</th></tr></thead>
       <tbody>
-        <tr><td class="num">low</td><td class="num">~$0.006</td><td class="num">~$0.009</td><td><strong>development builds</strong></td></tr>
-        <tr><td class="num">medium</td><td class="num">~$0.013</td><td class="num">~$0.020</td><td><strong>the kernel test</strong></td></tr>
-        <tr class="hl"><td class="num">high</td><td class="num">~$0.053</td><td class="num">~$0.080</td><td><strong>panels</strong>, filming</td></tr>
-        <tr><td class="num">xhigh</td><td class="num">~$0.094</td><td class="num">~$0.141</td><td>&mdash;</td></tr>
-        <tr class="hl"><td class="num">max</td><td class="num">~$0.211</td><td class="num">~$0.317</td><td><strong>sheets</strong>, filming</td></tr>
+        <tr><td class="num">low</td><td class="num">~$0.008</td><td class="num">~$0.012</td><td><strong>development builds</strong></td></tr>
+        <tr><td class="num">medium</td><td class="num">~$0.018</td><td class="num">~$0.027</td><td><strong>the kernel test</strong></td></tr>
+        <tr class="hl"><td class="num">high</td><td class="num">~$0.07</td><td class="num">~$0.11</td><td><strong>panels</strong>, filming</td></tr>
+        <tr><td class="num">xhigh</td><td class="num">~$0.13</td><td class="num">~$0.19</td><td>&mdash;</td></tr>
+        <tr class="hl"><td class="num">max</td><td class="num">~$0.29</td><td class="num">~$0.43</td><td><strong>sheets</strong>, filming</td></tr>
       </tbody>
     </table>
   </div>
-  <p class="note" style="margin-top:var(--s3)">The landscape column is an <strong>estimate, stated
-    as one</strong>. Image output is billed per output token and tokens scale with pixels, so
-    <code>1536&times;1024</code> is ~1.5&times; the square figure. Only the first column is from
-    the official model page. Confirm the real number from the usage dashboard after the kernel
-    test, which generates two landscape images.</p>
+  <p class="note" style="margin-top:var(--s3)"><strong>This whole table is an estimate now, and
+    that is a downgrade</strong> &mdash; in the previous revision the square column was quoted
+    from the official model page. These are <em>derived, not read</em>: the old OpenAI per-image
+    prices imply roughly $22 per million output tokens, OpenRouter charges $30, so these are the
+    old figures scaled by ~1.4&times; and again by ~1.5&times; for the landscape ratio. Two
+    multiplications on top of a figure for a different billing model.</p>
+  <p class="note"><strong>Replace it with measurements rather than trusting it.</strong> Every
+    response carries <code>usage.cost</code> &mdash; the actual dollars for that call. The kernel
+    test prints it per image and writes it to <code>manifest.json</code>, so after one ~$0.08 run
+    the <code>medium</code> row is fact and the rest can be scaled from a real anchor. Treat the
+    numbers above as order-of-magnitude only.</p>
 
   <div class="cols" style="margin-top:var(--s4)">
     <div class="card">
       <h4 style="margin-top:0">A full filming run</h4>
-      <p style="font-size:26px;font-family:var(--font-head);margin-bottom:var(--s1)">~$0.90</p>
-      <p class="quiet" style="margin-bottom:0">2 landscape sheets at <code>max</code> (~$0.63) +
-        2 landscape and 2 square panels at <code>high</code> (~$0.27). Redraws ~$0.05&ndash;$0.08
-        each, depending on the slot.</p>
+      <p style="font-size:26px;font-family:var(--font-head);margin-bottom:var(--s1)">~$1.25</p>
+      <p class="quiet" style="margin-bottom:0">2 landscape sheets at <code>max</code> (~$0.86) +
+        2 landscape and 2 square panels at <code>high</code> (~$0.37). Redraws ~$0.07&ndash;$0.11
+        each. <strong>~40% more than the previous revision&#8217;s ~$0.90</strong> &mdash; the
+        cost of the broker.</p>
     </div>
     <div class="card">
       <h4 style="margin-top:0">The same run while building</h4>
-      <p style="font-size:26px;font-family:var(--font-head);margin-bottom:var(--s1)">~$0.05</p>
+      <p style="font-size:26px;font-family:var(--font-head);margin-bottom:var(--s1)">~$0.07</p>
       <p class="quiet" style="margin-bottom:0">Everything at <code>low</code>. This ratio is the
         point.</p>
     </div>
     <div class="card">
       <h4 style="margin-top:0">Text, all four calls</h4>
       <p style="font-size:26px;font-family:var(--font-head);margin-bottom:var(--s1)">&lt;$0.01</p>
-      <p class="quiet" style="margin-bottom:0">A few hundred tokens each. The image bill is the
-        only one worth watching.</p>
+      <p class="quiet" style="margin-bottom:0">A few hundred tokens each, on the Anthropic API
+        directly. The image bill is the only one worth watching.</p>
     </div>
   </div>
 
-  <p style="margin-top:var(--s4)"><strong>Concurrency: 2.</strong> Published tiers are Build
-    20 IPM / Launch 150 IPM / Grow 250 IPM, so even four-at-once wouldn't trip the limit &mdash;
-    this is margin rather than necessity. It costs nothing, it keeps panels filling out of order,
-    and it keeps a 429 off camera. <em>Confirm your own tier at Settings → Organization → Limits
-    before filming.</em></p>
+  <div class="warn" style="margin-top:var(--s4)">
+    <h3 style="color:var(--hanko)">Keep the balance above $1 &mdash; that is where 402 starts</h3>
+    <p style="margin-bottom:0">The last dollar is unspendable. A filming run costs ~$1.25, so
+      <strong>~$2.50 is the real floor for filming</strong> and topping up to ~$3 beforehand is the
+      cheap way to avoid discovering this on camera. A 402 fails <em>every</em> image at once
+      rather than one unlucky panel &mdash; see the failure table.</p>
+  </div>
+
+  <p style="margin-top:var(--s4)"><strong>Concurrency: 2.</strong> <strong>The OpenAI tier
+    question is gone</strong> &mdash; the previous revision tracked Build / Launch / Grow
+    images-per-minute ceilings and left confirming the tier as an open item. OpenRouter does not
+    expose a per-minute image ceiling that way; spend is bounded by the balance and by whatever
+    per-key limit is set in the dashboard. So <strong>one open question closes with this
+    change</strong>, and <em>watch the balance</em> replaces it. Concurrency 2 was margin rather
+    than necessity before and still is: it costs nothing, it keeps panels filling out of order,
+    and it keeps a 429 off camera.</p>
 </section>
 
 <hr class="rule">
@@ -867,10 +966,10 @@ server restart  <b>startedByRun !== serverRunId</b>
 │       ├── synopsis/route.ts       <i># pitch+genre+tone → synopsis            (Claude)</i>
 │       ├── cast/route.ts           <i># synopsis → two characters              (Claude)</i>
 │       ├── cast/reroll/route.ts    <i># replace exactly one character          (Claude)</i>
-│       ├── <b>sheet/route.ts</b>          <i># description → DNA → sheet image  (Claude + OpenAI)</i>
+│       ├── <b>sheet/route.ts</b>          <i># description → DNA → sheet image  (Claude + images)</i>
 │       ├── script/route.ts         <i># synopsis + locked DNA → 4 panels       (Claude)</i>
 │       ├── panels/start/route.ts   <i># queue all four panels</i>
-│       ├── <b>panels/[index]/route.ts</b> <i># generate or redraw one panel           (OpenAI)</i>
+│       ├── <b>panels/[index]/route.ts</b> <i># generate or redraw one panel       (OpenRouter)</i>
 │       ├── panels/[index]/rewrite/route.ts  <i># rephrase visuals, then redraw</i>
 │       └── image/[id]/route.ts     <i># streams data/images/&lt;id&gt;.png</i>
 ├── components/
@@ -884,7 +983,7 @@ server restart  <b>startedByRun !== serverRunId</b>
 │   ├── types.ts      <i># Chapter, Character, Panel, PanelVersion</i>
 │   ├── schemas.ts    <i># zod schemas = Claude&#8217;s output contracts</i>
 │   ├── <b>prompts.ts</b>    <i># every prompt; the frozen style rules live here</i>
-│   ├── claude.ts     openai-image.ts
+│   ├── claude.ts     <b>image-provider.ts</b>  <i># one OpenRouter call; references optional</i>
 │   ├── chapter.ts    <i># serialized, atomic read/write of chapter.json</i>
 │   ├── <b>singleton.ts</b>  <i># globalThis-pinned queue, lock, serverRunId</i>
 │   ├── images.ts     <i># b64 → data/images/&lt;id&gt;.png</i>
@@ -920,6 +1019,16 @@ server restart  <b>startedByRun !== serverRunId</b>
             <em>&ldquo;Panel 3 didn't come back, the studio is busy&rdquo;</em> + <strong>Try
             again</strong>. The other three are untouched.</td>
         </tr>
+        <tr class="hl">
+          <td><strong>402 &mdash; out of credits</strong> <span class="quiet">(balance at or below
+            $1)</span></td>
+          <td>The <em>same</em> <strong>&ldquo;the studio is busy&rdquo;</strong> sentence +
+            <strong>Try again</strong>, because the PRD forbids raw error codes on screen. But
+            this is the one failure that is <strong>not per-panel</strong> &mdash; it fails all
+            four panels and both sheets alike, so <strong>the terminal is the only place the real
+            cause appears</strong>, and it says so in full with the top-up link.
+            <strong>Not retried</strong> &mdash; unlike a 429 it will not pass on its own.</td>
+        </tr>
         <tr>
           <td><strong>The image model refuses</strong> a panel</td>
           <td><strong>Rewrite panel</strong> &mdash; Claude rephrases only that panel's action,
@@ -943,6 +1052,14 @@ server restart  <b>startedByRun !== serverRunId</b>
             slice 1 is a single <code>--probe-only</code> call before any UI exists.</td>
         </tr>
         <tr>
+          <td><strong>A request parameter is silently dropped</strong> <span class="quiet">(the
+            new one, and the quietest)</span></td>
+          <td>OpenRouter passes through only <code>moderation</code>, so an unsupported field like
+            the old <code>size</code> is <em>ignored rather than rejected</em>: images come back
+            the wrong shape with a <strong>200 and no complaint</strong>. The capability probe in
+            slice 1 exists for exactly this.</td>
+        </tr>
+        <tr>
           <td><strong>Claude names an unlocked or second character</strong></td>
           <td>Rejected by the <code>z.enum</code> of locked ids at the API boundary, not
             discovered later as a broken page.</td>
@@ -959,9 +1076,9 @@ server restart  <b>startedByRun !== serverRunId</b>
   <h2>The useful unknown &mdash; does the lock actually hold?</h2>
   <div class="warn">
     <p>Your stated learning goal is <em>&ldquo;how to keep character art consistent across
-      AI-generated panels.&rdquo;</em> Verification settled the <strong>mechanism</strong>: a
-      reference image plus frozen DNA is supported, and <code>sunburst</code> always runs at high
-      input fidelity.</p>
+      AI-generated panels.&rdquo;</em> Verification settled the <strong>mechanism</strong>:
+      <code>input_references</code> is supported up to 16, and face preservation is this
+      model&#8217;s default behavior.</p>
     <p style="margin-bottom:0"><strong>It cannot settle the result.</strong> Whether one sheet plus
       verbatim DNA actually holds a face across a close-up <em>and</em> a wide shot is not in any
       documentation. Only a generation can answer it.</p>
@@ -970,25 +1087,124 @@ server restart  <b>startedByRun !== serverRunId</b>
   <h4>The agreed investigation, as build slice 2</h4>
   <div class="wire">node scripts/kernel-test.mjs
 
-  [0a]  text + image probes          — both pinned model IDs
-  [1/3] sheet      1536x1024 medium  — one Kaito sheet, generated from the DNA
-  [2/3] close-up   1024x1024 medium  — sheet attached <b>as the reference</b>
-  [3/3] wide shot  1536x1024 medium  — same sheet, same DNA, different shot
+  [0a-c] capability · text · image probes  — see the verification section
+  [1/3]  sheet      3:2  medium  — one Kaito sheet, generated from the DNA
+  [2/3]  close-up   1:1  medium  — sheet sent in <b>input_references</b>
+  [3/3]  wide shot  3:2  medium  — same sheet, same DNA, different shot
 
   → data/kernel-test/index.html     sheet · close-up · wide, side by side</div>
 
   <p style="margin-top:var(--s4)">Run at <strong><code>medium</code>, not <code>low</code></strong>,
     and that correction was yours: at <code>low</code> a drifted face could be the quality rather
-    than the method, so the test would prove nothing. About <strong>$0.06</strong> for all four
-    images &mdash; and <strong>at the exact sizes the real page uses</strong>, so it exercises the
+    than the method, so the test would prove nothing. About <strong>$0.08</strong> for all four
+    images &mdash; and <strong>at the exact ratios the real page uses</strong>, so it exercises the
     production framing rather than a square stand-in.</p>
   <p><strong>This runs before any UI exists.</strong> If the kernel doesn't hold, that is worth
-    knowing on day one rather than after five stations are built on top of it. It also produces a
-    second useful number &mdash; the slowest call's duration, which is what
-    <code>GENERATION_TIMEOUT_MS</code> gets set from.</p>
+    knowing on day one rather than after five stations are built on top of it. It now also
+    produces <strong>three numbers the spec above is currently guessing at</strong>:</p>
+  <ul>
+    <li>The <strong>slowest call&#8217;s duration</strong> &mdash; what
+      <code>GENERATION_TIMEOUT_MS</code> gets set from.</li>
+    <li>The real <strong><code>usage.cost</code> per image</strong> &mdash; which turns the
+      estimated cost table into a measured one.</li>
+    <li>The actual <strong>pixel dimensions</strong> returned at <code>3:2</code> and
+      <code>1:1</code> &mdash; unknown since <code>size</code> stopped being a parameter, and
+      worth having before the CSS is written.</li>
+  </ul>
+  <p><strong>Re-run it before filming too</strong>, not only on day one. The model is an unpinned
+    alias now, so this run doubles as the style-drift canary.</p>
   <p class="note">The only question the comparison page asks: is this recognizably the same
     person &mdash; same face, same scar through the right eyebrow, same frayed scarf &mdash; from
     a close-up <em>and</em> from a wide shot?</p>
+</section>
+
+<hr class="rule">
+
+<!-- ============================= CHANGES ============================= -->
+<section>
+  <h2>Changes since approval</h2>
+  <p>This spec was approved before the build began. One thing changed after that, recorded here
+    rather than edited in silently.</p>
+
+  <h3>The image provider &mdash; OpenAI direct &rarr; OpenRouter</h3>
+  <div class="tablewrap">
+    <table>
+      <tbody>
+        <tr>
+          <th style="width:22%">Was <span class="quiet">(approved)</span></th>
+          <td>Images on the <strong>OpenAI API</strong> with <code>OPENAI_API_KEY</code>. Model
+            pinned to the dated snapshot <code>gpt-image-2.5-sunburst-2026-09-08</code>. Two
+            endpoints: <code>/v1/images/generations</code> for sheets,
+            <code>/v1/images/edits</code> for panels. Panel requests were
+            <code>multipart/form-data</code> with the sheet attached as a file. Sizes as
+            <code>size: "1536x1024"</code> / <code>"1024x1024"</code>.</td>
+        </tr>
+        <tr>
+          <th>Now</th>
+          <td>Images on <strong>OpenRouter</strong> &mdash;
+            <code>POST https://openrouter.ai/api/v1/images</code> &mdash; with
+            <code>OPENROUTER_API_KEY</code>. Model is the alias
+            <code>openai/gpt-image-2.5-sunburst</code>. <strong>One</strong> endpoint for both
+            surfaces; a panel is just a request carrying <code>input_references</code>. JSON
+            throughout, sheet as a base64 data URI. Ratios as
+            <code>aspect_ratio: "3:2"</code> / <code>"1:1"</code>.</td>
+        </tr>
+        <tr>
+          <th>Why</th>
+          <td>Your call. One account and one balance instead of two, and
+            <code>lib/image-provider.ts</code> keeps the swap to a single file if it ever needs
+            reversing.</td>
+        </tr>
+        <tr>
+          <th>Claude unaffected</th>
+          <td>Text stays on the Anthropic API directly with <code>ANTHROPIC_API_KEY</code>. Only
+            images moved.</td>
+        </tr>
+        <tr><th>Decided by</th><td>You, after spec approval and before <code>5-build</code>.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4>Verified before anything else was changed</h4>
+  <p>The instruction was to stop and report if reference images turned out to be unsupported. Via
+    <code>GET /api/v1/images/models</code>:</p>
+  <ul class="reasons">
+    <li class="is-lock"><b><code>input_references</code> is supported, 0&ndash;16.</b> Ink Desk
+      needs 1. <strong>The kernel survives the provider change.</strong></li>
+    <li class="is-lock"><b><code>quality</code> carried over unchanged.</b> Same
+      <code>low</code>/<code>medium</code>/<code>high</code>/<code>xhigh</code>/<code>max</code>.</li>
+    <li><b><code>size</code> does not exist; <code>aspect_ratio</code> replaced it.</b> Found by
+      the probe rather than by a failed build.</li>
+  </ul>
+
+  <h4>What this cost, stated plainly</h4>
+  <p>Three things got worse, and none of them were the reason for the change:</p>
+  <ol>
+    <li><strong>The model is no longer pinnable</strong> &mdash; no dated snapshot exists on
+      OpenRouter, so the protection against mid-build style drift is gone. Mitigated by re-running
+      the kernel test; detailed in the warning in the verification section.</li>
+    <li><strong>Per-image cost is ~40% higher</strong> (a filming run goes ~$0.90 &rarr; ~$1.25)
+      and the cost table dropped from <em>published</em> to <em>estimated</em>, because OpenRouter
+      bills per token and publishes no per-tier token count. One kernel-test run fixes the second
+      half of that.</li>
+    <li><strong>A new failure mode: 402 at $1.</strong> It fails every image at once rather than
+      one panel, and the UI&#8217;s calm &ldquo;studio is busy&rdquo; message cannot say so
+      &mdash; only the terminal can.</li>
+  </ol>
+  <p>Two things got better: <strong>one endpoint instead of two</strong> with no
+    <code>multipart/form-data</code> anywhere, so the kernel is a single field rather than a
+    different request shape; and <strong>one dependency fewer</strong>, since the
+    <code>openai</code> package is gone. And one open question closed: the OpenAI tier / IPM
+    ceiling no longer applies.</p>
+
+  <h4>Consequent edits to this document</h4>
+  <p class="quiet"><code>lib/openai-image.ts</code> &rarr;
+    <strong><code>lib/image-provider.ts</code></strong> in the file tree; both request diagrams;
+    the stack; the page layout (sizes &rarr; ratios); the image writer (extension now from
+    <code>media_type</code>); the verification section; the cost and rate-limit notes; the failure
+    table; and <code>.env.example</code>. <code>scripts/kernel-test.mjs</code> was updated to
+    match, and its slice 1 probe now leads with the capability check that caught the
+    <code>size</code> change.</p>
 </section>
 
 <hr class="rule">
@@ -999,10 +1215,24 @@ server restart  <b>startedByRun !== serverRunId</b>
 
   <h4>Decided</h4>
   <ul class="reasons">
-    <li class="is-lock"><b>Image model <code>gpt-image-2.5-sunburst-2026-09-08</code>, pinned, for
-      both surfaces.</b> Forced by the <code>gpt-image-1</code> shutdown; pinned so the art style
-      can't shift mid-build. Tradeoff accepted: it's the slower model, which the placeholder
-      states already cover.</li>
+    <li class="is-lock"><b>Images go through OpenRouter, not the OpenAI API.</b> Your call, and a
+      change after approval &mdash; recorded below. Tradeoffs accepted: no snapshot to pin to,
+      ~40% higher per-image cost, a broker in the path. Bought: one account, one balance, and a
+      provider seam that makes the next swap cheap.</li>
+    <li class="is-lock"><b>Image model <code>openai/gpt-image-2.5-sunburst</code> &mdash; alias,
+      not snapshot &mdash; for both surfaces.</b> Forced by the <code>gpt-image-1</code> shutdown
+      and by OpenRouter publishing no dated snapshot. Tradeoff accepted: style drift is possible
+      mid-build, mitigated by re-running the kernel test rather than by configuration. Also the
+      slower of the two 2.5 tiers, which the placeholder states already cover.</li>
+    <li class="is-lock"><b>Claude stays on the Anthropic API directly.</b> Only images moved;
+      routing text through a broker would buy nothing.</li>
+    <li class="is-lock"><b>One endpoint for both surfaces</b> &mdash;
+      <code>POST /api/v1/images</code>, with <code>input_references</code> present for panels and
+      absent for sheets. Simpler than the two-endpoint split it replaces.</li>
+    <li class="is-lock"><b><code>aspect_ratio</code> rather than <code>size</code>, because no
+      size parameter exists.</b> Forced by the provider. <code>3:2</code> and <code>1:1</code>
+      replace <code>1536&times;1024</code> and <code>1024&times;1024</code> exactly, so the
+      no-crop guarantee is unaffected; resolution is now the provider's choice.</li>
     <li class="is-lock"><b>Sheets at <code>max</code>, panels at <code>high</code>, both
       <code>.env</code>-configurable.</b> Build at <code>low</code>, pay only when filming.</li>
     <li class="is-lock"><b>Text model <code>claude-sonnet-5-5</code>, pinned and
@@ -1010,7 +1240,7 @@ server restart  <b>startedByRun !== serverRunId</b>
       superseded on 2026-09-28. Structured-output support and the sampling-parameter rejection
       were re-verified against the 5.5 family rather than inherited, and slice 1 now probes the
       text model too.</li>
-    <li class="is-lock"><b>One 4-panel layout with fixed per-panel sizes</b> &mdash; wide / two
+    <li class="is-lock"><b>One 4-panel layout with fixed per-panel ratios</b> &mdash; wide / two
       squares / wide, passed in each request and echoed as a framing line in each prompt, so a
       panel is never scaled into its slot. Sheet is landscape, because it&#8217;s a row of
       poses.</li>
@@ -1039,8 +1269,17 @@ server restart  <b>startedByRun !== serverRunId</b>
   <ul>
     <li><strong>The generation timeout value.</strong> Needs a real number; the kernel test
       measures it. Placeholder <code>180000</code> in <code>.env.example</code>.</li>
-    <li><strong>Your OpenAI tier.</strong> Build / Launch / Grow changes the IPM ceiling.
-      Concurrency 2 is safe on all three &mdash; confirm before filming.</li>
+    <li><strong>The real per-image cost.</strong> The cost table is now an estimate rather than a
+      published figure. One kernel-test run returns <code>usage.cost</code> and settles it.</li>
+    <li><strong>The pixel dimensions returned at <code>3:2</code> and <code>1:1</code>.</strong>
+      Not ours to set any more. The kernel test records them; size panel CSS from the ratio until
+      then.</li>
+    <li><strong>Whether the alias restyles mid-build.</strong> Unanswerable in advance and
+      unpreventable by configuration. Mitigation: re-run the kernel test before filming. Escape
+      hatch: call OpenAI directly.</li>
+    <li><s><strong>Your OpenAI tier.</strong></s> <strong>Closed by the provider change</strong>
+      &mdash; the Build / Launch / Grow IPM ceilings no longer apply. Replaced by: keep the
+      OpenRouter balance above ~$2.50 before filming, since 402 starts at $1.</li>
     <li><strong>The exact Next.js version.</strong> Whatever <code>create-next-app@latest</code>
       installs; nothing here depends on a specific major.</li>
     <li>Carried from the PRD: page script as its own rail entry vs. a step inside Storyboard
