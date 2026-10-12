@@ -8,11 +8,14 @@ import { CastStation } from '@/components/CastStation'
 import { IDLE_CARD, type CardState } from '@/components/CharacterCard'
 import { StationRail, type SaveState } from '@/components/StationRail'
 import { StoryStation } from '@/components/StoryStation'
+import { StoryboardStation } from '@/components/StoryboardStation'
 import { gates } from '@/lib/gates'
 import { applyPatch, mergePatch, type ChapterPatch, type CharacterEdit } from '@/lib/patch'
 import type { Chapter, Station } from '@/lib/types'
 
 const SAVE_DELAY_MS = 600
+/** While any panel is in flight the studio re-reads the desk this often. */
+const POLL_MS = 1500
 const UNREACHABLE = 'The studio couldn’t be reached. Is the dev server running?'
 
 type Reply = Chapter | { error: string }
@@ -38,6 +41,10 @@ export default function Studio() {
   const [proposeNotice, setProposeNotice] = useState<string | null>(null)
   const [cards, setCards] = useState<Record<string, CardState>>({})
 
+  // Storyboard: the page script in flight, and the last sentence it sent back.
+  const [scripting, setScripting] = useState(false)
+  const [scriptNotice, setScriptNotice] = useState<string | null>(null)
+
   // Edits still waiting to be saved, merged across keystrokes.
   const queued = useRef<ChapterPatch>({})
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -55,11 +62,17 @@ export default function Studio() {
     setSaveState('saved')
   }, [])
 
+  /** A fresh read of the desk, with whatever is still being typed kept on
+   *  top — and without touching the save label, which belongs to saves. */
+  const absorb = useCallback((saved: Chapter) => {
+    setChapter(applyPatch(saved, queued.current))
+  }, [])
+
   /** After a refused save, the browser's optimistic copy is wrong: re-read. */
   const refresh = useCallback(async () => {
     const res = await fetch('/api/chapter')
-    if (res.ok) setChapter(applyPatch((await res.json()) as Chapter, queued.current))
-  }, [])
+    if (res.ok) absorb((await res.json()) as Chapter)
+  }, [absorb])
 
   const send = useCallback(
     async (patch: ChapterPatch) => {
@@ -192,6 +205,56 @@ export default function Studio() {
   const commitCard = useCallback((id: string, e: CharacterEdit) => commit({ cast: { [id]: e } }), [commit])
   const lock = useCallback((id: string) => commit({ cast: { [id]: { locked: true } } }), [commit])
 
+  // --- Storyboard ---------------------------------------------------------
+
+  const writeScript = useCallback(async () => {
+    setScripting(true)
+    setScriptNotice(null)
+    try {
+      const { ok, data } = await postJson('/api/script', {})
+      if (!ok || !('version' in data)) {
+        setScriptNotice('error' in data ? data.error : 'The studio couldn’t write the page script just now.')
+        return
+      }
+      accept(data)
+    } catch {
+      setScriptNotice(UNREACHABLE)
+    } finally {
+      setScripting(false)
+    }
+  }, [accept])
+
+  /** Queue the blank panels; the server responds at once and the poll
+   *  watches them land. A refusal here is a sentence in the terminal — the
+   *  panel-level repair buttons are slice 6. */
+  const startPanels = useCallback(async () => {
+    try {
+      const { ok, data } = await postJson('/api/panels/start', {})
+      if (ok && 'version' in data) absorb(data)
+      else console.warn('[panels] start refused:', 'error' in data ? data.error : data)
+    } catch {
+      console.warn('[panels] start:', UNREACHABLE)
+    }
+  }, [absorb])
+
+  // While any panel is in flight, re-read the desk every ~1.5s so panels
+  // appear independently and out of order — polling rather than a live
+  // connection, see `spec.md > What Was Simplified and Why`.
+  const inFlight = chapter?.script?.some((p) => p.status === 'inking' || p.status === 'empty') ?? false
+  useEffect(() => {
+    if (!inFlight) return
+    const tick = () => {
+      fetch('/api/chapter')
+        .then((r) => (r.ok ? (r.json() as Promise<Chapter>) : null))
+        .then((c) => {
+          if (c) absorb(c)
+        })
+        .catch(() => {})
+    }
+    const timer = setInterval(tick, POLL_MS)
+    return () => clearInterval(timer)
+  }, [inFlight, absorb])
+
   if (!chapter) {
     return (
       <div className="studio">
@@ -230,20 +293,26 @@ export default function Studio() {
           onLock={lock}
           onGoStoryboard={() => goTo('storyboard')}
         />
+      ) : chapter.station === 'storyboard' ? (
+        <StoryboardStation
+          chapter={chapter}
+          gates={g}
+          scripting={scripting}
+          scriptNotice={scriptNotice}
+          onWriteScript={writeScript}
+          onStartPanels={startPanels}
+          onGoReader={() => goTo('reader')}
+        />
       ) : (
-        <ComingNext station={chapter.station} />
+        <ComingNext />
       )}
     </div>
   )
 }
 
-/** Stations not built yet. Replaced slice by slice. */
-function ComingNext({ station }: { station: Station }) {
-  const copy: Record<Exclude<Station, 'story' | 'cast'>, [string, string, string]> = {
-    storyboard: ['Station 3 · The main studio', 'The storyboard', 'Four panels against the locks. Built next.'],
-    reader: ['Station 4 · The reader', 'Ink & Publish', 'The finished page. Built last.'],
-  }
-  const [eyebrow, title, lede] = copy[station as Exclude<Station, 'story' | 'cast'>]
+/** The reader, not built yet. Replaced in slice 7. */
+function ComingNext() {
+  const [eyebrow, title, lede] = ['Station 4 · The reader', 'Ink & Publish', 'The finished page. Built last.']
   return (
     <main className="station">
       <div className="station-inner">

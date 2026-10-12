@@ -73,47 +73,66 @@ export function sheetPrompt(dna: string): string {
 
 export type PanelShape = 'wide' | 'square'
 
+/** Where the figure stands in the frame. Drives the framing line, the pencil silhouette and the bubble corner. */
+export type PanelStance = 'left' | 'medium' | 'close' | 'right'
+
 export type PanelSlot = {
   index: 0 | 1 | 2 | 3
+  /** Who is in this panel: the lead (`cast[0]`) or the counterpart (`cast[1]`). Shot / reverse-shot. */
+  cast: 0 | 1
   shape: PanelShape
+  stance: PanelStance
   shot: string
   framing: string
 }
 
+// A wide panel is a medium-wide shot, never a tiny figure in the distance:
+// the figure takes at least a third of the panel's height so the face stays
+// readable — a face too small to read would hide whether the lock held.
 export const PANEL_LAYOUT: readonly PanelSlot[] = [
   {
     index: 0,
+    cast: 0,
     shape: 'wide',
+    stance: 'left',
     shot: 'wide establishing shot',
     framing:
-      'Wide landscape panel. Place the character off-centre in the left third, full body inside the frame with clear margin on every side.',
+      'Wide landscape panel, medium-wide shot. The character stands in the left third of the frame, their figure at least a third of the panel’s height and ideally half — face and outfit clearly readable, never a small figure in the distance — with clear margin on every side. The setting fills the rest of the frame.',
   },
   {
     index: 1,
+    cast: 1,
     shape: 'square',
+    stance: 'medium',
     shot: 'medium shot',
     framing:
       'Square panel. Frame the character from the waist up, centred, with headroom above and nothing important near the edges.',
   },
   {
     index: 2,
+    cast: 0,
     shape: 'square',
+    stance: 'close',
     shot: 'close-up',
     framing:
       'Square panel. Centre the character’s face in frame with headroom above and below; keep the eyes on the upper third line and nothing important near the edges.',
   },
   {
     index: 3,
+    cast: 1,
     shape: 'wide',
+    stance: 'right',
     shot: 'wide reaction shot',
     framing:
-      'Wide landscape panel. Place the character off-centre in the right third, full body or three-quarter figure inside the frame with clear margin on every side.',
+      'Wide landscape panel, medium-wide shot. The character stands in the right third of the frame, a three-quarter figure at least a third of the panel’s height and ideally half — face and expression clearly readable, never a small figure in the distance — with clear margin on every side. The setting fills the rest of the frame.',
   },
 ]
 
 /**
  * A panel prompt: the locked DNA verbatim, the slot's framing, and Claude's
  * variable part. The locked sheet travels alongside it as `input_references`.
+ * One person in the panel, always — shot / reverse-shot means the other
+ * character is off-panel, and a second figure would have no reference.
  */
 export function panelPrompt(
   dna: string,
@@ -121,9 +140,10 @@ export function panelPrompt(
   slot: PanelSlot
 ): string {
   return [
-    'A single manga panel.',
+    'A single manga panel with exactly one person in it: the character shown in the',
+    'attached reference sheet. No other people, figures or silhouettes anywhere in',
+    'the panel.',
     '',
-    'The character in this panel is shown in the attached reference sheet.',
     'Keep their face, hairstyle, eyes, outfit and distinguishing marks EXACTLY as the',
     'reference sheet shows. Do not restyle, age, or redesign them.',
     'Only their pose, expression and surroundings change.',
@@ -137,6 +157,61 @@ export function panelPrompt(
     `Background: ${panel.background}`,
     '',
     STYLE_RULES,
+  ].join('\n')
+}
+
+// --- Page script ----------------------------------------------------------
+//
+// The variable half of every panel request, written once per page by Claude
+// from the accepted synopsis and both locked DNAs. The layout is fixed, so
+// the prompt states who is in each panel and at what shot size; the schema
+// in `lib/schemas.ts` holds the model to the same assignment.
+
+export type LockedCharacter = { id: string; name: string; role: string; traits: string[]; dna: string }
+
+export function pageScriptPrompt(
+  synopsis: { title: string; body: string },
+  cast: readonly [LockedCharacter, LockedCharacter]
+): string {
+  const [lead, counterpart] = cast
+  return [
+    'You are the page director at Ink Desk, a small manga studio. The cast is locked;',
+    'write the script for the single four-panel page that tells this chapter.',
+    '',
+    `Title: ${synopsis.title}`,
+    `Synopsis: ${synopsis.body}`,
+    '',
+    'The cast. Their looks are locked and will be drawn exactly as written here:',
+    `- ${lead.name} (id ${lead.id}) — ${lead.role}. ${lead.traits.join(', ')}.`,
+    `  Appearance: ${lead.dna}`,
+    `- ${counterpart.name} (id ${counterpart.id}) — ${counterpart.role}. ${counterpart.traits.join(', ')}.`,
+    `  Appearance: ${counterpart.dna}`,
+    '',
+    'The page layout is fixed: shot / reverse-shot, exactly one character in each',
+    'panel, never both. The other character is off-panel — spoken to, or reacted to.',
+    ...PANEL_LAYOUT.map(
+      (s) =>
+        `- Panel ${s.index + 1}: ${cast[s.cast].name}, ${s.shot} (${s.shape === 'wide' ? 'landscape' : 'square'}). ${s.framing}`
+    ),
+    '',
+    'For each panel write:',
+    '- characterId: the id given above for the character in that panel.',
+    '- action: what this character is doing and the expression on their face, in one',
+    '  or two sentences an artist can draw as a single still frame. Only this',
+    '  character is in the panel. Use their outfit and marks where it helps — the',
+    '  scarf catching the wind, the glasses pushed up.',
+    '- camera: the angle for that panel’s shot, in one short sentence — "slight low',
+    '  angle, looking up", "eye level, three-quarter view". Stay inside the shot',
+    '  size given above: never pull back to a distant wide, never cut in closer.',
+    '- background: the setting as seen from that camera, in one sentence. One',
+    '  location for the whole page, a different part or angle of it in each panel.',
+    '  Specific and drawable, with no signs, posters or lettering of any kind.',
+    '- dialogue: one line this character says out loud, under twelve words, in their',
+    '  own voice. Plain speech — no sound effects, no narration, no quotation marks.',
+    '',
+    'The four panels read in order as one beat: the setup, the response, the turn,',
+    'the reaction. Match the synopsis’s genre and tone. Keep it suitable for a',
+    'general audience.',
   ].join('\n')
 }
 

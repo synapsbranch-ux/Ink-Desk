@@ -11,13 +11,23 @@ import Anthropic from '@anthropic-ai/sdk'
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod'
 import type { z } from 'zod'
 import { ProviderError } from './errors'
-import { castPrompt, dnaPrompt, rerollPrompt, synopsisPrompt, type CharacterText } from './prompts'
+import {
+  castPrompt,
+  dnaPrompt,
+  pageScriptPrompt,
+  rerollPrompt,
+  synopsisPrompt,
+  type CharacterText,
+  type LockedCharacter,
+} from './prompts'
 import {
   CastSchema,
   CharacterProposalSchema,
   DnaSchema,
+  pageScriptSchema,
   SynopsisSchema,
   type CharacterProposal,
+  type PageScriptOutput,
   type SynopsisOutput,
 } from './schemas'
 
@@ -85,4 +95,18 @@ export function rewriteCharacter(
 export async function writeDna(character: CharacterText, synopsis: SynopsisText): Promise<string> {
   const { dna } = await ask(DnaSchema, dnaPrompt(character, synopsis), 1024)
   return dna.replace(/\s*\n\s*/g, ' ').trim()
+}
+
+/**
+ * The synopsis and both locked DNAs → the four-panel page script. The schema
+ * is built per call from the two locked ids, so a reply naming anyone else
+ * fails `messages.parse` and never reaches the desk — one locked character
+ * per panel, alternating. (Enforced by the SDK's zod validation; the API
+ * only sees the ids as description text. See `lib/schemas.ts`.)
+ */
+export function writePageScript(
+  synopsis: SynopsisText,
+  cast: readonly [LockedCharacter, LockedCharacter]
+): Promise<PageScriptOutput> {
+  return ask(pageScriptSchema([cast[0].id, cast[1].id]), pageScriptPrompt(synopsis, cast), 2048)
 }

@@ -57,8 +57,8 @@ export function CastStation({
   return (
     <main className="station">
       <div className="station-inner is-wide">
-        <div className="station-head cast-head">
-          <div className="cast-head-text">
+        <div className="station-head station-head-row">
+          <div className="station-head-text">
             <div className="eyebrow">Station 2 · Model sheets</div>
             <h1 className="station-title">The cast</h1>
             <p className="station-lede">
@@ -66,7 +66,7 @@ export function CastStation({
               picture until they agree, then lock. Both locks open the storyboard.
             </p>
           </div>
-          <div className="cast-next">
+          <div className="station-next">
             <button
               type="button"
               className="btn btn-primary btn-lg"

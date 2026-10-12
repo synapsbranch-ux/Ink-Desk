@@ -6,6 +6,7 @@
 // recursion, no min/max on numbers or strings. Fixed counts are therefore
 // expressed as named fields rather than array lengths.
 import { z } from 'zod'
+import { PANEL_LAYOUT, type PanelSlot } from './prompts'
 
 // --- Output contracts (what Claude returns) ---------------------------------
 
@@ -40,25 +41,38 @@ export const DnaSchema = z.object({
 })
 
 /**
- * The page script. One locked character per panel is a schema constraint:
- * `characterId` is an enum of the two locked ids, so a panel naming an
- * unlocked character — or two — is rejected by the API, not caught later.
+ * The page script. One locked character per panel is a schema constraint,
+ * and so is the alternation: each panel's `characterId` is an enum drawn from
+ * the two locked ids, narrowed to the one the page layout puts in that slot
+ * (lead, counterpart, lead, counterpart — shot / reverse-shot). A panel naming
+ * an unlocked character, two characters, or the right character in the wrong
+ * slot never reaches the desk.
+ *
+ * Where that is enforced, precisely: the SDK sends the API only its strict
+ * subset of JSON Schema and lowers `enum` into the field's description, so the
+ * model reads the allowed id as text; then `messages.parse` validates the
+ * reply against this zod schema and throws on anything else, before
+ * `parsed_output` exists. The rule is the schema's; the check runs in the
+ * SDK, not in the API's grammar. See `scripts/page-check.mts`.
  */
-export function pageScriptSchema(lockedIds: [string, string]) {
-  const PanelLine = z.object({
-    characterId: z.enum(lockedIds),
-    action: z.string(),
-    camera: z.string(),
-    background: z.string(),
-    dialogue: z.string().describe('One short speech-bubble line, under twelve words.'),
-  })
+export function pageScriptSchema(lockedIds: readonly [string, string]) {
+  const line = (slot: PanelSlot) =>
+    z.object({
+      characterId: z.enum([lockedIds[slot.cast]]).describe('The id of the character in this panel, fixed by the layout.'),
+      action: z.string().describe('What this character does and their expression, one or two sentences, a single still frame.'),
+      camera: z.string().describe(`The angle for this panel’s ${slot.shot}, one short sentence.`),
+      background: z.string().describe('The setting as seen from this camera, one sentence, no lettering of any kind.'),
+      dialogue: z.string().describe('One line this character says out loud, under twelve words. No quotation marks.'),
+    })
   return z.object({
-    panel1: PanelLine,
-    panel2: PanelLine,
-    panel3: PanelLine,
-    panel4: PanelLine,
+    panel1: line(PANEL_LAYOUT[0]),
+    panel2: line(PANEL_LAYOUT[1]),
+    panel3: line(PANEL_LAYOUT[2]),
+    panel4: line(PANEL_LAYOUT[3]),
   })
 }
+export type PageScriptOutput = z.infer<ReturnType<typeof pageScriptSchema>>
+export type PanelLine = PageScriptOutput['panel1']
 
 // --- Request bodies (what the browser sends) --------------------------------
 

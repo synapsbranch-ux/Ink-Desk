@@ -671,21 +671,22 @@ h3 {
 .station-inner.is-wide {
   max-width: 1240px;
 }
-.cast-head {
+/* A station head with its "Next" button at the right — Cast and Storyboard. */
+.station-head-row {
   flex-direction: row;
   align-items: flex-end;
   justify-content: space-between;
   gap: var(--space-6);
   flex-wrap: wrap;
 }
-.cast-head-text {
+.station-head-text {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
   flex: 1;
   min-width: 280px;
 }
-.cast-next {
+.station-next {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -880,6 +881,317 @@ input.cast-role:disabled,
   justify-content: flex-start;
 }
 
+/* Storyboard — the main studio. The page at its real ratios on the left, the
+   page script beside it as the visible step. Panels are sized from their
+   ratio, never from pixel numbers, so a 3:2 image drops into a 3:2 slot
+   uncropped at any resolution — devpost/spec.md > The Page Layout. */
+.board {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(280px, 4fr);
+  gap: var(--space-6);
+  align-items: start;
+}
+
+/* The page: white paper, ink gutters between four bordered panels. */
+.page {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  padding: 14px;
+  background: #fff;
+  border: 1px solid var(--divider);
+  box-shadow: var(--shadow-md);
+}
+.panel {
+  position: relative;
+  margin: 0;
+  overflow: hidden;
+  border: 2px solid var(--ink);
+  background: var(--neutral-100);
+}
+.panel-wide {
+  grid-column: 1 / -1;
+  aspect-ratio: 3 / 2;
+}
+.panel-square {
+  aspect-ratio: 1 / 1;
+}
+.panel-art {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #fff;
+}
+/* Bytes still arriving: the pencil shows underneath until `load` fires. */
+.panel-art.is-loading {
+  opacity: 0;
+}
+/* The ink-in: a wipe down the panel from pencil to finished art, with the
+   blur clearing as it goes. A CSS reveal over the finished image — real
+   two-pass generation is explicitly cut. */
+.panel-art.is-inking {
+  animation: ink-in var(--ink-speed) cubic-bezier(0.6, 0, 0.3, 1) both;
+}
+@keyframes ink-in {
+  from {
+    clip-path: inset(0 0 100% 0);
+    filter: blur(3px);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+    filter: blur(0);
+  }
+}
+.panel-num {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 5;
+  padding: 1px 8px 2px;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-heading), Georgia, serif;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The pencil-sketch placeholder: the sketch surface, a dotted silhouette
+   standing where the framing puts the character, and the label. */
+.pencil {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border: 0;
+  border-radius: 0;
+}
+.pencil.is-still::after {
+  display: none;
+}
+.pencil-figure {
+  position: absolute;
+  bottom: 0;
+  overflow: visible;
+}
+.pencil-figure circle,
+.pencil-figure path {
+  fill: none;
+  stroke: var(--neutral-600);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 3;
+  vector-effect: non-scaling-stroke;
+}
+.pencil-figure.is-left {
+  left: 9%;
+  width: 24%;
+  height: 64%;
+}
+.pencil-figure.is-right {
+  right: 9%;
+  width: 24%;
+  height: 64%;
+}
+.pencil-figure.is-medium {
+  left: 50%;
+  width: 70%;
+  height: 92%;
+  bottom: -26%;
+  transform: translateX(-50%);
+}
+.pencil-figure.is-close {
+  left: 50%;
+  width: 150%;
+  height: 170%;
+  bottom: -100%;
+  transform: translateX(-50%);
+}
+.pencil-label {
+  position: absolute;
+  left: 3.5%;
+  bottom: 5%;
+  z-index: 2;
+  max-width: 80%;
+  padding: 4px 10px;
+  background: var(--paper);
+  border: 1px solid var(--ink);
+  font-family: var(--font-heading), Georgia, serif;
+  font-style: italic;
+  font-size: clamp(12px, 1.2vw, 17px);
+  line-height: 1.3;
+}
+.pencil.is-failed .pencil-label {
+  border-color: var(--hanko);
+  color: var(--hanko-800);
+}
+
+/* The speech bubble: Comic Neue, uppercase, an ellipse with a tail toward
+   the speaker. App UI over the art, never drawn by the model. Faint over a
+   placeholder, full once the art has inked in. */
+.bubble {
+  position: absolute;
+  z-index: 4;
+  max-width: 38%;
+  pointer-events: none;
+  padding: 0.7em 1.1em;
+  background: var(--neutral-100);
+  border: 1.5px solid var(--ink);
+  border-radius: 50%;
+  color: var(--ink);
+  font-family: var(--font-letter), 'Comic Neue', cursive;
+  font-weight: 700;
+  font-size: clamp(12px, 1.25vw, 18px);
+  line-height: 1.15;
+  text-align: center;
+  text-transform: uppercase;
+  text-wrap: balance;
+  transition: opacity 0.3s;
+}
+.bubble.is-faint {
+  opacity: 0.35;
+}
+.bubble.is-top-left {
+  top: 5%;
+  left: 4%;
+}
+.bubble.is-top-right {
+  top: 5%;
+  right: 4%;
+}
+.bubble.is-bottom-left {
+  bottom: 7%;
+  left: 4%;
+}
+.bubble.is-bottom-right {
+  bottom: 7%;
+  right: 4%;
+}
+.bubble::after {
+  content: '';
+  position: absolute;
+  width: 0.75em;
+  height: 0.75em;
+  background: var(--neutral-100);
+  border-right: 1.5px solid var(--ink);
+  border-bottom: 1.5px solid var(--ink);
+}
+/* The tail points at the speaker: a bubble on the right points down-left, on
+   the left down-right; a bottom bubble points up. */
+.bubble.is-top-right::after {
+  left: 22%;
+  bottom: -0.42em;
+  transform: rotate(40deg) skewX(10deg);
+}
+.bubble.is-top-left::after {
+  right: 22%;
+  bottom: -0.42em;
+  transform: rotate(50deg) skewX(-10deg);
+}
+.bubble.is-bottom-right::after,
+.bubble.is-bottom-left::after {
+  top: -0.42em;
+  border: 0;
+  border-left: 1.5px solid var(--ink);
+  border-top: 1.5px solid var(--ink);
+}
+.bubble.is-bottom-right::after {
+  left: 22%;
+  transform: rotate(40deg) skewX(10deg);
+}
+.bubble.is-bottom-left::after {
+  right: 22%;
+  transform: rotate(50deg) skewX(-10deg);
+}
+
+/* The page script beside the page. */
+.script {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.script-loading {
+  height: 260px;
+}
+.script-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: var(--space-3);
+  border: 1px solid var(--divider);
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+  transition: border-color 0.3s;
+}
+.script-panel.is-inking {
+  border-left-color: var(--hanko);
+}
+.script-panel.is-done {
+  border-left-color: var(--ink);
+}
+.script-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.script-status {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--neutral-700);
+  white-space: nowrap;
+}
+.script-status.is-inking {
+  color: var(--hanko);
+}
+.script-status.is-done {
+  color: var(--ink);
+}
+.script-status.is-failed,
+.script-status.is-refused {
+  color: var(--hanko-700);
+}
+.script-action {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+}
+.script-line {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  font-style: italic;
+  color: var(--neutral-700);
+}
+.script-dialogue {
+  margin: 2px 0 0;
+  font-family: var(--font-letter), 'Comic Neue', cursive;
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 960px) {
+  .board {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 720px) {
   .studio-header {
     gap: var(--space-3);
@@ -909,11 +1221,15 @@ input.cast-role:disabled,
   .sheet-grid {
     grid-template-columns: 1fr;
   }
-  .cast-next {
+  .station-next {
     align-items: flex-start;
     text-align: left;
   }
   .foot-helper {
     display: none;
+  }
+  .page {
+    gap: 8px;
+    padding: 8px;
   }
 }

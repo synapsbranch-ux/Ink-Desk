@@ -771,8 +771,18 @@ Four schemas in `lib/schemas.ts`: `SynopsisSchema`, `CastSchema`, `DnaSchema`,
 `PageScriptSchema`. **The one-locked-character-per-panel rule from
 `prd.md > Page Script` is expressed as a `z.enum([...])` of the two locked
 character ids** — so a panel naming two characters, or a character who
-isn't locked, is rejected by the API rather than caught later by a check
+isn't locked, is rejected by the schema rather than caught later by a check
 somebody has to remember to write.
+
+> **Where that rejection actually happens — a slice 5 finding.** The SDK's
+> `zodOutputFormat` sends the API only a strict subset of JSON Schema (type,
+> properties, required, description, a few string formats) and **lowers
+> `enum` into the field's description** as text — so the API's grammar does
+> not constrain the id. What enforces it is the SDK: `messages.parse`
+> validates the reply against the zod schema and throws before
+> `parsed_output` exists. The rule is the schema's and a wrong character never
+> reaches the desk; the check runs in the SDK, not in the API. Verified by
+> `npm run check:page`. See `checklist.md > Revisions`.
 
 Three constraints worth knowing before writing the schemas, because each is a
 400 rather than a warning:
@@ -1026,7 +1036,7 @@ these four are read off real `usage.cost` values, not derived:
 
 | Quality | `1:1` | `3:2` | Used for |
 |---|---|---|---|
-| `low` | **$0.0060** *(measured)* | ~$0.009 | **development builds** |
+| `low` | **$0.0060** probe dot · **$0.0199** panel *(measured)* | **$0.0058** sheet · **$0.0190** panel *(measured)* | **development builds** |
 | `medium` | **$0.0270** *(measured)* | **$0.0114–$0.0242** *(measured)* | **the kernel test** |
 | `high` | ~$0.07 | ~$0.07–$0.11 | **panels**, filming |
 | `xhigh` | ~$0.13 | ~$0.13–$0.19 | — |
@@ -1051,8 +1061,11 @@ panels at `high`.
 | | | **total** | **~$1.25** |
 
 Plus ~$0.07–$0.11 per panel redraw, depending on which slot. The same run at
-`low` throughout is about **$0.05** (six images, measured `low` anchor). That
-ratio is what makes iterating on prompts affordable. `scope.md > The POC
+`low` throughout is about **$0.09** — the slice 5 live run measured
+**$0.0190–$0.0199 per panel** at `low` for the four night-rooftop panels,
+three times the $0.006 probe dot, which is scene density again; the two
+sheets are ~$0.006 each. That ratio is still what makes iterating on prompts
+affordable. `scope.md > The POC
 Boundary` budgeted "roughly 6 images per full run"; that holds — the prices
 moved, the count didn't.
 
@@ -1171,8 +1184,10 @@ specified in `prd.md > States and Boundaries`; this is the mapping.
   — it checks the configured ratios and quality against the model's published
   enums before anything is generated.
 - **Claude returns a panel naming an unlocked or second character** → rejected
-  by the `z.enum` of locked ids at the API boundary, surfaced as a retry of the
-  script call rather than a broken page.
+  by the `z.enum` of locked ids in the SDK's `messages.parse` (the API itself
+  only sees the ids as description text — see the note under **Anthropic —
+  Claude (text)**), surfaced as a retry of the script call rather than a
+  broken page.
 
 **No raw error codes on screen, ever.** Provider errors are logged to the
 terminal in full; the browser gets a sentence.
