@@ -151,6 +151,24 @@ h3 {
 .btn-primary:hover:not(:disabled) {
   background: color-mix(in srgb, var(--hanko) 12%, transparent);
 }
+/* The solid hanko button: one per station, the "Next" that lights up red the
+   moment its gate is met. The red is reserved for primary actions, so the
+   disabled state is grey — it turns red exactly when it becomes clickable. */
+.btn-stamp {
+  background: var(--hanko);
+  border-color: var(--hanko);
+  color: #fff;
+}
+.btn-stamp:hover:not(:disabled) {
+  background: var(--hanko-600);
+  border-color: var(--hanko-600);
+}
+.btn-stamp:disabled {
+  opacity: 1;
+  background: var(--neutral-300);
+  border-color: var(--neutral-300);
+  color: var(--neutral-600);
+}
 .btn-secondary {
   border-color: var(--divider);
 }
@@ -665,33 +683,42 @@ h3 {
   border-top: 1px solid var(--divider);
 }
 
+/* Every station ends the same way: a sticky bar pinned to the bottom of the
+   viewport until its natural place at the end of the flow — the one primary
+   "Next" is never off-screen again. */
+.station-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  padding: var(--space-3) var(--space-4);
+  background: var(--paper);
+  border: 1px solid var(--divider);
+  border-top: 2px solid var(--ink);
+  box-shadow: 0 -10px 28px color-mix(in srgb, var(--neutral-900) 10%, transparent);
+}
+.station-footer-status {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.footer-progress {
+  font-family: var(--font-heading), Georgia, serif;
+  font-weight: 600;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Cast — model sheets. The card is the mockup's: a bordered article with a
    header, a figure grid, chips and a footer, with the hanko stamp landing on
    the sheet art at lock. */
 .station-inner.is-wide {
   max-width: 1240px;
-}
-/* A station head with its "Next" button at the right — Cast and Storyboard. */
-.station-head-row {
-  flex-direction: row;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: var(--space-6);
-  flex-wrap: wrap;
-}
-.station-head-text {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  flex: 1;
-  min-width: 280px;
-}
-.station-next {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: var(--space-2);
-  text-align: right;
 }
 .cast-loading {
   height: 300px;
@@ -864,21 +891,43 @@ input.cast-role:disabled,
 .cast-card .notice {
   margin: 0 var(--space-4) var(--space-3);
 }
+/* The card's four actions, always visible in the same places with fixed
+   labels, each captioned with what it does or why it's disabled. */
 .cast-card-foot {
   margin-top: auto;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
   border-top: 1px solid var(--divider);
 }
-.foot-helper {
-  flex: 1;
-  min-width: 0;
-  text-align: right;
+.card-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-2);
+  align-items: start;
 }
-.cast-card.is-locked .cast-card-foot {
-  justify-content: flex-start;
+.card-action {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.card-action .btn {
+  width: 100%;
+  padding-inline: var(--space-2);
+}
+.card-action .btn-ghost {
+  border-color: transparent;
+}
+.action-caption {
+  font-size: 11.5px;
+  line-height: 1.35;
+  font-style: italic;
+  color: var(--neutral-700);
+  text-align: center;
+  text-wrap: pretty;
 }
 
 /* Storyboard — the main studio. The page at its real ratios on the left, the
@@ -1221,12 +1270,11 @@ input.cast-role:disabled,
   .sheet-grid {
     grid-template-columns: 1fr;
   }
-  .station-next {
-    align-items: flex-start;
-    text-align: left;
+  .card-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .foot-helper {
-    display: none;
+  .station-footer {
+    position: static;
   }
   .page {
     gap: 8px;

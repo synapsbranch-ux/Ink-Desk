@@ -6,6 +6,7 @@
 // Card`.
 import { useEffect, useRef } from 'react'
 import { CharacterCard, IDLE_CARD, type CardState } from '@/components/CharacterCard'
+import { StationFooter } from '@/components/StationFooter'
 import type { Gates } from '@/lib/gates'
 import type { CharacterEdit } from '@/lib/patch'
 import type { Chapter } from '@/lib/types'
@@ -52,32 +53,18 @@ export function CastStation({
     }
   }, [empty, proposing, proposeNotice, onPropose])
 
-  const storyboard = gates.storyboard
+  const lockedCount = chapter.cast.filter((c) => c.locked).length
 
   return (
     <main className="station">
       <div className="station-inner is-wide">
-        <div className="station-head station-head-row">
-          <div className="station-head-text">
-            <div className="eyebrow">Station 2 · Model sheets</div>
-            <h1 className="station-title">The cast</h1>
-            <p className="station-lede">
-              Every panel is drawn from these sheets. Read the DNA beside the art, fix the words or redraw the
-              picture until they agree, then lock. Both locks open the storyboard.
-            </p>
-          </div>
-          <div className="station-next">
-            <button
-              type="button"
-              className="btn btn-primary btn-lg"
-              onClick={onGoStoryboard}
-              disabled={!storyboard.open}
-              title={storyboard.open ? undefined : (storyboard.hint ?? undefined)}
-            >
-              Next: storyboard →
-            </button>
-            {!storyboard.open && <span className="helper">{storyboard.hint}</span>}
-          </div>
+        <div className="station-head">
+          <div className="eyebrow">Station 2 · Model sheets</div>
+          <h1 className="station-title">The cast</h1>
+          <p className="station-lede">
+            Every panel is drawn from these sheets. Read the DNA beside the art, fix the words or redraw the
+            picture until they agree, then lock. Both locks open the storyboard.
+          </p>
         </div>
 
         {proposing ? (
@@ -108,6 +95,14 @@ export function CastStation({
             ))}
           </div>
         )}
+
+        <StationFooter
+          gate={gates.storyboard}
+          label="Next: Storyboard"
+          ready="Both sheets are locked — the storyboard is open."
+          progress={chapter.cast.length === 2 ? `${lockedCount} of 2 sheets locked` : undefined}
+          onGo={onGoStoryboard}
+        />
       </div>
     </main>
   )

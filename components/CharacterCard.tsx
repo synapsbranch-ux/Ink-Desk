@@ -1,15 +1,16 @@
 'use client'
 
 // One character card: the words (name, role, traits, look — all editable
-// until locked), Reroll, Draw / Redraw sheet, the DNA text beside the sheet
-// art, and Lock. A locked card is read-only and wears the stamp.
-// Implements `devpost/prd.md > Cast — Model Sheets`; see
-// `devpost/spec.md > Components > Cast Station and Character Card`.
+// until locked), the DNA text beside the sheet art, and the four actions —
+// Reroll, Draw sheet, Redraw sheet, Lock — always visible with a caption
+// saying what each does or why it's disabled. A locked card is read-only
+// and wears the stamp. Implements `devpost/prd.md > Cast — Model Sheets`;
+// see `devpost/spec.md > Components > Cast Station and Character Card`.
 import { useState } from 'react'
 import type { CharacterEdit } from '@/lib/patch'
 import type { Character } from '@/lib/types'
 
-export type CardState = { busy: 'rerolling' | 'drawing' | null; notice: string | null }
+export type CardState = { busy: 'rerolling' | 'drawing' | 'redrawing' | null; notice: string | null }
 export const IDLE_CARD: CardState = { busy: null, notice: null }
 
 type Props = {
@@ -28,9 +29,68 @@ type Props = {
 export function CharacterCard({ index, character: c, state, onEdit, onCommit, onReroll, onDraw, onLock }: Props) {
   const { busy, notice } = state
   const working = busy !== null
-  const hasPair = Boolean(c.dna && c.sheetImageId)
-  const drawLabel =
-    busy === 'drawing' ? 'Drawing…' : hasPair ? 'Redraw sheet' : c.dna ? 'Try again' : 'Draw sheet'
+  const hasDna = Boolean(c.dna)
+  const hasSheet = Boolean(c.sheetImageId)
+  const hasPair = hasDna && hasSheet
+  const drawing = busy === 'drawing' || busy === 'redrawing'
+
+  // The four actions, always rendered in the same places with fixed labels —
+  // the checkpoint verdict was that a morphing label hid Redraw entirely.
+  // Draw sheet always writes the DNA fresh from the look; Redraw sheet keeps
+  // the DNA and only tries a new picture.
+  const actions: {
+    key: string
+    label: string
+    kind: 'ghost' | 'secondary' | 'primary'
+    onClick: () => void
+    disabled: boolean
+    caption: string
+  }[] = [
+    {
+      key: 'reroll',
+      label: busy === 'rerolling' ? 'Rerolling…' : 'Reroll',
+      kind: 'ghost',
+      onClick: () => onReroll(c.id),
+      disabled: working || c.locked,
+      caption: 'A fresh proposal for this slot — new look, same name.',
+    },
+    {
+      key: 'draw',
+      label: busy === 'drawing' ? 'Drawing…' : 'Draw sheet',
+      kind: 'secondary',
+      onClick: () => onDraw(c.id, false),
+      disabled: working || c.locked,
+      caption: hasDna
+        ? 'Rereads the look, writes fresh DNA, draws again.'
+        : hasSheet
+          ? 'The look changed — Claude writes fresh DNA, then draws.'
+          : 'Claude writes the visual DNA from the look, then draws.',
+    },
+    {
+      key: 'redraw',
+      label: busy === 'redrawing' ? 'Redrawing…' : 'Redraw sheet',
+      kind: 'secondary',
+      onClick: () => onDraw(c.id, true),
+      disabled: working || c.locked || !hasDna,
+      caption: !hasDna
+        ? hasSheet
+          ? 'Disabled — the DNA was retired with the old look. Use Draw sheet.'
+          : 'Disabled — draw the sheet first. Redraw reuses its DNA.'
+        : hasSheet
+          ? 'Same DNA, new picture.'
+          : 'Same DNA — try the picture again.',
+    },
+    {
+      key: 'lock',
+      label: 'Lock',
+      kind: 'primary',
+      onClick: () => onLock(c.id),
+      disabled: working || c.locked || !hasPair,
+      caption: !hasPair
+        ? 'Disabled — draw the sheet, then read the DNA against it.'
+        : 'Freezes this DNA and sheet. Final in this version.',
+    },
+  ]
 
   return (
     <article
@@ -71,9 +131,11 @@ export function CharacterCard({ index, character: c, state, onEdit, onCommit, on
 
       <div className="sheet-grid">
         <figure className="sheet-figure">
-          {busy === 'drawing' ? (
+          {drawing ? (
             <div className="sketch sheet-art">
-              <span className="sketch-label">{c.dna ? 'Drawing the sheet…' : 'Writing the DNA, then drawing…'}</span>
+              <span className="sketch-label">
+                {busy === 'redrawing' ? 'Same DNA, drawing a new sheet…' : 'Writing the DNA, then drawing…'}
+              </span>
             </div>
           ) : c.sheetImageId ? (
             <div className="sheet-art">
@@ -94,7 +156,7 @@ export function CharacterCard({ index, character: c, state, onEdit, onCommit, on
             <p className="dna-text">{c.dna}</p>
           ) : (
             <p className="dna-empty">
-              {busy === 'drawing'
+              {drawing
                 ? 'Claude is writing it from the look below.'
                 : c.sheetImageId
                   ? 'The look changed, so this DNA was retired. Draw the sheet again and Claude writes it fresh from the new words.'
@@ -147,34 +209,21 @@ export function CharacterCard({ index, character: c, state, onEdit, onCommit, on
       )}
 
       <footer className="cast-card-foot">
-        {c.locked ? (
-          <span className="helper">DNA and sheet frozen. Every panel {c.name} appears in is drawn from them.</span>
-        ) : (
-          <>
-            <button type="button" className="btn btn-ghost" onClick={() => onReroll(c.id)} disabled={working}>
-              {busy === 'rerolling' ? 'Rerolling…' : 'Reroll'}
-            </button>
-            <span className="helper foot-helper">
-              {hasPair ? 'When the words and the picture agree, lock.' : 'Draw the sheet, then read the DNA against it.'}
-            </span>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => onDraw(c.id, Boolean(c.dna))}
-              disabled={working}
-            >
-              {drawLabel}
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => onLock(c.id)}
-              disabled={working || !hasPair}
-              title={hasPair ? undefined : 'Draw the sheet first.'}
-            >
-              Lock
-            </button>
-          </>
+        <div className="card-actions" role="group" aria-label={`Actions for ${c.name}`}>
+          {actions.map((a) => (
+            <div key={a.key} className="card-action">
+              <button type="button" className={`btn btn-${a.kind}`} onClick={a.onClick} disabled={a.disabled}>
+                {a.label}
+              </button>
+              {!c.locked && <span className="action-caption">{a.caption}</span>}
+            </div>
+          ))}
+        </div>
+        {c.locked && (
+          <span className="helper">
+            Locked — sheets are final in this version. Every panel {c.name} appears in is drawn from this DNA and
+            sheet.
+          </span>
         )}
       </footer>
     </article>

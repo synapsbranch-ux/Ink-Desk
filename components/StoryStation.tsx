@@ -3,12 +3,15 @@
 // Station 1 — the pitch desk. Pitch, genre, tone, "Try the sample", then
 // Claude's synopsis in an editable card with Rewrite and Accept.
 // Implements `devpost/prd.md > Story — The Pitch Desk`.
+import { StationFooter } from '@/components/StationFooter'
+import type { Gates } from '@/lib/gates'
 import type { ChapterPatch } from '@/lib/patch'
 import { GENRES, SAMPLE_PITCH, TONES } from '@/lib/prompts'
 import type { Chapter } from '@/lib/types'
 
 type Props = {
   chapter: Chapter
+  gates: Gates
   pending: boolean
   notice: string | null
   /** Typing: applied locally now, saved after a pause. */
@@ -19,7 +22,7 @@ type Props = {
   onGoCast: () => void
 }
 
-export function StoryStation({ chapter, pending, notice, onEdit, onCommit, onPitch, onGoCast }: Props) {
+export function StoryStation({ chapter, gates, pending, notice, onEdit, onCommit, onPitch, onGoCast }: Props) {
   const { pitch, synopsis } = chapter
   const ready = pitch.text.trim().length > 0 && pitch.genre !== '' && pitch.tone !== ''
   const accepted = synopsis?.accepted === true
@@ -141,11 +144,7 @@ export function StoryStation({ chapter, pending, notice, onEdit, onCommit, onPit
               </>
             )}
             <div className="synopsis-actions">
-              {accepted ? (
-                <button type="button" className="btn btn-primary btn-lg" onClick={onGoCast}>
-                  Next: build the cast →
-                </button>
-              ) : (
+              {!accepted && (
                 <button
                   type="button"
                   className="btn btn-primary btn-lg"
@@ -162,6 +161,13 @@ export function StoryStation({ chapter, pending, notice, onEdit, onCommit, onPit
             {accepted && <span className="stamp">Accepted</span>}
           </article>
         )}
+
+        <StationFooter
+          gate={gates.cast}
+          label="Next: Cast"
+          ready="Synopsis accepted — the cast station is open."
+          onGo={onGoCast}
+        />
       </div>
     </main>
   )

@@ -198,7 +198,13 @@ export default function Studio() {
   )
   const draw = useCallback(
     (id: string, reuseDna: boolean) =>
-      cardRequest(id, 'drawing', '/api/sheet', { id, reuseDna }, 'The sheet didn’t come back, the studio is busy.'),
+      cardRequest(
+        id,
+        reuseDna ? 'redrawing' : 'drawing',
+        '/api/sheet',
+        { id, reuseDna },
+        'The sheet didn’t come back, the studio is busy.'
+      ),
     [cardRequest]
   )
   const editCard = useCallback((id: string, e: CharacterEdit) => edit({ cast: { [id]: e } }), [edit])
@@ -271,6 +277,7 @@ export default function Studio() {
       {chapter.station === 'story' ? (
         <StoryStation
           chapter={chapter}
+          gates={g}
           pending={pending}
           notice={notice}
           onEdit={edit}

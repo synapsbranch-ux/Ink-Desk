@@ -8,6 +8,7 @@
 import { useEffect, useRef } from 'react'
 import { PageScript } from '@/components/PageScript'
 import { Panel } from '@/components/Panel'
+import { StationFooter } from '@/components/StationFooter'
 import type { Gates } from '@/lib/gates'
 import { PANEL_LAYOUT } from '@/lib/prompts'
 import type { Chapter } from '@/lib/types'
@@ -55,39 +56,18 @@ export function StoryboardStation({
     }
   }, [script, blank, onStartPanels])
 
-  const reader = gates.reader
   const inked = script?.filter((p) => p.versions.length > 0).length ?? 0
 
   return (
     <main className="station">
       <div className="station-inner is-wide">
-        <div className="station-head station-head-row">
-          <div className="station-head-text">
-            <div className="eyebrow">Station 3 · The main studio</div>
-            <h1 className="station-title">The storyboard</h1>
-            <p className="station-lede">
-              Claude writes the page from the locked cast, then each panel is drawn against one locked sheet and its
-              DNA — nothing else. As the panels ink in, compare every face to its sheet.
-            </p>
-          </div>
-          <div className="station-next">
-            <button
-              type="button"
-              className="btn btn-primary btn-lg"
-              onClick={onGoReader}
-              disabled={!reader.open}
-              title={reader.open ? undefined : (reader.hint ?? undefined)}
-            >
-              Next: Ink &amp; Publish →
-            </button>
-            <span className="helper">
-              {reader.open
-                ? 'All four panels have art.'
-                : script
-                  ? `${inked} of 4 inked. ${reader.hint ?? ''}`
-                  : (reader.hint ?? '')}
-            </span>
-          </div>
+        <div className="station-head">
+          <div className="eyebrow">Station 3 · The main studio</div>
+          <h1 className="station-title">The storyboard</h1>
+          <p className="station-lede">
+            Claude writes the page from the locked cast, then each panel is drawn against one locked sheet and its
+            DNA — nothing else. As the panels ink in, compare every face to its sheet.
+          </p>
         </div>
 
         <div className="board">
@@ -102,6 +82,14 @@ export function StoryboardStation({
           </section>
           <PageScript chapter={chapter} writing={scripting} notice={scriptNotice} onRetry={onWriteScript} />
         </div>
+
+        <StationFooter
+          gate={gates.reader}
+          label={'Next: Ink & Publish'}
+          ready="All four panels have art — the reader is open."
+          progress={script ? `${inked} of 4 panels inked` : undefined}
+          onGo={onGoReader}
+        />
       </div>
     </main>
   )
