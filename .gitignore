@@ -1,7 +1,5 @@
-# Personal learning context — keep out of commits by default
-/devpost/learner-profile.md
-
-# Local credentials
+# ONLY credentials stay local. Everything else in this project is tracked so
+# the build can continue from a clone on any machine. Learner's call.
 .env
 .env.*
 !.env.example
@@ -9,9 +7,9 @@
 # Local machine config
 .claude/settings.local.json
 
-# Generated chapter data — AI output, never committed.
-# Image bytes and chapter state are reproducible and can be large.
-/data/
+# /data/ is TRACKED now — the kernel-test images are the evidence slices 1-2
+# produced, and they travel with the clone. Note this means generated panel
+# art gets committed too, so the repo grows with every run.
 
 # The pre-existing UI mockup is now TRACKED, so the look can be ported from a
 # clone on any machine. It is pre-existing work and `6-ship` still has to

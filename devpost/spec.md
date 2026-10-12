@@ -683,7 +683,7 @@ ink.desk/
 │   └── gates.ts                     # which stations are unlocked, derived
 ├── scripts/
 │   └── kernel-test.mjs              # slices 1 and 2 — probes both models, then the lock
-├── data/                            # GITIGNORED — created at runtime
+├── data/                            # created at runtime, and TRACKED
 │   ├── chapter.json
 │   ├── images/<id>.png
 │   └── kernel-test/                 # sheet + two panels + index.html to compare
