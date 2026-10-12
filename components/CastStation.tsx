@@ -6,8 +6,10 @@
 // Card`.
 import { useEffect, useRef } from 'react'
 import { CharacterCard, IDLE_CARD, type CardState } from '@/components/CharacterCard'
+import { GenerationStatus } from '@/components/GenerationStatus'
 import { StationFooter } from '@/components/StationFooter'
 import type { Gates } from '@/lib/gates'
+import { textStages } from '@/lib/stages'
 import type { CharacterEdit } from '@/lib/patch'
 import type { Chapter } from '@/lib/types'
 
@@ -69,7 +71,7 @@ export function CastStation({
 
         {proposing ? (
           <div className="sketch cast-loading" aria-busy="true">
-            <span className="sketch-label">Claude is reading the synopsis…</span>
+            <GenerationStatus stages={textStages('Claude is reading the synopsis…')} />
           </div>
         ) : empty ? (
           <div className="notice cast-notice" role="alert">

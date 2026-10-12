@@ -57,6 +57,10 @@ export function StoryboardStation({
   }, [script, blank, onStartPanels])
 
   const inked = script?.filter((p) => p.versions.length > 0).length ?? 0
+  const inkingNow = script?.filter((p) => p.status === 'inking').length ?? 0
+  const progressLine = !script
+    ? 'The page · waiting for the script'
+    : `The page · ${inked} of 4 panels inked${inkingNow > 0 ? ` · ${inkingNow} inking now` : ''}`
 
   return (
     <main className="station">
@@ -71,15 +75,20 @@ export function StoryboardStation({
         </div>
 
         <div className="board">
-          <section className="page" aria-label="The page">
-            {PANEL_LAYOUT.map((slot) => {
-              const panel = script?.[slot.index] ?? null
-              const character = panel
-                ? (chapter.cast.find((c) => c.id === panel.characterId) ?? null)
-                : (chapter.cast[slot.cast] ?? null)
-              return <Panel key={slot.index} slot={slot} panel={panel} character={character} />
-            })}
-          </section>
+          <div className="page-wrap">
+            <div className="eyebrow eyebrow-sm page-progress" aria-live="polite">
+              {progressLine}
+            </div>
+            <section className="page" aria-label="The page">
+              {PANEL_LAYOUT.map((slot) => {
+                const panel = script?.[slot.index] ?? null
+                const character = panel
+                  ? (chapter.cast.find((c) => c.id === panel.characterId) ?? null)
+                  : (chapter.cast[slot.cast] ?? null)
+                return <Panel key={slot.index} slot={slot} panel={panel} character={character} />
+              })}
+            </section>
+          </div>
           <PageScript chapter={chapter} writing={scripting} notice={scriptNotice} onRetry={onWriteScript} />
         </div>
 

@@ -11,7 +11,8 @@
     "kernel-test": "node scripts/kernel-test.mjs",
     "check:store": "tsx scripts/chapter-store-check.mts",
     "check:cast": "tsx scripts/cast-check.mts",
-    "check:page": "tsx scripts/page-check.mts"
+    "check:page": "tsx scripts/page-check.mts",
+    "check:stages": "tsx scripts/stages-check.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",

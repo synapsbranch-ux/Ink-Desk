@@ -2,7 +2,9 @@
 // than its own station: per panel, who, the action, the camera, the
 // background and the line. Display only — dialogue editing is deferred.
 // Implements `devpost/prd.md > Page Script`.
+import { GenerationStatus } from '@/components/GenerationStatus'
 import { PANEL_LAYOUT } from '@/lib/prompts'
+import { textStages } from '@/lib/stages'
 import type { Chapter, PanelStatus } from '@/lib/types'
 
 const STATUS: Record<PanelStatus, string> = {
@@ -29,7 +31,7 @@ export function PageScript({ chapter, writing, notice, onRetry }: Props) {
 
       {writing ? (
         <div className="sketch script-loading" aria-busy="true">
-          <span className="sketch-label">Claude is writing the page…</span>
+          <GenerationStatus stages={textStages('Claude is writing the page…')} />
         </div>
       ) : !script ? (
         <div className="notice cast-notice" role="alert">

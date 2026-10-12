@@ -7,7 +7,9 @@
 // and wears the stamp. Implements `devpost/prd.md > Cast — Model Sheets`;
 // see `devpost/spec.md > Components > Cast Station and Character Card`.
 import { useState } from 'react'
+import { GenerationStatus } from '@/components/GenerationStatus'
 import type { CharacterEdit } from '@/lib/patch'
+import { SHEET_FRESH_STAGES, SHEET_STAGES } from '@/lib/stages'
 import type { Character } from '@/lib/types'
 
 export type CardState = { busy: 'rerolling' | 'drawing' | 'redrawing' | null; notice: string | null }
@@ -132,10 +134,9 @@ export function CharacterCard({ index, character: c, state, onEdit, onCommit, on
       <div className="sheet-grid">
         <figure className="sheet-figure">
           {drawing ? (
-            <div className="sketch sheet-art">
-              <span className="sketch-label">
-                {busy === 'redrawing' ? 'Same DNA, drawing a new sheet…' : 'Writing the DNA, then drawing…'}
-              </span>
+            <div className="sketch sheet-art is-drawing">
+              <div className="speedlines" />
+              <GenerationStatus stages={busy === 'redrawing' ? SHEET_STAGES : SHEET_FRESH_STAGES} />
             </div>
           ) : c.sheetImageId ? (
             <div className="sheet-art">

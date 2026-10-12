@@ -3,10 +3,12 @@
 // Station 1 — the pitch desk. Pitch, genre, tone, "Try the sample", then
 // Claude's synopsis in an editable card with Rewrite and Accept.
 // Implements `devpost/prd.md > Story — The Pitch Desk`.
+import { GenerationStatus } from '@/components/GenerationStatus'
 import { StationFooter } from '@/components/StationFooter'
 import type { Gates } from '@/lib/gates'
 import type { ChapterPatch } from '@/lib/patch'
 import { GENRES, SAMPLE_PITCH, TONES } from '@/lib/prompts'
+import { textStages } from '@/lib/stages'
 import type { Chapter } from '@/lib/types'
 
 type Props = {
@@ -112,7 +114,7 @@ export function StoryStation({ chapter, gates, pending, notice, onEdit, onCommit
 
         {pending ? (
           <div className="sketch synopsis-loading" aria-busy="true">
-            <span className="sketch-label">Claude is reading your pitch…</span>
+            <GenerationStatus stages={textStages('Claude is reading your pitch…')} />
           </div>
         ) : synopsis === null ? (
           <div className="synopsis-empty">

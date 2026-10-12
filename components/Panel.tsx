@@ -57,7 +57,16 @@ export function Panel({ slot, panel, character }: Props) {
       data-inked={showArt && !revealing ? 'true' : undefined}
       aria-busy={panel?.status === 'inking' || undefined}
     >
-      {pencilUnder && <PencilPlaceholder slot={slot} label={label} still={still} failed={failed} />}
+      {pencilUnder && (
+        <PencilPlaceholder
+          slot={slot}
+          label={label}
+          still={still}
+          failed={failed}
+          generating={panel?.status === 'inking'}
+          startedAt={panel?.startedAt}
+        />
+      )}
       {imageId && (
         // eslint-disable-next-line @next/next/no-img-element -- served by our own route as final bytes; this is the art the lock is judged on
         <img
