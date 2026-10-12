@@ -735,7 +735,7 @@ import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod'
 const res = await client.messages.parse({
   model: process.env.ANTHROPIC_MODEL,          // claude-sonnet-5-5
   max_tokens: 2048,
-  thinking: { type: 'disabled' },              // short calls; latency is on camera
+  thinking: { type: 'between_tools' },         // short calls; latency is on camera
   output_config: {
     effort: 'low',
     format: zodOutputFormat(PageScriptSchema),
@@ -753,8 +753,14 @@ carried over from the previous Sonnet:
   `zodOutputFormat` just produces that shape, so the helper is fine.
 - **Sampling parameters are still rejected.** A non-default `temperature`,
   `top_p` or `top_k` returns a 400 on the 5.5 family. The rule stands.
-- **Adaptive thinking is still on by default**, so `thinking: { type:
-  'disabled' }` has to be set explicitly.
+- **Adaptive thinking is still on by default**, so thinking has to be turned
+  off explicitly — but **not with `{ type: 'disabled' }`**. Slice 1's text
+  probe found that value returns a 400 on this model, and
+  `GET /v1/models/claude-sonnet-5-5` confirms why: it reports
+  `thinking.types.disabled.supported === false`. The accepted value is
+  **`{ type: 'between_tools' }`**. The model does not think before responding;
+  the short updates it writes between tool calls are what come back as thinking
+  blocks. See `checklist.md > Revisions`.
 
 Four schemas in `lib/schemas.ts`: `SynopsisSchema`, `CastSchema`, `DnaSchema`,
 `PageScriptSchema`. **The one-locked-character-per-panel rule from
@@ -773,11 +779,13 @@ Three constraints worth knowing before writing the schemas, because each is a
 - **No assistant-message prefills.** `output_config.format` is the replacement,
   which is what we're using anyway.
 
-`thinking: { type: 'disabled' }` plus `effort: 'low'` is the starting point:
-these calls are short, structured, and their latency is visible on camera.
-Adaptive thinking is **on by default** on `claude-sonnet-5-5`, so this has to be
-set explicitly. If the synopsis or dialogue reads flat, dropping `thinking` from
-those two calls is a one-line change — try that before touching the prompts.
+`thinking: { type: 'between_tools' }` plus `effort: 'low'` is the starting
+point: these calls are short, structured, and their latency is visible on
+camera. Adaptive thinking is **on by default** on `claude-sonnet-5-5`, so this
+has to be set explicitly, and `between_tools` is the value that does it — see
+the verified bullet above. If the synopsis or dialogue reads flat, dropping
+`thinking` from those two calls is a one-line change — try that before touching
+the prompts.
 
 Prompt caching is **not** used: the minimum cacheable prefix on
 `claude-sonnet-5-5` is 1024 tokens and these prompts are far shorter, so a

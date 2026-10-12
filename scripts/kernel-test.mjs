@@ -346,7 +346,12 @@ async function textProbe() {
     body: JSON.stringify({
       model: TEXT_MODEL,
       max_tokens: 128,
-      thinking: { type: 'disabled' },
+      // NOT `disabled` — the models API reports
+      // thinking.types.disabled.supported === false on claude-sonnet-5-5, and
+      // sending it returns a 400 telling you to use `between_tools` instead.
+      // This model does not think before responding; the short updates it
+      // writes between tool calls are what come back as thinking blocks.
+      thinking: { type: 'between_tools' },
       output_config: {
         effort: 'low',
         format: {
