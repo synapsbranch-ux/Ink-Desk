@@ -4,10 +4,11 @@
 // the chapter for rendering; `data/chapter.json` is the truth, reached only
 // through the route handlers. See `devpost/spec.md > Data Model`.
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { CastStation, type CastBusy } from '@/components/CastStation'
 import { StationRail, type SaveState } from '@/components/StationRail'
 import { StoryStation } from '@/components/StoryStation'
 import { gates } from '@/lib/gates'
-import { applyPatch, mergePatch, type ChapterPatch } from '@/lib/patch'
+import { applyPatch, mergePatch, type ChapterPatch, type CharacterPatch } from '@/lib/patch'
 import type { Chapter, Station } from '@/lib/types'
 
 const SAVE_DELAY_MS = 600
@@ -26,6 +27,8 @@ export default function Studio() {
   const [saveState, setSaveState] = useState<SaveState>('saved')
   const [pending, setPending] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
+  const [casting, setCasting] = useState(false)
+  const [castBusy, setCastBusy] = useState<CastBusy>(null)
 
   // Edits still waiting to be saved, merged across keystrokes.
   const queued = useRef<ChapterPatch>({})
@@ -110,6 +113,64 @@ export default function Studio() {
     }
   }, [chapter])
 
+  /**
+   * One shape for every Cast generation call: show the right spinner, replace
+   * the chapter with what the server wrote, and turn a failure into a
+   * sentence. The server is the only writer, so the response is the truth.
+   */
+  const castCall = useCallback(
+    async (url: string, body: unknown, busy: CastBusy, fallback: string) => {
+      if (busy) setCastBusy(busy)
+      else setCasting(true)
+      setNotice(null)
+      try {
+        const { ok, data } = await postJson<Chapter | { error: string }>(url, body)
+        if (!ok || !('version' in data)) {
+          setNotice('error' in data ? data.error : fallback)
+          return
+        }
+        setChapter(data)
+        setSaveState('saved')
+      } catch {
+        setNotice('The studio couldn’t be reached. Is the dev server running?')
+      } finally {
+        setCastBusy(null)
+        setCasting(false)
+      }
+    },
+    []
+  )
+
+  const castChapter = useCallback(
+    () => castCall('/api/cast', {}, null, 'The studio couldn’t cast this chapter just now.'),
+    [castCall]
+  )
+
+  const reroll = useCallback(
+    (characterId: string) =>
+      castCall(
+        '/api/cast/reroll',
+        { characterId },
+        { characterId, what: 'reroll' },
+        'The studio couldn’t reroll that character just now.'
+      ),
+    [castCall]
+  )
+
+  const drawSheet = useCallback(
+    (characterId: string, reuseDna: boolean) =>
+      castCall(
+        '/api/sheet',
+        { characterId, reuseDna },
+        { characterId, what: 'sheet' },
+        'The studio couldn’t draw that sheet just now.'
+      ),
+    [castCall]
+  )
+
+  const editCharacter = useCallback((patch: CharacterPatch) => edit({ character: patch }), [edit])
+  const commitCharacter = useCallback((patch: CharacterPatch) => commit({ character: patch }), [commit])
+
   if (!chapter) {
     return (
       <div className="studio">
@@ -133,6 +194,19 @@ export default function Studio() {
           onPitch={pitch}
           onGoCast={() => goTo('cast')}
         />
+      ) : chapter.station === 'cast' ? (
+        <CastStation
+          chapter={chapter}
+          casting={casting}
+          busy={castBusy}
+          notice={notice}
+          onCast={castChapter}
+          onEditCharacter={editCharacter}
+          onCommitCharacter={commitCharacter}
+          onReroll={reroll}
+          onDrawSheet={drawSheet}
+          onGoStoryboard={() => goTo('storyboard')}
+        />
       ) : (
         <ComingNext station={chapter.station} />
       )}
@@ -142,12 +216,11 @@ export default function Studio() {
 
 /** Stations not built yet. Replaced slice by slice. */
 function ComingNext({ station }: { station: Station }) {
-  const copy: Record<Exclude<Station, 'story'>, [string, string, string]> = {
-    cast: ['Station 2 · Model sheets', 'The cast', 'Two characters, two locked sheets. Built next.'],
-    storyboard: ['Station 3 · The main studio', 'The storyboard', 'Four panels against the locks. Built after Cast.'],
+  const copy: Record<Exclude<Station, 'story' | 'cast'>, [string, string, string]> = {
+    storyboard: ['Station 3 · The main studio', 'The storyboard', 'Four panels against the locks. Built next.'],
     reader: ['Station 4 · The reader', 'Ink & Publish', 'The finished page. Built last.'],
   }
-  const [eyebrow, title, lede] = copy[station as Exclude<Station, 'story'>]
+  const [eyebrow, title, lede] = copy[station as Exclude<Station, 'story' | 'cast'>]
   return (
     <main className="station">
       <div className="station-inner">

@@ -37,6 +37,87 @@ export function synopsisPrompt(input: { pitch: string; genre: string; tone: stri
   ].join('\n')
 }
 
+// --- Cast station ---------------------------------------------------------
+
+export function castPrompt(synopsis: { title: string; body: string }): string {
+  return [
+    'You are the character designer at Ink Desk, a small manga studio. Propose the',
+    'two characters this accepted synopsis needs.',
+    '',
+    `Chapter: ${synopsis.title}`,
+    `Synopsis: ${synopsis.body.trim()}`,
+    '',
+    'Requirements:',
+    '- Exactly two characters: the lead first, the counterpart second. Use the',
+    '  names the synopsis already gives them.',
+    '- `role` is their part in one short phrase, e.g. "Lead · rooftop courier".',
+    '- `traits` is exactly three short personality traits, one or two words each.',
+    '- `look` is two or three sentences on how they look: build, hair, face,',
+    '  clothing, and one memorable detail someone could draw from. No backstory.',
+    '- The two must be easy to tell apart at a glance — different silhouettes,',
+    '  hair and clothing, so a reader never confuses them across panels.',
+    '- Keep both suitable for a general audience.',
+  ].join('\n')
+}
+
+export function rerollPrompt(input: {
+  synopsis: { title: string; body: string }
+  replacing: { name: string; role: string }
+  keeping: { name: string; role: string; look: string }
+}): string {
+  return [
+    'You are the character designer at Ink Desk. Replace ONE character in a',
+    'two-character cast with a fresh proposal. The other is staying as-is.',
+    '',
+    `Chapter: ${input.synopsis.title}`,
+    `Synopsis: ${input.synopsis.body.trim()}`,
+    '',
+    `Staying: ${input.keeping.name} — ${input.keeping.role}. ${input.keeping.look}`,
+    `Replacing: ${input.replacing.name} — ${input.replacing.role}.`,
+    '',
+    'Requirements:',
+    '- Propose a genuinely different take on the part being replaced — a new',
+    '  name, a different look and a different personality. Do not return a',
+    '  variation of the character you are replacing.',
+    '- They must still fit the synopsis and still work opposite the one staying.',
+    '- They must be easy to tell apart from the one staying at a glance:',
+    '  different silhouette, hair and clothing.',
+    '- Same field rules as before: `role` is one short phrase, `traits` is',
+    '  exactly three short traits, `look` is two or three drawable sentences.',
+  ].join('\n')
+}
+
+/**
+ * The visual DNA — written once per character, then frozen at lock and pasted
+ * verbatim into every panel request. This prompt is the kernel's text half:
+ * `devpost/prd.md > Cast — Model Sheets` makes the sheet a picture of the DNA
+ * *by construction*, so the two frozen artifacts cannot contradict each other.
+ */
+export function dnaPrompt(character: { name: string; role: string; traits: string[]; look: string }): string {
+  return [
+    'You are the character designer at Ink Desk. Write the visual DNA for one',
+    'character: the fixed description that every drawing of them must match.',
+    '',
+    `Name: ${character.name}`,
+    `Role: ${character.role}`,
+    `Traits: ${character.traits.join(', ')}`,
+    `Look, as the storyteller wrote it: ${character.look.trim()}`,
+    '',
+    'Requirements:',
+    '- Start with their name, apparent age and build, then cover hair (length,',
+    '  cut, how it falls), eyes, face shape, skin, and their full outfit top to',
+    '  bottom.',
+    '- End with one or two distinguishing marks an artist could not miss — a',
+    '  scar, a particular garment, something they always carry.',
+    '- Describe only what is permanently true of them. No pose, no expression,',
+    '  no setting, no lighting, no mood — those change from panel to panel and',
+    '  must not be frozen here.',
+    '- Honor the storyteller’s description. You are making it precise and',
+    '  drawable, not redesigning it.',
+    '- Plain prose, one paragraph, no line breaks, no headings, no lists.',
+  ].join('\n')
+}
+
 // --- The frozen half of every image request -------------------------------
 //
 // Proven by `scripts/kernel-test.mjs` in slices 1–2 and ported verbatim.

@@ -71,6 +71,20 @@ export const ChapterPatchSchema = z
       .object({ title: z.string(), body: z.string(), accepted: z.boolean() })
       .partial()
       .optional(),
+    /** One character's editable text, or `locked: true` to stamp it. The
+     *  server refuses both on an already-locked card — see
+     *  `app/api/chapter/route.ts`. */
+    character: z
+      .object({
+        id: z.string().min(1),
+        name: z.string().optional(),
+        role: z.string().optional(),
+        traits: z.array(z.string()).optional(),
+        look: z.string().optional(),
+        locked: z.literal(true).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
 
@@ -78,4 +92,15 @@ export const SynopsisRequestSchema = z.object({
   pitch: z.string().trim().min(1),
   genre: z.string().min(1),
   tone: z.string().min(1),
+})
+
+export const RerollRequestSchema = z.object({
+  characterId: z.string().min(1),
+})
+
+export const SheetRequestSchema = z.object({
+  characterId: z.string().min(1),
+  /** Redraw sheet: keep the DNA on screen and draw it again. Editing the
+   *  description clears the DNA instead, so the next draw rewrites it. */
+  reuseDna: z.boolean().optional(),
 })

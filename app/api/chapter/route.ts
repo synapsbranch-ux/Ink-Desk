@@ -39,6 +39,17 @@ export async function POST(req: Request) {
         const hasOne = c.synopsis !== null || (patch.synopsis.title !== undefined && patch.synopsis.body !== undefined)
         if (!hasOne) throw new Refused('Pitch a story before accepting a synopsis.', 409)
       }
+      if (patch.character) {
+        const target = c.cast.find((x) => x.id === patch.character?.id)
+        if (!target) throw new Refused('That character isn’t on the desk.', 404)
+        // Locking is final, and read-only means read-only on the server too —
+        // not just hidden in the UI.
+        if (target.locked) throw new Refused('That sheet is locked. Locking is final in this version.', 409)
+        // Nothing is final until both the words and the picture are approved.
+        if (patch.character.locked === true && (target.dna === null || target.sheetImageId === null)) {
+          throw new Refused('Draw the sheet before locking it.', 409)
+        }
+      }
       return applyPatch(c, patch)
     })
     return Response.json(chapter)

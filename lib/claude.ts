@@ -7,11 +7,19 @@
 //   • thinking is turned off with { type: 'between_tools' } — `disabled` is a
 //     400 on this model;
 //   • temperature / top_p / top_k are rejected, so none are sent.
+import { randomUUID } from 'node:crypto'
 import Anthropic from '@anthropic-ai/sdk'
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod'
 import type { z } from 'zod'
-import { synopsisPrompt } from './prompts'
-import { SynopsisSchema, type SynopsisOutput } from './schemas'
+import { castPrompt, dnaPrompt, rerollPrompt, synopsisPrompt } from './prompts'
+import {
+  CastSchema,
+  CharacterProposalSchema,
+  DnaSchema,
+  SynopsisSchema,
+  type SynopsisOutput,
+} from './schemas'
+import type { Character, Synopsis } from './types'
 
 export const TEXT_MODEL = process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-5-5'
 
@@ -69,4 +77,37 @@ async function ask<S extends z.ZodType>(schema: S, prompt: string, maxTokens: nu
 
 export function writeSynopsis(input: { pitch: string; genre: string; tone: string }): Promise<SynopsisOutput> {
   return ask(SynopsisSchema, synopsisPrompt(input), 1024)
+}
+
+/** Exactly two, by construction — the schema has a `first` and a `second`
+ *  rather than an array, since this model rejects min/max on arrays. */
+export async function proposeCast(synopsis: Synopsis): Promise<[NewCharacter, NewCharacter]> {
+  const { first, second } = await ask(CastSchema, castPrompt(synopsis), 2048)
+  return [first, second]
+}
+
+/** Replaces exactly one character; the other is passed in so Claude writes
+ *  someone who contrasts with it rather than echoing it. */
+export function rerollCharacter(input: {
+  synopsis: Synopsis
+  replacing: Character
+  keeping: Character
+}): Promise<NewCharacter> {
+  return ask(CharacterProposalSchema, rerollPrompt(input), 1024)
+}
+
+/** The visual DNA, written from the edited description. The sheet is then
+ *  drawn from this text in the same request — see `app/api/sheet/route.ts`. */
+export async function writeDna(character: Character): Promise<string> {
+  const { dna } = await ask(DnaSchema, dnaPrompt(character), 1024)
+  return dna
+}
+
+export type NewCharacter = { name: string; role: string; traits: string[]; look: string }
+
+/** A fresh proposal as it is stored: a new id, no DNA, no sheet, unlocked.
+ *  Lives here rather than in a route so the two cast routes don't have to
+ *  import each other. */
+export function newCharacter(proposal: NewCharacter): Character {
+  return { id: randomUUID(), ...proposal, dna: null, sheetImageId: null, locked: false }
 }
