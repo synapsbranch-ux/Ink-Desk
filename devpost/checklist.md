@@ -31,7 +31,7 @@ rather than being styled afterwards. Learner's call.
   Learner check: Covered by the slice 2 checkpoint — the probes are a terminal result, not a behavior to try.
   Commit: `Prove both providers with kernel-test probes`
 
-- [ ] **2. The kernel is proven or disproven, with the images side by side**
+- [x] **2. The kernel is proven or disproven, with the images side by side**
   Becomes usable: `data/kernel-test/index.html` shows Kaito's model sheet beside a square close-up and a landscape wide shot, both generated from that sheet as `input_references[0]` plus the locked DNA verbatim. One question, answerable by looking: same person, same scar, same scarf, from both distances?
   Why now: `scope.md > The Unique Kernel` is the whole product, and `spec.md > The Useful Unknown` is explicit that verification settled the mechanism but cannot settle the result. If one sheet plus verbatim DNA does not hold a face, that is worth knowing on day one rather than after five stations are built on top of it. It also returns the three numbers the spec is currently guessing at.
   PRD ref: `prd.md > The Core Journey` (step 13, the success criterion)
@@ -150,4 +150,7 @@ Activity mode: [pending]
 
 ## Revisions
 
+- **`GENERATION_TIMEOUT_MS` raised from 180000 to 360000** — the kernel test's slowest call took **118.7s** at `medium`, leaving the placeholder only 1.5× headroom on a tier *below* filming quality, with `PANEL_CONCURRENCY=2` adding contention. A panel that finished normally could have been demoted to `failed` on camera. Updated in `spec.md` and `.env.example`; the open item is closed.
+- **The cost table's shape was wrong, not just its numbers** — it assumed aspect ratio drives cost. Two `3:2` images at the same quality measured **$0.0114 and $0.0242** (2.1× apart), and the `1:1` close-up ($0.0270) cost *more* than either, inverting the assumption. What actually drives cost is scene density: a plain-background model sheet is cheap, a neon-lit skyline is not. Measured values recorded for `low` and `medium`; `high`/`xhigh`/`max` remain estimates, and the filming-run budget is revised from ~$1.25 to **~$2**. The open item is replaced by a sharper one rather than closed.
+- **Returned dimensions are `1536×1024` at `3:2` and `1024×1024` at `1:1`** — exactly the pixel sizes the pre-OpenRouter revision used to request explicitly, so losing the `size` parameter cost nothing in practice. Open item closed.
 - **Turning Claude's thinking off is `{ type: 'between_tools' }`, not `{ type: 'disabled' }`** — slice 1's text probe got a 400 on the value `spec.md` specified, with the API itself naming the replacement; `GET /v1/models/claude-sonnet-5-5` then confirmed `thinking.types.disabled.supported === false` (and `enabled` false, `adaptive` true). Corrected in `scripts/kernel-test.mjs` and in three places in `spec.md > External Services and Dependencies > Anthropic — Claude (text)`. The learner's decision is unchanged — thinking off, `effort: 'low'`, for short calls whose latency is on camera — only the wire value moved. This is exactly the failure slice 1 exists to catch: it would otherwise have surfaced in slice 3 as every Claude call 400ing at once.

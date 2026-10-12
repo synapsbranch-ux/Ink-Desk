@@ -987,29 +987,50 @@ quotable. Verified rates for this model:
 | `input_text` | $5 per million tokens |
 
 Output tokens scale with quality and with pixel count, and OpenRouter does not
-publish a token count per quality tier — so a per-image figure can only be
-estimated until a real call returns one.
+publish a token count per quality tier.
 
-| Quality | `1:1` *(est.)* | `3:2` *(est.)* | Used for |
-|---|---|---|---|
-| `low` | ~$0.008 | ~$0.012 | **development builds** |
-| `medium` | ~$0.018 | ~$0.027 | **the kernel test** |
-| `high` | ~$0.07 | ~$0.11 | **panels**, filming |
-| `xhigh` | ~$0.13 | ~$0.19 | — |
-| `max` | ~$0.29 | ~$0.43 | **sheets**, filming |
+**Measured by the slice 2 kernel test**, from `data/kernel-test/manifest.json` —
+these four are read off real `usage.cost` values, not derived:
 
-> **This whole table is an estimate now, and that is a downgrade from the
-> previous revision — where the square column was quoted from the official
-> model page.** It is derived, not read: the old OpenAI per-image prices imply
-> roughly $22 per million output tokens, OpenRouter charges $30, so these are
-> the old figures scaled by ~1.4× and then by ~1.5× for the landscape ratio.
-> Two multiplications on top of a figure for a different billing model.
+| Image | Ratio | Quality | Measured | Returned size |
+|---|---|---|---|---|
+| probe dot | `1:1` | `low` | **$0.0060** | 1024×1024 |
+| model sheet | `3:2` | `medium` | **$0.0114** | 1536×1024 |
+| wide rooftop panel | `3:2` | `medium` | **$0.0242** | 1536×1024 |
+| close-up panel | `1:1` | `medium` | **$0.0270** | 1024×1024 |
+| | | **run total** | **$0.0687** | |
+
+> ### ⚠ The cost table's *shape* was wrong, not just its numbers
 >
-> **Replace it with measurements rather than trusting it.** Every response
-> carries `usage.cost`, the actual dollars for that call. The kernel test
-> prints it per image and writes it to `manifest.json`, so after one ~$0.08 run
-> the `medium` row is fact and the others can be scaled from a real anchor.
-> Treat the numbers above as order-of-magnitude only.
+> The estimate below assumed ratio is the main cost driver — that a `3:2` image
+> costs ~1.5× a `1:1` one at the same quality. **The measurements say
+> otherwise.** Two `3:2` images at the same quality cost **$0.0114 and
+> $0.0242** — the same ratio and the same tier, a 2.1× spread. And the `1:1`
+> close-up ($0.0270) cost *more* than either `3:2` image, inverting the
+> assumption outright.
+>
+> **What actually drives cost is how much is in the picture.** The cheap one is
+> the model sheet: three figures on a plain light background. The expensive ones
+> are a rain-soaked neon close-up and a full neo-Osaka skyline. OpenRouter bills
+> output image tokens, and a denser image is simply more tokens.
+>
+> **Consequence for budgeting:** a per-ratio grid cannot be accurate, so treat
+> the unmeasured tiers below as order-of-magnitude only and expect panel costs
+> to vary ~2× with scene complexity. Backgrounds are written by Claude into the
+> panel prompt, so the app does not control this directly.
+
+| Quality | `1:1` | `3:2` | Used for |
+|---|---|---|---|
+| `low` | **$0.0060** *(measured)* | ~$0.009 | **development builds** |
+| `medium` | **$0.0270** *(measured)* | **$0.0114–$0.0242** *(measured)* | **the kernel test** |
+| `high` | ~$0.07 | ~$0.07–$0.11 | **panels**, filming |
+| `xhigh` | ~$0.13 | ~$0.13–$0.19 | — |
+| `max` | ~$0.29 | ~$0.29–$0.43 | **sheets**, filming |
+
+Rows still marked `~` are the original derivation (old OpenAI per-image prices
+scaled by ~1.4× for OpenRouter's $30/M rate) and have **not** been measured.
+Re-measure before trusting any filming total; the kernel test prints
+`usage.cost` on every run.
 
 **Quality plan, unchanged:** sheets at `max` (only two per chapter, and each is
 the canonical reference every panel is compared against — worth the spend),
@@ -1025,9 +1046,17 @@ panels at `high`.
 | | | **total** | **~$1.25** |
 
 Plus ~$0.07–$0.11 per panel redraw, depending on which slot. The same run at
-`low` throughout is about **$0.07**. That ratio is what makes iterating on
-prompts affordable. `scope.md > The POC Boundary` budgeted "roughly 6 images per
-full run"; that holds — the prices moved, the count didn't.
+`low` throughout is about **$0.05** (six images, measured `low` anchor). That
+ratio is what makes iterating on prompts affordable. `scope.md > The POC
+Boundary` budgeted "roughly 6 images per full run"; that holds — the prices
+moved, the count didn't.
+
+> **The ~$1.25 total is still an estimate, and now a looser one.** Only the
+> `low` and `medium` tiers have been measured, and the kernel test showed a
+> ~2× spread *within* a tier driven by scene complexity. The four panels are
+> night cityscapes — the expensive end of that spread. **Budget ~$2 for a
+> filming run rather than ~$1.25**, and keep the ~$2.50 balance floor from
+> **Balance, Rate Limits, and Concurrency**, which still holds.
 
 **Roughly 40% more than the previous revision's ~$0.90**, for the same images.
 That is the cost of the broker, and at these absolute numbers it is a rounding
@@ -1049,8 +1078,15 @@ IMAGE_PANEL_QUALITY=low       # filming: high
 KERNEL_TEST_QUALITY=medium    # deliberately not low — see The Useful Unknown
 
 PANEL_CONCURRENCY=2
-GENERATION_TIMEOUT_MS=180000  # placeholder; set from the kernel test
+GENERATION_TIMEOUT_MS=360000  # measured: slowest kernel-test call was 118.7s
 ```
+
+> **The 180000 placeholder was too low, and that is a slice 2 finding.** The
+> slowest call in the kernel test — the square close-up — took **118.7s at
+> `medium`**, against a 180s placeholder. That is only 1.5× headroom, on a tier
+> *below* the `high`/`max` used for filming, with `PANEL_CONCURRENCY=2` adding
+> contention. A panel that finished normally would have been demoted to
+> `failed` on camera. Set to **360000** (3× the measured slowest call).
 
 `.env.example` ships with the **development** values, so a fresh clone builds
 cheaply and only filming opts into the expensive ones.
@@ -1333,13 +1369,18 @@ warning in **Verified: Image Model and Reference-Image Support**.
 
 ### Open
 
-- **The generation timeout value.** Needs a real number, measured by the kernel
-  test. Placeholder `180000` in `.env.example`; set it in `5-build`.
-- **The real per-image cost.** The table in **Quality, Cost, and the `.env`
-  Switch** is now an estimate rather than a published figure. One kernel-test
-  run returns `usage.cost` and settles it — update the table then.
-- **The pixel dimensions returned at `3:2` and `1:1`.** Not ours to set any
-  more. The kernel test records them; size panel CSS from the ratio until then.
+- ~~**The generation timeout value.**~~ **Closed by slice 2.** Slowest call
+  118.7s at `medium`; `GENERATION_TIMEOUT_MS=360000`. The `180000` placeholder
+  was too low — see the note under **Quality, Cost, and the `.env` Switch**.
+- ~~**The real per-image cost.**~~ **Measured for `low` and `medium`** —
+  see the table in **Quality, Cost, and the `.env` Switch**. Replaced by a
+  sharper open question: **cost varies ~2× with scene complexity within a
+  single quality tier**, so a per-ratio grid can't be accurate, and
+  `high`/`xhigh`/`max` are still unmeasured. Re-measure before filming.
+- ~~**The pixel dimensions returned at `3:2` and `1:1`.**~~ **Closed by slice
+  2:** `3:2` returns **1536×1024**, `1:1` returns **1024×1024** — exactly the
+  pixel sizes the pre-OpenRouter revision used to request explicitly. Panel CSS
+  can still be sized from the ratio, but the real numbers are now known.
 - **Whether the alias restyles mid-build.** Unanswerable in advance and
   unpreventable by configuration. The mitigation is re-running the kernel test
   before filming; the escape hatch is calling OpenAI directly.
