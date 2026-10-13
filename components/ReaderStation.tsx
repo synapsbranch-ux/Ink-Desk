@@ -70,7 +70,9 @@ export function ReaderStation({ chapter, onGoStoryboard, onNewProject }: Props) 
   // leaves a page above you waiting.
   const [reached, setReached] = useState(-1)
   const [exporting, setExporting] = useState<Exporting>(null)
-  const [notice, setNotice] = useState<string | null>(null)
+  /** The last failed export's sentence, and which export it was — in the
+   *  vertical scroll it shows under the button that was pressed. */
+  const [notice, setNotice] = useState<{ text: string; for: Exporting } | null>(null)
 
   const title = chapterTitle(chapter)
   const toPublish = publishable(entries)
@@ -87,7 +89,10 @@ export function ReaderStation({ chapter, onGoStoryboard, onNewProject }: Props) 
     } catch (err) {
       // Only our own sentences reach the screen — never a raw browser error.
       console.warn('[export]', err)
-      setNotice(err instanceof ExportError ? err.message : 'The chapter couldn’t be exported just now. Try again in a moment.')
+      setNotice({
+        text: err instanceof ExportError ? err.message : 'The chapter couldn’t be exported just now. Try again in a moment.',
+        for: what,
+      })
     } finally {
       setExporting(null)
     }
@@ -245,6 +250,11 @@ export function ReaderStation({ chapter, onGoStoryboard, onNewProject }: Props) 
                         </button>
                       )}
                     </div>
+                    {notice?.for === `png:${i}` && (
+                      <div className="notice" role="alert">
+                        {notice.text}
+                      </div>
+                    )}
                     <EntryView entry={e} cast={chapter.cast} direction={direction} playing={playing} />
                   </>
                 )}
@@ -297,9 +307,9 @@ export function ReaderStation({ chapter, onGoStoryboard, onNewProject }: Props) 
           </div>
         )}
 
-        {notice && (
+        {notice && !(vertical && notice.for !== 'pdf') && (
           <div className="notice" role="alert">
-            {notice}
+            {notice.text}
           </div>
         )}
 
@@ -384,7 +394,9 @@ function ScrollEntry({
           io.disconnect()
         }
       },
-      { threshold: 0.2 }
+      // Any part of the entry inside the top 80% of the viewport — not a
+      // share of its area: a page can be many screens tall on a phone.
+      { threshold: 0, rootMargin: '0px 0px -20% 0px' }
     )
     io.observe(el)
     return () => io.disconnect()

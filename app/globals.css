@@ -1625,7 +1625,7 @@ input.cast-role:disabled,
   grid-template-columns: 1fr;
 }
 .reader-sheet.is-vertical {
-  max-width: 600px;
+  max-width: 600px; /* = VERTICAL_NOMINAL in lib/export.ts */
   gap: var(--space-6);
 }
 .reader-scroll-entry {
@@ -1696,8 +1696,11 @@ input.cast-role:disabled,
   color: var(--ink);
 }
 @media (prefers-reduced-motion: reduce) {
-  .reader-page.is-waiting .reader-reveal,
-  .reader-cover.is-waiting .cover-art {
+  .reader-page.is-waiting .reader-reveal {
+    clip-path: none;
+  }
+  .reader-cover .cover-art {
+    animation: none;
     clip-path: none;
   }
   .reader-page.is-waiting .reader-bubble {

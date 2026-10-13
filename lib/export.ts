@@ -36,6 +36,11 @@ export const EXPORT_WIDTH = 1600
  *  and the strokes 2px at about this size; the export scales them with its
  *  own width so the proportions — and therefore the layout — match. */
 const NOMINAL = 720
+/** The vertical page's on-screen width: `.reader-sheet.is-vertical`'s
+ *  `max-width` in `app/globals.css`. Its gutters, strokes and 17px lettering
+ *  are scaled from this, so a manhwa export letters its bubbles at the size
+ *  the scroll shows them. */
+export const VERTICAL_NOMINAL = 600
 
 export type Rect = { x: number; y: number; w: number; h: number }
 
@@ -63,7 +68,7 @@ export type PageGeometry = {
  *  stacks the four panels in one full-width column, story order top to
  *  bottom — the page as one stretch of a vertical scroll. */
 export function pageGeometry(width = EXPORT_WIDTH, direction: PageDirection = 'ltr'): PageGeometry {
-  const scale = width / NOMINAL
+  const scale = width / (direction === 'vertical' ? VERTICAL_NOMINAL : NOMINAL)
   const padding = 14 * scale
   const gap = 14 * scale
   const inner = width - 2 * padding
@@ -173,7 +178,7 @@ export function bubbleRect(l: BubbleLayout, slot: Rect): Rect {
 }
 
 /** Greedy word wrap with the context's own measurements. */
-function wrapWords(measure: (text: string) => number, words: string[], maxWidth: number): string[] {
+export function wrapWords(measure: (text: string) => number, words: string[], maxWidth: number): string[] {
   const lines: string[] = []
   let line = ''
   for (const word of words) {
@@ -373,12 +378,16 @@ export function drawCover(ctx: DrawContext, geom: CoverGeometry, image: CoverIma
 /** A filename from the chapter title: `the-offer….png`, `…-page-2.png`,
  *  `….pdf`. Safe on every OS and never empty. */
 export function exportFilename(title: string, part?: string, ext: 'png' | 'pdf' = 'png'): string {
+  // NFKD splits an accent off its letter; the mark is dropped, not hyphenated
+  // ("Café" → "cafe"), and the edges are trimmed after the cut so a part
+  // never follows a dangling hyphen.
   const slug = title
     .toLowerCase()
     .normalize('NFKD')
+    .replace(/\p{M}+/gu, '')
     .replace(/[^\p{Letter}\p{Number}]+/gu, '-')
-    .replace(/^-+|-+$/g, '')
     .slice(0, 60)
+    .replace(/^-+|-+$/g, '')
   const base = slug || (ext === 'pdf' ? 'ink-desk-chapter' : 'ink-desk-page')
   return `${base}${part ? `-${part}` : ''}.${ext}`
 }

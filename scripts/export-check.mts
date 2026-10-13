@@ -39,6 +39,8 @@ const {
   PDF_PAGE_WIDTH_PT,
   balanceTitle,
   buildPdf,
+  VERTICAL_NOMINAL,
+  wrapWords,
   coverGeometry,
   drawCover,
   drawPage,
@@ -394,8 +396,12 @@ await check('geometry v2: the vertical page — one column, story order top to b
       g.panels.forEach((q, j) => assert.ok(i === j || !overlaps(p, q)))
     })
   }
-  // Lettering is the same size whichever way the page reads.
-  assert.equal(v.fontSize, ltr.fontSize)
+  // The vertical page is scaled from the scroll's own width, so the lettering
+  // sits in its full-width panel at the proportion the screen shows: 17px
+  // across a panel of 600 − 2·14 − 2·2 − 2·2 px.
+  assert.ok(near(v.fontSize, 17 * (EXPORT_WIDTH / VERTICAL_NOMINAL)))
+  const screenRatio = 17 / (VERTICAL_NOMINAL - 28 - 4 - 4)
+  assert.ok(Math.abs(v.fontSize / v.panels[1].w - screenRatio) / screenRatio < 0.02, 'lettering to panel width matches the scroll')
 })
 
 await check('export v2: a vertical page composites every panel into its column slot', () => {
@@ -447,12 +453,11 @@ await check('cover: the art fills the 2:3 frame like object-fit: cover, the titl
 
 await check('cover: a balanced title — the greedy line count, evened out', () => {
   const measure = (s: string) => s.length * 10
-  // Greedy at 200 would set "THE LAST DELIVERY" / "BEFORE DAWN"-ish uneven lines; balanced keeps two, evened.
-  const lines = balanceTitle(measure, 'The Last Delivery Before Dawn', 200)
-  assert.equal(lines.length, 2)
-  assert.equal(lines.join(' '), 'The Last Delivery Before Dawn')
-  const [a, b] = lines.map((l) => l.length)
-  assert.ok(Math.abs(a - b) <= 6, `even lines, got ${lines.join(' | ')}`)
+  // Greedy fills the first line and leaves a widow; balanced keeps two lines, evened.
+  const title = 'A Very Long Night In The Port'
+  assert.deepEqual(wrapWords(measure, title.split(' '), 230), ['A Very Long Night In', 'The Port'], 'the greedy wrap is uneven')
+  const lines = balanceTitle(measure, title, 230)
+  assert.deepEqual(lines, ['A Very Long Night', 'In The Port'])
   assert.deepEqual(balanceTitle(measure, 'Short', 200), ['Short'])
   assert.deepEqual(balanceTitle(measure, '   ', 200), [])
 })
@@ -537,6 +542,9 @@ await check('names v2: page PNGs and the chapter PDF', () => {
   assert.equal(exportFilename('Return to Sender', 'cover'), 'return-to-sender-cover.png')
   assert.equal(exportFilename('Return to Sender', undefined, 'pdf'), 'return-to-sender.pdf')
   assert.equal(exportFilename('  ¡¿…?!  ', undefined, 'pdf'), 'ink-desk-chapter.pdf')
+  assert.equal(exportFilename('Pokémon Café', undefined, 'pdf'), 'pokemon-cafe.pdf', 'accents fold, never split a word')
+  const long = exportFilename(`${'a'.repeat(59)} bcd`, 'page-2')
+  assert.ok(!long.includes('--'), `no dangling hyphen before the part, got ${long}`)
 })
 
 await check('reading order: manga presets page right to left, manhwa scrolls', () => {
