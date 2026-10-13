@@ -1,9 +1,9 @@
 ---
 doc: checklist
-status: draft
+status: approved
 ---
 
-> **Status note, 2026-10-13:** slices 1–7 are built, reviewed and tagged `v1-poc` under the approved plan. The frontmatter reads `draft` because slices 8–15 (the v2 revision, see **Revisions**) await the learner's gut check; it returns to `approved` on their word.
+> **Status note, 2026-10-13:** slices 1–7 are built, reviewed and tagged `v1-poc`. Slices 8–15 (the v2 revision, see **Revisions**) were approved at the gut check the same day — *"approved, start slice 8."*
 
 # Build Checklist
 
