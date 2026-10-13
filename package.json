@@ -18,7 +18,8 @@
     "check:export": "tsx scripts/export-check.mts",
     "check:models": "tsx scripts/models-check.mts",
     "check:assets": "tsx scripts/assets-check.mts",
-    "check:llm": "tsx scripts/llm-check.mts"
+    "check:llm": "tsx scripts/llm-check.mts",
+    "check:plan": "tsx scripts/plan-check.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",

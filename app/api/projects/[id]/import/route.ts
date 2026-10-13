@@ -12,8 +12,10 @@ import { read, update } from '@/lib/chapter'
 import { writeDnaFromPicture } from '@/lib/claude'
 import { findAsset } from '@/lib/assets'
 import { errorResponse, Refused } from '@/lib/errors'
-import { readImage } from '@/lib/images'
+import { chargeText, readImage } from '@/lib/images'
+import { textMeter } from '@/lib/llm'
 import { ImportRequestSchema } from '@/lib/schemas'
+import { storyBrief } from '@/lib/story'
 
 export const runtime = 'nodejs'
 
@@ -27,8 +29,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   try {
     const current = await read(projectId)
-    const synopsis = current.synopsis
-    if (!synopsis) throw new Refused('Pitch a story first.')
+    const synopsis = storyBrief(current)
+    if (!synopsis) throw new Refused('Settle the story first.')
     assertUnlocked(findCharacter(current, id))
     const asset = findAsset(current, assetId)
     const bytes = await readImage(asset.blobId)
@@ -39,12 +41,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const character = findCharacter(desk, id)
 
     // (b) the words, from the picture
-    const dna = await writeDnaFromPicture(character, synopsis, { bytes, mediaType: asset.mediaType })
+    const meter = textMeter()
+    const dna = await writeDnaFromPicture(character, synopsis, { bytes, mediaType: asset.mediaType }, meter)
     const done = await update(projectId, (c) => {
       // Only if the card still shows this picture — a second import or a draw
       // that landed meanwhile wins, and these words would describe the wrong art.
-      if (findCharacter(c, id).sheetImageId !== asset.blobId) return c
-      return setDna(c, id, dna)
+      if (findCharacter(c, id).sheetImageId !== asset.blobId) return chargeText(c, meter)
+      return chargeText(setDna(c, id, dna), meter)
     })
     console.log(`[import] ${character.name} — sheet from “${asset.name}”, DNA written from the picture`)
     return Response.json(done)

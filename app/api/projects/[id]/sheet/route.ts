@@ -14,9 +14,11 @@ import { read, update } from '@/lib/chapter'
 import { writeDna } from '@/lib/claude'
 import { errorResponse, Refused } from '@/lib/errors'
 import { generateImage, imageConfig } from '@/lib/image-provider'
-import { saveImage } from '@/lib/images'
+import { chargeText, saveImage } from '@/lib/images'
+import { textMeter } from '@/lib/llm'
 import { sheetPrompt } from '@/lib/prompts'
 import { SheetRequestSchema } from '@/lib/schemas'
+import { storyBrief } from '@/lib/story'
 import { styleRules } from '@/lib/styles'
 
 export const runtime = 'nodejs'
@@ -31,15 +33,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   try {
     const current = await read(projectId)
-    const synopsis = current.synopsis
-    if (!synopsis) throw new Refused('Pitch a story first.')
+    const synopsis = storyBrief(current)
+    if (!synopsis) throw new Refused('Settle the story first.')
     const target = assertUnlocked(findCharacter(current, id))
 
     // (a) the words
     let dna = reuseDna ? target.dna : null
     if (!dna) {
-      dna = await writeDna(target, synopsis)
-      await update(projectId, (c) => setDna(c, id, dna as string))
+      const meter = textMeter()
+      dna = await writeDna(target, synopsis, meter)
+      await update(projectId, (c) => chargeText(setDna(c, id, dna as string), meter))
     }
 
     // (b) the picture, from exactly those words, in the project's style

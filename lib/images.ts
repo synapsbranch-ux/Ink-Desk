@@ -67,6 +67,15 @@ export async function readImage(id: string): Promise<Buffer | null> {
   return (await store.getBlob(id))?.bytes ?? null
 }
 
+/**
+ * A route's text calls, added to the project's spend in the same write as
+ * their result (slice 11 — the header used to count images only). Not a
+ * generated image, so the image counter is untouched.
+ */
+export function chargeText(desk: Desk, meter: { costUsd: number }): Desk {
+  return meter.costUsd > 0 ? { ...desk, costUsd: round(desk.costUsd + meter.costUsd) } : desk
+}
+
 /** Dollar cents are the unit that matters; six decimals keeps sub-cent calls honest. */
 function round(usd: number): number {
   return Math.round(usd * 1e6) / 1e6

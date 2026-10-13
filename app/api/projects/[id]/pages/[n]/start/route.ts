@@ -1,11 +1,13 @@
-// Queue every blank panel of page n and respond at once. The generations
-// finish on their own, two at a time, and write to the project as they land;
-// the browser polls `GET /api/projects/[id]` to watch them arrive. Safe to
-// call again after a reload — a panel already queued is skipped. See
-// `lib/panels.ts`.
+// Generate page n: with a plan, the plan's four lines become the page's
+// panels (once) — then every blank panel of that page is queued and the
+// route responds at once. The generations finish on their own, two at a
+// time, and write to the project as they land; the browser polls
+// `GET /api/projects/[id]` to watch them arrive. Safe to call again after a
+// reload — a written page is not rewritten and a queued panel is skipped.
+// See `lib/director.ts` and `lib/panels.ts`.
 import { pageAt, read } from '@/lib/chapter'
+import { startPage } from '@/lib/director'
 import { errorResponse } from '@/lib/errors'
-import { queueBlankPanels } from '@/lib/panels'
 
 export const runtime = 'nodejs'
 
@@ -15,9 +17,10 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   const { id, n } = await params
   try {
     const addr = await pageAt(id, /^\d+$/.test(n) ? Number(n) : -1)
-    const queued = await queueBlankPanels(addr)
+    const queued = await startPage(addr)
     if (queued.length > 0) console.log(`[p${addr.pageIndex + 1}] queued panel ${queued.map((i) => i + 1).join(', ')}`)
-    return Response.json(await read(id, addr))
+    // The open page, as every reply is — the studio renders whatever it gets.
+    return Response.json(await read(id))
   } catch (err) {
     return errorResponse(err, 'panels', CALM)
   }

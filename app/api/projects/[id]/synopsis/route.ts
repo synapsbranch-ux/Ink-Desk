@@ -9,7 +9,9 @@
 // Boundaries` and `> Screens and Layout` (back-navigation rules).
 import { read, update } from '@/lib/chapter'
 import { writeSynopsis } from '@/lib/claude'
-import { errorResponse } from '@/lib/errors'
+import { errorResponse, Refused } from '@/lib/errors'
+import { chargeText } from '@/lib/images'
+import { textMeter } from '@/lib/llm'
 import { SynopsisRequestSchema } from '@/lib/schemas'
 
 export const runtime = 'nodejs'
@@ -26,16 +28,26 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   try {
     const existing = await read(id)
-    const synopsis = await writeSynopsis({ pitch, genre, tone })
+    if (existing.storyMode === 'scenario' && existing.cast.length === 0) {
+      throw new Refused('This project tells its story as a scenario. Switch to Pitch on the Story station to pitch instead.')
+    }
+    const meter = textMeter()
+    const synopsis = await writeSynopsis({ pitch, genre, tone }, meter)
     if (existing.cast.length > 0) {
-      // The desk's story is frozen; the new draft never touches it.
+      // The desk's story is frozen; the new draft never touches it — but what it cost is still spent.
+      await update(id, (c) => chargeText(c, meter))
       return Response.json({ draft: { title: synopsis.title, body: synopsis.body } })
     }
-    const desk = await update(id, (c) => ({
-      ...c,
-      pitch: { text: pitch, genre, tone },
-      synopsis: { title: synopsis.title, body: synopsis.body, accepted: false },
-    }))
+    const desk = await update(id, (c) =>
+      chargeText(
+        {
+          ...c,
+          pitch: { text: pitch, genre, tone },
+          synopsis: { title: synopsis.title, body: synopsis.body, accepted: false },
+        },
+        meter
+      )
+    )
     return Response.json(desk)
   } catch (err) {
     return errorResponse(err, 'synopsis', CALM)

@@ -5,7 +5,10 @@ import { assertUnlocked, findCharacter, replaceCharacter } from '@/lib/cast'
 import { read, update } from '@/lib/chapter'
 import { rewriteCharacter } from '@/lib/claude'
 import { errorResponse, Refused } from '@/lib/errors'
+import { chargeText } from '@/lib/images'
+import { textMeter } from '@/lib/llm'
 import { RerollRequestSchema } from '@/lib/schemas'
+import { storyBrief } from '@/lib/story'
 
 export const runtime = 'nodejs'
 
@@ -19,14 +22,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   try {
     const current = await read(projectId)
-    const synopsis = current.synopsis
-    if (synopsis?.accepted !== true) throw new Refused('Accept a synopsis first.')
+    const synopsis = storyBrief(current)
+    if (!synopsis) throw new Refused(current.storyMode === 'scenario' ? 'Save the scenario first.' : 'Accept a synopsis first.')
     const target = assertUnlocked(findCharacter(current, id))
     const keep = current.cast.find((c) => c.id !== id)
     if (!keep) throw new Refused('The cast isn’t complete yet.')
 
-    const proposal = await rewriteCharacter(synopsis, keep, target)
-    const desk = await update(projectId, (c) => replaceCharacter(c, id, proposal))
+    const meter = textMeter()
+    const proposal = await rewriteCharacter(synopsis, keep, target, meter)
+    const desk = await update(projectId, (c) => chargeText(replaceCharacter(c, id, proposal), meter))
     return Response.json(desk)
   } catch (err) {
     return errorResponse(err, 'cast/reroll', CALM)

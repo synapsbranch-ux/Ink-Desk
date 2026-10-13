@@ -100,6 +100,10 @@ try {
     ['DnaSchema', schemas.DnaSchema],
     ['pageScriptSchema', schemas.pageScriptSchema(['char-a', 'char-b'])],
     ['PanelRewriteSchema', schemas.PanelRewriteSchema],
+    // Slice 11: the Director's plan at both ends of its range, and the summary.
+    ['chapterPlanSchema(3)', schemas.chapterPlanSchema(['char-a', 'char-b'], 3)],
+    ['chapterPlanSchema(6)', schemas.chapterPlanSchema(['char-a', 'char-b'], 6)],
+    ['ScenarioSummarySchema', schemas.ScenarioSummarySchema],
   ]
   const loweredBy: Record<string, string[]> = {}
   for (const [name, schema] of outputs) {
@@ -180,13 +184,16 @@ try {
   // 4. Claude first, when it answers — and the terminal says so. -------------
   process.env.ANTHROPIC_API_KEY = 'check-only-never-sent'
   anthropicAnswers.push(claudeReply(SYNOPSIS))
-  assert.deepEqual(await writeSynopsis(synopsisInput), SYNOPSIS)
+  const claudeMeter = { costUsd: 0 }
+  assert.deepEqual(await writeSynopsis(synopsisInput, claudeMeter), SYNOPSIS)
   reqs = take()
   assert.equal(toAnthropic(reqs).length, 1)
   assert.equal(toOpenRouter(reqs).length, 0)
   assert.equal((toAnthropic(reqs)[0].body as { model: string }).model, 'claude-sonnet-5-5')
   assert.match(terminal(), /\[text\] synopsis — anthropic\/claude-sonnet-5-5 · \d+\.\ds/)
-  ok('with a key, Claude answers and the fallback is never called')
+  // Slice 11: Claude's cost from its token counts at the listed $2 / $10 per million.
+  assert.ok(Math.abs(claudeMeter.costUsd - (10 * 2 + 10 * 10) / 1e6) < 1e-12, 'Claude’s text cost is metered from its usage')
+  ok('with a key, Claude answers and the fallback is never called; its cost is metered from the tokens')
 
   // 5. A 402 → the fallback, without a retry. -------------------------------
   anthropicAnswers.push(claudeError(402))

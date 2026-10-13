@@ -19,9 +19,15 @@
 import type { PanelLine } from './schemas'
 import { DEFAULT_STYLE_PRESET_ID, type StylePresetId } from './styles'
 
-export type Station = 'story' | 'cast' | 'storyboard' | 'reader'
+/**
+ * The rail's stations, in order. The ids kept their v1 names when slice 11
+ * grew the v2 rail, so a stored `station` never needed migrating: `cast` is
+ * the Library and `storyboard` is the Page station on screen
+ * (`checklist.md > Revisions`).
+ */
+export type Station = 'story' | 'cast' | 'director' | 'storyboard' | 'reader'
 
-export const STATIONS: readonly Station[] = ['story', 'cast', 'storyboard', 'reader']
+export const STATIONS: readonly Station[] = ['story', 'cast', 'director', 'storyboard', 'reader']
 
 export type Pitch = { text: string; genre: string; tone: string }
 
@@ -93,8 +99,32 @@ export type Asset = {
   createdAt: string
 }
 
-/** The Director's plan (slice 11). Declared now so the shape has room. */
-export type ChapterPlan = { pageCount: number; coverBrief: string; pages: { panels: PanelLine[] }[] }
+/**
+ * Scenario mode (slice 11): a long text, notes, and the shelf references
+ * ticked for the Director. `saved` is the explicit "Use this scenario" — the
+ * scenario form of accepting a synopsis; it unlocks the Library.
+ */
+export type Scenario = { text: string; notes: string; referenceAssetIds: string[]; saved: boolean }
+
+/** One page of the plan: the v1 four-shot page, one line per slot. */
+export type PlanPage = { panels: PanelLine[] } // exactly 4, slot order
+
+/**
+ * The Director's chapter plan (slice 11): every page's four lines and the
+ * cover brief, written by one text call and editable after. A page's lines
+ * become its panels when the page is generated; from then on the panels are
+ * the truth and the plan's lines for that page are read-only.
+ */
+export type ChapterPlan = {
+  pageCount: number // always pages.length, 3–6
+  coverBrief: string
+  pages: PlanPage[]
+  /** What the Director planned from. */
+  source: 'scenario' | 'synopsis'
+  /** A scenario past the planner's comfortable size was condensed first. */
+  summarized: boolean
+  writtenAt: string
+}
 
 /** The cover (slice 11): one image, the title lettered by the app. */
 export type CoverState = {
@@ -132,7 +162,7 @@ export type Project = {
     mode: 'pitch' | 'scenario'
     pitch: Pitch
     synopsis: Synopsis | null
-    scenario: { text: string; notes: string; referenceAssetIds: string[] } | null
+    scenario: Scenario | null
   }
   library: { characters: Character[]; assets: Asset[] }
   chapters: ProjectChapter[] // the UI shows one; the shape allows more
@@ -190,8 +220,34 @@ export type Desk = {
   assets: Asset[]
   script: Panel[] | null // exactly 4 once written — this page's panels
   imageCount: number // the project's images, the header counter
-  costUsd: number // the project's spend, from the providers' usage.cost
+  costUsd: number // the project's spend, from the providers' usage.cost (images and, since slice 11, text)
   updatedAt: string
+  // --- slice 11: the Director ---
+  storyMode: 'pitch' | 'scenario'
+  scenario: Scenario | null
+  /** The chapter's plan and cover — chapter-level, so every page's view carries the same ones. */
+  plan: ChapterPlan | null
+  cover: CoverState | null
+  /** The project's open page; a patch to it is the page switcher. */
+  openPage: number
+  /** Every page of the chapter, derived — the page switcher and "P of Q pages complete". */
+  pages: PageSummary[]
+  /** The configured panel quality (`IMAGE_PANEL_QUALITY`), for the estimate. Read by the server. */
+  panelQuality: string
+}
+
+/** One page as the switcher sees it — derived from the project, never stored. */
+export type PageSummary = {
+  index: number
+  /** The page's four panels exist (from the plan, or a v1 script). */
+  written: boolean
+  /** Panels with at least one version. */
+  inked: number
+  inking: number
+  /** Failed or refused, with Try again / Rewrite waiting. */
+  failed: number
+  /** Panel 1's current art, else the first inked panel's. */
+  thumbnailImageId: string | null
 }
 
 /** v1's name for the working shape, kept so nothing downstream had to move. */
@@ -219,6 +275,13 @@ export function emptyDesk(
     imageCount: 0,
     costUsd: 0,
     updatedAt: new Date().toISOString(),
+    storyMode: 'pitch',
+    scenario: null,
+    plan: null,
+    cover: null,
+    openPage: 0,
+    pages: [{ index: 0, written: false, inked: 0, inking: 0, failed: 0, thumbnailImageId: null }],
+    panelQuality: 'low',
   }
 }
 

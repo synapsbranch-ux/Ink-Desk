@@ -2,39 +2,40 @@
 // card text, Lock). The only writer besides the generation routes. The desk is
 // the open page of the project — see `lib/chapter.ts`.
 import { assertEditAllowed } from '@/lib/cast'
-import { read, update } from '@/lib/chapter'
+import { demoteStale, openRef, toDesk, update } from '@/lib/chapter'
 import { errorResponse, Refused } from '@/lib/errors'
 import { gates } from '@/lib/gates'
 import { imageConfig } from '@/lib/image-provider'
-import { applyPatch, assertStoryEditable, type ChapterPatch } from '@/lib/patch'
+import { applyPatch, assertPageExists, assertStoryEditable, type ChapterPatch } from '@/lib/patch'
+import { assertPlanEdit } from '@/lib/plan'
 import { ChapterPatchSchema } from '@/lib/schemas'
-import { findPanel, markFailed, staleInkingIndices } from '@/lib/script'
+import { findPanel } from '@/lib/script'
 import { singletons } from '@/lib/singleton'
+import { store } from '@/lib/store'
 
 export const runtime = 'nodejs'
 
 type Params = { params: Promise<{ id: string }> }
 
-export async function GET(_req: Request, { params }: Params) {
+export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   try {
-    // The reader of the desk enforces the floor: a panel still `inking` past
-    // the generation timeout, or orphaned by a server restart, comes back as
-    // `failed` with Try again — nothing spins forever. Checked cheaply on the
-    // plain read; demoted inside the lock against a fresh copy.
-    let desk = await read(id)
+    // The reader of the desk enforces the floor: a panel on any page — or the
+    // cover — still `inking` past the generation timeout, or orphaned by a
+    // server restart, comes back as `failed` with Try again; nothing spins
+    // forever, on the open page or off it. Checked cheaply on the plain read;
+    // demoted inside the lock against a fresh copy.
     const timeoutMs = imageConfig().timeoutMs
-    if (staleInkingIndices(desk, singletons.serverRunId, timeoutMs).length > 0) {
-      desk = await update(id, (d) => {
-        let next = d
-        for (const index of staleInkingIndices(d, singletons.serverRunId, timeoutMs)) {
-          console.warn(`[p${d.address.pageIndex + 1} panel ${index + 1}] demoted to failed — stale inking (timeout or server restart)`)
-          next = markFailed(next, index, 'failed')
-        }
-        return next
-      })
+    const project = await store.readProject(id)
+    if (demoteStale(project, singletons.serverRunId, timeoutMs).demoted.length === 0) {
+      return Response.json(toDesk(project, openRef(project)))
     }
-    return Response.json(desk)
+    const next = await store.updateProject(id, (p) => {
+      const { project: demotedProject, demoted } = demoteStale(p, singletons.serverRunId, timeoutMs)
+      for (const what of demoted) console.warn(`[${what}] demoted to failed — stale inking (timeout or server restart)`)
+      return demotedProject
+    })
+    return Response.json(toDesk(next, openRef(next)))
   } catch (err) {
     return errorResponse(err, 'project', 'The desk couldn’t be opened.')
   }
@@ -74,6 +75,15 @@ export async function POST(req: Request, { params }: Params) {
       // the script is written, never silently dropped.
       if (patch.panels) {
         for (const index of Object.keys(patch.panels)) findPanel(c, Number(index))
+      }
+      // The plan's own rules (slice 11): it must exist, a written page's lines
+      // and a written page itself can't be edited away.
+      if (patch.plan) assertPlanEdit(c, patch.plan)
+      if (patch.cover && !c.cover) throw new Refused('Write the chapter plan first — the cover comes with it.')
+      // The page switcher: a page the chapter has, counted after any page-count change in this same patch.
+      if (patch.page !== undefined) {
+        const count = patch.plan?.pageCount ?? c.pageCount
+        assertPageExists({ ...c, pageCount: count }, patch.page)
       }
       return applyPatch(c, patch)
     })

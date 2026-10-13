@@ -271,18 +271,30 @@ const CHARACTER_RULES = [
   '- Plain prose, no markdown, suitable for a general audience.',
 ]
 
-export function castPrompt(synopsis: { title: string; body: string }): string {
+export function castPrompt(synopsis: { title: string; body: string }, kind: 'synopsis' | 'scenario' = 'synopsis'): string {
+  const scenario = kind === 'scenario'
   return [
-    'You are the character designer at Ink Desk, a small manga studio. The story',
-    'editor has accepted this synopsis for a one-page, four-panel chapter. Propose',
-    'the two characters it names, for the artist to draw model sheets from.',
+    ...(scenario
+      ? [
+          'You are the character designer at Ink Desk, a small manga studio. The',
+          'storyteller has written this scenario for a manga chapter. Propose its two',
+          'principal characters — the ones the chapter is told between — for the artist',
+          'to draw model sheets from.',
+        ]
+      : [
+          'You are the character designer at Ink Desk, a small manga studio. The story',
+          'editor has accepted this synopsis for a one-page, four-panel chapter. Propose',
+          'the two characters it names, for the artist to draw model sheets from.',
+        ]),
     '',
     `Title: ${synopsis.title}`,
-    `Synopsis: ${synopsis.body}`,
+    `${scenario ? 'Scenario' : 'Synopsis'}: ${synopsis.body}`,
     '',
     'Requirements:',
     '- Exactly two characters: "first" is the lead, "second" is the counterpart.',
-    '  Use the names the synopsis gives them.',
+    scenario
+      ? '  Use the names the scenario gives them, and keep every detail it gives about how they look.'
+      : '  Use the names the synopsis gives them.',
     '- Make the two easy to tell apart at a glance: different builds, hair and',
     '  clothing, not two variations of one design.',
     ...CHARACTER_RULES,
@@ -391,5 +403,151 @@ export function dnaFromPicturePrompt(character: CharacterText, synopsis: { title
     '- Never say who a real person in the picture might be.',
     '- One paragraph of plain prose, no line breaks, no lists, no markdown.',
     '  Suitable for a general audience.',
+  ].join('\n')
+}
+
+// --- The Director (v2, slice 11) ---------------------------------------------
+//
+// One call writes the whole chapter: every page is the v1 four-shot page, so
+// the plan prompt repeats the page script's layout rules per page, and the
+// schema (`chapterPlanSchema`) holds each slot to its one locked character.
+// A scenario past `SCENARIO_WHOLE_CHARS` is condensed by `summarizePrompt`
+// first, and the plan prompt says it is planning from a summary.
+
+export type PlanSource = {
+  kind: 'scenario' | 'synopsis'
+  title: string
+  /** The scenario whole, its summary, or the accepted synopsis. */
+  text: string
+  notes: string
+  summarized: boolean
+  /** The ticked shelf references, in the order their pictures are attached. */
+  referenceNames: string[]
+}
+
+export function summarizePrompt(scenario: string, notes: string): string {
+  return [
+    'You are the story editor at Ink Desk, a small manga studio. A storyteller has',
+    'written a long scenario for a manga chapter. The page director will plan the',
+    'chapter from your summary instead of the full text, so condense it without',
+    'losing anything a page needs.',
+    '',
+    'Requirements:',
+    '- A numbered list of beats in story order, one or two sentences each, in plain',
+    '  prose. At most about 1,200 words in total.',
+    '- Keep every character’s name, every place, every turning point, and the few',
+    '  lines of dialogue that matter, word for word.',
+    '- Say where each beat happens and who is in it. No commentary, no markdown',
+    '  headings, nothing that is not in the scenario.',
+    ...(notes.trim() ? ['', `The storyteller’s notes, to keep in mind: ${notes.trim()}`] : []),
+    '',
+    'The scenario:',
+    scenario.trim(),
+  ].join('\n')
+}
+
+export function planPrompt(
+  source: PlanSource,
+  cast: readonly [LockedCharacter, LockedCharacter],
+  style: { label: string; blurb: string },
+  pageCount: number
+): string {
+  const [lead, counterpart] = cast
+  const what =
+    source.kind === 'scenario'
+      ? source.summarized
+        ? 'a summary of the storyteller’s scenario (the full text was too long to plan from directly)'
+        : 'the storyteller’s scenario'
+      : 'the accepted synopsis'
+  return [
+    'You are the page director at Ink Desk, a small manga studio. The cast is locked;',
+    `plan a manga chapter of exactly ${pageCount} pages from ${what}, and write the`,
+    'brief for its cover illustration.',
+    '',
+    `Chapter title: ${source.title}`,
+    `Style: ${style.label} — ${style.blurb}`,
+    '',
+    source.kind === 'scenario' ? (source.summarized ? 'The summary:' : 'The scenario:') : 'The synopsis:',
+    source.text.trim(),
+    ...(source.notes.trim() ? ['', `The storyteller’s notes: ${source.notes.trim()}`] : []),
+    ...(source.referenceNames.length
+      ? [
+          '',
+          `Attached pictures, in order: ${source.referenceNames.map((n, i) => `${i + 1}. “${n}”`).join(', ')}. They are the`,
+          'storyteller’s references for places, props and mood. Use what they show where it',
+          'fits the story. They are never extra characters to draw.',
+        ]
+      : []),
+    '',
+    'The cast. Only these two characters are ever drawn; their looks are locked and',
+    'will be drawn exactly as written here:',
+    `- ${lead.name} (id ${lead.id}) — ${lead.role}. ${lead.traits.join(', ')}.`,
+    `  Appearance: ${lead.dna}`,
+    `- ${counterpart.name} (id ${counterpart.id}) — ${counterpart.role}. ${counterpart.traits.join(', ')}.`,
+    `  Appearance: ${counterpart.dna}`,
+    'If the story has anyone else in it, they stay off-panel: mentioned, heard, or',
+    'implied, never drawn and never given a line.',
+    '',
+    'Every page has the same fixed layout: shot / reverse-shot, exactly one character',
+    'in each panel, never both. The other character is off-panel — spoken to, or',
+    'reacted to.',
+    ...PANEL_LAYOUT.map(
+      (s) =>
+        `- Panel ${s.index + 1}: ${cast[s.cast].name}, ${s.shot} (${s.shape === 'wide' ? 'landscape' : 'square'}). ${s.framing}`
+    ),
+    '',
+    'For every panel of every page write:',
+    '- characterId: the id given above for the character in that panel.',
+    '- action: what this character is doing and the expression on their face, in one',
+    '  or two sentences an artist can draw as a single still frame. Only this',
+    '  character is in the panel. Use their outfit and marks where it helps.',
+    '- camera: the angle for that panel’s shot, in one short sentence. Stay inside the',
+    '  shot size given above: never pull back to a distant wide, never cut in closer.',
+    '- background: the setting as seen from that camera, in one sentence, specific and',
+    '  drawable, with no signs, posters or lettering of any kind.',
+    '- dialogue: one line this character says out loud, under twelve words, in their',
+    '  own voice. Plain speech — no sound effects, no narration, no quotation marks.',
+    '',
+    `How the ${pageCount} pages work together:`,
+    '- The pages tell the story in order, beginning to end, as one chapter. Each page',
+    '  is one beat with its own setup, response, turn and reaction across its four',
+    '  panels, and the last panel of a page should make the reader turn it.',
+    '- One location per page, a different part or angle of it in each panel. The',
+    '  location may change from one page to the next when the story moves.',
+    `- Spread the story across all ${pageCount} pages; the last page lands the ending.`,
+    '',
+    'The cover brief: one paragraph for a portrait cover illustration showing',
+    `${lead.name} alone — no other figures — in a pose and setting that sell the`,
+    'chapter, with the light and the mood. Leave calm space in the upper part of the',
+    'picture: the studio letters the title there itself. Never ask for any text,',
+    'title, logo or lettering in the picture.',
+    '',
+    'Match the story’s genre and tone. Keep it suitable for a general audience.',
+  ].join('\n')
+}
+
+/**
+ * The cover: one portrait illustration of the lead, drawn against their
+ * locked sheet like a panel — the DNA verbatim, the Director's brief, the
+ * project's frozen rules. The title is lettered by the app over the art and
+ * is never part of this prompt; the rules' no-text line covers the rest.
+ */
+export function coverPrompt(dna: string, brief: string, rules: string = STYLE_RULES): string {
+  return [
+    'A manga chapter cover illustration, portrait format, with exactly one person in',
+    'it: the character shown in the attached reference sheet. No other people,',
+    'figures or silhouettes anywhere in the picture.',
+    '',
+    'Keep their face, hairstyle, eyes, outfit and distinguishing marks EXACTLY as the',
+    'reference sheet shows. Do not restyle, age, or redesign them.',
+    '',
+    'Their fixed appearance, for reference:',
+    dna,
+    '',
+    'Composition: a striking full or three-quarter figure, face clearly readable,',
+    'with calm, uncluttered space across the upper quarter of the picture.',
+    `The scene: ${brief.trim()}`,
+    '',
+    rules,
   ].join('\n')
 }

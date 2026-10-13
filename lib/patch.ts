@@ -4,9 +4,13 @@
 import { clampBubble } from './bubble'
 import { editCharacter, type CharacterEdit } from './cast'
 import { Refused } from './errors'
-import type { BubbleLayout, Chapter, Station } from './types'
+import { applyCoverEdit, applyPlanEdit, type CoverEdit, type PlanEdit, type PlanLineEdit } from './plan'
+import type { BubbleLayout, Chapter, Scenario, Station } from './types'
 
-export type { CharacterEdit }
+export type { CharacterEdit, CoverEdit, PlanEdit }
+
+/** One edit to the scenario (slice 11). `saved: true` is "Use this scenario". */
+export type ScenarioEdit = Partial<Omit<Scenario, 'saved'>> & { saved?: true }
 
 /** One edit to a panel's lettering or display: the user's dialogue replaces
  *  Claude's, a placed bubble layout replaces the derived default (5b), and
@@ -22,6 +26,13 @@ export type ChapterPatch = {
   cast?: Record<string, CharacterEdit>
   /** Keyed by panel index, "0"–"3". */
   panels?: Record<string, PanelEdit>
+  // --- slice 11 ---
+  storyMode?: 'pitch' | 'scenario'
+  scenario?: ScenarioEdit
+  plan?: PlanEdit
+  cover?: CoverEdit
+  /** The page switcher: the project's open page. */
+  page?: number
 }
 
 function mergeKeyed<E extends object>(a: Record<string, E> | undefined, b: Record<string, E> | undefined) {
@@ -38,20 +49,61 @@ export function mergePatch(a: ChapterPatch, b: ChapterPatch): ChapterPatch {
     synopsis: a.synopsis || b.synopsis ? { ...a.synopsis, ...b.synopsis } : undefined,
     cast: a.cast || b.cast ? mergeKeyed(a.cast, b.cast) : undefined,
     panels: a.panels || b.panels ? mergeKeyed(a.panels, b.panels) : undefined,
+    scenario: a.scenario || b.scenario ? { ...a.scenario, ...b.scenario } : undefined,
+    plan: a.plan || b.plan ? mergePlan(a.plan ?? {}, b.plan ?? {}) : undefined,
+    cover: a.cover || b.cover ? { ...a.cover, ...b.cover } : undefined,
   }
+}
+
+function mergePlan(a: PlanEdit, b: PlanEdit): PlanEdit {
+  const pages: Record<string, Record<string, PlanLineEdit>> = { ...a.pages }
+  for (const [p, lines] of Object.entries(b.pages ?? {})) pages[p] = mergeKeyed(pages[p], lines)
+  return { ...a, ...b, pages: a.pages || b.pages ? pages : undefined }
 }
 
 export const STORY_FROZEN =
   'This chapter’s cast and page were built from the accepted synopsis. Start a new chapter to tell a different story.'
 
+export const SCENARIO_FROZEN =
+  'This project’s cast was built from the saved scenario, so its words are frozen. Start a new project to tell a different story.'
+
 /**
  * Once the cast exists the story is frozen on *every* write path, not only
  * `POST /api/synopsis` — at the slice 6 checkpoint a stale tab's debounced
  * pitch edit walked through this patch route and orphaned the desk (slice 7's
- * fix). A new story goes through the confirmed clear: `POST /api/chapter/new`.
+ * fix). A new story goes through the confirmed door: a new project.
+ *
+ * Slice 11 adds the scenario: its text, notes, the mode and the save are
+ * frozen with the cast; a saved scenario's words are frozen at the save, as
+ * an accepted synopsis is. The ticked references only feed the plan, so they
+ * stay editable until the plan is written.
  */
 export function assertStoryEditable(chapter: Chapter, patch: ChapterPatch): void {
-  if ((patch.pitch || patch.synopsis) && chapter.cast.length > 0) throw new Refused(STORY_FROZEN)
+  const built = chapter.cast.length > 0
+  if ((patch.pitch || patch.synopsis) && built) throw new Refused(STORY_FROZEN)
+  const s = patch.scenario
+  const words = s && (s.text !== undefined || s.notes !== undefined || s.saved !== undefined)
+  if ((words || patch.storyMode !== undefined) && built) throw new Refused(SCENARIO_FROZEN)
+  if (patch.storyMode !== undefined && patch.storyMode !== chapter.storyMode) {
+    if (chapter.synopsis?.accepted || chapter.scenario?.saved) {
+      throw new Refused('The story is already settled, so the mode can’t change. Start a new project to tell it the other way.')
+    }
+  }
+  if (s && (s.text !== undefined || s.notes !== undefined) && chapter.scenario?.saved) {
+    throw new Refused('The scenario is saved — its words are what the cast is built from. Start a new project to change them.')
+  }
+  if (s?.saved && !(s.text ?? chapter.scenario?.text ?? '').trim()) throw new Refused('Write or paste a scenario before saving it.')
+  if (s?.referenceAssetIds !== undefined) {
+    if (chapter.plan) throw new Refused('The chapter plan is written — the references it read are fixed. Start a new project to plan with others.')
+    for (const id of s.referenceAssetIds) {
+      if (!chapter.assets.some((a) => a.id === id)) throw new Refused('That reference isn’t on this project’s shelf.', 404)
+    }
+  }
+}
+
+/** The page switcher's rule: a page the chapter has. */
+export function assertPageExists(chapter: Chapter, page: number): void {
+  if (!Number.isInteger(page) || page < 0 || page >= chapter.pageCount) throw new Refused('There is no such page.', 404)
 }
 
 export function applyPatch(chapter: Chapter, patch: ChapterPatch): Chapter {
@@ -60,6 +112,32 @@ export function applyPatch(chapter: Chapter, patch: ChapterPatch): Chapter {
   if (patch.station) next = { ...next, station: patch.station }
 
   if (patch.pitch) next = { ...next, pitch: { ...next.pitch, ...patch.pitch } }
+
+  if (patch.storyMode) next = { ...next, storyMode: patch.storyMode }
+
+  if (patch.scenario) {
+    const base = next.scenario ?? { text: '', notes: '', referenceAssetIds: [], saved: false }
+    const s = patch.scenario
+    // A saved scenario's words don't move (the server refuses; here they are ignored).
+    const words = base.saved ? {} : { ...(s.text !== undefined && { text: s.text }), ...(s.notes !== undefined && { notes: s.notes }) }
+    next = {
+      ...next,
+      scenario: {
+        ...base,
+        ...words,
+        ...(s.referenceAssetIds !== undefined && { referenceAssetIds: [...new Set(s.referenceAssetIds)] }),
+        ...(s.saved && { saved: true }),
+      },
+    }
+  }
+
+  if (patch.plan) next = applyPlanEdit(next, patch.plan)
+
+  if (patch.cover) next = applyCoverEdit(next, patch.cover)
+
+  if (patch.page !== undefined) {
+    next = { ...next, openPage: Math.min(Math.max(0, Math.trunc(patch.page)), Math.max(0, next.pageCount - 1)) }
+  }
 
   if (patch.synopsis) {
     const s = patch.synopsis

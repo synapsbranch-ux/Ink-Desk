@@ -6,6 +6,7 @@
 // recursion, no min/max on numbers or strings. Fixed counts are therefore
 // expressed as named fields rather than array lengths.
 import { z } from 'zod'
+import { Refused } from './errors'
 import { PANEL_LAYOUT, type PanelSlot } from './prompts'
 import { STYLE_PRESET_IDS } from './styles'
 
@@ -77,6 +78,60 @@ export function pageScriptSchema(lockedIds: readonly [string, string]) {
 export type PageScriptOutput = z.infer<ReturnType<typeof pageScriptSchema>>
 export type PanelLine = PageScriptOutput['panel1']
 
+// --- The Director (slice 11) --------------------------------------------------
+
+/** The page counts the Director accepts — `prd.md > Open Questions (v2)`: 3 to 6, tuned at the checkpoint. */
+export const PAGE_COUNT_MIN = 3
+export const PAGE_COUNT_MAX = 6
+export const PAGE_COUNT_DEFAULT = 3
+
+/**
+ * The chapter plan: exactly `pageCount` pages, each the v1 page-script shape —
+ * a per-slot `z.enum` of the one locked character that slot takes,
+ * alternating — plus the cover brief. A fixed length is expressed as named
+ * fields (`page1` … `pageN`), not an array length: both providers' strict
+ * grammars accept closed objects, and neither enforces `minItems` (the same
+ * reason the page script has `panel1` … `panel4`). Every page gets its own
+ * schema instance, undecorated, so nothing is emitted as a shared `$ref`.
+ *
+ * A count outside 3–6 is refused before any call is made.
+ */
+export function chapterPlanSchema(lockedIds: readonly [string, string], pageCount: number) {
+  if (!Number.isInteger(pageCount) || pageCount < PAGE_COUNT_MIN || pageCount > PAGE_COUNT_MAX) {
+    throw new Refused(`A chapter plan has ${PAGE_COUNT_MIN} to ${PAGE_COUNT_MAX} pages.`, 400)
+  }
+  const shape: Record<string, z.ZodType> = {
+    coverBrief: z
+      .string()
+      .describe(
+        'The cover illustration, one paragraph: the lead character alone, their pose and expression, the setting behind them, the light and the mood. Drawable, no lettering of any kind.'
+      ),
+  }
+  for (let n = 1; n <= pageCount; n++) {
+    // No `.describe()` here: on a page object it makes `z.toJSONSchema(…, { reused: 'ref' })`
+    // — which the Anthropic SDK uses — emit every panel line as a `$ref`. Plain is simpler on both wires.
+    shape[`page${n}`] = pageScriptSchema(lockedIds)
+  }
+  return z.object(shape) as unknown as z.ZodType<ChapterPlanOutput>
+}
+
+/** `{ coverBrief, page1, page2, … }` — one page script per page. */
+export type ChapterPlanOutput = { coverBrief: string } & { [page: `page${number}`]: PageScriptOutput }
+
+/** The plan's pages in order, out of the named fields. */
+export function planPages(out: ChapterPlanOutput, pageCount: number): PageScriptOutput[] {
+  return Array.from({ length: pageCount }, (_, i) => out[`page${i + 1}`])
+}
+
+/** The summarize-first path: a long scenario condensed to the beats the plan is built from. */
+export const ScenarioSummarySchema = z.object({
+  summary: z
+    .string()
+    .describe(
+      'The scenario condensed to its beats, in order: a numbered list in plain prose, keeping every name, place and turning point and the few lines of dialogue that matter.'
+    ),
+})
+
 // --- Request bodies (what the browser sends) --------------------------------
 
 /** Rewrite panel: only the visuals come back. No dialogue, no DNA, by shape. */
@@ -87,7 +142,7 @@ export const PanelRewriteSchema = z.object({
 })
 export type PanelRewrite = z.infer<typeof PanelRewriteSchema>
 
-export const StationSchema = z.enum(['story', 'cast', 'storyboard', 'reader'])
+export const StationSchema = z.enum(['story', 'cast', 'director', 'storyboard', 'reader'])
 
 /** One card's edit. `locked: true` is the Lock click; there is no unlock. */
 const CharacterEditSchema = z
@@ -116,9 +171,54 @@ export const PanelEditSchema = z
   })
   .strict()
 
+/** One plan line's edit (slice 11). The character in a slot is the layout's, never editable. */
+const PlanLineEditSchema = z
+  .object({
+    action: z.string().max(600),
+    camera: z.string().max(300),
+    background: z.string().max(600),
+    dialogue: z.string().max(500),
+  })
+  .partial()
+  .strict()
+
+/** The longest scenario the desk keeps; past `SCENARIO_WHOLE_CHARS` it is summarized before planning. */
+export const SCENARIO_MAX_CHARS = 100_000
+
 export const ChapterPatchSchema = z
   .object({
     station: StationSchema.optional(),
+    /** Pitch or Scenario, chosen before the story is accepted or saved. */
+    storyMode: z.enum(['pitch', 'scenario']).optional(),
+    scenario: z
+      .object({
+        text: z.string().max(SCENARIO_MAX_CHARS),
+        notes: z.string().max(5000),
+        referenceAssetIds: z.array(z.string().min(1).max(200)).max(24),
+        /** "Use this scenario" — there is no un-save, as there is no un-accept. */
+        saved: z.literal(true),
+      })
+      .partial()
+      .strict()
+      .optional(),
+    plan: z
+      .object({
+        pageCount: z.number().int().min(PAGE_COUNT_MIN).max(PAGE_COUNT_MAX),
+        coverBrief: z.string().max(2000),
+        /** Keyed by page index, then by panel index "0"–"3". */
+        pages: z.record(z.string().regex(/^[0-5]$/), z.record(z.string().regex(/^[0-3]$/), PlanLineEditSchema)),
+      })
+      .partial()
+      .strict()
+      .optional(),
+    /** The cover's title — lettered by the app over the art, never by the model. */
+    cover: z
+      .object({ title: z.string().max(120), version: z.number().int().min(0).max(2) })
+      .partial()
+      .strict()
+      .optional(),
+    /** The page switcher: the page this project has open. */
+    page: z.number().int().min(0).max(PAGE_COUNT_MAX - 1).optional(),
     pitch: z.object({ text: z.string(), genre: z.string(), tone: z.string() }).partial().optional(),
     synopsis: z
       .object({ title: z.string(), body: z.string(), accepted: z.boolean() })
@@ -157,6 +257,12 @@ export const SheetRequestSchema = z.object({
   id: z.string().min(1),
   /** Redraw: keep the DNA on the card. Draw / after a look edit: write it fresh. */
   reuseDna: z.boolean().optional(),
+})
+
+/** Write the chapter plan. `replace` is "Ask the Director again" — only while no page is written. */
+export const PlanRequestSchema = z.object({
+  pageCount: z.number().int().min(PAGE_COUNT_MIN).max(PAGE_COUNT_MAX),
+  replace: z.boolean().optional(),
 })
 
 /** Import reference: this card's sheet becomes that shelf asset. */

@@ -39,6 +39,8 @@ export function imageConfig() {
     panelAspectWide: process.env.IMAGE_PANEL_ASPECT_WIDE ?? '3:2',
     panelAspectSquare: process.env.IMAGE_PANEL_ASPECT_SQUARE ?? '1:1',
     panelQuality: process.env.IMAGE_PANEL_QUALITY ?? 'low',
+    /** The cover (slice 11): portrait, at the panel quality. */
+    coverAspect: process.env.IMAGE_COVER_ASPECT ?? '2:3',
     timeoutMs: Number(process.env.GENERATION_TIMEOUT_MS ?? 360000),
   }
 }

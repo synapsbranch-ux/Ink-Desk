@@ -23,7 +23,8 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     if (panel.status === 'inking') throw new Refused(`Panel ${index + 1} is already inking.`)
     if (isQueued(addr, index)) throw new Refused(`Panel ${index + 1} is already waiting to ink.`)
     queuePanel(addr, index)
-    return Response.json(await read(id, addr))
+    // The open page, as every reply is — the studio renders whatever it gets.
+    return Response.json(await read(id))
   } catch (err) {
     return errorResponse(err, 'panel', CALM)
   }

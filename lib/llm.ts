@@ -19,12 +19,37 @@ import { ProviderError } from './errors'
 const OPENROUTER_CHAT = 'https://openrouter.ai/api/v1/chat/completions'
 
 export type AskImage = { bytes: Buffer; mediaType: string }
+
+/**
+ * What a route's text calls cost, summed (slice 11). Slice 10's live run
+ * showed the header counting images only; with the Director's plan, text
+ * spend is real money, so every call adds what it cost here and the route
+ * folds the total into the project's spend in the same write as its result
+ * (`chargeText` in `lib/images.ts`). The fallback's figure is OpenRouter's
+ * reported `usage.cost`; Claude's is its token counts at the listed price.
+ */
+export type TextMeter = { costUsd: number }
+
+export function textMeter(): TextMeter {
+  return { costUsd: 0 }
+}
+
 export type AskOptions = {
   /** For the terminal line and the fallback's schema name, e.g. "synopsis". */
   label?: string
-  /** Sent ahead of the prompt — the DNA-from-picture call. */
+  /** Sent ahead of the prompt — the DNA-from-picture call, the Director's references. */
   images?: AskImage[]
+  /** Adds this call's cost, when it answered. */
+  meter?: TextMeter
 }
+
+/**
+ * Claude's price per million tokens, input / output, for the pinned model —
+ * as OpenRouter lists `anthropic/claude-sonnet-5.5` (`spec.md > Verified for
+ * v2`), the same list price. A different `ANTHROPIC_MODEL` is priced the same
+ * way and the terminal says the figure is computed, not reported.
+ */
+const CLAUDE_USD_PER_MTOK = { input: 2, output: 10 }
 
 type FallbackMode = 'auto' | 'always' | 'never'
 
@@ -55,13 +80,15 @@ export async function ask<S extends z.ZodType>(
   const cfg = textConfig()
   const label = opts.label ?? 'reply'
 
-  if (cfg.fallback === 'always') return askFallback(schema, prompt, maxTokens, label, opts.images, 'LLM_FALLBACK=always')
+  if (cfg.fallback === 'always') return askFallback(schema, prompt, maxTokens, label, opts.images, 'LLM_FALLBACK=always', opts.meter)
 
   const started = Date.now()
   try {
-    const out = await askClaude(schema, prompt, maxTokens, cfg.model, opts.images)
-    console.log(`[text] ${label} — anthropic/${cfg.model} · ${seconds(started)}`)
-    return out
+    const { value, costUsd } = await askClaude(schema, prompt, maxTokens, cfg.model, opts.images)
+    if (opts.meter && costUsd != null) opts.meter.costUsd += costUsd
+    const cost = costUsd == null ? '' : ` · ≈ $${costUsd.toFixed(4)} (from tokens)`
+    console.log(`[text] ${label} — anthropic/${cfg.model} · ${seconds(started)}${cost}`)
+    return value
   } catch (err) {
     const why = claudeUnavailable(err)
     if (!why || cfg.fallback === 'never' || !process.env.OPENROUTER_API_KEY) {
@@ -69,7 +96,7 @@ export async function ask<S extends z.ZodType>(
       throw err
     }
     console.warn(`[text] ${label} — Claude unavailable (${why}); asking openrouter/${cfg.fallbackModel}`)
-    return askFallback(schema, prompt, maxTokens, label, opts.images, why)
+    return askFallback(schema, prompt, maxTokens, label, opts.images, why, opts.meter)
   }
 }
 
@@ -97,7 +124,7 @@ async function askClaude<S extends z.ZodType>(
   maxTokens: number,
   model: string,
   images: AskImage[] | undefined
-): Promise<z.infer<S>> {
+): Promise<{ value: z.infer<S>; costUsd: number | null }> {
   const content = images?.length
     ? [
         ...images.map(
@@ -127,7 +154,12 @@ async function askClaude<S extends z.ZodType>(
     throw new ProviderError(CLAUDE_BUSY, 'provider', err)
   }
   if (res.parsed_output == null) throw new ProviderError(CLAUDE_BUSY, 'provider', res)
-  return res.parsed_output
+  const usage = (res as { usage?: { input_tokens?: number; output_tokens?: number } }).usage
+  const costUsd =
+    usage && typeof usage.input_tokens === 'number' && typeof usage.output_tokens === 'number'
+      ? (usage.input_tokens * CLAUDE_USD_PER_MTOK.input + usage.output_tokens * CLAUDE_USD_PER_MTOK.output) / 1e6
+      : null
+  return { value: res.parsed_output, costUsd }
 }
 
 /** Why Claude cannot be used for this call, or null when the failure is not one the fallback should cover. */
@@ -164,7 +196,8 @@ async function askFallback<S extends z.ZodType>(
   maxTokens: number,
   label: string,
   images: AskImage[] | undefined,
-  why: string
+  why: string,
+  meter?: TextMeter
 ): Promise<z.infer<S>> {
   const key = process.env.OPENROUTER_API_KEY
   if (!key) {
@@ -181,6 +214,7 @@ async function askFallback<S extends z.ZodType>(
   for (let attempt = 1; attempt <= 2; attempt++) {
     const result = await fallbackAttempt(schema, key, body, label)
     if (result.ok) {
+      if (meter && result.cost != null) meter.costUsd += result.cost
       const cost = result.cost == null ? '' : ` · $${result.cost.toFixed(4)}`
       console.log(`[text] ${label} — openrouter/${fallbackModel} · ${seconds(started)}${cost}`)
       return result.value

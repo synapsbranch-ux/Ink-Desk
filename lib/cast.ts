@@ -9,6 +9,7 @@
 // no Node imports — `crypto.randomUUID()` is a global on both sides.
 import { findAsset } from './assets'
 import { Refused } from './errors'
+import { storyReady } from './story'
 import type { Chapter, Character } from './types'
 
 /** What Claude proposes, and what the card edits. */
@@ -43,7 +44,7 @@ export function assertUnlocked(c: Character): Character {
 
 /** Claude's two proposals become the cast — once. After that, Reroll. */
 export function proposeCast(chapter: Chapter, first: CharacterText, second: CharacterText): Chapter {
-  if (chapter.synopsis?.accepted !== true) throw new Refused('Accept a synopsis first.')
+  if (!storyReady(chapter)) throw new Refused(chapter.storyMode === 'scenario' ? 'Save the scenario first.' : 'Accept a synopsis first.')
   if (chapter.cast.length > 0) throw new Refused('The cast is already proposed. Reroll a character instead.')
   return { ...chapter, cast: [newCharacter(first), newCharacter(second)] }
 }
