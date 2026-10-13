@@ -23,6 +23,13 @@
  *   0c. IMAGE PROBE      — cheapest possible `low` generation. Proves the
  *                          model actually renders through OpenRouter and that
  *                          the response carries data[0].b64_json. ~$0.008.
+ *   0d. FALLBACK PROBE   — (v2, slice 9) one strict-schema call to the text
+ *                          fallback (LLM_FALLBACK_MODEL, default
+ *                          openai/gpt-5.6-terra) on OpenRouter, with the
+ *                          synopsis schema `lib/llm.ts` sends. ~$0.002.
+ *
+ * Without ANTHROPIC_API_KEY, 0b is skipped and says so: since v2 the app runs
+ * every text call on the fallback then, so the key is no longer required here.
  *
  * Slice 2 — the kernel itself:
  *   1. SHEET  — one model sheet generated *from the visual DNA text*, with no
@@ -85,6 +92,7 @@ const KEY = process.env.OPENROUTER_API_KEY
 const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY
 const MODEL = process.env.IMAGE_MODEL ?? 'openai/gpt-image-2.5-sunburst'
 const TEXT_MODEL = process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-5-5'
+const FALLBACK_MODEL = process.env.LLM_FALLBACK_MODEL ?? 'openai/gpt-5.6-terra'
 const QUALITY = process.env.KERNEL_TEST_QUALITY ?? 'medium'
 
 // Production aspect ratios. OpenRouter takes `aspect_ratio`, NOT `size` —
@@ -93,14 +101,9 @@ const ASPECT_WIDE = process.env.IMAGE_PANEL_ASPECT_WIDE ?? '3:2'
 const ASPECT_SQUARE = process.env.IMAGE_PANEL_ASPECT_SQUARE ?? '1:1'
 const ASPECT_SHEET = process.env.IMAGE_SHEET_ASPECT ?? '3:2'
 
-for (const [name, value] of [
-  ['OPENROUTER_API_KEY', KEY],
-  ['ANTHROPIC_API_KEY', ANTHROPIC_KEY],
-]) {
-  if (!value) {
-    console.error(`\n  ${name} is not set. Copy .env.example to .env and add your keys.\n`)
-    process.exit(1)
-  }
+if (!KEY) {
+  console.error(`\n  OPENROUTER_API_KEY is not set. Copy .env.example to .env and add your keys.\n`)
+  process.exit(1)
 }
 
 // ---------------------------------------------------------------------------
@@ -390,6 +393,71 @@ async function textProbe() {
 }
 
 /**
+ * v2, slice 9: proves the text fallback answers a strict JSON schema through
+ * OpenRouter — the synopsis schema exactly as `lib/llm.ts` puts it on the
+ * wire (`strictJsonSchema(SynopsisSchema)`), with
+ * `provider.require_parameters` so a silent 200 of the wrong shape is
+ * impossible. The reply is checked field by field, as zod does in the app.
+ */
+async function fallbackProbe() {
+  const started = Date.now()
+  const res = await fetch(`${API}/chat/completions`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: FALLBACK_MODEL,
+      max_tokens: 1024 + 2048,
+      reasoning: { effort: 'low' },
+      messages: [
+        {
+          role: 'user',
+          content:
+            'Write a manga chapter synopsis for this pitch: a rooftop courier delivers a letter to a girl who moved away. ' +
+            'Three sentences, present tense, naming both characters.',
+        },
+      ],
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
+          name: 'synopsis',
+          strict: true,
+          schema: {
+            type: 'object',
+            properties: {
+              title: { type: 'string', description: 'A short, evocative chapter title. No quotation marks.' },
+              body: {
+                type: 'string',
+                description: 'The synopsis: three to five sentences of present-tense prose naming both characters.',
+              },
+            },
+            required: ['title', 'body'],
+            additionalProperties: false,
+          },
+        },
+      },
+      provider: { require_parameters: true },
+    }),
+  })
+  if (!res.ok) {
+    const body = await res.text()
+    console.error(`\n  ✗ Fallback probe failed — HTTP ${res.status}`)
+    console.error(`  ${body.slice(0, 600)}\n`)
+    if (res.status === 404) {
+      console.error(`  No endpoint for "${FALLBACK_MODEL}" honours every parameter (require_parameters).`)
+      console.error('  Check its supported_parameters on GET /api/v1/models, or set LLM_FALLBACK_MODEL.\n')
+    }
+    process.exit(1)
+  }
+  const json = await res.json()
+  const content = json.choices?.[0]?.message?.content ?? ''
+  const parsed = JSON.parse(content)
+  if (typeof parsed.title !== 'string' || !parsed.title || typeof parsed.body !== 'string' || !parsed.body) {
+    throw new Error(`Fallback reply does not match the synopsis schema: ${content.slice(0, 300)}`)
+  }
+  return { ms: Date.now() - started, cost: json.usage?.cost ?? null, title: parsed.title }
+}
+
+/**
  * One function for both surfaces, because OpenRouter has one endpoint.
  *
  * A sheet is this call without `references`. A panel is this call with one.
@@ -470,7 +538,8 @@ const money = (n) => (n == null ? 'cost not reported' : `$${n.toFixed(4)}`)
 const shape = (d) => (d ? `${d.w}x${d.h}` : 'unknown')
 
 console.log(`\n  Ink Desk kernel test`)
-console.log(`  text    ${TEXT_MODEL}            (Anthropic, direct)`)
+console.log(`  text    ${TEXT_MODEL}            (Anthropic, direct)${ANTHROPIC_KEY ? '' : ' — no key, probe skipped'}`)
+console.log(`  backup  ${FALLBACK_MODEL}  (OpenRouter, text fallback)`)
 console.log(`  image   ${MODEL}  (OpenRouter)`)
 console.log(`  quality ${QUALITY} (image probe at low)`)
 console.log(`  ratios  sheet ${ASPECT_SHEET} · wide ${ASPECT_WIDE} · square ${ASPECT_SQUARE}`)
@@ -487,9 +556,13 @@ console.log(`        aspect_ratio ${caps.aspects.join(' ')}`)
 console.log(`        quality      ${caps.qualities.join(' ')}`)
 
 process.stdout.write('  [0b]  probing text model + structured output ... ')
-const tp = await textProbe()
-timings.textProbe = tp.ms
-console.log(`ok (${(tp.ms / 1000).toFixed(1)}s) — "${TEXT_MODEL}" resolves, JSON schema honored`)
+if (ANTHROPIC_KEY) {
+  const tp = await textProbe()
+  timings.textProbe = tp.ms
+  console.log(`ok (${(tp.ms / 1000).toFixed(1)}s) — "${TEXT_MODEL}" resolves, JSON schema honored`)
+} else {
+  console.log('skipped — ANTHROPIC_API_KEY is not set; the app will answer every text call with the fallback')
+}
 
 process.stdout.write('  [0c]  probing image model ... ')
 const probe = await generateImage({
@@ -502,9 +575,16 @@ timings.imageProbe = probe.ms
 costs.imageProbe = probe.cost
 console.log(`ok (${(probe.ms / 1000).toFixed(1)}s) — renders · ${money(probe.cost)} · ${shape(probe.dims)} ${probe.mediaType}`)
 
+process.stdout.write('  [0d]  probing text fallback + strict schema ... ')
+const fp = await fallbackProbe()
+timings.fallbackProbe = fp.ms
+costs.fallbackProbe = fp.cost
+console.log(`ok (${(fp.ms / 1000).toFixed(1)}s) — "${FALLBACK_MODEL}" answers the synopsis schema · ${money(fp.cost)} · "${fp.title}"`)
+
 if (process.argv.includes('--probe-only')) {
+  const spent = [probe.cost, fp.cost].filter((c) => c != null).reduce((a, b) => a + b, 0)
   console.log('\n  --probe-only: stopping here. Everything this spec assumes is confirmed.')
-  console.log(`  Spent ${money(probe.cost)}.\n`)
+  console.log(`  Spent ${money(spent)}.\n`)
   process.exit(0)
 }
 

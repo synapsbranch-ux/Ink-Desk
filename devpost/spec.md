@@ -1611,9 +1611,21 @@ ask<S extends z.ZodType>(schema: S, prompt: string, maxTokens: number,
   `additionalProperties: false`, every property required, no `min`/`max`.
   `check:llm` runs `z.toJSONSchema` over every output schema and names any that
   would not survive strict mode; optional fields become nullable-required.
+  *Built as (slice 9):* `strictJsonSchema()` in `lib/llm.ts` lowers the length
+  and range keywords off the wire — zod still enforces them on the reply, as
+  the Anthropic SDK does for Claude — and throws naming any optional property.
+  The one schema lowered today is `PanelRewriteSchema` (three `minLength: 1`).
+  The fallback also sends `reasoning: { effort: 'low' }` (the mirror of
+  Claude's `effort: 'low'`) and `max_tokens` with 2048 tokens of reasoning
+  headroom. See `checklist.md > Revisions`.
 - **When the fallback fires** (`LLM_FALLBACK=auto`, the default): no
   `ANTHROPIC_API_KEY`; a 402; a 5xx/529/429 that survives the existing single
   retry. `always` forces it (for the live probe); `never` disables it.
+  *Built as (slice 9):* the Anthropic client is now constructed with
+  `maxRetries: 1` (the SDK's default is two), so "the single retry" is true; a
+  dropped connection that survives it also falls back; a 400 or 401 does not
+  (a bug or a bad key is not an outage). The fallback itself retries once, on
+  a 429 / 5xx / no answer or a reply the schema refuses, never on a 402.
 - **The terminal says which provider answered** on every call
   (`[text] synopsis — anthropic/claude-sonnet-5-5 · 1.8s` or
   `[text] synopsis — openrouter/openai/gpt-5.6-terra · 2.4s`); the browser's

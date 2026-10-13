@@ -54,7 +54,9 @@ export const DnaSchema = z.object({
  * model reads the allowed id as text; then `messages.parse` validates the
  * reply against this zod schema and throws on anything else, before
  * `parsed_output` exists. The rule is the schema's; the check runs in the
- * SDK, not in the API's grammar. See `scripts/page-check.mts`.
+ * SDK, not in the API's grammar. See `scripts/page-check.mts`. On the
+ * OpenRouter fallback the enum does reach the strict grammar, and `ask()`
+ * validates the reply against this same schema (`lib/llm.ts`).
  */
 export function pageScriptSchema(lockedIds: readonly [string, string]) {
   const line = (slot: PanelSlot) =>
