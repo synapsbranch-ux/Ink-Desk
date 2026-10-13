@@ -75,17 +75,32 @@ export async function generateImage(req: ImageRequest): Promise<GeneratedImage> 
   }
 
   const started = Date.now()
+
+  // One silent retry, on exactly the transient pair: a 429, or a timeout /
+  // network failure (`fetch` rejecting). Nothing else retries — a 402 will
+  // not pass on its own, a refusal is a wording problem, and a 5xx gets the
+  // honest failed state with Try again. `prd.md > States and Boundaries`.
   let res: Response
-  try {
-    res = await fetch(API, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(cfg.timeoutMs),
-    })
-  } catch (err) {
-    // A timeout or a network failure. Slice 6 adds the one silent retry.
-    throw new ProviderError(BUSY, 'provider', err)
+  for (let attempt = 1; ; attempt++) {
+    try {
+      res = await fetch(API, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(cfg.timeoutMs),
+      })
+    } catch (err) {
+      if (attempt === 1) {
+        console.warn(`[image] ${req.label} — didn’t answer (${err instanceof Error ? err.name : 'error'}), retrying once`)
+        continue
+      }
+      throw new ProviderError(BUSY, 'provider', err)
+    }
+    if (res.status === 429 && attempt === 1) {
+      console.warn(`[image] ${req.label} — rate-limited (429), retrying once`)
+      continue
+    }
+    break
   }
   if (!res.ok) throw await failure(res, req.label)
 
