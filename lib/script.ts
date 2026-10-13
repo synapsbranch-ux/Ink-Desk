@@ -88,10 +88,16 @@ export function markInking(chapter: Chapter, index: number, runId: string, now =
   })
 }
 
-/** The art landed: a new version, newest last, and it is the one on the page. */
+/** A panel keeps at most this many versions — `prd.md > Storyboard`:
+ *  "three keeps it simple". A fourth redraw drops the oldest. */
+export const MAX_PANEL_VERSIONS = 3
+
+/** The art landed: a new version, newest last and the one on the page; past
+ *  three, the oldest is dropped. The bubble and dialogue live on the panel,
+ *  not the version, so a redraw never touches the lettering. */
 export function attachPanelVersion(chapter: Chapter, index: number, imageId: string, now = new Date()): Chapter {
   const panel = findPanel(chapter, index)
-  const versions = [...panel.versions, { imageId, createdAt: now.toISOString() }]
+  const versions = [...panel.versions, { imageId, createdAt: now.toISOString() }].slice(-MAX_PANEL_VERSIONS)
   return replacePanel(chapter, index, {
     ...panel,
     versions,
