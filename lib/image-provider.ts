@@ -45,6 +45,32 @@ export function imageConfig() {
 
 const BUSY = 'The image model didn’t answer just now.'
 
+// TEMPORARY — remove before filming (tracked in the slice 6 revisions).
+// With SIMULATE_PANEL_FAILURE set in `.env`, a panel call — the kind that
+// carries `references` — never reaches OpenRouter: the named failure is
+// manufactured here, upstream of the retry loop and the status
+// classification, so every repair surface can be rehearsed without spending.
+// Sheets are untouched. Values: 429 · timeout · 402 · refusal · 500.
+function simulatedResponse(req: ImageRequest): (() => Promise<Response>) | null {
+  const mode = process.env.SIMULATE_PANEL_FAILURE
+  if (!mode || !req.references?.length) return null
+  return async () => {
+    console.warn(`[image] ${req.label} — SIMULATE_PANEL_FAILURE=${mode}, no real call made`)
+    switch (mode) {
+      case 'timeout':
+        throw new DOMException('simulated timeout', 'TimeoutError')
+      case '429':
+        return new Response('simulated rate limit', { status: 429 })
+      case '402':
+        return new Response('simulated insufficient credits', { status: 402 })
+      case 'refusal':
+        return new Response('simulated: rejected by the moderation system', { status: 400 })
+      default:
+        return new Response(`simulated failure (${mode})`, { status: 500 })
+    }
+  }
+}
+
 type ImagesResponse = {
   data?: { b64_json?: string; media_type?: string }[]
   usage?: { cost?: number }
@@ -75,6 +101,7 @@ export async function generateImage(req: ImageRequest): Promise<GeneratedImage> 
   }
 
   const started = Date.now()
+  const simulate = simulatedResponse(req)
 
   // One silent retry, on exactly the transient pair: a 429, or a timeout /
   // network failure (`fetch` rejecting). Nothing else retries — a 402 will
@@ -83,12 +110,14 @@ export async function generateImage(req: ImageRequest): Promise<GeneratedImage> 
   let res: Response
   for (let attempt = 1; ; attempt++) {
     try {
-      res = await fetch(API, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(cfg.timeoutMs),
-      })
+      res = simulate
+        ? await simulate()
+        : await fetch(API, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(cfg.timeoutMs),
+          })
     } catch (err) {
       if (attempt === 1) {
         console.warn(`[image] ${req.label} — didn’t answer (${err instanceof Error ? err.name : 'error'}), retrying once`)
