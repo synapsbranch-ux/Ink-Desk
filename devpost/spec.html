@@ -1290,6 +1290,67 @@ server restart  <b>startedByRun !== serverRunId</b>
   </ul>
 </section>
 
+<section id="v2">
+  <p class="eyebrow">Revision · 2026-10-13 · Ink Desk Studio (v2)</p>
+  <h2>What changes, in plain language</h2>
+  <p>Still one Next.js app. Three things grow: <strong>the desk becomes a shelf of projects</strong> (<code>data/projects/&lt;id&gt;/project.json</code>, the v1 file migrated once and left in place); <strong>the server gets two seams</strong> — storage (<code>lib/store/</code>: local files or MongoDB + bucket) and text provider (<code>lib/llm.ts</code>: Claude first, GPT Terra through OpenRouter when Claude cannot be used); and <strong>the page engine runs per page</strong>, addressed by project / chapter / page / panel, otherwise unchanged. The kernel is the same request, with the project's style rules in place of the one constant and, for an imported character, the uploaded bytes as the sheet.</p>
+
+  <h3>Data model (v2)</h3>
+  <details>
+    <summary><strong>Shapes — <code>lib/types.ts</code>, <code>version: 2</code></strong></summary>
+<pre>Project { id, title, stylePresetId, story { mode: 'pitch' | 'scenario', pitch, synopsis, scenario },
+          library { characters[], assets[] }, chapters[], usage { images, costUsd },
+          station, openPage, serverRunId, createdAt, updatedAt }
+Asset   { id, kind: 'reference', name, blobId, mediaType, bytes, createdAt }
+Character = v1 fields + source: 'drawn' | 'imported'
+Chapter { id, title, plan: ChapterPlan | null, cover | null, pages[] }
+Page    { index, layoutId: 'four-shot', panels[4] }          // the v1 Panel shape
+ChapterPlan { pageCount, coverBrief, pages[{ panels: PanelLine[4] }] }</pre>
+    <p class="quiet"><strong>Migration</strong> (<code>lib/migrate.ts</code>): a <code>version: 1</code> chapter → one project, one chapter, one page; image ids keep their names and the local blob store reads <code>data/images/</code> as a fallback, so nothing moves. Queue keys become <code>project:chapter:page:panel</code>.</p>
+  </details>
+
+  <h3>The two seams</h3>
+  <details>
+    <summary><strong>Storage — <code>lib/store/</code></strong></summary>
+    <p><code>listProjects · readProject · updateProject(id, fn) · createProject · putBlob · getBlob</code>. <strong><code>local.ts</code></strong>: v1's chapter store generalized — one promise-chain lock per project on <code>globalThis</code>, temp-then-rename. <strong><code>cloud.ts</code></strong>: <code>mongodb</code> with a <code>rev</code> counter and <code>findOneAndUpdate</code> (re-read and retry on a mismatch, bounded); blobs on an S3-compatible bucket with <code>@aws-sdk/client-s3</code> (S3, R2, MinIO), still served through <code>/api/blob/&lt;id&gt;</code>. Selected by <code>INKDESK_STORAGE=local|cloud</code>. The queue stays in-process in both modes; the stale-inking floor is unchanged; deployment stays Later.</p>
+  </details>
+  <details>
+    <summary><strong>Text — <code>lib/llm.ts</code> and the Terra fallback</strong></summary>
+    <p>One <code>ask(schema, prompt, maxTokens, { images? })</code>. Primary: the v1 Anthropic call, with image content blocks for the DNA-from-picture. Fallback: OpenRouter <code>POST /api/v1/chat/completions</code>, <code>response_format: { type: 'json_schema', json_schema: { name, strict: true, schema: z.toJSONSchema(schema) } }</code>, <code>provider.require_parameters: true</code>, reply validated with the same zod schema. Fires on a missing key, a 402, or a 5xx/529/429 past the single retry; <code>LLM_FALLBACK=auto|always|never</code>, <code>LLM_FALLBACK_MODEL</code> (default <code>openai/gpt-5.6-terra</code>). The terminal names the provider on every call.</p>
+  </details>
+
+  <h3>Image models, style presets, candidate locks</h3>
+  <p><code>lib/image-models.ts</code> builds each request body from the model's published parameter list, so an unsupported parameter is refused before the request leaves — v1's silent <code>size</code> drop, generalized. Verified: <code>openai/gpt-image-2.5-sunburst</code> (the only candidate with <code>quality</code>; references ≤ 16). Candidates, in the app only after <code>kernel-test --model</code> passes before Oct 18: <code>google/gemini-nano-banana-2.1</code>, <code>bytedance-seed/seedream-5-0-*</code>, <code>black-forest-labs/flux-3-image</code>, <code>recraft/recraft-v4-styles</code>.</p>
+  <p><code>lib/styles.ts</code>: <strong><code>manga-bw</code></strong> (today's rules; right-to-left, paged) and <strong><code>manhwa-colour</code></strong> (full colour, clean digital line, cel shading, vertical) — frozen rules text per project, never naming a real work. A <em>style reference image</em> or a <em>setting reference image</em> rides as <code>input_references[1]</code> beside the sheet; <code>kernel-test --style-ref</code> / <code>--setting-ref</code> draw one sheet and three panels at <code>medium</code> (≈ $0.10) and decide whether the docs may call it a lock.</p>
+
+  <h3>Assets, the Director, routing, reader</h3>
+  <ul>
+    <li><strong>Uploads:</strong> <code>POST /api/projects/[id]/assets</code> via <code>request.formData()</code>; PNG/JPEG/WebP ≤ 8 MB; <code>GET /api/blob/[id]</code> for every blob. <strong>Import reference</strong> sets the sheet, <code>source: 'imported'</code>, and Claude (or the fallback) writes the DNA from the picture; Lock applies the v1 rule.</li>
+    <li><strong>The Director:</strong> <code>chapterPlanSchema(lockedIds, pageCount)</code> — a tuple of v1 page-script shapes, alternation per slot; page count 3–6; scenarios past ~12 000 characters are condensed first. <code>lib/cost.ts</code> estimates the chapter from measured <code>low</code> and estimated <code>high</code> figures, before anything is generated. Routes: <code>plan</code>, <code>pages/[n]/start</code>, <code>pages/[n]/panels/[i]</code>, <code>/rewrite</code>, <code>cover</code> (lead character's sheet only — two references only after a kernel test).</li>
+    <li><strong>Routing:</strong> <code>app/page.tsx</code> → dashboard; <code>app/p/[projectId]/page.tsx</code> → the studio; <code>app/api/projects/…</code>. <strong>Prerequisite:</strong> read <code>node_modules/next/dist/docs/</code> (Next 16.4 has breaking changes — <code>params</code>, server/client boundaries) before any routing code.</li>
+    <li><strong>Reader and export:</strong> cover first, then pages, direction from the preset; <strong>PDF</strong> with <code>pdf-lib</code> in the browser — each page through the existing <code>drawPage</code> onto a canvas, embedded as PNG at page size. Chosen over print CSS: same file on every browser, bubbles included.</li>
+  </ul>
+
+  <h3>The demo video pipeline — <code>video/</code></h3>
+  <p>A separate package. <strong>Remotion</strong> compositions (<code>Intro</code>, <code>Section</code>, <code>Footage</code> with trim and speed-up ranges from <code>timeline.json</code>, <code>MoneyShot</code>, <code>Outro</code>, <code>Captions</code>), rendered to 1920×1080 h264 + aac under three minutes, the pre-installed Chromium passed with <code>--browser-executable</code>; Remotion is free for individuals and companies of up to three people, stated in the README. <strong>Capture:</strong> Playwright drives the real app on a seeded project at filming quality — every generation real, waits time-lapsed in the edit. <strong>Narration:</strong> the learner's script → <code>POST /api/v1/audio/speech</code>, <code>elevenlabs/eleven-v4</code>, a premade voice, mp3 per segment, ≈ $0.10. Music royalty-free with its licence file, or none. Committed: compositions, timeline, script, scripts. Not committed: the webm, the mp3s, the mp4 (uploaded to YouTube, public).</p>
+
+  <h3>Verified for v2 — 2026-10-13</h3>
+  <div class="warn">
+    <ul>
+      <li><code>openai/gpt-5.6-terra</code> on OpenRouter: 1.05 M context, $2 / $12 per M tokens, <code>structured_outputs</code> + <code>response_format</code> supported (also <code>~openai/gpt-terra-latest</code>, <code>-pro</code>).</li>
+      <li><code>POST /api/v1/audio/speech</code> exists (OpenAI-compatible; raw audio back, <code>X-Generation-Id</code>); ElevenLabs on it: <code>eleven-v4</code> $0.00004/char (10 000 chars/request), <code>eleven-v4-turbo</code> and <code>eleven-flash-v2.5</code> at half; premade voices by name (george, sarah, adam, alice, bella, bill, brian, charlie, daniel, jessica, roger, will).</li>
+      <li><code>GET /api/v1/images/models</code>: 59 models with <code>supported_parameters</code>; the candidate table above is read from it. <code>GET /api/v1/videos/models</code> exists — Later only.</li>
+      <li>In the build environment: ffmpeg, Playwright 1.56.1 and Chromium present; the project's <code>node_modules</code> installed (366 packages).</li>
+    </ul>
+  </div>
+
+  <h3>Budget, checks, failure modes</h3>
+  <p><strong>≈ $10 for everything until the deadline</strong>, the learner's cap — estimated ≈ $5–6: development at <code>low</code> ≈ $1.4; candidate-lock tests ≈ $0.25; one optional alternative model ≤ $1; filming two pages, two sheets and a cover at <code>high</code> ≈ $2; text ≈ $0.30; narration ≈ $0.15. The dashboard's readout sums the providers' reported <code>usage.cost</code>.</p>
+  <p><strong>Checks</strong>, same stubbed pattern as v1: <code>check:store</code> (migration, two projects, cloud half only with <code>MONGODB_URI</code>), <code>check:llm</code> (fallback triggers, strict schemas), <code>check:models</code> (body per model, caps, presets verbatim), <code>check:assets</code>, <code>check:plan</code>, <code>check:export</code> (PDF, RTL, vertical, gate), <code>check:demo-timeline</code>; <code>kernel-test.mjs</code> stays the only live script.</p>
+  <p class="quiet"><strong>New failure modes:</strong> Claude unavailable → Terra answers, terminal names it; a fallback reply failing the schema → one retry then the calm sentence, never written; a bad upload → a sentence, nothing stored; an unreadable v1 file → an empty dashboard naming the file, the file untouched; cloud mode missing env → refused at startup by name; an unsupported model parameter → refused before the request leaves.</p>
+  <p class="quiet"><strong>Open, answered by the build:</strong> the strict-schema shape of the v1 output schemas (slice 9); Next 16.4's <code>params</code> and boundaries (slice 8, by reading the docs); whether a candidate lock holds (slice 15, ≈ $0.10 each); whether one alternative model is worth adding before Oct 18; the exact Remotion version and flags (slice 14).</p>
+</section>
+
 <footer>
   <p><strong>Ink Desk — Technical Spec.</strong> Visual companion to
     <code>devpost/spec.md</code>, which stays canonical. Regenerated after revisions.</p>
