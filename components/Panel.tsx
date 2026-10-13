@@ -8,7 +8,7 @@
 // status, so one landing or failing never touches another.
 // Implements `devpost/prd.md > Storyboard — The Main Studio`; see
 // `devpost/spec.md > Components > Storyboard Station and Panel`.
-import { useCallback, useState } from 'react'
+import { useState } from 'react'
 import { GenerationStatus } from '@/components/GenerationStatus'
 import { PencilPlaceholder } from '@/components/PencilPlaceholder'
 import { SpeechBubble } from '@/components/SpeechBubble'
@@ -54,14 +54,11 @@ export function Panel({ slot, panel, character, busy, onPanelEdit, onRedraw }: P
   const redrawing = inking && hasArt
   const still = !panel || (failed && !hasArt)
 
-  const onLoad = useCallback(() => setLoaded(imageId), [imageId])
+  const onLoad = () => setLoaded(imageId)
   // A cached image can be complete before `load` fires.
-  const bind = useCallback(
-    (el: HTMLImageElement | null) => {
-      if (el?.complete && el.naturalWidth > 0) setLoaded(imageId)
-    },
-    [imageId]
-  )
+  const bind = (el: HTMLImageElement | null) => {
+    if (el?.complete && el.naturalWidth > 0) setLoaded(imageId)
+  }
 
   const n = slot.index + 1
   const label = panel ? panelLabel(panel) : 'Waiting for the page script…'
