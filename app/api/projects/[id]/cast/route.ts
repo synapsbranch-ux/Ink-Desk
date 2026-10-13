@@ -3,10 +3,10 @@
 // story is the accepted synopsis (Pitch) or the saved scenario (Scenario,
 // slice 11) — `storyBrief` reads either.
 import { proposeCast } from '@/lib/cast'
-import { read, update } from '@/lib/chapter'
+import { read } from '@/lib/chapter'
 import { writeCast } from '@/lib/claude'
 import { errorResponse, Refused } from '@/lib/errors'
-import { chargeText } from '@/lib/images'
+import { updateCharging } from '@/lib/images'
 import { textMeter } from '@/lib/llm'
 import { storyBrief } from '@/lib/story'
 
@@ -26,7 +26,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
 
     const meter = textMeter()
     const { first, second } = await writeCast(story, current.storyMode === 'scenario' ? 'scenario' : 'synopsis', meter)
-    const desk = await update(id, (c) => chargeText(proposeCast(c, first, second), meter))
+    const desk = await updateCharging(id, meter, (c) => proposeCast(c, first, second))
     return Response.json(desk)
   } catch (err) {
     return errorResponse(err, 'cast', CALM)

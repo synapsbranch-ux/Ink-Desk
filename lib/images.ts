@@ -76,6 +76,26 @@ export function chargeText(desk: Desk, meter: { costUsd: number }): Desk {
   return meter.costUsd > 0 ? { ...desk, costUsd: round(desk.costUsd + meter.costUsd) } : desk
 }
 
+/**
+ * The write that lands a text call's result, with its cost — and, when that
+ * write is refused (the card was locked meanwhile, the cast already proposed
+ * by another tab), the cost still lands on its own: the provider was paid
+ * either way. Rethrows the refusal.
+ */
+export async function updateCharging(
+  projectId: string,
+  meter: { costUsd: number },
+  fn: (desk: Desk) => Desk,
+  at?: PageRef
+): Promise<Desk> {
+  try {
+    return await update(projectId, (d) => chargeText(fn(d), meter), at)
+  } catch (err) {
+    if (meter.costUsd > 0) await update(projectId, (d) => chargeText(d, meter), at).catch(() => {})
+    throw err
+  }
+}
+
 /** Dollar cents are the unit that matters; six decimals keeps sub-cent calls honest. */
 function round(usd: number): number {
   return Math.round(usd * 1e6) / 1e6

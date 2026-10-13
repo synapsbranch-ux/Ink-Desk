@@ -71,7 +71,7 @@ export function AssetShelf({ assets, uploading, notice, onUpload, onNotice, titl
           className="btn btn-secondary"
           disabled={uploading || full}
           onClick={() => input.current?.click()}
-          title={full ? 'The shelf is full.' : 'PNG, JPEG or WebP, up to 5 MB.'}
+          title={full ? 'The shelf is full.' : `PNG, JPEG or WebP, up to ${UPLOAD_LIMIT_BYTES / (1024 * 1024)} MB.`}
         >
           {uploading ? 'Uploading…' : 'Upload a reference'}
         </button>

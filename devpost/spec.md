@@ -1675,8 +1675,10 @@ expose it.
 - `POST /api/projects/[id]/assets` — multipart via the Web standard
   `await request.formData()`; accepts `image/png`, `image/jpeg`, `image/webp`
   — judged by the file's own first bytes, never its name or label — up to
-  **5 MB** (slice 10 lowered it from 8 MB so every upload is also within the
-  vision limit of both text providers) and 24 per shelf; refuses anything
+  **3.75 MB** (slice 10 lowered it from 8 MB to 5 MB for the vision limit of
+  both text providers; slice 11's review lowered it again, because Claude's
+  5 MB limit is measured on the base64 it receives — `checklist.md >
+  Revisions`) and 24 per shelf; refuses anything
   else with a sentence; stores the bytes with
   `putBlob` and an `Asset` record on the project. `GET /api/image/[id]` serves
   it like any other stored image. An upload never counts as a generated image.
@@ -1711,6 +1713,19 @@ expose it.
   passed; otherwise the lead character alone — the honest default).
 - **The title on the cover is lettered by the app**, in Cormorant Garamond over
   the image, editable, composited into the PNG/PDF exactly like bubbles.
+- *Built as (slice 11):* the plan's fixed length is named fields `page1` …
+  `pageN` (as the page script has `panel1` … `panel4`), not a tuple — both
+  strict grammars take closed objects, neither enforces `minItems`; and no
+  `.describe()` on a page, which made the Anthropic SDK emit every panel line
+  as a `$ref`. A page's plan lines become its panels on **Generate page**
+  (`pages/[n]/start`); **Generate all** is `pages/all/start`, writing every
+  unwritten page in one all-or-nothing write. The page-count stepper appends
+  blank pages and drops only unwritten ones; "Ask the Director again"
+  (`plan` with `replace`) only while no page is written. The cover is `2:3`
+  (`IMAGE_COVER_ASPECT`) at the panel quality, three versions kept, and the
+  stale-inking floor now runs chapter-wide, cover included. Up to four ticked
+  references travel to the plan call as pictures. Text calls are metered into
+  the project's spend. Details in `checklist.md > Revisions`.
 
 ## Routing and the Dashboard (v2)
 

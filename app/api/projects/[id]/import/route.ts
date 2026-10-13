@@ -10,9 +10,9 @@
 import { assertUnlocked, findCharacter, importSheet, setDna } from '@/lib/cast'
 import { read, update } from '@/lib/chapter'
 import { writeDnaFromPicture } from '@/lib/claude'
-import { findAsset } from '@/lib/assets'
+import { findAsset, fitsVision, UPLOAD_LIMIT_BYTES } from '@/lib/assets'
 import { errorResponse, Refused } from '@/lib/errors'
-import { chargeText, readImage } from '@/lib/images'
+import { updateCharging, readImage } from '@/lib/images'
 import { textMeter } from '@/lib/llm'
 import { ImportRequestSchema } from '@/lib/schemas'
 import { storyBrief } from '@/lib/story'
@@ -35,6 +35,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const asset = findAsset(current, assetId)
     const bytes = await readImage(asset.blobId)
     if (!bytes) throw new Refused(`“${asset.name}” is missing from the desk. Upload it again.`, 404)
+    if (!fitsVision(bytes)) {
+      throw new Refused(`“${asset.name}” is too large for Claude to read. Upload a copy under ${UPLOAD_LIMIT_BYTES / (1024 * 1024)} MB and import that.`, 413)
+    }
 
     // (a) the picture, the old words retired with it
     const desk = await update(projectId, (c) => importSheet(c, id, assetId))
@@ -43,11 +46,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     // (b) the words, from the picture
     const meter = textMeter()
     const dna = await writeDnaFromPicture(character, synopsis, { bytes, mediaType: asset.mediaType }, meter)
-    const done = await update(projectId, (c) => {
+    const done = await updateCharging(projectId, meter, (c) => {
       // Only if the card still shows this picture — a second import or a draw
       // that landed meanwhile wins, and these words would describe the wrong art.
-      if (findCharacter(c, id).sheetImageId !== asset.blobId) return chargeText(c, meter)
-      return chargeText(setDna(c, id, dna), meter)
+      if (findCharacter(c, id).sheetImageId !== asset.blobId) return c
+      return setDna(c, id, dna)
     })
     console.log(`[import] ${character.name} — sheet from “${asset.name}”, DNA written from the picture`)
     return Response.json(done)

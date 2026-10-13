@@ -49,6 +49,9 @@ const { isQueued } = await import('../lib/panels')
 const { SCENARIO_WHOLE_CHARS, SAMPLE_SCENARIO, storyBrief, storyReady } = await import('../lib/story')
 const { STYLE_PRESETS } = await import('../lib/styles')
 const { Refused } = await import('../lib/errors')
+const { fitsVision, UPLOAD_LIMIT_BYTES } = await import('../lib/assets')
+const { updateCharging } = await import('../lib/images')
+const route = await import('../app/api/projects/[id]/route')
 
 import type { Desk, Project } from '../lib/types'
 
@@ -512,6 +515,62 @@ try {
     assert.equal(gates(await readDesk(legacy.pid)).storyboard.open, true, 'its page stays open without a plan')
     assert.equal(chats.length, 0, 'a refused plan costs nothing')
     ok('a long scenario is summarized first and the plan says so; a page that predates the Director keeps its own path')
+  }
+
+  // 11. The review's fixes (slice 11): edits land where they were made, money is never lost. ----------
+  {
+    const post = (id: string, body: unknown) =>
+      route.POST(new Request('http://check.local', { method: 'POST', body: JSON.stringify(body) }), { params: Promise.resolve({ id }) })
+    // Another tab moves the open page to 2; this tab's line, typed on page 1, still lands on page 1.
+    const before = await store.readProject(pid)
+    const page2Line = before.chapters[0].pages[1].panels[0].dialogue
+    const switched = (await (await post(pid, { page: 1 })).json()) as Desk
+    assert.equal(switched.address.pageIndex, 1, 'the switcher’s reply is already the new page')
+    const reply = await post(pid, { panels: { '0': { dialogue: 'Typed on page 1.' } }, at: 0 })
+    assert.equal(reply.status, 200)
+    assert.equal(((await reply.json()) as Desk).address.pageIndex, 1, 'the reply is the open page')
+    const after = await store.readProject(pid)
+    assert.equal(after.chapters[0].pages[0].panels[0].dialogue, 'Typed on page 1.', 'the edit lands on the page it was made on')
+    assert.equal(after.chapters[0].pages[1].panels[0].dialogue, page2Line, 'and never on the open page')
+    assert.equal((await post(pid, { panels: { '0': { dialogue: 'x' } }, at: 5 })).status, 404, 'a page the chapter doesn’t have')
+
+    // A stale tab still in Scenario can't settle a project that is in Pitch.
+    const pitchy = await createProject({ title: 'Pitchy', stylePresetId: 'manga-bw' })
+    const refused = await post(pitchy.address.projectId, { scenario: { text: 'A story.', saved: true } })
+    assert.equal(refused.status, 409)
+    assert.match(((await refused.json()) as { error: string }).error, /Switch to Scenario/)
+    // A built pitch project is told about its synopsis, not about a scenario.
+    assert.throws(() => assertStoryEditable({ ...pitchy, cast: desk.cast }, { scenario: { text: 'x' } }), /accepted synopsis/)
+
+    // The stepper going down while a line on the dropped page is still waiting to save.
+    const five = applyPatch(desk, { plan: { pageCount: 5 } })
+    plan.assertPlanEdit(five, { pageCount: 4, pages: { '4': { '0': { action: 'typed, then dropped' } } } })
+    assert.equal(applyPatch(five, { plan: { pageCount: 4, pages: { '4': { '0': { action: 'x' } } } } }).pageCount, 4)
+    assert.equal(applyPatch(desk, { plan: { pageCount: 5 }, page: 4 }).openPage, 4, 'adding pages and opening the last one, in one patch')
+
+    // Every upload is still readable by Claude once base64-encoded.
+    assert.equal(fitsVision({ length: UPLOAD_LIMIT_BYTES }), true)
+    assert.equal(fitsVision({ length: UPLOAD_LIMIT_BYTES + 1 }), false)
+
+    // A paid call whose write is refused still lands its cost.
+    const spent = (await read()).costUsd
+    await assert.rejects(
+      updateCharging(pid, { costUsd: 0.5 }, () => {
+        throw new Refused('the card was locked meanwhile')
+      }),
+      /locked meanwhile/
+    )
+    assert.ok(Math.abs((await read()).costUsd - spent - 0.5) < 1e-9, 'the cost landed on its own')
+
+    // A fallback reply the schema refuses was still billed: counted, then the retry's too.
+    const spare = await lockedProject('Spare')
+    const bad = planOut(spare.ids[1], spare.ids[0], 3) // the slots swapped — refused by the schema
+    answer('plan', bad)
+    answer('plan', planOut(spare.ids[0], spare.ids[1], 3))
+    const planned = await writePlan(spare.pid, 3, false)
+    assert.equal(chats.splice(0).length, 2, 'one refused reply, one retry')
+    assert.ok(Math.abs(planned.costUsd - 0.02) < 1e-9, 'both billed replies are in the spend')
+    ok('panel edits land on their own page; a stale tab can’t settle the wrong mode; uploads fit Claude; no cost is lost')
   }
 
   say('\n  Director acceptance check passed.\n')

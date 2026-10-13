@@ -188,7 +188,7 @@ type ChatResponse = {
 }
 
 /** One fetch's outcome: a validated reply, or a failure and whether one retry is worth it. */
-type Attempt<T> = { ok: true; value: T; cost: number | null } | { ok: false; retry: boolean; cause: string }
+type Attempt<T> = { ok: true; value: T; cost: number | null } | { ok: false; retry: boolean; cause: string; cost?: number | null }
 
 async function askFallback<S extends z.ZodType>(
   schema: S,
@@ -220,6 +220,8 @@ async function askFallback<S extends z.ZodType>(
       return result.value
     }
     last = result.cause
+    // A reply the schema refused was still generated, and billed.
+    if (meter && result.cost != null) meter.costUsd += result.cost
     if (!result.retry || attempt === 2) break
     console.warn(`[text] ${label} — fallback failed (${result.cause.slice(0, 120)}), retrying once`)
   }
@@ -298,18 +300,18 @@ async function fallbackAttempt<S extends z.ZodType>(
     return { ok: false, retry: code === 429 || code >= 500, cause: `error ${code} ${json.error.message ?? ''}`.slice(0, 400) }
   }
   const message = json.choices?.[0]?.message
-  if (message?.refusal) return { ok: false, retry: false, cause: `refused: ${message.refusal.slice(0, 300)}` }
+  if (message?.refusal) return { ok: false, retry: false, cause: `refused: ${message.refusal.slice(0, 300)}`, cost: json.usage?.cost ?? null }
 
   let parsed: unknown
   try {
     parsed = JSON.parse(message?.content ?? '')
   } catch {
-    return { ok: false, retry: true, cause: `content was not JSON (finish_reason ${json.choices?.[0]?.finish_reason ?? '?'})` }
+    return { ok: false, retry: true, cause: `content was not JSON (finish_reason ${json.choices?.[0]?.finish_reason ?? '?'})`, cost: json.usage?.cost ?? null }
   }
   // The SDK validated Claude's reply; here the app does it, with the same schema.
   const checked = schema.safeParse(parsed)
   if (!checked.success) {
-    return { ok: false, retry: true, cause: `reply refused by the schema: ${checked.error.message.slice(0, 300)}` }
+    return { ok: false, retry: true, cause: `reply refused by the schema: ${checked.error.message.slice(0, 300)}`, cost: json.usage?.cost ?? null }
   }
   return { ok: true, value: checked.data, cost: json.usage?.cost ?? null }
 }

@@ -10,11 +10,11 @@
 // retires the DNA (`lib/cast.ts`), so the next draw writes it fresh either way.
 // See `devpost/prd.md > Cast — Model Sheets` for why DNA-first is load-bearing.
 import { assertUnlocked, attachSheet, findCharacter, setDna } from '@/lib/cast'
-import { read, update } from '@/lib/chapter'
+import { read } from '@/lib/chapter'
 import { writeDna } from '@/lib/claude'
 import { errorResponse, Refused } from '@/lib/errors'
 import { generateImage, imageConfig } from '@/lib/image-provider'
-import { chargeText, saveImage } from '@/lib/images'
+import { updateCharging, saveImage } from '@/lib/images'
 import { textMeter } from '@/lib/llm'
 import { sheetPrompt } from '@/lib/prompts'
 import { SheetRequestSchema } from '@/lib/schemas'
@@ -42,7 +42,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (!dna) {
       const meter = textMeter()
       dna = await writeDna(target, synopsis, meter)
-      await update(projectId, (c) => chargeText(setDna(c, id, dna as string), meter))
+      await updateCharging(projectId, meter, (c) => setDna(c, id, dna as string))
     }
 
     // (b) the picture, from exactly those words, in the project's style

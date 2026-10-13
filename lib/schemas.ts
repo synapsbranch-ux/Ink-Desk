@@ -219,6 +219,8 @@ export const ChapterPatchSchema = z
       .optional(),
     /** The page switcher: the page this project has open. */
     page: z.number().int().min(0).max(PAGE_COUNT_MAX - 1).optional(),
+    /** The page the `panels` edits were made on. */
+    at: z.number().int().min(0).max(PAGE_COUNT_MAX - 1).optional(),
     pitch: z.object({ text: z.string(), genre: z.string(), tone: z.string() }).partial().optional(),
     synopsis: z
       .object({ title: z.string(), body: z.string(), accepted: z.boolean() })

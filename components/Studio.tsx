@@ -427,7 +427,12 @@ export function Studio({ projectId }: { projectId: string }) {
 
   /** A bubble placed, a tail pointed, a line retyped, a version stepped:
    *  saved at once. */
-  const editPanel = useCallback((index: number, e: PanelEdit) => commit({ panels: { [index]: e } }), [commit])
+  /** Each panel edit names the page it was made on, so it lands there even
+   *  if the open page moves before it arrives (another tab, a switch in flight). */
+  const editPanel = useCallback(
+    (index: number, e: PanelEdit) => commit({ panels: { [index]: e }, at: page }),
+    [commit, page]
+  )
 
   /** Redraw panel / Try again / Rewrite panel. Redraw queues and returns at
    *  once; rewrite holds while Claude rephrases. The desk's poll (below)

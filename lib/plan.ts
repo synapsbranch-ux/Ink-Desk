@@ -187,7 +187,7 @@ export function applyPlanEdit(desk: Desk, edit: PlanEdit): Desk {
   const coverBrief = edit.coverBrief ?? plan.coverBrief
   const next: ChapterPlan = { ...plan, pages, pageCount: pages.length, coverBrief }
   const cover = desk.cover && edit.coverBrief !== undefined ? { ...desk.cover, brief: edit.coverBrief } : desk.cover
-  return { ...desk, plan: next, cover }
+  return { ...desk, plan: next, cover, pageCount: pages.length }
 }
 
 function pick(e: PlanLineEdit): PlanLineEdit {
@@ -214,7 +214,11 @@ export function assertPlanEdit(desk: Desk, edit: PlanEdit): void {
   }
   for (const key of Object.keys(edit.pages ?? {})) {
     const p = Number(key)
-    if (!Number.isInteger(p) || p < 0 || p >= count) throw new Refused(`There is no page ${p + 1} in the plan.`, 404)
+    // A line typed on a page this same edit drops (the save was still waiting
+    // when the stepper went down) is accepted here and ignored by `applyPlanEdit`.
+    if (!Number.isInteger(p) || p < 0 || p >= Math.max(count, plan.pages.length)) {
+      throw new Refused(`There is no page ${p + 1} in the plan.`, 404)
+    }
     if (isWritten(desk, p)) throw new Refused(`Page ${p + 1} is already on the board — edit its panels there.`)
   }
 }

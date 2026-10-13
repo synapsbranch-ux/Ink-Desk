@@ -2,10 +2,10 @@
 // card, with the other character held fixed in the prompt and untouched on
 // the desk. Text only — the sheet and DNA start over.
 import { assertUnlocked, findCharacter, replaceCharacter } from '@/lib/cast'
-import { read, update } from '@/lib/chapter'
+import { read } from '@/lib/chapter'
 import { rewriteCharacter } from '@/lib/claude'
 import { errorResponse, Refused } from '@/lib/errors'
-import { chargeText } from '@/lib/images'
+import { updateCharging } from '@/lib/images'
 import { textMeter } from '@/lib/llm'
 import { RerollRequestSchema } from '@/lib/schemas'
 import { storyBrief } from '@/lib/story'
@@ -30,7 +30,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     const meter = textMeter()
     const proposal = await rewriteCharacter(synopsis, keep, target, meter)
-    const desk = await update(projectId, (c) => chargeText(replaceCharacter(c, id, proposal), meter))
+    const desk = await updateCharging(projectId, meter, (c) => replaceCharacter(c, id, proposal))
     return Response.json(desk)
   } catch (err) {
     return errorResponse(err, 'cast/reroll', CALM)

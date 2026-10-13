@@ -2,7 +2,7 @@
 // card text, Lock). The only writer besides the generation routes. The desk is
 // the open page of the project — see `lib/chapter.ts`.
 import { assertEditAllowed } from '@/lib/cast'
-import { demoteStale, openRef, toDesk, update } from '@/lib/chapter'
+import { demoteStale, openRef, read, toDesk, update } from '@/lib/chapter'
 import { errorResponse, Refused } from '@/lib/errors'
 import { gates } from '@/lib/gates'
 import { imageConfig } from '@/lib/image-provider'
@@ -50,7 +50,15 @@ export async function POST(req: Request, { params }: Params) {
   const patch: ChapterPatch = parsed.data
 
   try {
-    const desk = await update(id, (c) => {
+    // Panel edits are written to the page they were made on (`at`), which
+    // may no longer be the open page by the time they land — another tab, or
+    // a page switch still in flight. Everything else on the desk is
+    // project- or chapter-level and the same from any page's view.
+    const at =
+      patch.panels && patch.at !== undefined
+        ? { chapterId: (await store.readProject(id)).chapters[0]?.id ?? '', pageIndex: patch.at }
+        : undefined
+    const written = await update(id, (c) => {
       // Once the cast exists, the story is frozen on this path too — a stale
       // tab's pitch edit orphaned the desk at the slice 6 checkpoint.
       assertStoryEditable(c, patch)
@@ -86,8 +94,9 @@ export async function POST(req: Request, { params }: Params) {
         assertPageExists({ ...c, pageCount: count }, patch.page)
       }
       return applyPatch(c, patch)
-    })
-    return Response.json(desk)
+    }, at)
+    // The reply is always the open page, as every route's is.
+    return Response.json(at ? await read(id) : written)
   } catch (err) {
     return errorResponse(err, 'project', 'The desk couldn’t save that.')
   }

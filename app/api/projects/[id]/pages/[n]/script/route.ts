@@ -4,10 +4,10 @@
 // checked afterwards. (The Director's chapter plan replaces this entry point
 // in slice 11: with a plan, a page is written from it by `pages/[n]/start`,
 // and this route refuses rather than letting two scripts disagree.)
-import { pageAt, read, update } from '@/lib/chapter'
+import { pageAt, read } from '@/lib/chapter'
 import { writePageScript } from '@/lib/claude'
 import { errorResponse, Refused } from '@/lib/errors'
-import { chargeText } from '@/lib/images'
+import { updateCharging } from '@/lib/images'
 import { textMeter } from '@/lib/llm'
 import type { LockedCharacter } from '@/lib/prompts'
 import { lockedPair, newScript } from '@/lib/script'
@@ -32,7 +32,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
 
     const meter = textMeter()
     const out = await writePageScript(synopsis, [locked(lead), locked(counterpart)], meter)
-    const desk = await update(id, (c) => chargeText(newScript(c, out), meter), addr)
+    const desk = await updateCharging(id, meter, (c) => newScript(c, out), addr)
     return Response.json(desk)
   } catch (err) {
     return errorResponse(err, 'script', CALM)

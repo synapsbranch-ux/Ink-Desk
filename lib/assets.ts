@@ -11,9 +11,22 @@
 import { Refused } from './errors'
 import type { Asset, Desk } from './types'
 
-/** 5 MB: under the vision limit of both text providers, so every upload can
+/** 3.75 MB of bytes: Claude's 5 MB image limit is measured on the base64 it
+ *  receives (4 characters for every 3 bytes), so this is the largest upload
+ *  that is still readable by Claude — and by the fallback — once encoded.
+ *  Slice 11's review lowered it from 5 MB (`checklist.md > Revisions`). The
+ *  old wording, kept for the record: 5 MB, under the vision limit of both text providers, so every upload can
  *  also be read by Claude (or the fallback) when it becomes a sheet. */
-export const UPLOAD_LIMIT_BYTES = 5 * 1024 * 1024
+export const UPLOAD_LIMIT_BYTES = (5 * 1024 * 1024 * 3) / 4
+
+/** Claude's per-image limit, on the base64 it receives. */
+export const VISION_LIMIT_BASE64 = 5 * 1024 * 1024
+
+/** A picture a text provider can read: its base64 is within the vision limit.
+ *  A shelf asset from before the limit was lowered can be over it. */
+export function fitsVision(bytes: { length: number }): boolean {
+  return Math.ceil(bytes.length / 3) * 4 <= VISION_LIMIT_BASE64
+}
 
 /** A shelf, not an archive. */
 export const MAX_ASSETS = 24

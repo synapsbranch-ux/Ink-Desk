@@ -33,6 +33,12 @@ export type ChapterPatch = {
   cover?: CoverEdit
   /** The page switcher: the project's open page. */
   page?: number
+  /**
+   * The page the `panels` edits were made on — the page the browser was
+   * showing. The server writes them there, whatever page is open by the time
+   * they land (another tab, or a switch still in flight, may have moved it).
+   */
+  at?: number
 }
 
 function mergeKeyed<E extends object>(a: Record<string, E> | undefined, b: Record<string, E> | undefined) {
@@ -52,6 +58,8 @@ export function mergePatch(a: ChapterPatch, b: ChapterPatch): ChapterPatch {
     scenario: a.scenario || b.scenario ? { ...a.scenario, ...b.scenario } : undefined,
     plan: a.plan || b.plan ? mergePlan(a.plan ?? {}, b.plan ?? {}) : undefined,
     cover: a.cover || b.cover ? { ...a.cover, ...b.cover } : undefined,
+    // The page the panel edits belong to travels with them.
+    at: b.panels ? b.at : a.panels ? a.at : (b.at ?? a.at),
   }
 }
 
@@ -83,8 +91,9 @@ export function assertStoryEditable(chapter: Chapter, patch: ChapterPatch): void
   if ((patch.pitch || patch.synopsis) && built) throw new Refused(STORY_FROZEN)
   const s = patch.scenario
   const words = s && (s.text !== undefined || s.notes !== undefined || s.saved !== undefined)
-  if ((words || patch.storyMode !== undefined) && built) throw new Refused(SCENARIO_FROZEN)
-  if (patch.storyMode !== undefined && patch.storyMode !== chapter.storyMode) {
+  const modeChange = patch.storyMode !== undefined && patch.storyMode !== chapter.storyMode
+  if ((words || modeChange) && built) throw new Refused(chapter.storyMode === 'scenario' ? SCENARIO_FROZEN : STORY_FROZEN)
+  if (modeChange) {
     if (chapter.synopsis?.accepted || chapter.scenario?.saved) {
       throw new Refused('The story is already settled, so the mode can’t change. Start a new project to tell it the other way.')
     }
@@ -93,6 +102,8 @@ export function assertStoryEditable(chapter: Chapter, patch: ChapterPatch): void
     throw new Refused('The scenario is saved — its words are what the cast is built from. Start a new project to change them.')
   }
   if (s?.saved && !(s.text ?? chapter.scenario?.text ?? '').trim()) throw new Refused('Write or paste a scenario before saving it.')
+  // A stale tab still in Scenario must not settle a project another tab switched to Pitch.
+  if (s?.saved && (patch.storyMode ?? chapter.storyMode) !== 'scenario') throw new Refused('Switch to Scenario before saving the scenario.')
   if (s?.referenceAssetIds !== undefined) {
     if (chapter.plan) throw new Refused('The chapter plan is written — the references it read are fixed. Start a new project to plan with others.')
     for (const id of s.referenceAssetIds) {

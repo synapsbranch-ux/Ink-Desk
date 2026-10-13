@@ -13,6 +13,7 @@ import { read, update, updatePages } from './chapter'
 import { summarizeScenario, writeChapterPlan } from './claude'
 import { ProviderError, Refused } from './errors'
 import { generateImage, imageConfig } from './image-provider'
+import { fitsVision } from './assets'
 import { chargeText, mediaTypeOf, readImage, saveImage } from './images'
 import { textMeter, type AskImage } from './llm'
 import { queueBlankPanels } from './panels'
@@ -97,6 +98,11 @@ async function planReferences(desk: Desk): Promise<AskImage[]> {
     const bytes = asset ? await readImage(asset.blobId) : null
     if (!asset || !bytes) {
       console.warn(`[plan] reference ${id} is not on the shelf any more; planning without it`)
+      continue
+    }
+    if (!fitsVision(bytes)) {
+      // Uploaded before the limit was lowered: sending it would be a 400 with no fallback.
+      console.warn(`[plan] reference “${asset.name}” is too large for the text model to read; planning without it`)
       continue
     }
     out.push({ bytes, mediaType: asset.mediaType })

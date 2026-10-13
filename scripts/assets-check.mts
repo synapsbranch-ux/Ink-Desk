@@ -78,12 +78,12 @@ try {
   assert.throws(() => checkUpload(new TextEncoder().encode('GIF89a......'), 0), Refused)
   const huge = Buffer.alloc(UPLOAD_LIMIT_BYTES + 1)
   png.copy(huge, 0, 0, 16)
-  assert.throws(() => checkUpload(huge, 0), /over 5 MB/)
+  assert.throws(() => checkUpload(huge, 0), /over 3\.75 MB/)
   assert.throws(() => checkUpload(png, MAX_ASSETS), /holds 24/)
   assert.equal(checkUpload(png, 0), 'image/png')
   assert.equal(assetName('C:\\drawings\\Aya — final.v2.png'), 'Aya — final.v2')
   assert.equal(assetName('.png'), 'Reference')
-  console.log('  ok  the shelf keeps PNG, JPEG and WebP by their bytes, under 5 MB, 24 at most')
+  console.log('  ok  the shelf keeps PNG, JPEG and WebP by their bytes, under 3.75 MB, 24 at most')
 
   // 2. An upload lands as a stored image and a shelf record, and is not a generation.
   await update((c) => proposeCast({ ...c, synopsis: { title: 'Rain Check', body: 'Aya meets Ren under an awning.', accepted: true } }, {
