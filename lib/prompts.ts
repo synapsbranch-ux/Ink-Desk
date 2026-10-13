@@ -6,6 +6,7 @@
 //
 // This file reads no environment and is safe to import from the browser —
 // aspect ratios are resolved by the server code that sends the request.
+import { DEFAULT_STYLE_PRESET_ID, STYLE_PRESETS } from './styles'
 
 // --- Story station --------------------------------------------------------
 
@@ -40,17 +41,15 @@ export function synopsisPrompt(input: { pitch: string; genre: string; tone: stri
 // --- The frozen half of every image request -------------------------------
 //
 // Proven by `scripts/kernel-test.mjs` in slices 1–2 and ported verbatim.
-// STYLE_RULES is pasted into every sheet and panel prompt unchanged.
+// Since v2 the rules text comes from the project's locked style preset
+// (`lib/styles.ts`); `STYLE_RULES` is the default preset's text, word for
+// word what v1 pasted, and every prompt takes the project's rules as a
+// defaulted parameter so the v1 checks still read the same prompt.
 
-export const STYLE_RULES = [
-  'Black and white manga artwork, screentone shading, confident inked linework.',
-  'Seinen style, detailed backgrounds, strong use of blacks.',
-  'ABSOLUTELY NO TEXT, no speech bubbles, no sound effects, no signatures,',
-  'no watermarks and no panel borders anywhere in the image.',
-].join(' ')
+export const STYLE_RULES = STYLE_PRESETS[DEFAULT_STYLE_PRESET_ID].rules
 
 /** A model sheet is drawn from the DNA alone — no references. */
-export function sheetPrompt(dna: string): string {
+export function sheetPrompt(dna: string, rules: string = STYLE_RULES): string {
   return [
     'A single character model sheet on one sheet of paper, for animation reference.',
     'One character only, shown three times in one frame: full-body front view,',
@@ -60,7 +59,7 @@ export function sheetPrompt(dna: string): string {
     'The character:',
     dna,
     '',
-    STYLE_RULES,
+    rules,
   ].join('\n')
 }
 
@@ -137,7 +136,8 @@ export const PANEL_LAYOUT: readonly PanelSlot[] = [
 export function panelPrompt(
   dna: string,
   panel: { camera: string; action: string; background: string },
-  slot: PanelSlot
+  slot: PanelSlot,
+  rules: string = STYLE_RULES
 ): string {
   return [
     'A single manga panel with exactly one person in it: the character shown in the',
@@ -156,7 +156,7 @@ export function panelPrompt(
     `Action: ${panel.action}`,
     `Background: ${panel.background}`,
     '',
-    STYLE_RULES,
+    rules,
   ].join('\n')
 }
 

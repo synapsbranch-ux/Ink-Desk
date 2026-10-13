@@ -4,7 +4,9 @@
 // in one. Gates come in already derived — see `lib/gates.ts`.
 // Implements `devpost/prd.md > Screens and Layout`.
 import Image from 'next/image'
+import Link from 'next/link'
 import type { Gates } from '@/lib/gates'
+import { stylePreset } from '@/lib/styles'
 import type { Chapter, Station } from '@/lib/types'
 
 export type SaveState = 'saved' | 'saving' | 'error'
@@ -29,24 +31,33 @@ type Props = {
   onGo: (station: Station) => void
 }
 
+function usd(n: number): string {
+  return n < 0.005 && n > 0 ? '< $0.01' : `$${n.toFixed(2)}`
+}
+
 export function StationRail({ chapter, gates, saveState, onGo }: Props) {
-  const title = chapter.synopsis?.title.trim() || 'Untitled chapter'
+  const title = chapter.title.trim() || chapter.synopsis?.title.trim() || 'Untitled project'
+  const page = chapter.address.pageIndex + 1
 
   return (
     <>
       <header className="studio-header">
-        <div className="brand">
+        <Link className="brand" href="/" title="Back to the desk — every project">
           <Image className="brand-mark" src="/brand/inkdesk-mark.svg" alt="" width={30} height={30} priority />
           <span className="brand-name">Ink Desk</span>
-        </div>
+        </Link>
         <div className="header-divider" />
         <div className="chapter-title">
-          <span className="eyebrow eyebrow-sm">Chapter 1</span>
+          <span className="eyebrow eyebrow-sm">
+            Page {page} of {chapter.pageCount} · {stylePreset(chapter.stylePresetId).label}
+          </span>
           <span className="chapter-title-text">{title}</span>
         </div>
         <div className="header-spacer" />
         <div className="header-meta">
-          <span className="image-counter">Images this chapter: {chapter.imageCount}</span>
+          <span className="image-counter" title="Images generated in this project, and what the providers reported they cost">
+            Images this project: {chapter.imageCount} · ≈ {usd(chapter.costUsd)}
+          </span>
           <span className={`save-label is-${saveState}`} aria-live="polite">
             {SAVE_LABEL[saveState]}
           </span>

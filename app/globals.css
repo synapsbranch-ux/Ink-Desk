@@ -1658,3 +1658,187 @@ input.cast-role:disabled,
     padding: 8px;
   }
 }
+
+/* --- The desk (v2): projects, New project, the library shelf --------------- */
+
+.brand:is(a) {
+  color: inherit;
+  text-decoration: none;
+}
+.brand:is(a):hover .brand-name {
+  color: var(--hanko-700);
+}
+
+.desk-section + .desk-section {
+  margin-top: var(--space-8);
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--divider);
+}
+.station-title.is-small {
+  font-size: 26px;
+}
+
+.desk-empty {
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-6);
+  max-width: 560px;
+}
+.desk-empty p {
+  margin: 0;
+}
+.desk-empty-title {
+  font-family: var(--font-heading), Georgia, serif;
+  font-size: 24px;
+  font-style: italic;
+}
+
+.project-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-6);
+  align-items: start;
+}
+.project-card {
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+.project-link {
+  display: flex;
+  flex-direction: column;
+  color: inherit;
+  text-decoration: none;
+  height: 100%;
+}
+.project-link:hover .project-title {
+  color: var(--hanko-700);
+}
+.project-link:focus-visible {
+  outline: 2px solid var(--hanko);
+  outline-offset: -2px;
+}
+.project-thumb {
+  aspect-ratio: 3 / 2;
+  display: grid;
+  place-items: center;
+  border-bottom: 1px solid var(--ink);
+  background: #fff;
+  overflow: hidden;
+}
+.project-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.project-thumb.is-pencil {
+  background: var(--halftone-sketch), var(--neutral-200);
+}
+.project-thumb-label {
+  font-family: var(--font-heading), Georgia, serif;
+  font-style: italic;
+  color: var(--neutral-700);
+}
+.project-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+}
+.project-title {
+  font-family: var(--font-heading), Georgia, serif;
+  font-weight: 600;
+  font-size: 22px;
+  line-height: 1.2;
+  transition: color 0.15s;
+}
+.project-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  font-size: 13px;
+  color: var(--neutral-700);
+  font-variant-numeric: tabular-nums;
+}
+
+/* New project: the confirm card's chrome, with a form inside. */
+.new-project {
+  width: min(520px, 92vw);
+  text-align: left;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-4);
+}
+.field-label {
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--neutral-700);
+}
+.preset-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.preset-list legend {
+  padding: 0;
+  margin-bottom: var(--space-1);
+}
+.preset-option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  background: #fff;
+}
+.preset-option:hover {
+  border-color: var(--neutral-500);
+}
+.preset-option.is-selected {
+  border-color: var(--hanko);
+  background: var(--hanko-100);
+}
+.preset-option input {
+  margin-top: 4px;
+  accent-color: var(--hanko);
+}
+.preset-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.preset-label {
+  font-family: var(--font-heading), Georgia, serif;
+  font-weight: 600;
+  font-size: 18px;
+}
+.preset-blurb {
+  font-size: 14px;
+  color: var(--neutral-800);
+}
+
+.not-found {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  align-items: center;
+}
+.not-found h1 {
+  font-size: 32px;
+  font-style: italic;
+}

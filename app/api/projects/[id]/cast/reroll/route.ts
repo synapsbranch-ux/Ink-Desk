@@ -11,13 +11,14 @@ export const runtime = 'nodejs'
 
 const CALM = 'The studio couldn’t reroll that character just now. Try again in a moment.'
 
-export async function POST(req: Request) {
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id: projectId } = await params
   const parsed = RerollRequestSchema.safeParse(await req.json().catch(() => null))
   if (!parsed.success) return Response.json({ error: 'That request couldn’t be read.' }, { status: 400 })
   const { id } = parsed.data
 
   try {
-    const current = await read()
+    const current = await read(projectId)
     const synopsis = current.synopsis
     if (synopsis?.accepted !== true) throw new Refused('Accept a synopsis first.')
     const target = assertUnlocked(findCharacter(current, id))
@@ -25,8 +26,8 @@ export async function POST(req: Request) {
     if (!keep) throw new Refused('The cast isn’t complete yet.')
 
     const proposal = await rewriteCharacter(synopsis, keep, target)
-    const chapter = await update((c) => replaceCharacter(c, id, proposal))
-    return Response.json(chapter)
+    const desk = await update(projectId, (c) => replaceCharacter(c, id, proposal))
+    return Response.json(desk)
   } catch (err) {
     return errorResponse(err, 'cast/reroll', CALM)
   }

@@ -1,6 +1,23 @@
-// The shapes in `data/chapter.json`. See `devpost/spec.md > Data Model`.
+// The shapes on the desk. See `devpost/spec.md > Data Model` (v1) and
+// `> Data Model (v2)`.
+//
+// Since v2 there are two layers:
+//
+//   • `Project` is what is persisted — `data/projects/<id>/project.json`: the
+//     locked style, the story, the library (characters, assets), chapters of
+//     pages, usage. Written only through `lib/store/`.
+//   • `Desk` is the per-page working view the page engine, the patch route
+//     and every station component operate on: the project's story and cast
+//     beside ONE page's four panels. It is projected from a project and
+//     written back by `lib/chapter.ts`, never stored. It is v1's `Chapter`
+//     shape plus the project's identity, so the pure helpers in `lib/script.ts`,
+//     `lib/cast.ts`, `lib/patch.ts`, `lib/gates.ts` and the components run
+//     unchanged on it — the v1 name `Chapter` is kept as an alias.
+//
 // Anything derivable from these (which stations are open, where a speech
 // bubble sits) is computed, never stored — see `lib/gates.ts`.
+import type { PanelLine } from './schemas'
+import { DEFAULT_STYLE_PRESET_ID, type StylePresetId } from './styles'
 
 export type Station = 'story' | 'cast' | 'storyboard' | 'reader'
 
@@ -56,21 +73,126 @@ export type Panel = {
   startedByRun: string | null // for the restart fallback
 }
 
-export type Chapter = {
-  version: 1 // lets a future shape change migrate rather than crash
+// --- v2: what is persisted -------------------------------------------------
+
+/** Which page of which chapter of which project a desk view shows. */
+export type PageAddress = { projectId: string; chapterId: string; pageIndex: number }
+export type PageRef = { chapterId: string; pageIndex: number }
+
+/** An uploaded reference (slice 10). Declared now so the shape has room. */
+export type Asset = {
+  id: string
+  kind: 'reference'
+  name: string
+  blobId: string
+  mediaType: string
+  bytes: number
+  createdAt: string
+}
+
+/** The Director's plan (slice 11). Declared now so the shape has room. */
+export type ChapterPlan = { pageCount: number; coverBrief: string; pages: { panels: PanelLine[] }[] }
+
+/** The cover (slice 11): one image, the title lettered by the app. */
+export type CoverState = {
+  brief: string
+  title: string
+  versions: PanelVersion[]
+  currentVersion: number
+  status: PanelStatus
+  startedAt: string | null
+  startedByRun: string | null
+}
+
+export type ProjectPage = {
+  index: number // 0-based within the chapter
+  layoutId: 'four-shot' // the v1 layout; the only one built
+  /** `[]` until the page script is written, exactly 4 after. The desk view
+   *  shows `[]` as `script: null`, which is what the v1 helpers key on. */
+  panels: Panel[]
+}
+
+export type ProjectChapter = {
+  id: string
+  title: string
+  plan: ChapterPlan | null
+  cover: CoverState | null
+  pages: ProjectPage[]
+}
+
+export type Project = {
+  version: 2
+  id: string
+  title: string
+  stylePresetId: StylePresetId // locked at creation
+  story: {
+    mode: 'pitch' | 'scenario'
+    pitch: Pitch
+    synopsis: Synopsis | null
+    scenario: { text: string; notes: string; referenceAssetIds: string[] } | null
+  }
+  library: { characters: Character[]; assets: Asset[] }
+  chapters: ProjectChapter[] // the UI shows one; the shape allows more
+  usage: { images: number; costUsd: number } // the budget readout, from usage.cost
+  station: Station
+  openPage: number
   serverRunId: string // the process that last wrote the file
+  createdAt: string
+  updatedAt: string
+  /** Set on the project the v1 desk migrated into. */
+  migratedFrom?: string
+}
+
+/** What the dashboard lists — derived from the project file, never stored. */
+export type ProjectSummary = {
+  id: string
+  title: string
+  stylePresetId: StylePresetId
+  station: Station
+  images: number
+  costUsd: number
+  pageCount: number
+  pagesInked: number
+  /** The cover, else the first inked panel, else null. */
+  thumbnailImageId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+// --- The desk view -----------------------------------------------------------
+
+export type Desk = {
+  version: 2 // the view's shape; the browser recognises a desk reply by this field
+  address: PageAddress
+  title: string
+  stylePresetId: StylePresetId
+  pageCount: number
+  serverRunId: string
   station: Station
   pitch: Pitch
   synopsis: Synopsis | null
   cast: Character[] // exactly 2 once proposed
-  script: Panel[] | null // exactly 4 once written
-  imageCount: number // the "Images this chapter: N" counter
+  script: Panel[] | null // exactly 4 once written — this page's panels
+  imageCount: number // the project's images, the header counter
+  costUsd: number // the project's spend, from the providers' usage.cost
   updatedAt: string
 }
 
-export function emptyChapter(serverRunId: string): Chapter {
+/** v1's name for the working shape, kept so nothing downstream had to move. */
+export type Chapter = Desk
+
+export function emptyDesk(
+  serverRunId: string,
+  address: PageAddress = { projectId: '', chapterId: '', pageIndex: 0 },
+  title = '',
+  stylePresetId: StylePresetId = DEFAULT_STYLE_PRESET_ID
+): Desk {
   return {
-    version: 1,
+    version: 2,
+    address,
+    title,
+    stylePresetId,
+    pageCount: 1,
     serverRunId,
     station: 'story',
     pitch: { text: '', genre: '', tone: '' },
@@ -78,6 +200,36 @@ export function emptyChapter(serverRunId: string): Chapter {
     cast: [],
     script: null,
     imageCount: 0,
+    costUsd: 0,
     updatedAt: new Date().toISOString(),
+  }
+}
+
+/** v1's name, kept for the checks and the pure helpers. */
+export const emptyChapter = emptyDesk
+
+export function emptyProject(input: {
+  id: string
+  chapterId: string
+  title: string
+  stylePresetId: StylePresetId
+  serverRunId: string
+  now?: string
+}): Project {
+  const now = input.now ?? new Date().toISOString()
+  return {
+    version: 2,
+    id: input.id,
+    title: input.title,
+    stylePresetId: input.stylePresetId,
+    story: { mode: 'pitch', pitch: { text: '', genre: '', tone: '' }, synopsis: null, scenario: null },
+    library: { characters: [], assets: [] },
+    chapters: [{ id: input.chapterId, title: 'Chapter 1', plan: null, cover: null, pages: [{ index: 0, layoutId: 'four-shot', panels: [] }] }],
+    usage: { images: 0, costUsd: 0 },
+    station: 'story',
+    openPage: 0,
+    serverRunId: input.serverRunId,
+    createdAt: now,
+    updatedAt: now,
   }
 }

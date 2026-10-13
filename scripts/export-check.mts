@@ -21,7 +21,7 @@ process.env.INKDESK_DATA_DIR = dir
 
 // Imported after the env is set, because the store reads it at load.
 const { bubbleLayout, defaultBubble, tailPath } = await import('../lib/bubble')
-const { newChapter, read, reset, update } = await import('../lib/chapter')
+const { createProject, read: readDesk, update: updateDesk } = await import('../lib/chapter')
 const { Refused } = await import('../lib/errors')
 const { EXPORT_WIDTH, INK, drawPage, exportFilename, pageGeometry, stretchPath, wrapDialogue } = await import(
   '../lib/export'
@@ -34,6 +34,11 @@ const { singletons } = await import('../lib/singleton')
 
 import type { DrawContext, ExportPanel, PageGeometry, Rect } from '../lib/export'
 import type { Chapter, Panel } from '../lib/types'
+
+// One project on the scratch desk (v2); the "new project" checks make more.
+const pid = (await createProject({ title: 'Export check', stylePresetId: 'manga-bw' })).address.projectId
+const read = () => readDesk(pid)
+const update = (fn: (c: Chapter) => Chapter) => updateDesk(pid, fn)
 
 let failed = false
 function check(name: string, fn: () => void | Promise<void>): Promise<void> {
@@ -279,25 +284,30 @@ await check('freeze: with a cast on the desk, pitch and synopsis patches are ref
   assertStoryEditable(emptyChapter('check'), { pitch: { text: 'fresh desk' }, synopsis: { accepted: true } })
 })
 
-// --- The confirmed clear ----------------------------------------------------
+// --- New projects (v2: nothing is ever cleared; a new story is a new project) ----
 
-await check('new chapter: the blank clear returns the desk to first use', async () => {
-  await update((c) => ({ ...lockedCast(c), imageCount: 8, station: 'reader' }))
-  const cleared = await reset()
+await check('new project: a fresh project opens at first use, in its locked style', async () => {
+  const fresh = await createProject({ title: 'Blank', stylePresetId: 'manhwa-colour' })
+  const base = emptyChapter('check')
   assert.deepEqual(
-    { ...cleared, serverRunId: 'x', updatedAt: 'x' },
-    { ...emptyChapter('check'), serverRunId: 'x', updatedAt: 'x' }
+    { ...fresh, address: base.address, title: '', stylePresetId: base.stylePresetId, serverRunId: 'x', updatedAt: 'x' },
+    { ...base, serverRunId: 'x', updatedAt: 'x' }
   )
-  assert.equal(cleared.serverRunId, singletons.serverRunId)
+  assert.equal(fresh.title, 'Blank')
+  assert.equal(fresh.stylePresetId, 'manhwa-colour', 'the style is locked at creation')
+  assert.equal(fresh.serverRunId, singletons.serverRunId)
+  assert.ok(fresh.address.projectId && fresh.address.chapterId, 'a real address')
+  assert.deepEqual(await readDesk(fresh.address.projectId), fresh)
 })
 
-await check('new chapter: accepting a new synopsis wakes the desk with it, whole', async () => {
-  await update((c) => ({ ...lockedCast(c), imageCount: 8, station: 'story' }))
+await check('new project: accepting a new synopsis wakes a NEW project with it, whole — the old one untouched', async () => {
+  const old = await update((c) => ({ ...lockedCast(c), imageCount: 8, station: 'story' }))
   const story = {
     pitch: { text: 'a new courier', genre: 'Romance', tone: 'Hopeful' },
     synopsis: { title: 'Postmarked Tomorrow', body: 'Letters that haven’t been written yet.' },
   }
-  const fresh = await newChapter(story)
+  const fresh = await createProject({ title: story.synopsis.title, stylePresetId: old.stylePresetId, story })
+  assert.notEqual(fresh.address.projectId, old.address.projectId, 'a different project')
   assert.equal(fresh.synopsis?.accepted, true)
   assert.equal(fresh.synopsis?.title, story.synopsis.title)
   assert.deepEqual(fresh.pitch, story.pitch)
@@ -305,10 +315,16 @@ await check('new chapter: accepting a new synopsis wakes the desk with it, whole
   assert.equal(fresh.script, null)
   assert.equal(fresh.imageCount, 0)
   assert.equal(fresh.station, 'story')
-  const onDisk = await read()
+  assert.equal(fresh.stylePresetId, old.stylePresetId, 'same style as the project it was pitched from')
+  const onDisk = await readDesk(fresh.address.projectId)
   assert.deepEqual(onDisk, fresh)
   assert.equal(gates(fresh).cast.open, true, 'the accepted story opens Cast at once')
   assert.equal(gates(fresh).reader.open, false)
+  // The project the story was pitched from is exactly as it was.
+  const untouched = await read()
+  assert.equal(untouched.cast.length, 2)
+  assert.equal(untouched.imageCount, 8)
+  assert.equal(untouched.synopsis?.title, 'Old story')
 })
 
 await rm(dir, { recursive: true, force: true })

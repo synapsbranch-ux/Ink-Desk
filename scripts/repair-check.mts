@@ -24,7 +24,7 @@ process.env.GENERATION_TIMEOUT_MS = '360000'
 process.env.OPENROUTER_API_KEY = 'check-only-never-sent' // fetch is stubbed below
 
 // Imported after the env is set, because the store reads it at load.
-const { update, read } = await import('../lib/chapter')
+const { createProject, read: readDesk, update: updateDesk } = await import('../lib/chapter')
 const { saveImage } = await import('../lib/images')
 const { proposeCast, setDna, attachSheet } = await import('../lib/cast')
 const { applyPatch } = await import('../lib/patch')
@@ -44,6 +44,13 @@ const { inkPanel } = await import('../lib/panels')
 const { Refused } = await import('../lib/errors')
 
 import type { Chapter, Panel } from '../lib/types'
+
+// One project on the scratch desk (v2); every call below is addressed to its one page.
+const first = await createProject({ title: 'Repair check', stylePresetId: 'manga-bw' })
+const pid = first.address.projectId
+const addr = first.address
+const read = () => readDesk(pid, addr)
+const update = (fn: (c: Chapter) => Chapter) => updateDesk(pid, fn, addr)
 
 // --- The stub provider: a script of responses, consumed one per fetch -----
 type Scripted = { status: number; body?: string } | { timeout: true }
@@ -85,7 +92,7 @@ try {
   await update((c) => proposeCast({ ...c, synopsis }, kaito, mio))
   for (const id of (await read()).cast.map((c) => c.id)) {
     await update((c) => setDna(c, id, `dna for ${id}`))
-    await saveImage('sheet', Buffer.from(`sheet-${id}`).toString('base64'), 'image/png', (c, imageId) =>
+    await saveImage(pid, 'sheet', Buffer.from(`sheet-${id}`).toString('base64'), 'image/png', (c, imageId) =>
       attachSheet(c, id, `dna for ${id}`, imageId)
     )
   }
@@ -110,7 +117,7 @@ try {
   // Ink all four, then the reader is open and every panel has one version.
   for (const i of [0, 1, 2, 3]) {
     scripted.push({ status: 200 })
-    await inkPanel(i)
+    await inkPanel(addr, i)
   }
   assert.equal(fetchesUsed(), 4)
   let chapter = await read()
@@ -124,7 +131,7 @@ try {
   // --- Redraw: versions grow, capped at three; lettering never moves -------
   const v1 = currentImageId(await panel0())!
   scripted.push({ status: 200 })
-  await inkPanel(0)
+  await inkPanel(addr, 0)
   assert.equal(fetchesUsed(), 1, 'a redraw is one request')
   let p = await panel0()
   assert.equal(p.versions.length, 2, 'a redraw adds a version')
@@ -134,9 +141,9 @@ try {
   assert.deepEqual(p.bubble, placed, 'redraw never touches the bubble')
 
   scripted.push({ status: 200 })
-  await inkPanel(0)
+  await inkPanel(addr, 0)
   scripted.push({ status: 200 })
-  await inkPanel(0)
+  await inkPanel(addr, 0)
   assert.equal(fetchesUsed(), 2, 'two more redraws, two more requests')
   p = await panel0()
   assert.equal(p.versions.length, MAX_PANEL_VERSIONS, 'a fourth redraw holds the count at three')
@@ -158,7 +165,7 @@ try {
   await update((c) => applyPatch(c, { panels: { '0': { version: 2 } } }))
   const before = currentImageId(await panel0())!
   scripted.push({ status: 500, body: 'upstream exploded' })
-  await inkPanel(0)
+  await inkPanel(addr, 0)
   p = await panel0()
   assert.equal(fetchesUsed(), 1, 'a 5xx does not retry')
   assert.equal(p.status, 'failed', 'recorded honestly')
@@ -169,7 +176,7 @@ try {
 
   // Try again is the same request again; it lands as a new version.
   scripted.push({ status: 200 })
-  await inkPanel(0)
+  await inkPanel(addr, 0)
   assert.equal(fetchesUsed(), 1, 'Try again is one request')
   p = await panel0()
   assert.equal(p.status, 'done')
@@ -178,27 +185,27 @@ try {
 
   // --- The silent retry: once, on exactly 429 or timeout -------------------
   scripted.push({ status: 429, body: 'slow down' }, { status: 200 })
-  await inkPanel(0)
+  await inkPanel(addr, 0)
   assert.equal(fetchesUsed(), 2, 'a 429 retries exactly once')
   assert.equal((await panel0()).status, 'done', 'and the retry landed')
 
   scripted.push({ timeout: true }, { status: 200 })
-  await inkPanel(0)
+  await inkPanel(addr, 0)
   assert.equal(fetchesUsed(), 2, 'a timeout retries exactly once')
   assert.equal((await panel0()).status, 'done')
 
   scripted.push({ status: 429, body: 'still busy' }, { status: 429, body: 'still busy' })
-  await inkPanel(0)
+  await inkPanel(addr, 0)
   assert.equal(fetchesUsed(), 2, 'two 429s: one retry, then it stops')
   assert.equal((await panel0()).status, 'failed', 'and fails honestly')
 
   scripted.push({ status: 402, body: 'insufficient credits' })
-  await inkPanel(0)
+  await inkPanel(addr, 0)
   assert.equal(fetchesUsed(), 1, 'a 402 never retries — it will not pass on its own')
   assert.equal((await panel0()).status, 'failed')
 
   scripted.push({ status: 400, body: 'rejected by the moderation system' })
-  await inkPanel(0)
+  await inkPanel(addr, 0)
   assert.equal(fetchesUsed(), 1, 'a refusal never retries — it is a wording problem')
   assert.equal((await panel0()).status, 'refused')
   assert.deepEqual((await panel0()).bubble, placed, 'five failures later, the bubble still has not moved')

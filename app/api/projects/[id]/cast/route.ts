@@ -9,17 +9,18 @@ export const runtime = 'nodejs'
 
 const CALM = 'The studio couldn’t propose a cast just now. Try again in a moment.'
 
-export async function POST() {
+export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
   try {
     // Checked before the call so a refused request costs nothing; the same
     // rules run again inside the lock, where they are authoritative.
-    const current = await read()
+    const current = await read(id)
     if (current.synopsis?.accepted !== true) throw new Refused('Accept a synopsis first.')
     if (current.cast.length > 0) throw new Refused('The cast is already proposed. Reroll a character instead.')
 
     const { first, second } = await writeCast(current.synopsis)
-    const chapter = await update((c) => proposeCast(c, first, second))
-    return Response.json(chapter)
+    const desk = await update(id, (c) => proposeCast(c, first, second))
+    return Response.json(desk)
   } catch (err) {
     return errorResponse(err, 'cast', CALM)
   }

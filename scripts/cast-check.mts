@@ -19,12 +19,19 @@ const dir = await mkdtemp(join(tmpdir(), 'inkdesk-cast-'))
 process.env.INKDESK_DATA_DIR = dir
 
 // Imported after the env is set, because the store reads it at load.
-const { update, read } = await import('../lib/chapter')
+const { createProject, read: readDesk, update: updateDesk } = await import('../lib/chapter')
 const { isImageId, mediaTypeOf, readImage, saveImage } = await import('../lib/images')
 const { assertEditAllowed, attachSheet, editCharacter, proposeCast, replaceCharacter, setDna } =
   await import('../lib/cast')
 const { applyPatch, mergePatch } = await import('../lib/patch')
 const { Refused } = await import('../lib/errors')
+
+import type { Chapter } from '../lib/types'
+
+// One project on the scratch desk (v2); every call below is addressed to it.
+const pid = (await createProject({ title: 'Cast check', stylePresetId: 'manga-bw' })).address.projectId
+const read = () => readDesk(pid)
+const update = (fn: (c: Chapter) => Chapter) => updateDesk(pid, fn)
 
 const kaito = {
   name: 'Kaito Ren',
@@ -89,7 +96,7 @@ try {
   assert.equal(chapter.cast[0].dna, KAITO_DNA)
   const png = await readFile('data/kernel-test/0-sheet.png')
   const countBefore = chapter.imageCount
-  const { chapter: after, imageId } = await saveImage('sheet', png.toString('base64'), 'image/png', (c, id) =>
+  const { chapter: after, imageId } = await saveImage(pid, 'sheet', png.toString('base64'), 'image/png', (c, id) =>
     attachSheet(c, a.id, KAITO_DNA, id)
   )
   assert.ok(isImageId(imageId), `bad image id ${imageId}`)
@@ -105,7 +112,7 @@ try {
   console.log(`  ok  a sheet lands as ${imageId} (${written.length} bytes) and imageCount is ${after.imageCount}`)
 
   // An unknown media type is a hard failure, not a guessed extension.
-  await assert.rejects(saveImage('sheet', 'AAAA', 'image/gif', (c) => c), /format/)
+  await assert.rejects(saveImage(pid, 'sheet', 'AAAA', 'image/gif', (c) => c), /format/)
   assert.equal((await read()).imageCount, after.imageCount, 'a refused write must not count')
   // Unsafe ids never reach the disk.
   for (const bad of ['../chapter.json', 'sheet-x.svg', 'SHEET-X.PNG', 'a/b.png', '.png', 'x.png.exe']) {
@@ -126,9 +133,9 @@ try {
   await assert.rejects(update((c) => replaceCharacter(c, a.id, kaito)), /locked/)
   await assert.rejects(update((c) => setDna(c, a.id, 'other words')), /locked/)
   await assert.rejects(update((c) => attachSheet(c, a.id, 'other words', 'sheet-x.png')), /locked/)
-  const onDisk = JSON.parse(await readFile(join(dir, 'chapter.json'), 'utf8'))
-  assert.equal(onDisk.cast[0].dna, KAITO_DNA, 'a refused edit must leave the frozen DNA alone')
-  assert.equal(onDisk.cast[0].sheetImageId, imageId)
+  const onDisk = JSON.parse(await readFile(join(dir, 'projects', pid, 'project.json'), 'utf8'))
+  assert.equal(onDisk.library.characters[0].dna, KAITO_DNA, 'a refused edit must leave the frozen DNA alone')
+  assert.equal(onDisk.library.characters[0].sheetImageId, imageId)
   console.log('  ok  a locked character refuses reroll, redraw, text edits and a second lock')
 
   // 7. A changed look retires the DNA; name, role and traits leave it alone.
@@ -150,10 +157,11 @@ try {
   assert.equal(JSON.stringify(patched.cast[0]), JSON.stringify(chapter.cast[0]), 'a patch for one card touched the other')
   console.log('  ok  editing the look retires the DNA; other edits keep it')
 
-  // 8. Nothing left behind but chapter.json and the images folder.
+  // 8. Nothing left behind but the projects and the images folder (v2 layout).
   const files = (await readdir(dir)).sort()
-  assert.deepEqual(files, ['chapter.json', 'images'], `unexpected files left behind: ${files.join(', ')}`)
-  console.log('  ok  only chapter.json and images/ on disk')
+  assert.deepEqual(files, ['images', 'projects'], `unexpected files left behind: ${files.join(', ')}`)
+  assert.deepEqual(await readdir(join(dir, 'projects', pid)), ['project.json'], 'no stray temp file in the project')
+  console.log('  ok  only projects/ and images/ on disk, no temp file')
 
   console.log('\n  Cast station acceptance check passed.\n')
 } finally {

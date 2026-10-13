@@ -34,7 +34,7 @@ type Props = {
   onCommit: (patch: ChapterPatch) => void
   onPitch: (pitch: Pitch) => void
   onDraftChange: (draft: SynopsisDraft) => void
-  /** The confirmed clear: a new chapter wakes with this story accepted. */
+  /** The confirmed door (v2): a new project wakes with this story accepted; this one is untouched. */
   onAcceptNewStory: (pitch: Pitch, synopsis: SynopsisDraft) => Promise<void>
   onGoCast: () => void
 }
@@ -78,7 +78,7 @@ export function StoryStation({
       await onAcceptNewStory(newPitch, draft)
       setConfirming(false)
     } catch {
-      setClearNotice('The desk couldn’t start the new chapter. Is the dev server running?')
+      setClearNotice('The desk couldn’t start the new project. Is the dev server running?')
       setConfirming(false)
     } finally {
       setClearing(false)
@@ -93,8 +93,8 @@ export function StoryStation({
           <h1 className="station-title">{castBuilt ? 'Tell a different story?' : 'What’s your story?'}</h1>
           {castBuilt && (
             <p className="station-lede">
-              This chapter is built — its story is frozen below. Pitch a new one here: nothing changes until you
-              accept the new synopsis, and that starts a new chapter.
+              This project is built — its story is frozen below. Pitch a new one here: nothing changes until you
+              accept the new synopsis, and that starts a new project in the same style. This one stays as it is.
             </p>
           )}
         </div>
@@ -240,9 +240,9 @@ export function StoryStation({
 
         {confirming && draft && (
           <ConfirmDialog
-            title={`Start a new chapter with “${draft.title.trim()}”?`}
-            body="Accepting this synopsis clears the current chapter — the cast, their locked sheets, the page script, and all four panels. The new story takes their place on a fresh desk."
-            confirmLabel="Accept and clear the desk"
+            title={`Start a new project with “${draft.title.trim()}”?`}
+            body="Accepting this synopsis opens a new project on the desk, in the same style, with this story already accepted. This project — its cast, their locked sheets and its page — stays exactly as it is."
+            confirmLabel="Accept and start the project"
             busy={clearing}
             onConfirm={() => void acceptNewStory()}
             onCancel={() => setConfirming(false)}

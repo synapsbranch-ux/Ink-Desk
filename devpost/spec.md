@@ -1539,10 +1539,11 @@ type ChapterPlan = { pageCount: number; coverBrief: string;
 **Migration (`lib/migrate.ts`):** a `version: 1` chapter becomes one project
 (`title` = synopsis title or "Chapter 1", `stylePresetId: 'manga-bw'`, mode
 `pitch`), one chapter, one page carrying the four v1 panels with their versions
-and bubbles, `usage.images = imageCount`. Image files are **not moved**: blob
-ids keep their v1 image ids, and the local blob store looks in
-`data/images/` as a fallback path, so the migrated project serves the same
-bytes. Verified by `check:store`.
+and bubbles, `usage.images = imageCount`. Image files are **not moved**: every image,
+v1 or v2, lives in the one `data/images/` folder — slice 8 kept it rather than
+adding the `data/blobs/` folder plus a fallback path this section first
+described (`checklist.md > Revisions`) — so the migrated project serves the
+same bytes under the same ids. Verified by `check:store`.
 
 **Where each piece lives** keeps the v1 table, keyed by project. Queue keys are
 `${projectId}:${chapterId}:${pageIndex}:${panelIndex}` (and
@@ -1565,8 +1566,9 @@ interface Store {
 
 - **`local.ts`** — today's `lib/chapter.ts` generalized: one promise-chain lock
   **per project id** on `globalThis`, temp-file-then-rename, `data/projects/`
-  and `data/blobs/` (with `data/images/` as the read fallback for migrated
-  ids). The default: a clone runs with nothing but the two API keys.
+  for state and `data/images/` for every image (slice 8 kept v1's one image
+  folder instead of adding `data/blobs/` plus a fallback). The default: a
+  clone runs with nothing but the two API keys.
 - **`cloud.ts`** — `mongodb` driver, collection `projects` with a `rev`
   counter; `updateProject` is read → `fn` → `findOneAndUpdate({ _id, rev })`
   with `$inc: { rev: 1 }`, retried from a fresh read on a mismatch (bounded,
@@ -1702,9 +1704,10 @@ expose it.
 - `app/p/[projectId]/page.tsx` → the studio: today's `Studio` client component,
   scoped to one project, with the patch/debounce/poll pattern unchanged.
 - `app/api/projects/route.ts` (list, create), `app/api/projects/[id]/route.ts`
-  (GET with stale-inking demotion, POST patch, DELETE), and the per-project
-  routes above; `app/api/blob/[id]/route.ts` replaces `app/api/image/[id]`
-  (kept as an alias for migrated ids).
+  (GET with stale-inking demotion, POST patch), and the per-project routes
+  above; `app/api/image/[id]/route.ts` keeps serving every stored image —
+  sheets, panels, and later covers and uploads — by id (slice 8 saw no reason
+  for a second name; a `/api/blob` alias can come with the uploads).
 - **Prerequisite before any routing code:** `npm install`, then read
   `node_modules/next/dist/docs/` as `AGENTS.md` requires — this Next version
   (16.4) has breaking changes; in particular confirm the shape of `params` in
@@ -1829,12 +1832,12 @@ app/api/projects/route.ts          # list · create
 app/api/projects/[id]/route.ts     # GET (stale demotion) · POST patch · DELETE
 app/api/projects/[id]/{synopsis,scenario,cast,cast/reroll,sheet,import,assets,plan,cover}/route.ts
 app/api/projects/[id]/pages/[n]/{start,panels/[i],panels/[i]/rewrite}/route.ts
-app/api/blob/[id]/route.ts         # any blob; /api/image/[id] stays as an alias
+app/api/image/[id]/route.ts        # any stored image: sheet, panel, cover, upload
 components/Dashboard.tsx · NewProjectDialog.tsx · AssetShelf.tsx · DirectorStation.tsx · PagePlanCard.tsx · PageSwitcher.tsx
 lib/types.ts (v2) · lib/migrate.ts · lib/store/{index,local,cloud}.ts · lib/llm.ts · lib/image-models.ts · lib/styles.ts · lib/cost.ts · lib/plan.ts
 scripts/{llm,assets,plan,demo-timeline}-check.mts; store-check and export-check extended; kernel-test.mjs gains --model, --style-ref, --setting-ref
 video/                             # Remotion package, capture and narration scripts
-data/projects/<id>/project.json · data/blobs/ (data/images/ kept for migrated ids)
+data/projects/<id>/project.json · data/images/ (every image, v1 and v2) · data/chapter.json (the v1 desk, read once, never written)
 ```
 
 New dependencies, pinned at install: `mongodb`, `@aws-sdk/client-s3`

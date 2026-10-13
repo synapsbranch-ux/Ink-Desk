@@ -25,7 +25,7 @@ process.env.IMAGE_PANEL_QUALITY = 'low'
 process.env.OPENROUTER_API_KEY = 'check-only-never-sent' // fetch is stubbed below; nothing leaves this machine
 
 // Imported after the env is set, because the store and the queue read it at load.
-const { update, read } = await import('../lib/chapter')
+const { createProject, read: readDesk, update: updateDesk } = await import('../lib/chapter')
 const { singletons } = await import('../lib/singleton')
 const { createQueue } = await import('../lib/queue')
 const { saveImage } = await import('../lib/images')
@@ -39,7 +39,14 @@ const { bubbleCorner, currentImageId, lockedPair, markInking, newScript, panelLa
 const { inkPanel, queueBlankPanels } = await import('../lib/panels')
 const { Refused } = await import('../lib/errors')
 
-import type { Chapter } from '../lib/types'
+import type { Chapter, Project } from '../lib/types'
+
+// One project on the scratch desk (v2); every call below is addressed to its one page.
+const first = await createProject({ title: 'Page check', stylePresetId: 'manga-bw' })
+const pid = first.address.projectId
+const addr = first.address
+const read = () => readDesk(pid, addr)
+const update = (fn: (c: Chapter) => Chapter) => updateDesk(pid, fn, addr)
 
 const tick = () => new Promise<void>((r) => setTimeout(r, 0))
 
@@ -141,7 +148,7 @@ try {
 
   const lockWith = async (id: string, dna: string, png: Buffer) => {
     await update((c) => setDna(c, id, dna))
-    await saveImage('sheet', png.toString('base64'), 'image/png', (c, imageId) => attachSheet(c, id, dna, imageId))
+    await saveImage(pid, 'sheet', png.toString('base64'), 'image/png', (c, imageId) => attachSheet(c, id, dna, imageId))
     return update((c) => {
       const who = c.cast.find((x) => x.id === id)
       if (!who) throw new Error('lost the character')
@@ -251,8 +258,8 @@ try {
   }
   const status = async () => (await desk()).script?.map((p) => p.status) ?? []
 
-  assert.deepEqual(await queueBlankPanels(), [0, 1, 2, 3])
-  assert.deepEqual(await queueBlankPanels(), [], 'panels already queued are not queued twice')
+  assert.deepEqual(await queueBlankPanels(addr), [0, 1, 2, 3])
+  assert.deepEqual(await queueBlankPanels(addr), [], 'panels already queued are not queued twice')
   await until('two requests in flight', () => held.length === 2)
   await until('two panels inking', async () => (await status()).filter((s) => s === 'inking').length === 2)
   assert.deepEqual(await status(), ['inking', 'inking', 'empty', 'empty'])
@@ -338,11 +345,11 @@ try {
     assert.equal(p.startedByRun, null)
     assert.ok((await readFile(join(dir, 'images', p.versions[0].imageId))).equals(kaitoSheet))
   }
-  const onDisk = JSON.parse(await readFile(join(dir, 'chapter.json'), 'utf8')) as Chapter
-  assert.equal(onDisk.imageCount, 6)
-  assert.equal(onDisk.script?.filter((p) => p.status === 'done').length, 4, 'all four survive on disk')
+  const onDisk = JSON.parse(await readFile(join(dir, 'projects', pid, 'project.json'), 'utf8')) as Project
+  assert.equal(onDisk.usage.images, 6)
+  assert.equal(onDisk.chapters[0].pages[0].panels.filter((p) => p.status === 'done').length, 4, 'all four survive on disk')
   assert.equal(gates(chapter).reader.open, true, 'four panels with art open the reader')
-  assert.deepEqual(await queueBlankPanels(), [], 'nothing blank is left to queue')
+  assert.deepEqual(await queueBlankPanels(addr), [], 'nothing blank is left to queue')
   console.log('  ok  panels landed 2, 1, 4, 3 — no lost update, imageCount is 6, the reader opened on the fourth')
 
   // 6. Honest failures in the data (the repairs are slice 6): a 500 lands as
@@ -350,11 +357,11 @@ try {
   const quiet = console.error
   console.error = () => {}
   chapter = await update((c) => newScript({ ...c, script: null }, good))
-  let job = inkPanel(0)
+  let job = inkPanel(addr, 0)
   await until('a fifth request', () => held.length === 5)
   held[4].release(500, 'upstream exploded')
   await job
-  job = inkPanel(1)
+  job = inkPanel(addr, 1)
   await until('a sixth request', () => held.length === 6)
   held[5].release(400, '{"error":{"message":"rejected by the moderation system"}}')
   await job
@@ -384,10 +391,11 @@ try {
   assert.equal(bubbleCorner({ index: 0, camera: 'High angle, looking down from the water tower' }), 'bottom-right')
   console.log('  ok  placeholder labels and bubble corners derive from the panel')
 
-  // 8. Nothing left behind but chapter.json and the images folder.
+  // 8. Nothing left behind but the projects and the images folder (v2 layout).
   const files = (await readdir(dir)).sort()
-  assert.deepEqual(files, ['chapter.json', 'images'], `unexpected files left behind: ${files.join(', ')}`)
-  console.log('  ok  only chapter.json and images/ on disk')
+  assert.deepEqual(files, ['images', 'projects'], `unexpected files left behind: ${files.join(', ')}`)
+  assert.deepEqual(await readdir(join(dir, 'projects', pid)), ['project.json'], 'no stray temp file in the project')
+  console.log('  ok  only projects/ and images/ on disk, no temp file')
 
   console.log('\n  Storyboard acceptance check passed.\n')
 } finally {

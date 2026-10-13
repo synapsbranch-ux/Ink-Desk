@@ -10,7 +10,6 @@
 // Implements `devpost/prd.md > Ink & Publish — The Reader`; see
 // `devpost/spec.md > Components > Reader Station`.
 import { useState, type CSSProperties } from 'react'
-import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { PencilPlaceholder } from '@/components/PencilPlaceholder'
 import { bubbleLayout, tailPath } from '@/lib/bubble'
 import { downloadBlob, ExportError, exportFilename, exportPng } from '@/lib/export'
@@ -28,17 +27,15 @@ const BUBBLE_LAG_S = 1.0
 type Props = {
   chapter: Chapter
   onGoStoryboard: () => void
-  /** The plain New-chapter clear — `DELETE /api/chapter` — after the dialog. */
-  onNewChapter: () => Promise<void>
+  /** The door to the desk (v2): a new project starts there; this one is never cleared. */
+  onNewProject: () => void
 }
 
-export function ReaderStation({ chapter, onGoStoryboard, onNewChapter }: Props) {
+export function ReaderStation({ chapter, onGoStoryboard, onNewProject }: Props) {
   const [rtl, setRtl] = useState(false)
   // Remounting the page section restarts every reveal animation.
   const [playKey, setPlayKey] = useState(0)
   const [exporting, setExporting] = useState(false)
-  const [confirming, setConfirming] = useState(false)
-  const [clearing, setClearing] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
 
   const script = chapter.script
@@ -56,19 +53,6 @@ export function ReaderStation({ chapter, onGoStoryboard, onNewChapter }: Props) 
       setNotice(err instanceof ExportError ? err.message : 'The page couldn’t be exported just now. Try again in a moment.')
     } finally {
       setExporting(false)
-    }
-  }
-
-  const clearDesk = async () => {
-    setClearing(true)
-    setNotice(null)
-    try {
-      await onNewChapter()
-      // On success the station flips to Story and this unmounts.
-    } catch {
-      setNotice('The desk couldn’t be cleared. Is the dev server running?')
-      setClearing(false)
-      setConfirming(false)
     }
   }
 
@@ -177,7 +161,7 @@ export function ReaderStation({ chapter, onGoStoryboard, onNewChapter }: Props) 
           <div className="station-footer-status">
             <span className="footer-progress">4 panels · the page is inked</span>
             <span className="helper">
-              Exports land in your downloads. A new chapter clears this one from the desk — after a confirmation.
+              Exports land in your downloads. A new project starts from the desk — this one stays exactly as it is.
             </span>
           </div>
           <div className="reader-actions">
@@ -187,24 +171,14 @@ export function ReaderStation({ chapter, onGoStoryboard, onNewChapter }: Props) 
             <button
               type="button"
               className="btn btn-ghost"
-              title="Clear the desk and start from a blank page — it asks first."
-              onClick={() => setConfirming(true)}
+              title="Back to the desk to start another project — nothing here is cleared."
+              onClick={onNewProject}
             >
-              New chapter…
+              New project…
             </button>
           </div>
         </div>
 
-        {confirming && (
-          <ConfirmDialog
-            title="Start a new chapter?"
-            body="This clears the whole desk — the synopsis, the cast and their locked sheets, the page script, and all four panels. The studio returns to a blank first page. PNGs you already exported stay in your downloads."
-            confirmLabel="Clear the desk"
-            busy={clearing}
-            onConfirm={() => void clearDesk()}
-            onCancel={() => setConfirming(false)}
-          />
-        )}
       </div>
     </main>
   )

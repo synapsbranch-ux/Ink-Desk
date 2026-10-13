@@ -1,0 +1,151 @@
+{
+  "version": 2,
+  "id": "v1-90a614a4",
+  "title": "Return to Sender",
+  "stylePresetId": "manga-bw",
+  "story": {
+    "mode": "pitch",
+    "pitch": {
+      "text": "A 15-year-old Haitian student, obsessed with quantum physics, leaves school at 4 p.m. and gets hit by a bus while crossing the street. He wakes up in a strange, futuristic world, face to face with two agents of a secret agency that can travel through time and space. They tell him one of their agents saved his life, but the rescue left a strange liquid inside his body that he must constantly renew whenever he returns to his own time and world. Since he now belongs to their universe, they make him an offer: become an agent and go on missions with them.",
+      "genre": "Shonen",
+      "tone": "Fast-paced"
+    },
+    "synopsis": {
+      "title": "Return to Sender",
+      "body": "On a wind-scoured rooftop above the neon haze of future Osaka, Kaito Mori, a young courier who carries letters their senders have not yet written, finds his rival Reiko Tachibana waiting at the edge with a single envelope in her hands. The address on it is her own, and the sealed pages inside, she has realized, will describe the day she finally stops running these routes beside him. Kaito watches her thumb trace the ink that has not dried because it has not yet been spilled, and he understands that his tireless delivery has been counting down toward this very moment. Reiko turns the envelope over and offers it to him unopened, asking him without a word to keep it from the future it promises, and Kaito, who has never once failed a delivery, lowers his satchel and does not take it. The two stand in the fading amber light as the city hums below them, both knowing the letter will arrive whether it is carried or not.",
+      "accepted": true
+    },
+    "scenario": null
+  },
+  "library": {
+    "characters": [
+      {
+        "id": "0f7a0249-b249-43c3-8d2f-8b842ed72a94",
+        "name": "Kaito Mori",
+        "role": "Lead · courier of unwritten letters",
+        "traits": [
+          "Tireless",
+          "Dutiful",
+          "Quietly stubborn"
+        ],
+        "look": "A lanky young man of about nineteen with a wiry runner's build, messy jet-black hair that sticks up in the wind, and wide dark eyes with faint shadows beneath them. He wears a mustard-yellow windbreaker over a gray hoodie, cuffed work trousers, and battered white sneakers. A heavy canvas satchel stamped with a stitched paper-crane patch hangs always at his hip, and a strip of white tape is wrapped around his left wrist.",
+        "dna": "Kaito Mori, a nineteen-year-old young man with a lanky, wiry runner's build, tall and narrow-shouldered with long lean limbs. His hair is jet black, short to medium in length with a choppy, layered cut, messy and uneven, sticking up and sweeping sideways at the crown and fringe as if permanently windblown. His eyes are wide, dark brown to near-black, slightly rounded, with faint gray-violet shadows beneath them. His face is a narrow oval with a slightly pointed chin and soft cheekbones, and his skin is a light warm beige with a faint flush across the nose and cheeks. He wears a mustard-yellow windbreaker with a high collar and a zip front, worn open over a heather-gray pullover hoodie with the hood resting at the nape, cuffed khaki-tan work trousers rolled once at the ankle, and battered white sneakers scuffed gray at the toes with off-white laces. A heavy, bulging canvas satchel in faded olive-tan hangs always at his right hip on a wide strap crossing his chest, stamped with a stitched white paper-crane patch on the flap. A strip of white tape is wrapped around his left wrist. Distinguishing marks visible from any distance: the bright mustard-yellow windbreaker against the gray hoodie, and the fat canvas satchel with its white paper-crane patch.",
+        "sheetImageId": "sheet-b22b9b91-b855-46df-b214-8d88bee9deb3.png",
+        "locked": true
+      },
+      {
+        "id": "60c81e3c-8bab-453c-85e9-d983b2a3b68a",
+        "name": "Reiko Tachibana",
+        "role": "Counterpart · rival courier",
+        "traits": [
+          "Sharp-tongued",
+          "Restless",
+          "Guarded"
+        ],
+        "look": "A compact young woman of about twenty with a muscular, athletic build and a straight posture, her glossy silver-dyed hair cut in a sharp bob that frames a narrow, serious face. Her eyes are pale amber, and she dresses in a fitted crimson bomber jacket, black leggings, and tall lace-up boots. A long black scarf trails behind her, and a thin scar cuts through her right eyebrow.",
+        "dna": "Reiko Tachibana, a young woman of about twenty, compact and muscular with an athletic build and a straight, upright posture. Her glossy silver-dyed hair is cut in a sharp, chin-length bob with a clean blunt fringe, falling straight and smooth to frame her face. Her eyes are pale amber, slightly narrowed and sharply shaped. She has a narrow, serious face with a defined jaw and a fair, light-neutral skin tone. A thin scar cuts diagonally through her right eyebrow. She wears a fitted crimson bomber jacket with ribbed cuffs and hem and a zip front, black leggings, and tall black lace-up boots with dark laces. A long black scarf is wound loosely at her neck, its tails hanging well past her hips. Distinguishing marks: the long black scarf trailing behind her and the thin scar through her right eyebrow, set against the bright crimson jacket and silver bob that keep her readable from any distance.",
+        "sheetImageId": "sheet-2f52b164-a997-4905-8830-494520960700.png",
+        "locked": true
+      }
+    ],
+    "assets": []
+  },
+  "chapters": [
+    {
+      "id": "0c601a50-d6a5-423b-9008-8e09af30afeb",
+      "title": "Chapter 1",
+      "plan": null,
+      "cover": null,
+      "pages": [
+        {
+          "index": 0,
+          "layoutId": "four-shot",
+          "panels": [
+            {
+              "index": 0,
+              "characterId": "0f7a0249-b249-43c3-8d2f-8b842ed72a94",
+              "action": "Kaito stands in the left third of the frame, mustard windbreaker whipping in the wind, one hand gripping the strap of his bulging crane-patched satchel as he stares ahead with wide, wary eyes and a set jaw.",
+              "camera": "Eye level, medium-wide establishing shot with Kaito at the left and open rooftop stretching right.",
+              "background": "A wind-scoured rooftop edge with rusted vents and railings, the amber-lit neon haze of future Osaka glowing far below and beyond.",
+              "dialogue": "Reiko. You're not supposed to be up here.",
+              "versions": [
+                {
+                  "imageId": "panel-d8521f25-c110-4fd0-b744-fd71aad7cf15.png",
+                  "createdAt": "2026-10-13T01:59:49.270Z"
+                }
+              ],
+              "currentVersion": 0,
+              "status": "done",
+              "startedAt": null,
+              "startedByRun": null
+            },
+            {
+              "index": 1,
+              "characterId": "60c81e3c-8bab-453c-85e9-d983b2a3b68a",
+              "action": "Reiko holds a single envelope in both hands against her crimson bomber jacket, her long black scarf lifting in the wind, amber eyes sharp but guarded as she glances down at the ink-bright address.",
+              "camera": "Eye level, medium shot from the waist up, slightly turned toward Kaito off-panel.",
+              "background": "The rooftop parapet behind her with hazy amber sky and distant glowing towers softly out of focus.",
+              "dialogue": "It has my name on it, Kaito. My own address.",
+              "versions": [
+                {
+                  "imageId": "panel-f9d809e2-60d0-4794-993f-f9d3cb2cd538.png",
+                  "createdAt": "2026-10-13T02:01:30.571Z"
+                }
+              ],
+              "currentVersion": 0,
+              "status": "done",
+              "startedAt": null,
+              "startedByRun": null
+            },
+            {
+              "index": 2,
+              "characterId": "0f7a0249-b249-43c3-8d2f-8b842ed72a94",
+              "action": "Kaito's wide dark eyes drop to the envelope off-panel, lips parted, his windblown fringe across his forehead; a quiet, stubborn resolve crosses his tired face as he refuses to reach out.",
+              "camera": "Straight-on close-up of his face, eyes on the upper third line.",
+              "background": "Blurred amber dusk sky and the faint glow of neon haze behind his head.",
+              "dialogue": "I've never failed a delivery. I can't take this one.",
+              "versions": [
+                {
+                  "imageId": "panel-b06aea54-3251-4f05-a3c6-dd27bda440f6.png",
+                  "createdAt": "2026-10-13T02:03:15.693Z"
+                }
+              ],
+              "currentVersion": 0,
+              "status": "done",
+              "startedAt": null,
+              "startedByRun": null
+            },
+            {
+              "index": 3,
+              "characterId": "60c81e3c-8bab-453c-85e9-d983b2a3b68a",
+              "action": "Reiko stands in the right third of the frame, the envelope lowered at her side, scarf tails streaming behind her; her sharp expression softens into a rueful, knowing half-smile.",
+              "camera": "Eye level, medium-wide three-quarter view from the left, Reiko at the right of frame.",
+              "background": "The rooftop edge in fading amber light, the humming city of Osaka glittering in a vast haze below.",
+              "dialogue": "Then it'll find me anyway. Carried or not.",
+              "versions": [
+                {
+                  "imageId": "panel-968a12eb-886f-4df5-a6df-21757bf34f5e.png",
+                  "createdAt": "2026-10-13T02:05:15.654Z"
+                }
+              ],
+              "currentVersion": 0,
+              "status": "done",
+              "startedAt": null,
+              "startedByRun": null
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "usage": {
+    "images": 6,
+    "costUsd": 0
+  },
+  "station": "reader",
+  "openPage": 0,
+  "serverRunId": "6d7e8c71-58cb-4005-b6df-2357057ace1b",
+  "createdAt": "2026-10-13T02:15:43.394Z",
+  "updatedAt": "2026-10-13T13:36:53.367Z",
+  "migratedFrom": "chapter.json"
+}

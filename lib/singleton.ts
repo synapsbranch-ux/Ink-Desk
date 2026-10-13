@@ -10,9 +10,11 @@ import { createQueue, type Queue } from './queue'
 type InkDeskGlobals = {
   /** Stamped once per real process; changes on restart, not on hot reload. */
   serverRunId: string
-  /** The tail of the chapter store's update chain. Reassigned by `update()`. */
-  chapterLock: Promise<unknown>
-  /** The panel queue, `PANEL_CONCURRENCY` wide. */
+  /** The tail of each project's update chain, keyed by project id (v2: one
+   *  lock per project, so two projects never wait on each other). Reassigned
+   *  by the store's `updateProject()`. */
+  locks: Map<string, Promise<unknown>>
+  /** The panel queue, `PANEL_CONCURRENCY` wide, shared by every project. */
   queue: Queue
 }
 
@@ -20,6 +22,6 @@ const g = globalThis as typeof globalThis & { __inkdesk?: InkDeskGlobals }
 
 export const singletons: InkDeskGlobals = (g.__inkdesk ??= {
   serverRunId: randomUUID(),
-  chapterLock: Promise.resolve(),
+  locks: new Map(),
   queue: createQueue(Number(process.env.PANEL_CONCURRENCY ?? 2)),
 })
