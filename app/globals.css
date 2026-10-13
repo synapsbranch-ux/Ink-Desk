@@ -207,14 +207,18 @@ h3 {
   font-style: italic;
 }
 
+/* Cards sit on the desk like printed stock: an ink-line frame and a hard
+   offset shadow, not a soft component-library border. From the mockup's
+   drawn-not-rendered language. */
 .card {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
   padding: var(--space-3);
-  border-radius: var(--radius-md);
-  background: transparent;
-  border: 1px solid var(--divider);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  border: 1px solid var(--ink);
+  box-shadow: 4px 4px 0 color-mix(in srgb, var(--ink) 10%, transparent);
 }
 
 .tag {
@@ -230,8 +234,10 @@ h3 {
   color: var(--hanko);
 }
 .tag-neutral {
-  background: var(--neutral-100);
-  color: var(--neutral-800);
+  background: #fff;
+  border: 1px solid var(--ink);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
 }
 
 .input {
@@ -617,10 +623,24 @@ h3 {
   flex-direction: column;
   gap: var(--space-6);
 }
+/* The station head reads as a chapter title: an ink rule under it, with a
+   short hanko tick where the rule begins. */
 .station-head {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  padding-bottom: var(--space-3);
+  border-bottom: 2px solid var(--ink);
+}
+.station-head::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: -2px;
+  width: 64px;
+  height: 2px;
+  background: var(--hanko);
 }
 .station-title {
   font-family: var(--font-heading), Georgia, serif;
@@ -828,7 +848,15 @@ h3 {
   align-items: flex-start;
   gap: var(--space-3);
   padding: var(--space-4);
-  border-bottom: 1px solid var(--divider);
+  border-bottom: 1px solid var(--ink);
+}
+/* The card kicker in the brand red — the mockup's accent-colored kicker. */
+.cast-card-id > .eyebrow {
+  color: var(--hanko);
+}
+/* A locked card's header takes a light hanko wash under the stamp. */
+.cast-card.is-locked .cast-card-head {
+  background: var(--hanko-100);
 }
 .cast-card-id {
   display: flex;
@@ -913,10 +941,17 @@ input.cast-role:disabled,
   object-fit: contain;
   background: #fff;
 }
+/* An empty sheet is a drafting sheet: faint horizontal guide rules (the
+   mockup's construction lines) with a dotted stand-in figure. */
 .sheet-empty {
-  background: var(--halftone-dots), var(--neutral-100);
-  border-style: dashed;
-  border-color: var(--neutral-500);
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0 calc(12.5% - 1px),
+      var(--neutral-300) calc(12.5% - 1px) 12.5%
+    ),
+    var(--neutral-100);
+  border-color: var(--ink);
 }
 .sheet-empty > span {
   background: var(--paper);
@@ -926,11 +961,18 @@ input.cast-role:disabled,
   font-size: 17px;
   font-style: italic;
 }
+/* The DNA reads as the margin note the sheet is drawn from: an ink rule down
+   its left, kicker in the brand red. */
 .dna {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
   min-width: 0;
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--ink);
+}
+.dna > .eyebrow {
+  color: var(--hanko);
 }
 .dna-text,
 .dna-empty {
@@ -1030,15 +1072,19 @@ input.cast-role:disabled,
   font-variant-numeric: tabular-nums;
 }
 
-/* The page: white paper, ink gutters between four bordered panels. */
+/* The page: a physical sheet on the desk — white paper, ink gutters between
+   four bordered panels, a heavy ink frame, a print-trim line just outside it
+   and a hard offset shadow. */
 .page {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 14px;
   padding: 14px;
   background: #fff;
-  border: 1px solid var(--divider);
-  box-shadow: var(--shadow-md);
+  border: 2px solid var(--ink);
+  outline: 1px solid color-mix(in srgb, var(--ink) 30%, transparent);
+  outline-offset: 4px;
+  box-shadow: 7px 7px 0 color-mix(in srgb, var(--ink) 10%, transparent);
 }
 .panel {
   position: relative;
@@ -1275,12 +1321,18 @@ input.cast-role:disabled,
   opacity: 1;
 }
 
-/* The page script beside the page. */
+/* The page script beside the page: the writer's column, on its own sheet. */
 .script {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
   min-width: 0;
+  padding: var(--space-3);
+  background: color-mix(in srgb, #fff 55%, transparent);
+  border: 1px solid var(--divider);
+}
+.script > .eyebrow {
+  color: var(--hanko);
 }
 .script-loading {
   height: 260px;
@@ -1290,9 +1342,10 @@ input.cast-role:disabled,
   flex-direction: column;
   gap: 5px;
   padding: var(--space-3);
+  background: #fff;
   border: 1px solid var(--divider);
   border-left-width: 3px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   transition: border-color 0.3s;
 }
 .script-panel.is-inking {
