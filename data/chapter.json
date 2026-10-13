@@ -1,85 +1,77 @@
 {
   "version": 1,
   "serverRunId": "dee5c79d-1446-403a-ae5e-f1335320c305",
-  "station": "storyboard",
+  "station": "reader",
   "pitch": {
     "text": "A 15-year-old Haitian student, obsessed with quantum physics, leaves school at 4 p.m. and gets hit by a bus while crossing the street. He wakes up in a strange, futuristic world, face to face with two agents of a secret agency that can travel through time and space. They tell him one of their agents saved his life, but the rescue left a strange liquid inside his body that he must constantly renew whenever he returns to his own time and world. Since he now belongs to their universe, they make him an offer: become an agent and go on missions with them.",
     "genre": "Shonen",
     "tone": "Fast-paced"
   },
   "synopsis": {
-    "title": "The Offer Beyond the Bus Stop",
-    "body": "Wendy, a fifteen-year-old Haitian student who dreams in equations about quantum superposition, wakes on a gleaming platform in a futuristic city and finds Commander Odile Rainier standing over him, her uniform stitched with the crest of a secret agency that moves through time and space. She explains that one of her agents pulled him from the path of the bus, and that the rescue left a strange glowing liquid in his veins that he must renew each time he returns to his own world. Wendy stares at the faint light pulsing beneath his skin, fear giving way to the same wonder that fills his notebooks, and realizes he is living inside the very physics he has been chasing. Odile offers him her open hand and a place on her team, and the scene closes on Wendy's grin as he reaches out to accept.",
+    "title": "Return to Sender",
+    "body": "On a wind-scoured rooftop above the neon haze of future Osaka, Kaito Mori, a young courier who carries letters their senders have not yet written, finds his rival Reiko Tachibana waiting at the edge with a single envelope in her hands. The address on it is her own, and the sealed pages inside, she has realized, will describe the day she finally stops running these routes beside him. Kaito watches her thumb trace the ink that has not dried because it has not yet been spilled, and he understands that his tireless delivery has been counting down toward this very moment. Reiko turns the envelope over and offers it to him unopened, asking him without a word to keep it from the future it promises, and Kaito, who has never once failed a delivery, lowers his satchel and does not take it. The two stand in the fading amber light as the city hums below them, both knowing the letter will arrive whether it is carried or not.",
     "accepted": true
   },
   "cast": [
     {
-      "id": "3eef5b03-d67e-4fd7-a2db-817e63690933",
-      "name": "Marisol Toussaint-Reyes",
-      "role": "Lead \ted student pulled across time",
+      "id": "0f7a0249-b249-43c3-8d2f-8b842ed72a94",
+      "name": "Kaito Mori",
+      "role": "Lead · courier of unwritten letters",
       "traits": [
-        "restless and fast-talking",
-        "stubbornly curious",
-        "hides fear behind jokes"
+        "Tireless",
+        "Dutiful",
+        "Quietly stubborn"
       ],
-      "look": "A small, wiry fourteen-year-old girl with a cloud of tight black curls bound in a bright yellow scarf and a gap-toothed grin. She wears an oversized mustard-yellow rain jacket over a patched denim jumper, mismatched sneakers, and a battered canvas satchel bulging with notebooks. A faint blue-white glow pulses beneath the brown skin of her wrists and forearms.",
-      "dna": "Marisol Toussaint-Reyes is a fourteen-year-old girl, small and wiry, slight-framed with narrow shoulders and long, quick-looking limbs. Her hair is a dense cloud of tight black curls that spring outward to roughly shoulder length, pulled back and bound at the crown by a bright yellow scarf, with a few coils always escaping around the temples and nape. Her eyes are large, round, and dark brown, set under thick, expressive black brows. Her face is heart-shaped, narrowing from a broad forehead to a small pointed chin, with a small nose and a gap between her two upper front teeth. Her skin is a warm medium-brown, and a faint blue-white glow pulses beneath the skin of her wrists and forearms, visible like light through thin cloth. She wears an oversized mustard-yellow rain jacket that hangs past her hips with sleeves that bunch at the wrists, over a denim jumper dress in faded blue denim covered in mismatched, hand-stitched patches. Below the jumper she wears mismatched sneakers, one scuffed white and one a faded red, with unmatched laces. Across her body hangs a battered canvas satchel, its flap held down by a buckle and stuffed so full of dog-eared notebooks that the corners poke out. Her unmistakable marks are the glowing blue-white veins in her forearms and the bright yellow scarf and mustard rain jacket pairing, which makes her the brightest figure in any frame.",
-      "sheetImageId": "ccfa58a3-336d-422a-a050-2e4cf706dc31.png",
+      "look": "A lanky young man of about nineteen with a wiry runner's build, messy jet-black hair that sticks up in the wind, and wide dark eyes with faint shadows beneath them. He wears a mustard-yellow windbreaker over a gray hoodie, cuffed work trousers, and battered white sneakers. A heavy canvas satchel stamped with a stitched paper-crane patch hangs always at his hip, and a strip of white tape is wrapped around his left wrist.",
+      "dna": "Kaito Mori, a nineteen-year-old young man with a lanky, wiry runner's build, tall and narrow-shouldered with long lean limbs. His hair is jet black, short to medium in length with a choppy, layered cut, messy and uneven, sticking up and sweeping sideways at the crown and fringe as if permanently windblown. His eyes are wide, dark brown to near-black, slightly rounded, with faint gray-violet shadows beneath them. His face is a narrow oval with a slightly pointed chin and soft cheekbones, and his skin is a light warm beige with a faint flush across the nose and cheeks. He wears a mustard-yellow windbreaker with a high collar and a zip front, worn open over a heather-gray pullover hoodie with the hood resting at the nape, cuffed khaki-tan work trousers rolled once at the ankle, and battered white sneakers scuffed gray at the toes with off-white laces. A heavy, bulging canvas satchel in faded olive-tan hangs always at his right hip on a wide strap crossing his chest, stamped with a stitched white paper-crane patch on the flap. A strip of white tape is wrapped around his left wrist. Distinguishing marks visible from any distance: the bright mustard-yellow windbreaker against the gray hoodie, and the fat canvas satchel with its white paper-crane patch.",
+      "sheetImageId": "sheet-b22b9b91-b855-46df-b214-8d88bee9deb3.png",
       "locked": true
     },
     {
-      "id": "76161614-273a-44ee-b0ec-0629918d6f5a",
-      "name": "Commander Odile Rainier",
-      "role": "Counterpart · time-agency commander",
+      "id": "60c81e3c-8bab-453c-85e9-d983b2a3b68a",
+      "name": "Reiko Tachibana",
+      "role": "Counterpart · rival courier",
       "traits": [
-        "Commanding",
-        "Warm-hearted",
-        "Dry-witted"
+        "Sharp-tongued",
+        "Restless",
+        "Guarded"
       ],
-      "look": "She now wears a long storm-grey coat over a high-collared uniform, with a silver time-sigil pinned at the throat.",
-      "dna": "Commander Odile Rainier, a woman of about fifty with a tall, straight-backed, broad-shouldered build, solid and athletic rather than slight. Her hair is silver-streaked charcoal, worn at jaw length in a blunt, heavy cut with a deep side part, falling straight and smooth behind her ears and framing her face. Her eyes are a deep amber-brown, slightly hooded, with fine crow's-feet at the corners. Her face is a strong oval with a firm squared jaw, high cheekbones, and a straight nose. Her skin is a warm medium brown with a matte finish and faint laugh lines around the mouth. She wears a long storm-grey wool coat that falls to mid-calf, with wide lapels, a double row of dull pewter buttons, and a slightly weathered hem, worn open over a high-collared uniform of deep midnight-navy fabric buttoned to the chin, with narrow slate-grey piping down the front placket and along the cuffs. Beneath that come tailored charcoal trousers and black knee-high leather boots with low stacked heels and worn toes, and fitted black leather gloves. Her most unmistakable mark is the silver time-sigil pinned at her throat on the collar, a circular brooch about the size of a coin, engraved with a ring of tiny hour-notches around an open spiral at its center. A second mark is a thin pale scar running from her left temple down into the hairline just above the ear, visible against her silver-streaked hair.",
-      "sheetImageId": "742f951d-ad72-4307-8910-f1a4ece7631d.png",
+      "look": "A compact young woman of about twenty with a muscular, athletic build and a straight posture, her glossy silver-dyed hair cut in a sharp bob that frames a narrow, serious face. Her eyes are pale amber, and she dresses in a fitted crimson bomber jacket, black leggings, and tall lace-up boots. A long black scarf trails behind her, and a thin scar cuts through her right eyebrow.",
+      "dna": "Reiko Tachibana, a young woman of about twenty, compact and muscular with an athletic build and a straight, upright posture. Her glossy silver-dyed hair is cut in a sharp, chin-length bob with a clean blunt fringe, falling straight and smooth to frame her face. Her eyes are pale amber, slightly narrowed and sharply shaped. She has a narrow, serious face with a defined jaw and a fair, light-neutral skin tone. A thin scar cuts diagonally through her right eyebrow. She wears a fitted crimson bomber jacket with ribbed cuffs and hem and a zip front, black leggings, and tall black lace-up boots with dark laces. A long black scarf is wound loosely at her neck, its tails hanging well past her hips. Distinguishing marks: the long black scarf trailing behind her and the thin scar through her right eyebrow, set against the bright crimson jacket and silver bob that keep her readable from any distance.",
+      "sheetImageId": "sheet-2f52b164-a997-4905-8830-494520960700.png",
       "locked": true
     }
   ],
   "script": [
     {
       "index": 0,
-      "characterId": "3eef5b03-d67e-4fd7-a2db-817e63690933",
-      "action": "Marisol sits up on the platform floor, one hand braced beside her, yellow scarf crooked and satchel half-twisted around her body, eyes wide and mouth open in dazed disbelief.",
-      "camera": "Wide establishing shot at eye level, her figure placed in the left third of the frame.",
-      "background": "A gleaming white-and-silver platform floats above a futuristic city of spiraling glass towers, with sleek transit pods gliding along luminous rails under a pale gold sky.",
-      "dialogue": "Okay, this is definitely not the bus stop.",
+      "characterId": "0f7a0249-b249-43c3-8d2f-8b842ed72a94",
+      "action": "Kaito stands in the left third of the frame, mustard windbreaker whipping in the wind, one hand gripping the strap of his bulging crane-patched satchel as he stares ahead with wide, wary eyes and a set jaw.",
+      "camera": "Eye level, medium-wide establishing shot with Kaito at the left and open rooftop stretching right.",
+      "background": "A wind-scoured rooftop edge with rusted vents and railings, the amber-lit neon haze of future Osaka glowing far below and beyond.",
+      "dialogue": "Reiko. You're not supposed to be up here.",
       "versions": [
         {
-          "imageId": "panel-504afa33-b52d-4d1a-8103-67e0d2fe56b5.png",
-          "createdAt": "2026-10-12T22:58:04.590Z"
+          "imageId": "panel-d8521f25-c110-4fd0-b744-fd71aad7cf15.png",
+          "createdAt": "2026-10-13T01:59:49.270Z"
         }
       ],
       "currentVersion": 0,
       "status": "done",
       "startedAt": null,
-      "startedByRun": null,
-      "bubble": {
-        "x": 62,
-        "y": 5,
-        "w": 34,
-        "h": 30,
-        "tailX": 51.8,
-        "tailY": 26.1
-      }
+      "startedByRun": null
     },
     {
       "index": 1,
-      "characterId": "76161614-273a-44ee-b0ec-0629918d6f5a",
-      "action": "Commander Odile stands tall with her storm-grey coat open, one gloved hand gesturing calmly, a dry half-smile on her face as she explains.",
-      "camera": "Medium shot at eye level, framed from the waist up and centred.",
-      "background": "Behind her rises a curved wall of brushed metal and glass, with soft light panels glowing along its edge and a distant tower blurred in the haze.",
-      "dialogue": "One of my agents pulled you from the bus. The glow is the price.",
+      "characterId": "60c81e3c-8bab-453c-85e9-d983b2a3b68a",
+      "action": "Reiko holds a single envelope in both hands against her crimson bomber jacket, her long black scarf lifting in the wind, amber eyes sharp but guarded as she glances down at the ink-bright address.",
+      "camera": "Eye level, medium shot from the waist up, slightly turned toward Kaito off-panel.",
+      "background": "The rooftop parapet behind her with hazy amber sky and distant glowing towers softly out of focus.",
+      "dialogue": "It has my name on it, Kaito. My own address.",
       "versions": [
         {
-          "imageId": "panel-108567dd-de51-4731-8f33-d1b12449f417.png",
-          "createdAt": "2026-10-12T22:57:26.652Z"
+          "imageId": "panel-f9d809e2-60d0-4794-993f-f9d3cb2cd538.png",
+          "createdAt": "2026-10-13T02:01:30.571Z"
         }
       ],
       "currentVersion": 0,
@@ -89,37 +81,33 @@
     },
     {
       "index": 2,
-      "characterId": "3eef5b03-d67e-4fd7-a2db-817e63690933",
-      "action": "Marisol stares downward at her own forearm, the blue-white glow pulsing beneath her skin, her fear melting into awestruck wonder as a gap-toothed grin begins to form.",
-      "camera": "Close-up at eye level, tilted slightly downward toward her face and glowing wrist.",
-      "background": "The silver platform floor reflects soft blue-white light, with the blurred shimmer of the city skyline faint behind her curls.",
-      "dialogue": "I'm inside the physics. I'm actually inside superposition.",
+      "characterId": "0f7a0249-b249-43c3-8d2f-8b842ed72a94",
+      "action": "Kaito's wide dark eyes drop to the envelope off-panel, lips parted, his windblown fringe across his forehead; a quiet, stubborn resolve crosses his tired face as he refuses to reach out.",
+      "camera": "Straight-on close-up of his face, eyes on the upper third line.",
+      "background": "Blurred amber dusk sky and the faint glow of neon haze behind his head.",
+      "dialogue": "I've never failed a delivery. I can't take this one.",
       "versions": [
         {
-          "imageId": "panel-04d98c86-d6f1-4a35-b2ff-ca9bffb33902.png",
-          "createdAt": "2026-10-12T22:59:35.885Z"
-        },
-        {
-          "imageId": "panel-74312f2f-fa2d-4c91-a11c-f9ceae0777b8.png",
-          "createdAt": "2026-10-13T00:42:37.480Z"
+          "imageId": "panel-b06aea54-3251-4f05-a3c6-dd27bda440f6.png",
+          "createdAt": "2026-10-13T02:03:15.693Z"
         }
       ],
-      "currentVersion": 1,
+      "currentVersion": 0,
       "status": "done",
       "startedAt": null,
       "startedByRun": null
     },
     {
       "index": 3,
-      "characterId": "76161614-273a-44ee-b0ec-0629918d6f5a",
-      "action": "Commander Odile extends her gloved hand forward, open-palmed, a warm, knowing smile softening her firm jaw, the silver time-sigil glinting at her collar.",
-      "camera": "Slightly low angle, three-quarter view, her figure standing in the right third of the frame.",
-      "background": "The open platform edge stretches behind her, with the glittering futuristic city and gliding transit pods spread wide under the golden sky.",
-      "dialogue": "Join my team, Marisol. The universe could use your questions.",
+      "characterId": "60c81e3c-8bab-453c-85e9-d983b2a3b68a",
+      "action": "Reiko stands in the right third of the frame, the envelope lowered at her side, scarf tails streaming behind her; her sharp expression softens into a rueful, knowing half-smile.",
+      "camera": "Eye level, medium-wide three-quarter view from the left, Reiko at the right of frame.",
+      "background": "The rooftop edge in fading amber light, the humming city of Osaka glittering in a vast haze below.",
+      "dialogue": "Then it'll find me anyway. Carried or not.",
       "versions": [
         {
-          "imageId": "panel-d811c65f-474b-49e4-ba68-63457efa9ea9.png",
-          "createdAt": "2026-10-12T23:00:38.984Z"
+          "imageId": "panel-968a12eb-886f-4df5-a6df-21757bf34f5e.png",
+          "createdAt": "2026-10-13T02:05:15.654Z"
         }
       ],
       "currentVersion": 0,
@@ -128,6 +116,6 @@
       "startedByRun": null
     }
   ],
-  "imageCount": 8,
-  "updatedAt": "2026-10-13T00:43:01.748Z"
+  "imageCount": 6,
+  "updatedAt": "2026-10-13T02:15:43.394Z"
 }
