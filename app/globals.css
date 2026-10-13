@@ -1982,3 +1982,690 @@ input.cast-role:disabled,
   font-size: 12px;
   color: var(--neutral-700);
 }
+
+/* --- The Director and the chapter (v2, slice 11) --------------------------- */
+
+/* The header's page progress rides the eyebrow, trimmed before it crowds the title. */
+.chapter-eyebrow {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A refused edit's sentence, under the rail: the server's words, never a code. */
+.studio-refusal {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: var(--space-3) var(--space-6) 0;
+}
+
+/* Story — Pitch | Scenario */
+.mode-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-top: calc(var(--space-2) * -1);
+}
+.mode-row .chip:disabled {
+  cursor: not-allowed;
+}
+.mode-row .chip:disabled:not(.is-selected) {
+  opacity: 0.5;
+}
+.scenario-box {
+  font-family: var(--font-body), Georgia, serif;
+  font-size: 17px;
+  line-height: 1.6;
+  padding: var(--space-4);
+  min-height: 320px;
+  resize: vertical;
+  background: #fff;
+}
+.scenario-box::placeholder,
+.scenario-notes::placeholder {
+  color: var(--neutral-500);
+  font-style: italic;
+}
+.scenario-count {
+  font-variant-numeric: tabular-nums;
+}
+.scenario-count.is-long {
+  color: var(--hanko-700);
+}
+.scenario-notes-field {
+  margin-bottom: 0;
+}
+.scenario-notes {
+  font-size: 15px;
+  line-height: 1.5;
+  resize: vertical;
+  background: #fff;
+}
+.scenario-card .stamp {
+  top: var(--space-4);
+}
+.scenario-card > .eyebrow {
+  padding-right: 130px;
+}
+.scenario-text {
+  max-height: 420px;
+  overflow: auto;
+  padding-right: var(--space-3);
+  font-size: 16px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  text-wrap: pretty;
+}
+.scenario-text:focus-visible {
+  outline: 1px solid var(--hanko);
+  outline-offset: 4px;
+}
+.scenario-notes-text {
+  margin: 0;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--divider);
+  font-size: 15px;
+  font-style: italic;
+}
+.scenario-notes-text .eyebrow {
+  font-style: normal;
+  margin-right: var(--space-1);
+}
+
+/* The shelf as a picker: every tile its own label, the tick box always visible. */
+.asset-tile.is-selectable {
+  cursor: pointer;
+}
+.asset-tile.is-selectable img {
+  transition: outline-color 0.15s;
+  outline: 3px solid transparent;
+  outline-offset: -3px;
+}
+.asset-tile.is-ticked img {
+  outline-color: var(--hanko);
+}
+.asset-tile.is-disabled {
+  cursor: not-allowed;
+}
+.asset-tile.is-disabled:not(.is-ticked) img {
+  opacity: 0.55;
+}
+.asset-tick {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--neutral-800);
+}
+.asset-tick input {
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: var(--hanko);
+}
+.asset-tick-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* New project: the one quiet line of cost. */
+.new-project-estimate {
+  margin: calc(var(--space-2) * -1) 0 var(--space-4);
+  font-size: 13px;
+  font-style: italic;
+  color: var(--neutral-700);
+}
+
+/* The Director, before a plan: what it reads, who it casts, what it costs. */
+.director-loading {
+  height: 300px;
+}
+.plan-from {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: var(--space-6);
+  align-items: stretch;
+}
+.plan-source {
+  padding: var(--space-4) var(--space-6) var(--space-4) var(--space-4);
+}
+.plan-source > .eyebrow,
+.plan-cast > .eyebrow {
+  color: var(--hanko);
+}
+.plan-source-title {
+  font-weight: 500;
+  font-size: 30px;
+  line-height: 1.1;
+}
+.plan-source-text {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.plan-source .helper {
+  margin: 0;
+}
+.plan-cast {
+  padding: var(--space-4);
+}
+.plan-cast-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+.plan-cast-member {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.plan-cast-member img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 2;
+  object-fit: cover;
+  border: 1px solid var(--ink);
+  background: #fff;
+}
+.plan-cast-member figcaption {
+  display: flex;
+  flex-direction: column;
+}
+.plan-cast-member .library-name {
+  font-size: 17px;
+}
+.plan-cast-member .library-role {
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+/* The bar above the plan: page count, the estimate, the generate actions. */
+.plan-bar {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-6);
+  padding: var(--space-3) var(--space-4);
+}
+.estimate {
+  flex: 1;
+  min-width: 260px;
+  margin: 0;
+  padding-left: var(--space-4);
+  border-left: 1px solid var(--divider);
+  font-size: 14px;
+  line-height: 1.5;
+  font-style: italic;
+  color: var(--neutral-800);
+  font-variant-numeric: tabular-nums;
+  text-wrap: pretty;
+}
+.plan-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.count-stepper {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.count-stepper .field-label {
+  margin-right: var(--space-1);
+}
+.count-stepper .stepper-btn {
+  padding: 1px 11px;
+  font-size: 18px;
+  border-color: var(--ink);
+}
+.count-stepper-value,
+.plan-page-title,
+.page-tab-num,
+.mini-num {
+  font-variant-numeric: lining-nums tabular-nums;
+}
+.count-stepper-value {
+  min-width: 1.3em;
+  text-align: center;
+  font-family: var(--font-heading), Georgia, serif;
+  font-weight: 600;
+  font-size: 30px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.plan-summarized {
+  margin: calc(var(--space-3) * -1) 0 0;
+}
+
+/* The plan: page cards on the left, the cover beside them. */
+.director-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: var(--space-6);
+  align-items: start;
+}
+.director-cover {
+  position: sticky;
+  top: var(--space-4);
+}
+.plan-pages {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  min-width: 0;
+}
+.plan-page {
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+.plan-page-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-3);
+  flex-wrap: wrap;
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--divider);
+}
+.plan-page-head .btn {
+  align-self: center;
+}
+.plan-page-title {
+  font-weight: 500;
+  font-size: 30px;
+  line-height: 1;
+}
+.plan-page-status {
+  font-size: 13px;
+  font-style: italic;
+  color: var(--neutral-600);
+  font-variant-numeric: tabular-nums;
+}
+.plan-page-status.is-inking {
+  color: var(--hanko);
+}
+.plan-page-status.is-failed {
+  color: var(--hanko-700);
+}
+.plan-page-status.is-done {
+  color: var(--ink);
+}
+.plan-page-estimate {
+  font-size: 13px;
+  color: var(--neutral-700);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.plan-page-blank {
+  margin: 0;
+  font-size: 13px;
+  font-style: italic;
+  color: var(--hanko-800);
+}
+.plan-page-body {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+/* The pencil mini-page: the four-shot layout in miniature, art where it has inked. */
+.mini-page {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  padding: 5px;
+  background: #fff;
+  border: 1.5px solid var(--ink);
+  box-shadow: 3px 3px 0 color-mix(in srgb, var(--ink) 10%, transparent);
+}
+.mini-panel {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--ink);
+  background: var(--halftone-sketch), var(--neutral-200);
+}
+.mini-panel.is-inked {
+  background: #fff;
+}
+.mini-panel img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.mini-num {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  padding: 0 4px;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-heading), Georgia, serif;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.mini-who {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  z-index: 2;
+  padding: 0 4px;
+  background: var(--paper);
+  border: 1px solid var(--neutral-500);
+  font-family: var(--font-heading), Georgia, serif;
+  font-style: italic;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+/* Each slot's four lines: who and the shot, then the writer's fields. */
+.plan-slots {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+.plan-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  border: 1px solid var(--divider);
+  border-left: 3px solid var(--ink);
+  border-radius: var(--radius-sm);
+}
+.plan-page.is-blank .plan-slot {
+  border-left-color: var(--neutral-400);
+}
+.plan-slot-head {
+  color: var(--hanko);
+}
+.plan-field {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.plan-field-label {
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--neutral-600);
+}
+.plan-input {
+  width: 100%;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--ink);
+  caret-color: var(--hanko);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px dashed var(--neutral-400);
+  border-radius: 0;
+  padding: 2px 0 3px;
+  resize: vertical;
+}
+.plan-input:focus-visible {
+  outline: none;
+  border-bottom: 1px solid var(--hanko);
+}
+.plan-input.is-dialogue {
+  font-family: var(--font-letter), 'Comic Neue', cursive;
+  font-weight: 700;
+  font-size: 15px;
+}
+.plan-input.is-blank {
+  background: var(--hanko-100);
+  border-bottom-color: var(--hanko-400);
+}
+.plan-input::placeholder {
+  color: var(--neutral-500);
+  font-style: italic;
+  font-family: var(--font-body), Georgia, serif;
+  font-weight: 400;
+}
+.plan-input.is-blank::placeholder {
+  color: var(--hanko-600);
+}
+.plan-slot .script-action,
+.plan-slot .script-line,
+.plan-slot .script-dialogue {
+  margin: 0;
+}
+
+/* The cover: 2:3 art with the title lettered over it by the app, in the heading face. */
+.cover-card {
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+.cover-kicker {
+  color: var(--hanko);
+}
+.cover-frame {
+  position: relative;
+  aspect-ratio: 2 / 3;
+  overflow: hidden;
+  border: 2px solid var(--ink);
+  background: #fff;
+}
+.cover-pencil {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border: 0;
+  border-radius: 0;
+}
+.cover-pencil.is-still::after,
+.cover-pencil.is-drawing::after {
+  display: none;
+}
+.cover-pencil.is-failed .pencil-label {
+  border-color: var(--hanko);
+  color: var(--hanko-800);
+}
+.cover-art {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  animation: ink-in var(--ink-speed) cubic-bezier(0.6, 0, 0.3, 1) both;
+}
+.cover-art.is-loading {
+  opacity: 0;
+  animation: none;
+}
+.cover-title {
+  position: absolute;
+  top: 5%;
+  left: 0;
+  right: 0;
+  z-index: 4;
+  margin: 0;
+  padding: 0 7%;
+  text-align: center;
+  font-family: var(--font-heading), Georgia, serif;
+  font-weight: 600;
+  font-size: clamp(26px, 2.4vw, 38px);
+  line-height: 1.02;
+  letter-spacing: 0.01em;
+  color: #fff;
+  -webkit-text-stroke: 6px var(--ink);
+  paint-order: stroke fill;
+  text-wrap: balance;
+  pointer-events: none;
+}
+.cover-frame:not(.is-inked) .cover-title {
+  color: var(--ink);
+  -webkit-text-stroke: 0;
+  text-shadow: 0 0 6px var(--paper), 0 0 2px var(--paper);
+}
+.cover-title-input {
+  font-family: var(--font-heading), Georgia, serif;
+  font-size: 20px;
+  font-weight: 600;
+}
+.cover-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+/* The page switcher: one labelled tab per page, its status under the number. */
+.page-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: calc(var(--space-2) * -1);
+}
+.page-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  min-width: 112px;
+  padding: 6px 14px 7px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--divider);
+  border-bottom: 2px solid transparent;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s;
+}
+.page-tab:hover:not(.is-active) {
+  background: var(--neutral-200);
+}
+.page-tab:focus-visible {
+  outline: 2px solid var(--hanko);
+  outline-offset: 1px;
+}
+.page-tab.is-active {
+  background: #fff;
+  border-color: var(--ink);
+  border-bottom-color: var(--hanko);
+  box-shadow: 3px 3px 0 color-mix(in srgb, var(--ink) 10%, transparent);
+  cursor: default;
+}
+.page-tab-num {
+  font-family: var(--font-heading), Georgia, serif;
+  font-weight: 600;
+  font-size: 18px;
+  line-height: 1.1;
+}
+.page-tab-status {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--neutral-700);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.page-tab.is-inking .page-tab-status {
+  color: var(--hanko);
+}
+.page-tab.is-failed .page-tab-status {
+  color: var(--hanko-700);
+}
+.page-tab.is-done .page-tab-status {
+  color: var(--ink);
+}
+
+/* An unwritten page's aside: the plan's lines, read-only, under Generate page. */
+.script-generate {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--divider);
+}
+.script-panel.is-planned {
+  border-left-style: dashed;
+  border-left-color: var(--neutral-500);
+}
+
+@media (max-width: 1100px) {
+  .director-grid {
+    grid-template-columns: 1fr;
+  }
+  .director-cover {
+    position: static;
+    order: -1;
+    max-width: 380px;
+  }
+}
+
+@media (max-width: 960px) {
+  .plan-from {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  /* The header's counter and save label stack rather than push the page sideways. */
+  .studio-header {
+    height: auto;
+    min-height: 60px;
+    padding-block: var(--space-2);
+  }
+  .header-meta {
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0;
+    min-width: 0;
+    font-size: 12px;
+  }
+  .studio-refusal {
+    margin-inline: var(--space-4);
+  }
+  .scenario-box {
+    font-size: 16px;
+    min-height: 260px;
+  }
+  .plan-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .estimate {
+    min-width: 0;
+    padding-left: 0;
+    border-left: 0;
+  }
+  .plan-page-body {
+    grid-template-columns: 1fr;
+  }
+  .mini-page {
+    max-width: 200px;
+  }
+  .plan-slots {
+    grid-template-columns: 1fr;
+  }
+  .director-cover {
+    max-width: none;
+  }
+  .page-tab {
+    min-width: 0;
+    flex: 1 1 30%;
+  }
+}

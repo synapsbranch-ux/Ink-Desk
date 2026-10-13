@@ -4,10 +4,16 @@
 // holds a copy of the desk for rendering; the project file is the truth,
 // reached only through the route handlers under `/api/projects/<id>`. See
 // `devpost/spec.md > Data Model` and `> Routing and the Dashboard (v2)`.
+//
+// Slice 11 adds the Director's requests — write the plan, generate a page,
+// generate all, the cover — each with its own busy flag and sentence, the
+// page switcher (a patch), and a poll that runs while the Director or the
+// Page station has something to watch.
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { CastStation } from '@/components/CastStation'
 import { IDLE_CARD, type CardState } from '@/components/CharacterCard'
+import { DirectorStation, type Starting } from '@/components/DirectorStation'
 import { ReaderStation } from '@/components/ReaderStation'
 import { StationRail, type SaveState } from '@/components/StationRail'
 import { StoryStation, type SynopsisDraft } from '@/components/StoryStation'
@@ -51,9 +57,13 @@ export function Studio({ projectId }: { projectId: string }) {
   const [scripting, setScripting] = useState(false)
   const [scriptNotice, setScriptNotice] = useState<string | null>(null)
 
-  // Edits still waiting to be saved, merged across keystrokes.
+  // Edits still waiting to be saved, merged across keystrokes — and the ones
+  // on the wire, so a poll landing mid-save never shows the old words.
   const queued = useRef<ChapterPatch>({})
+  const sending = useRef<ChapterPatch>({})
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** The server's sentence for a refused edit (a page that can't be dropped, a tick past the plan). */
+  const [refusal, setRefusal] = useState<string | null>(null)
 
   useEffect(() => {
     fetch(api)
@@ -68,10 +78,11 @@ export function Studio({ projectId }: { projectId: string }) {
     setSaveState('saved')
   }, [])
 
-  /** A fresh read of the desk, with whatever is still being typed kept on
-   *  top — and without touching the save label, which belongs to saves. */
+  /** A fresh read of the desk, with whatever is still being typed (or
+   *  saved) kept on top — and without touching the save label, which
+   *  belongs to saves. */
   const absorb = useCallback((saved: Chapter) => {
-    setChapter(applyPatch(saved, queued.current))
+    setChapter(applyPatch(saved, mergePatch(sending.current, queued.current)))
   }, [])
 
   /** After a refused save, the browser's optimistic copy is wrong: re-read. */
@@ -83,12 +94,18 @@ export function Studio({ projectId }: { projectId: string }) {
   const send = useCallback(
     async (patch: ChapterPatch) => {
       setSaveState('saving')
+      sending.current = mergePatch(sending.current, patch)
       try {
         const { ok, data } = await postJson(api, patch)
-        if (!ok || !('version' in data)) throw new Error('error' in data ? data.error : 'save failed')
+        sending.current = {}
+        if (!ok || !('version' in data)) {
+          if ('error' in data) setRefusal(data.error)
+          throw new Error('save refused')
+        }
         // Whatever was typed while this was in flight stays on top of the saved copy.
         accept(data)
       } catch {
+        sending.current = {}
         setSaveState('error')
         void refresh().catch(() => {})
       }
@@ -130,7 +147,25 @@ export function Studio({ projectId }: { projectId: string }) {
     [send]
   )
 
-  const goTo = useCallback((station: Station) => commit({ station }), [commit])
+  /** Before a generation request: whatever is still waiting to be saved goes
+   *  first, so the server draws from the words on screen. */
+  const flush = useCallback(async () => {
+    if (timer.current) {
+      clearTimeout(timer.current)
+      timer.current = null
+    }
+    const p = queued.current
+    queued.current = {}
+    if (Object.values(p).some((v) => v !== undefined)) await send(p)
+  }, [send])
+
+  const goTo = useCallback(
+    (station: Station) => {
+      setRefusal(null)
+      commit({ station })
+    },
+    [commit]
+  )
 
   // A new-story draft (slice 7): held here only — the desk's story is frozen
   // once the cast exists, so the draft never touches the project. Accepting
@@ -283,6 +318,90 @@ export function Studio({ projectId }: { projectId: string }) {
     [api, accept]
   )
 
+  // --- Director -----------------------------------------------------------
+
+  /** One generation request: the desk on success, else the server's sentence. */
+  const call = useCallback(
+    async (url: string, body: unknown, fallback: string): Promise<{ desk: Chapter } | { error: string }> => {
+      try {
+        const { ok, data } = await postJson(url, body)
+        if (ok && 'version' in data) return { desk: data }
+        return { error: 'error' in data ? data.error : fallback }
+      } catch {
+        return { error: UNREACHABLE }
+      }
+    },
+    []
+  )
+
+  // Write the chapter plan / Ask the Director again: one text call, held open.
+  const [planning, setPlanning] = useState(false)
+  const [planNotice, setPlanNotice] = useState<string | null>(null)
+  const writePlan = useCallback(
+    async (pageCount: number, replace: boolean) => {
+      await flush()
+      setPlanning(true)
+      setPlanNotice(null)
+      const r = await call(`${api}/plan`, { pageCount, replace }, 'The Director couldn’t write the plan just now.')
+      if ('desk' in r) accept(r.desk)
+      else setPlanNotice(r.error)
+      setPlanning(false)
+    },
+    [api, call, accept, flush]
+  )
+
+  // Generate page n / Generate all: they respond at once; the poll watches the ink.
+  const [starting, setStarting] = useState<Starting>(null)
+  const [startNotice, setStartNotice] = useState<string | null>(null)
+  const startPage = useCallback(
+    async (n: number, watch: boolean) => {
+      await flush()
+      setStarting(n)
+      setStartNotice(null)
+      const r = await call(`${api}/pages/${n}/start`, {}, `Page ${n + 1} couldn’t be started just now.`)
+      setStarting(null)
+      if ('error' in r) {
+        setStartNotice(r.error)
+        return
+      }
+      absorb(r.desk)
+      // From the Director: open the page so the storyteller watches it ink.
+      if (watch) commit({ page: n, station: 'storyboard' })
+    },
+    [api, call, absorb, commit, flush]
+  )
+  const startAll = useCallback(async () => {
+    await flush()
+    setStarting('all')
+    setStartNotice(null)
+    const r = await call(`${api}/pages/all/start`, {}, 'The chapter couldn’t be started just now.')
+    setStarting(null)
+    if ('desk' in r) absorb(r.desk)
+    else setStartNotice(r.error)
+  }, [api, call, absorb, flush])
+
+  // Generate cover / Redraw cover / Try again: queued, then polled.
+  const [coverBusy, setCoverBusy] = useState(false)
+  const [coverNotice, setCoverNotice] = useState<string | null>(null)
+  const generateCover = useCallback(async () => {
+    await flush()
+    setCoverBusy(true)
+    setCoverNotice(null)
+    const r = await call(`${api}/cover`, {}, 'The cover couldn’t be started just now.')
+    setCoverBusy(false)
+    if ('desk' in r) absorb(r.desk)
+    else setCoverNotice(r.error)
+  }, [api, call, absorb, flush])
+
+  /** The page switcher: the reply is already the new page's desk. */
+  const pickPage = useCallback(
+    (n: number) => {
+      setStartNotice(null)
+      commit({ page: n })
+    },
+    [commit]
+  )
+
   // --- Storyboard ---------------------------------------------------------
 
   // The open page: every page-scoped request names it.
@@ -359,9 +478,17 @@ export function Studio({ projectId }: { projectId: string }) {
   // desk every ~1.5s so panels appear independently and out of order.
   // Polling rather than a live connection, see `spec.md > What Was
   // Simplified and Why`.
+  // Since slice 11 it also runs while the Director is open on a plan (pages
+  // started from there ink in on its cards), while any page of the chapter
+  // is inking, and while the cover is.
+  const watching =
+    (chapter?.station === 'storyboard' || chapter?.station === 'director') &&
+    (chapter.plan !== null || chapter.script !== null)
   const inFlight =
     (chapter?.script?.some((p) => p.status === 'inking' || p.status === 'empty') ?? false) ||
-    (chapter?.station === 'storyboard' && chapter.script !== null)
+    watching ||
+    (chapter?.pages.some((p) => p.inking > 0) ?? false) ||
+    chapter?.cover?.status === 'inking'
   useEffect(() => {
     if (!inFlight) return
     const tick = () => {
@@ -389,6 +516,14 @@ export function Studio({ projectId }: { projectId: string }) {
   return (
     <div className="studio">
       <StationRail chapter={chapter} gates={g} saveState={saveState} onGo={goTo} />
+      {refusal && (
+        <div className="studio-refusal notice" role="alert">
+          <span>{refusal}</span>
+          <button type="button" className="btn btn-secondary" onClick={() => setRefusal(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
       {chapter.station === 'story' ? (
         <StoryStation
           chapter={chapter}
@@ -401,6 +536,11 @@ export function Studio({ projectId }: { projectId: string }) {
           onPitch={(p) => void pitch(p)}
           onDraftChange={setDraft}
           onAcceptNewStory={acceptNewStory}
+          onNewProject={newProject}
+          uploading={uploading}
+          uploadNotice={uploadNotice}
+          onUpload={(f) => void upload(f)}
+          onUploadNotice={setUploadNotice}
           onGoCast={() => goTo('cast')}
         />
       ) : chapter.station === 'cast' ? (
@@ -421,10 +561,29 @@ export function Studio({ projectId }: { projectId: string }) {
           uploadNotice={uploadNotice}
           onUpload={(f) => void upload(f)}
           onUploadNotice={setUploadNotice}
-          onGoStoryboard={() => goTo('storyboard')}
+          onGoDirector={() => goTo('director')}
+        />
+      ) : chapter.station === 'director' ? (
+        <DirectorStation
+          chapter={chapter}
+          gates={g}
+          planning={planning}
+          planNotice={planNotice}
+          starting={starting}
+          startNotice={startNotice}
+          coverBusy={coverBusy}
+          coverNotice={coverNotice}
+          onEdit={edit}
+          onCommit={commit}
+          onWritePlan={(n, replace) => void writePlan(n, replace)}
+          onStartPage={(n) => void startPage(n, true)}
+          onStartAll={() => void startAll()}
+          onGenerateCover={() => void generateCover()}
+          onGoPage={() => goTo('storyboard')}
         />
       ) : chapter.station === 'storyboard' ? (
         <StoryboardStation
+          key={chapter.address.pageIndex}
           chapter={chapter}
           gates={g}
           scripting={scripting}
@@ -435,6 +594,10 @@ export function Studio({ projectId }: { projectId: string }) {
           panelBusy={panelBusy}
           onRedraw={redrawPanel}
           onRewrite={rewritePanel}
+          onPickPage={pickPage}
+          onGeneratePage={() => void startPage(page, false)}
+          starting={starting === page}
+          startNotice={startNotice}
           onGoReader={() => goTo('reader')}
         />
       ) : (

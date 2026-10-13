@@ -1,9 +1,10 @@
 'use client'
 
-// Station 2 — model sheets. Two cards from Claude's proposal; the kernel is
-// built here, one lock at a time. Implements `devpost/prd.md > Cast — Model
-// Sheets`; see `devpost/spec.md > Components > Cast Station and Character
-// Card`.
+// Station 2 — the library (v2): the reference shelf and two cards from
+// Claude's proposal; the kernel is built here, one lock at a time, and both
+// locks open the Director (slice 11). Implements `devpost/prd.md > Cast —
+// Model Sheets` and `> Library — Characters, Imported or Generated`; see
+// `devpost/spec.md > Components > Cast Station and Character Card`.
 import { useEffect, useRef } from 'react'
 import { AssetShelf } from '@/components/AssetShelf'
 import { CharacterCard, IDLE_CARD, type CardState } from '@/components/CharacterCard'
@@ -31,7 +32,7 @@ type Props = {
   uploadNotice: string | null
   onUpload: (file: File) => void
   onUploadNotice: (sentence: string) => void
-  onGoStoryboard: () => void
+  onGoDirector: () => void
 }
 
 export function CastStation({
@@ -51,7 +52,7 @@ export function CastStation({
   uploadNotice,
   onUpload,
   onUploadNotice,
-  onGoStoryboard,
+  onGoDirector,
 }: Props) {
   const empty = chapter.cast.length === 0
 
@@ -72,11 +73,11 @@ export function CastStation({
     <main className="station">
       <div className="station-inner is-wide">
         <div className="station-head">
-          <div className="eyebrow">Station 2 · Model sheets</div>
-          <h1 className="station-title">The cast</h1>
+          <div className="eyebrow">Station 2 · Cast and references</div>
+          <h1 className="station-title">The library</h1>
           <p className="station-lede">
             Every panel is drawn from these sheets. Draw a sheet, or import one of your own drawings from the
-            shelf. Read the DNA beside the art, fix the words or redraw the picture until they agree, then lock. Both locks open the storyboard.
+            shelf. Read the DNA beside the art, fix the words or redraw the picture until they agree, then lock. Both locks open the Director.
           </p>
         </div>
 
@@ -90,7 +91,7 @@ export function CastStation({
 
         {proposing ? (
           <div className="sketch cast-loading" aria-busy="true">
-            <GenerationStatus stages={textStages('Claude is reading the synopsis…')} />
+            <GenerationStatus stages={textStages(chapter.storyMode === 'scenario' ? 'Claude is reading the scenario…' : 'Claude is reading the synopsis…')} />
           </div>
         ) : empty ? (
           <div className="notice cast-notice" role="alert">
@@ -120,11 +121,11 @@ export function CastStation({
         )}
 
         <StationFooter
-          gate={gates.storyboard}
-          label="Next: Storyboard"
-          ready="Both sheets are locked — the storyboard is open."
+          gate={gates.director}
+          label="Next: Director"
+          ready="Both sheets are locked — the Director is open."
           progress={chapter.cast.length === 2 ? `${lockedCount} of 2 sheets locked` : undefined}
-          onGo={onGoStoryboard}
+          onGo={onGoDirector}
         />
       </div>
     </main>

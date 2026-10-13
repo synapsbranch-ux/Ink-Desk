@@ -13,5 +13,6 @@ export default async function DeskPage() {
   await connection()
   const { problem } = await migrateLegacy()
   const projects = await listProjects()
-  return <Dashboard projects={projects} notice={problem} />
+  // The panel quality is the server's setting; the dialog only prices it.
+  return <Dashboard projects={projects} notice={problem} panelQuality={process.env.IMAGE_PANEL_QUALITY ?? 'low'} />
 }

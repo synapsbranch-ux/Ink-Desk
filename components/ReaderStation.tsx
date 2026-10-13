@@ -1,6 +1,6 @@
 'use client'
 
-// Station 4 — Ink & Publish: the finished page, read full-size. Entering
+// Station 5 — Ink & Publish: the finished page, read full-size. Entering
 // replays the ink-in reveal panel by panel in reading order (the shot that
 // gets filmed), the right-to-left toggle swaps where the middle squares sit
 // so the page reads in manga order, and Export PNG composites the displayed
@@ -60,11 +60,11 @@ export function ReaderStation({ chapter, onGoStoryboard, onNewProject }: Props) 
     <main className="station">
       <div className="station-inner is-wide reader">
         <div className="station-head">
-          <div className="eyebrow">Station 4 · The reader</div>
+          <div className="eyebrow">Station 5 · The reader</div>
           <h1 className="station-title">{title}</h1>
           <p className="station-lede">
             The finished page, panel by panel. Flip the reading order, export the page as a PNG, or go back to the
-            Storyboard and redraw — the reader picks up whichever version each panel is showing.
+            page and redraw — the reader picks up whichever version each panel is showing.
           </p>
         </div>
 
@@ -166,7 +166,7 @@ export function ReaderStation({ chapter, onGoStoryboard, onNewProject }: Props) 
           </div>
           <div className="reader-actions">
             <button type="button" className="btn btn-secondary" onClick={onGoStoryboard}>
-              ← Back to Storyboard
+              ← Back to the page
             </button>
             <button
               type="button"

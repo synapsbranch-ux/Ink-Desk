@@ -246,8 +246,12 @@ export type PageSummary = {
   inking: number
   /** Failed or refused, with Try again / Rewrite waiting. */
   failed: number
+  /** Written panels with no art and nothing in flight — what Generate would still queue. */
+  blank: number
   /** Panel 1's current art, else the first inked panel's. */
   thumbnailImageId: string | null
+  /** Each slot's current art, in slot order — `[]` until the page is written. */
+  panelImageIds: (string | null)[]
 }
 
 /** v1's name for the working shape, kept so nothing downstream had to move. */
@@ -280,7 +284,7 @@ export function emptyDesk(
     plan: null,
     cover: null,
     openPage: 0,
-    pages: [{ index: 0, written: false, inked: 0, inking: 0, failed: 0, thumbnailImageId: null }],
+    pages: [{ index: 0, written: false, inked: 0, inking: 0, failed: 0, blank: 0, thumbnailImageId: null, panelImageIds: [] }],
     panelQuality: 'low',
   }
 }

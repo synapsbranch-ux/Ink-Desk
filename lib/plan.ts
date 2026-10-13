@@ -47,7 +47,9 @@ export function pageSummaries(pages: readonly ProjectPage[]): PageSummary[] {
       inked: inkedPanels.length,
       inking: panels.filter((p) => p.status === 'inking').length,
       failed: panels.filter((p) => p.status === 'failed' || p.status === 'refused').length,
+      blank: panels.filter((p) => p.status === 'empty' && p.versions.length === 0).length,
       thumbnailImageId: thumb ? (thumb.versions[thumb.currentVersion]?.imageId ?? null) : null,
+      panelImageIds: panels.map((p) => p.versions[p.currentVersion]?.imageId ?? null),
     }
   })
 }

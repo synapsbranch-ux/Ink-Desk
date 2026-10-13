@@ -13,8 +13,9 @@ import type { ProjectSummary, Station } from '@/lib/types'
 
 const STATION_LABEL: Record<Station, string> = {
   story: 'Story',
-  cast: 'Cast',
-  storyboard: 'Storyboard',
+  cast: 'Library',
+  director: 'Director',
+  storyboard: 'Page',
   reader: 'Ink & Publish',
 }
 
@@ -22,7 +23,14 @@ export function usd(n: number): string {
   return n < 0.005 && n > 0 ? '< $0.01' : `$${n.toFixed(2)}`
 }
 
-export function Dashboard({ projects, notice = null }: { projects: ProjectSummary[]; notice?: string | null }) {
+type Props = {
+  projects: ProjectSummary[]
+  notice?: string | null
+  /** The configured panel quality, for the New-project dialog's one-line estimate. */
+  panelQuality: string
+}
+
+export function Dashboard({ projects, notice = null, panelQuality }: Props) {
   // `/?new=1` opens the dialog straight away — the reader's "New project…" door.
   const search = useSearchParams()
   const [creating, setCreating] = useState(search.get('new') === '1')
@@ -155,7 +163,7 @@ export function Dashboard({ projects, notice = null }: { projects: ProjectSummar
         </div>
       </main>
 
-      {creating && <NewProjectDialog onClose={() => setCreating(false)} />}
+      {creating && <NewProjectDialog panelQuality={panelQuality} onClose={() => setCreating(false)} />}
     </div>
   )
 }

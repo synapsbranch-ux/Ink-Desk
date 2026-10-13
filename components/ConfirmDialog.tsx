@@ -14,11 +14,24 @@ type Props = {
   confirmLabel: string
   /** The clear is on the wire. */
   busy?: boolean
+  /** The safe choice's words — "Keep this chapter" unless the caller says otherwise. */
+  cancelLabel?: string
+  /** What the confirm says while it is on the wire. */
+  busyLabel?: string
   onConfirm: () => void
   onCancel: () => void
 }
 
-export function ConfirmDialog({ title, body, confirmLabel, busy = false, onConfirm, onCancel }: Props) {
+export function ConfirmDialog({
+  title,
+  body,
+  confirmLabel,
+  busy = false,
+  cancelLabel = 'Keep this chapter',
+  busyLabel = 'Clearing the desk…',
+  onConfirm,
+  onCancel,
+}: Props) {
   const cancelRef = useRef<HTMLButtonElement>(null)
   useEffect(() => cancelRef.current?.focus(), [])
 
@@ -38,10 +51,10 @@ export function ConfirmDialog({ title, body, confirmLabel, busy = false, onConfi
         <p className="confirm-body">{body}</p>
         <div className="confirm-actions">
           <button ref={cancelRef} type="button" className="btn btn-secondary" disabled={busy} onClick={onCancel}>
-            Keep this chapter
+            {cancelLabel}
           </button>
           <button type="button" className="btn btn-stamp" disabled={busy} onClick={onConfirm}>
-            {busy ? 'Clearing the desk…' : confirmLabel}
+            {busy ? busyLabel : confirmLabel}
           </button>
         </div>
       </div>

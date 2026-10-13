@@ -2,14 +2,18 @@
 
 // New project: a title and a style preset, nothing else. The style is locked
 // with the project — a second style is a second project — so the choice is
-// made here, once, with the presets' own words. Implements
+// made here, once, with the presets' own words. One quiet line under the
+// style says what a default chapter costs in images (slice 11) — the full
+// estimate comes from the Director, before anything is drawn. Implements
 // `devpost/prd.md > New Project and Style Presets`.
 import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
+import { estimateChapterUsd, usd } from '@/lib/cost'
+import { PAGE_COUNT_DEFAULT } from '@/lib/schemas'
 import { DEFAULT_STYLE_PRESET_ID, STYLE_PRESETS, STYLE_PRESET_IDS, type StylePresetId } from '@/lib/styles'
 import type { Chapter } from '@/lib/types'
 
-export function NewProjectDialog({ onClose }: { onClose: () => void }) {
+export function NewProjectDialog({ panelQuality, onClose }: { panelQuality: string; onClose: () => void }) {
   const router = useRouter()
   const [title, setTitle] = useState('')
   const [preset, setPreset] = useState<StylePresetId>(DEFAULT_STYLE_PRESET_ID)
@@ -99,6 +103,11 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
             )
           })}
         </fieldset>
+
+        <p className="new-project-estimate">
+          A {PAGE_COUNT_DEFAULT}-page chapter and its cover ≈ {usd(estimateChapterUsd(PAGE_COUNT_DEFAULT, panelQuality))} in
+          images at {panelQuality} — the Director shows the full estimate before anything is drawn.
+        </p>
 
         {notice && <p className="notice">{notice}</p>}
 

@@ -23,6 +23,8 @@ type Props = {
   /** Null until the page script is written. */
   panel: PanelData | null
   character: Character | null
+  /** What an unwritten slot says — the page script is coming, or the page isn't generated yet. */
+  emptyLabel?: string
   /** A repair request for this panel is on the wire. */
   busy: 'redraw' | 'rewrite' | null
   /** A bubble placed or a line retyped — saved to the desk at once. */
@@ -33,7 +35,7 @@ type Props = {
   onRewrite: (index: number) => void
 }
 
-export function Panel({ slot, panel, character, busy, onPanelEdit, onRedraw, onRewrite }: Props) {
+export function Panel({ slot, panel, character, emptyLabel, busy, onPanelEdit, onRedraw, onRewrite }: Props) {
   const imageId = panel ? currentImageId(panel) : null
 
   // Ids whose art has been on screen before — present at mount, stepped back
@@ -63,7 +65,7 @@ export function Panel({ slot, panel, character, busy, onPanelEdit, onRedraw, onR
   }
 
   const n = slot.index + 1
-  const label = panel ? panelLabel(panel) : 'Waiting for the page script…'
+  const label = panel ? panelLabel(panel) : (emptyLabel ?? 'Waiting for the page script…')
   const versions = panel?.versions ?? []
   const cv = panel?.currentVersion ?? 0
 
@@ -183,7 +185,7 @@ export function Panel({ slot, panel, character, busy, onPanelEdit, onRedraw, onR
       </span>
       <figcaption className="sr-only">
         Panel {n}
-        {character ? `, ${character.name}` : ''}, {slot.shot}. {panel ? label || 'Inked.' : 'Waiting for the page script.'}
+        {character ? `, ${character.name}` : ''}, {slot.shot}. {panel ? label || 'Inked.' : label}
       </figcaption>
     </figure>
   )

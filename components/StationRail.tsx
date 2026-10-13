@@ -1,20 +1,26 @@
 'use client'
 
 // The persistent header and station rail: progress indicator and navigation
-// in one. Gates come in already derived — see `lib/gates.ts`.
-// Implements `devpost/prd.md > Screens and Layout`.
+// in one. Gates come in already derived — see `lib/gates.ts`. Since slice 11
+// the rail has five stations (Story, Library, Director, Page, Ink & Publish)
+// and the header carries the page-level progress: which page is open, its
+// panels inked, and the chapter's pages complete.
+// Implements `devpost/prd.md > Screens and Layout (v2)`.
 import Image from 'next/image'
 import Link from 'next/link'
+import { usd } from '@/lib/cost'
 import type { Gates } from '@/lib/gates'
+import { pagesComplete } from '@/lib/plan'
 import { stylePreset } from '@/lib/styles'
 import type { Chapter, Station } from '@/lib/types'
 
 export type SaveState = 'saved' | 'saving' | 'error'
 
 const STATION_META: readonly { id: Station; name: string; sub: string }[] = [
-  { id: 'story', name: 'Story', sub: 'The pitch desk' },
-  { id: 'cast', name: 'Cast', sub: 'Model sheets' },
-  { id: 'storyboard', name: 'Storyboard', sub: 'The main studio' },
+  { id: 'story', name: 'Story', sub: 'Pitch or scenario' },
+  { id: 'cast', name: 'Library', sub: 'Cast and references' },
+  { id: 'director', name: 'Director', sub: 'The chapter plan' },
+  { id: 'storyboard', name: 'Page', sub: 'One page at a time' },
   { id: 'reader', name: 'Ink & Publish', sub: 'The reader' },
 ]
 
@@ -31,13 +37,15 @@ type Props = {
   onGo: (station: Station) => void
 }
 
-function usd(n: number): string {
-  return n < 0.005 && n > 0 ? '< $0.01' : `$${n.toFixed(2)}`
-}
-
 export function StationRail({ chapter, gates, saveState, onGo }: Props) {
   const title = chapter.title.trim() || chapter.synopsis?.title.trim() || 'Untitled project'
   const page = chapter.address.pageIndex + 1
+  // The open page's panels, once it is written; the chapter's pages, once there is a plan.
+  const inked = chapter.script ? chapter.script.filter((p) => p.versions.length > 0).length : null
+  const progress = [
+    inked !== null && `${inked} of 4 panels inked`,
+    chapter.plan && `${pagesComplete(chapter)} of ${chapter.pages.length} pages complete`,
+  ].filter(Boolean)
 
   return (
     <>
@@ -48,14 +56,20 @@ export function StationRail({ chapter, gates, saveState, onGo }: Props) {
         </Link>
         <div className="header-divider" />
         <div className="chapter-title">
-          <span className="eyebrow eyebrow-sm">
+          <span className="eyebrow eyebrow-sm chapter-eyebrow">
             Page {page} of {chapter.pageCount} · {stylePreset(chapter.stylePresetId).label}
+            {progress.map((line) => (
+              <span key={String(line)} className="chapter-progress">
+                {' '}
+                · {line}
+              </span>
+            ))}
           </span>
           <span className="chapter-title-text">{title}</span>
         </div>
         <div className="header-spacer" />
         <div className="header-meta">
-          <span className="image-counter" title="Images generated in this project, and what the providers reported they cost">
+          <span className="image-counter" title="Images generated in this project, and what the providers reported for every image and text call so far">
             Images this project: {chapter.imageCount} · ≈ {usd(chapter.costUsd)}
           </span>
           <span className={`save-label is-${saveState}`} aria-live="polite">

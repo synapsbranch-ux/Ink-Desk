@@ -324,7 +324,9 @@ try {
 
   // 6. Generate page: page 2 from the plan, its panels queued; keys carry project, chapter and page.
   const chapterId = desk.address.chapterId
-  const at = (n: number) => ({ projectId: pid, chapterId, pageIndex: n })
+  const at = (n: number): { projectId: string; chapterId: string; pageIndex: number } => {
+    return { projectId: pid, chapterId, pageIndex: n }
+  }
   {
     const queued = await startPage(at(1))
     assert.deepEqual(queued, [0, 1, 2, 3])
