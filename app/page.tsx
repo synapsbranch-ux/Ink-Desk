@@ -230,8 +230,31 @@ export default function Studio() {
     }
   }, [accept])
 
-  /** A bubble placed, a tail pointed, or a line retyped: saved at once. */
+  /** A bubble placed, a tail pointed, a line retyped, a version stepped:
+   *  saved at once. */
   const editPanel = useCallback((index: number, e: PanelEdit) => commit({ panels: { [index]: e } }), [commit])
+
+  /** Redraw panel / Try again: queue the same request again. The desk's poll
+   *  (below) watches it claim a slot, ink, and land. */
+  const [panelBusy, setPanelBusy] = useState<Record<number, boolean>>({})
+  const redrawPanel = useCallback(
+    async (index: number) => {
+      setPanelBusy((b) => ({ ...b, [index]: true }))
+      try {
+        const { ok, data } = await postJson(`/api/panels/${index}`, {})
+        if (ok && 'version' in data) absorb(data)
+        else {
+          console.warn('[panel] redraw refused:', 'error' in data ? data.error : data)
+          await refresh()
+        }
+      } catch {
+        console.warn('[panel] redraw:', UNREACHABLE)
+      } finally {
+        setPanelBusy((b) => ({ ...b, [index]: false }))
+      }
+    },
+    [absorb, refresh]
+  )
 
   /** Queue the blank panels; the server responds at once and the poll
    *  watches them land. A refusal here is a sentence in the terminal — the
@@ -246,10 +269,14 @@ export default function Studio() {
     }
   }, [absorb])
 
-  // While any panel is in flight, re-read the desk every ~1.5s so panels
-  // appear independently and out of order — polling rather than a live
-  // connection, see `spec.md > What Was Simplified and Why`.
-  const inFlight = chapter?.script?.some((p) => p.status === 'inking' || p.status === 'empty') ?? false
+  // While any panel is in flight — or the storyboard is open at all, since a
+  // redraw sits briefly in the queue before it reads `inking` — re-read the
+  // desk every ~1.5s so panels appear independently and out of order.
+  // Polling rather than a live connection, see `spec.md > What Was
+  // Simplified and Why`.
+  const inFlight =
+    (chapter?.script?.some((p) => p.status === 'inking' || p.status === 'empty') ?? false) ||
+    (chapter?.station === 'storyboard' && chapter.script !== null)
   useEffect(() => {
     if (!inFlight) return
     const tick = () => {
@@ -312,6 +339,8 @@ export default function Studio() {
           onWriteScript={writeScript}
           onStartPanels={startPanels}
           onPanelEdit={editPanel}
+          panelBusy={panelBusy}
+          onRedraw={redrawPanel}
           onGoReader={() => goTo('reader')}
         />
       ) : (

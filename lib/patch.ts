@@ -7,9 +7,11 @@ import type { BubbleLayout, Chapter, Station } from './types'
 
 export type { CharacterEdit }
 
-/** One edit to a panel's lettering: the user's dialogue replaces Claude's,
- *  and a placed bubble layout replaces the derived default. Slice 5b. */
-export type PanelEdit = { dialogue?: string; bubble?: BubbleLayout }
+/** One edit to a panel's lettering or display: the user's dialogue replaces
+ *  Claude's, a placed bubble layout replaces the derived default (5b), and
+ *  `version` steps the displayed version — the one on the page and in the
+ *  export (6). */
+export type PanelEdit = { dialogue?: string; bubble?: BubbleLayout; version?: number }
 
 export type ChapterPatch = {
   station?: Station
@@ -73,6 +75,10 @@ export function applyPatch(chapter: Chapter, patch: ChapterPatch): Chapter {
         let out = p
         if (e.dialogue !== undefined) out = { ...out, dialogue: e.dialogue }
         if (e.bubble !== undefined) out = { ...out, bubble: clampBubble(e.bubble) }
+        if (e.version !== undefined && out.versions.length > 0) {
+          const v = Math.min(out.versions.length - 1, Math.max(0, Math.trunc(e.version)))
+          out = { ...out, currentVersion: v }
+        }
         return out
       }),
     }

@@ -1130,6 +1130,93 @@ input.cast-role:disabled,
     filter: blur(0);
   }
 }
+/* The repair bar along a panel's bottom edge: the failure sentence, the
+   version stepper, Redraw / Try again / Rewrite — visible and labelled,
+   never hover-only. */
+.panel-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: 4px 6px 4px 10px;
+  background: color-mix(in srgb, var(--paper) 90%, transparent);
+  border-top: 1px solid var(--ink);
+}
+.panel-bar-note {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-style: italic;
+  line-height: 1.3;
+  color: var(--hanko-800);
+}
+.panel-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+  white-space: nowrap;
+}
+.btn-panel {
+  font-size: 12px;
+  padding: 3px 10px;
+  background: var(--paper);
+  border-color: var(--ink);
+}
+.btn-panel:hover:not(:disabled) {
+  background: var(--neutral-200);
+}
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.stepper-btn {
+  padding: 0 7px;
+  font-size: 14px;
+  line-height: 1.4;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  cursor: pointer;
+}
+.stepper-btn:hover:not(:disabled) {
+  border-color: var(--ink);
+}
+.stepper-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* A redraw in progress: the current art stays on screen; the compact
+   indicator in the top corner carries the stage line and elapsed count. */
+.redraw-indicator {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+}
+.redraw-indicator .gen-status {
+  left: auto;
+  right: 4%;
+  top: 6%;
+  transform: none;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 7px;
+  padding: 3px 9px;
+}
+.redraw-indicator .gen-stage {
+  font-size: 13px;
+}
+
 .panel-num {
   position: absolute;
   top: 0;

@@ -100,6 +100,8 @@ export const PanelEditSchema = z
   .object({
     dialogue: z.string().max(500).optional(),
     bubble: BubbleLayoutSchema.optional(),
+    /** The displayed version; clamped to the panel's history (max 3 kept). */
+    version: z.number().int().min(0).max(2).optional(),
   })
   .strict()
 

@@ -22,6 +22,9 @@ type Props = {
   onWriteScript: () => void
   onStartPanels: () => void
   onPanelEdit: (index: number, edit: PanelEdit) => void
+  /** Redraw panel / Try again, keyed by panel index. */
+  panelBusy: Record<number, boolean>
+  onRedraw: (index: number) => void
   onGoReader: () => void
 }
 
@@ -33,6 +36,8 @@ export function StoryboardStation({
   onWriteScript,
   onStartPanels,
   onPanelEdit,
+  panelBusy,
+  onRedraw,
   onGoReader,
 }: Props) {
   const script = chapter.script
@@ -89,7 +94,15 @@ export function StoryboardStation({
                   ? (chapter.cast.find((c) => c.id === panel.characterId) ?? null)
                   : (chapter.cast[slot.cast] ?? null)
                 return (
-                  <Panel key={slot.index} slot={slot} panel={panel} character={character} onPanelEdit={onPanelEdit} />
+                  <Panel
+                    key={slot.index}
+                    slot={slot}
+                    panel={panel}
+                    character={character}
+                    busy={panelBusy[slot.index] ?? false}
+                    onPanelEdit={onPanelEdit}
+                    onRedraw={onRedraw}
+                  />
                 )
               })}
             </section>
