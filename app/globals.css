@@ -140,6 +140,10 @@ h3 {
   opacity: 0.45;
   cursor: not-allowed;
 }
+.btn-sm {
+  font-size: 13px;
+  padding: 4px var(--space-3);
+}
 .btn-lg {
   font-size: 17px;
   padding: calc(var(--space-2) * 1.2) var(--space-4);
@@ -1559,6 +1563,148 @@ input.cast-role:disabled,
   }
 }
 
+/* The chapter (v2, slice 12). Paged: one page at a time under a page strip;
+   in manga order the strip and the turn buttons run right to left, so "next"
+   is on the left. Vertical: every page in one column, each waiting (art
+   hidden) until it scrolls into view, then inking in. */
+.reader-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.reader-nav.is-rtl,
+.reader-nav.is-rtl .reader-strip {
+  flex-direction: row-reverse;
+}
+.reader-strip {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.reader-tab {
+  min-width: 38px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-family: var(--font-heading), Georgia, serif;
+  font-weight: 600;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--ink);
+  border-radius: var(--radius-sm);
+}
+.reader-tab:hover:not(.is-active) {
+  background: var(--neutral-200);
+}
+.reader-tab:focus-visible {
+  outline: 2px solid var(--hanko);
+  outline-offset: 1px;
+}
+.reader-tab.is-pencil {
+  color: var(--neutral-600);
+  background: transparent;
+  border-style: dashed;
+  border-color: var(--neutral-500);
+}
+.reader-tab.is-active {
+  color: #fff;
+  background: var(--ink);
+  border-color: var(--ink);
+  box-shadow: 0 3px 0 var(--hanko);
+}
+.reader-page {
+  position: relative;
+}
+.reader-page.is-vertical {
+  grid-template-columns: 1fr;
+}
+.reader-sheet.is-vertical {
+  max-width: 600px;
+  gap: var(--space-6);
+}
+.reader-scroll-entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.reader-page-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  border-bottom: 1px solid var(--divider);
+  padding-bottom: 2px;
+}
+.reader-page-label {
+  font-family: var(--font-heading), Georgia, serif;
+  font-style: italic;
+  font-size: 15px;
+  letter-spacing: 0.08em;
+  color: var(--neutral-700);
+}
+.reader-cover {
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  box-shadow: 7px 7px 0 color-mix(in srgb, var(--ink) 10%, transparent);
+}
+/* Waiting to scroll into view: nothing inked yet, nothing lettered. */
+.reader-page.is-waiting .reader-reveal {
+  animation: none;
+  clip-path: inset(0 0 100% 0);
+}
+.reader-page.is-waiting .reader-bubble {
+  animation: none;
+  opacity: 0;
+}
+.reader-cover.is-waiting .cover-art {
+  animation: none;
+  clip-path: inset(0 0 100% 0);
+}
+/* An unfinished page: four still pencils and its number, centred. */
+.reader-pencil-note {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 6;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  max-width: 80%;
+  padding: var(--space-3) var(--space-4);
+  text-align: center;
+  background: var(--paper);
+  border: 1px solid var(--ink);
+  box-shadow: 4px 4px 0 color-mix(in srgb, var(--ink) 12%, transparent);
+  font-family: var(--font-heading), Georgia, serif;
+  font-style: italic;
+  font-size: 16px;
+  color: var(--neutral-700);
+}
+.reader-pencil-num {
+  font-style: normal;
+  font-weight: 600;
+  font-size: 26px;
+  color: var(--ink);
+}
+@media (prefers-reduced-motion: reduce) {
+  .reader-page.is-waiting .reader-reveal,
+  .reader-cover.is-waiting .cover-art {
+    clip-path: none;
+  }
+  .reader-page.is-waiting .reader-bubble {
+    opacity: 1;
+  }
+}
+
 /* The confirmation before anything clears the desk. */
 .confirm-overlay {
   position: fixed;
@@ -2464,6 +2610,9 @@ input.cast-role:disabled,
   overflow: hidden;
   border: 2px solid var(--ink);
   background: #fff;
+  /* The title is sized in cqw — a fraction of the cover's width — so the
+     card, the reader and the exported cover letter it at one proportion. */
+  container-type: inline-size;
 }
 .cover-pencil {
   position: absolute;
@@ -2505,11 +2654,11 @@ input.cast-role:disabled,
   text-align: center;
   font-family: var(--font-heading), Georgia, serif;
   font-weight: 600;
-  font-size: clamp(26px, 2.4vw, 38px);
+  /* = COVER_TITLE_EM and COVER_TITLE_STROKE in lib/export.ts */
+  font-size: 10cqw;
   line-height: 1.02;
-  letter-spacing: 0.01em;
   color: #fff;
-  -webkit-text-stroke: 6px var(--ink);
+  -webkit-text-stroke: 1.6cqw var(--ink);
   paint-order: stroke fill;
   text-wrap: balance;
   pointer-events: none;

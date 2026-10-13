@@ -50,12 +50,14 @@ export function toDesk(p: Project, ref: PageRef): Desk {
     openPage: p.openPage,
     pages: pageSummaries(chapter.pages),
     panelQuality: process.env.IMAGE_PANEL_QUALITY ?? 'low',
+    chapterPanels: chapter.pages.map((pg) => pg.panels),
   }
 }
 
 /** The desk written back: the story, the cast, this page's panels, the
  *  chapter's plan and cover, the open page, the usage. Every other page, the
- *  title and the style are untouched; `pages` is derived and never read back.
+ *  title and the style are untouched; `pages` and `chapterPanels` are derived
+ *  and never read back.
  *  With a plan, the chapter's pages follow its length — a page the stepper
  *  added is appended blank, a page it dropped must not have been written
  *  (`assertPlanEdit` refuses that before it gets here). */

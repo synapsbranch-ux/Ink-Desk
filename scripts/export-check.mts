@@ -1,5 +1,5 @@
-// Slice 7's rules from `devpost/checklist.md > Slices > 7`, with no browser
-// and no provider in the loop:
+// Slice 7's rules from `devpost/checklist.md > Slices > 7`, and slice 12's
+// chapter on top of them, with no browser and no provider in the loop:
 //
 //   npm run check:export
 //
@@ -11,8 +11,17 @@
 // sit and nothing else. And the slice's server rules: the reader's gate, the
 // story frozen on the patch path too, and the confirmed clear — both the
 // blank desk and the desk that wakes with a new story accepted.
+//
+// Slice 12 (v2): the vertical page is its own geometry, distinct from both
+// paged ones and complete; the cover composites its art the way
+// `object-fit: cover` does and letters the title over it; a real PDF is
+// built from real PNG bytes and read back — cover + N pages, each at its own
+// page size, right-to-left when the chapter reads that way; the reading
+// sequence puts the cover first and incomplete pages in as placeholders; and
+// the reader's gate opens on the first complete page, whichever page is open.
 import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
+import { deflateSync } from 'node:zlib'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -23,9 +32,27 @@ process.env.INKDESK_DATA_DIR = dir
 const { bubbleLayout, defaultBubble, tailPath } = await import('../lib/bubble')
 const { createProject, read: readDesk, update: updateDesk } = await import('../lib/chapter')
 const { Refused } = await import('../lib/errors')
-const { EXPORT_WIDTH, INK, drawPage, exportFilename, pageGeometry, stretchPath, wrapDialogue } = await import(
-  '../lib/export'
+const {
+  COVER_TITLE_EM,
+  EXPORT_WIDTH,
+  INK,
+  PDF_PAGE_WIDTH_PT,
+  balanceTitle,
+  buildPdf,
+  coverGeometry,
+  drawCover,
+  drawPage,
+  ExportError,
+  exportFilename,
+  pageGeometry,
+  stretchPath,
+  wrapDialogue,
+} = await import('../lib/export')
+const { chapterPages, completePageIndices, firstReadable, publishable, readerSequence, readingMode } = await import(
+  '../lib/reader'
 )
+const { store } = await import('../lib/store')
+const { PDFDocument, PDFName } = await import('pdf-lib')
 const { gates } = await import('../lib/gates')
 const { assertStoryEditable } = await import('../lib/patch')
 const { currentImageId } = await import('../lib/script')
@@ -61,7 +88,7 @@ const inside = (r: Rect, outer: Rect, slack = 0) =>
 // --- The page geometry ------------------------------------------------------
 
 await check('geometry: a 3:2 / 1:1 / 1:1 / 3:2 page of the right size', () => {
-  const g = pageGeometry(EXPORT_WIDTH, false)
+  const g = pageGeometry(EXPORT_WIDTH, 'ltr')
   assert.equal(g.width, EXPORT_WIDTH)
   const [p1, p2, p3, p4] = g.panels
   // The slots keep the generated ratios — nothing is ever cropped through a face.
@@ -80,8 +107,8 @@ await check('geometry: a 3:2 / 1:1 / 1:1 / 3:2 page of the right size', () => {
 })
 
 await check('geometry: RTL swaps where the squares sit, story order untouched', () => {
-  const ltr = pageGeometry(EXPORT_WIDTH, false)
-  const rtl = pageGeometry(EXPORT_WIDTH, true)
+  const ltr = pageGeometry(EXPORT_WIDTH, 'ltr')
+  const rtl = pageGeometry(EXPORT_WIDTH, 'rtl')
   assert.deepEqual(rtl.panels[0], ltr.panels[0])
   assert.deepEqual(rtl.panels[3], ltr.panels[3])
   assert.deepEqual(rtl.panels[1], ltr.panels[2], 'panel 2 reads first from the right')
@@ -97,7 +124,8 @@ type Op =
   | { op: 'drawImage'; source: unknown; x: number; y: number; w: number; h: number }
   | { op: 'ellipse'; cx: number; cy: number; rx: number; ry: number }
   | { op: 'fillPath' | 'strokePath'; d: string }
-  | { op: 'fillText'; text: string; x: number; y: number; font: string }
+  | { op: 'fillText'; text: string; x: number; y: number; font: string; style: string }
+  | { op: 'strokeText'; text: string; x: number; y: number; font: string; width: number; style: string }
 
 function recordingContext() {
   const ops: Op[] = []
@@ -129,7 +157,10 @@ function recordingContext() {
       if (path?.d) ops.push({ op: 'strokePath', d: path.d })
     },
     fillText(text: string, x: number, y: number) {
-      ops.push({ op: 'fillText', text, x, y, font: this.font })
+      ops.push({ op: 'fillText', text, x, y, font: this.font, style: String(this.fillStyle) })
+    },
+    strokeText(text: string, x: number, y: number) {
+      ops.push({ op: 'strokeText', text, x, y, font: this.font, width: this.lineWidth, style: String(this.strokeStyle) })
     },
     // Deterministic width: half an em per character, like a chunky letter face.
     measureText(text: string) {
@@ -157,7 +188,7 @@ function panelFor(index: 0 | 1 | 2 | 3, over?: Partial<Panel>): Panel {
   }
 }
 
-const geom: PageGeometry = pageGeometry(EXPORT_WIDTH, false)
+const geom: PageGeometry = pageGeometry(EXPORT_WIDTH, 'ltr')
 const placed = { x: 62, y: 5, w: 34, h: 30, tailX: 51.8, tailY: 26.1 }
 const sources = [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }] as unknown as CanvasImageSource[]
 const panels: Panel[] = [
@@ -327,9 +358,276 @@ await check('new project: accepting a new synopsis wakes a NEW project with it, 
   assert.equal(untouched.synopsis?.title, 'Old story')
 })
 
+// --- Slice 12: the chapter -------------------------------------------------
+
+const overlaps = (a: Rect, b: Rect) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
+
+await check('geometry v2: the vertical page — one column, story order top to bottom, complete', () => {
+  const v = pageGeometry(EXPORT_WIDTH, 'vertical')
+  const ltr = pageGeometry(EXPORT_WIDTH, 'ltr')
+  const rtl = pageGeometry(EXPORT_WIDTH, 'rtl')
+  const inner = v.width - 2 * v.padding
+  const [p1, p2, p3, p4] = v.panels
+  // One full-width column, each panel at its generated ratio — nothing cropped.
+  for (const p of v.panels) assert.ok(near(p.x, v.padding) && near(p.w, inner), 'full inner width, one column')
+  assert.ok(near(p1.w / p1.h, 1.5) && near(p4.w / p4.h, 1.5), 'the wide panels stay 3:2')
+  assert.ok(near(p2.w / p2.h, 1) && near(p3.w / p3.h, 1), 'the squares stay 1:1')
+  // Story order is reading order, with the gutter between every pair.
+  assert.ok(near(p1.y, v.padding), 'panel 1 at the top')
+  assert.ok(near(p2.y, p1.y + p1.h + v.gap) && near(p3.y, p2.y + p2.h + v.gap) && near(p4.y, p3.y + p3.h + v.gap))
+  assert.ok(near(v.height, p4.y + p4.h + v.padding), 'height closes the page')
+  const page = { x: 0, y: 0, w: v.width, h: v.height }
+  v.panels.forEach((p, i) => {
+    assert.ok(inside(p, page), `panel ${i + 1} inside the page`)
+    v.panels.forEach((q, j) => assert.ok(i === j || !overlaps(p, q), `panels ${i + 1} and ${j + 1} do not overlap`))
+  })
+  // Distinct from both paged layouts, and those two from each other.
+  assert.notDeepEqual(v.panels, ltr.panels)
+  assert.notDeepEqual(v.panels, rtl.panels)
+  assert.notDeepEqual(ltr.panels, rtl.panels)
+  assert.ok(v.height > ltr.height, 'a vertical page is a taller strip')
+  // The paged pages are complete too: four panels, none overlapping, inside the page.
+  for (const g of [ltr, rtl]) {
+    const pg = { x: 0, y: 0, w: g.width, h: g.height }
+    g.panels.forEach((p, i) => {
+      assert.ok(inside(p, pg))
+      g.panels.forEach((q, j) => assert.ok(i === j || !overlaps(p, q)))
+    })
+  }
+  // Lettering is the same size whichever way the page reads.
+  assert.equal(v.fontSize, ltr.fontSize)
+})
+
+await check('export v2: a vertical page composites every panel into its column slot', () => {
+  const v = pageGeometry(EXPORT_WIDTH, 'vertical')
+  const rec = recordingContext()
+  drawPage(rec.ctx, v, inputs, { makePath: (d) => ({ d }) as unknown as Path2D, fontFamily: '__Comic_Neue_check' })
+  const draws = rec.ops.filter((o) => o.op === 'drawImage')
+  assert.equal(draws.length, 4)
+  draws.forEach((d, i) => assert.ok(inside(d, v.panels[i], 0.01), `panel ${i + 1} art inside its vertical slot`))
+  assert.equal(rec.ops.filter((o) => o.op === 'ellipse').length, 4, 'four bubbles')
+  const first = rec.ops[0]
+  assert.ok(first.op === 'fillRect' && near(first.h, v.height), 'paper covers the whole strip')
+})
+
+await check('cover: the art fills the 2:3 frame like object-fit: cover, the title lettered over it', () => {
+  const g = coverGeometry(EXPORT_WIDTH)
+  assert.ok(near(g.height / g.width, 1.5), 'the cover is 2:3')
+  assert.ok(near(g.title.fontSize, EXPORT_WIDTH * COVER_TITLE_EM), 'the title is sized from the cover width, as cqw on screen')
+  const source = { id: 'cover' } as unknown as CanvasImageSource
+  const rec = recordingContext()
+  // A slightly wide image: it must cover the frame and overflow sideways, centred.
+  drawCover(rec.ctx, g, { width: 1100, height: 1536, source }, 'The Last Delivery Before Dawn', '__Cormorant_check')
+  const art = rec.ops.find((o) => o.op === 'drawImage')
+  assert.ok(art && art.op === 'drawImage' && art.source === source)
+  assert.ok(art.op === 'drawImage' && art.x <= 0.01 && art.y <= 0.01 && art.x + art.w >= g.width - 0.01 && art.y + art.h >= g.height - 0.01, 'covers the frame')
+  assert.ok(art.op === 'drawImage' && near(art.w / art.h, 1100 / 1536, 0.001), 'never stretched')
+  assert.ok(art.op === 'drawImage' && near(art.x, (g.width - art.w) / 2), 'centred')
+  const fills = rec.ops.filter((o) => o.op === 'fillText')
+  const strokes = rec.ops.filter((o) => o.op === 'strokeText')
+  assert.ok(fills.length >= 1 && fills.length === strokes.length, 'every line outlined and filled')
+  assert.equal(fills.map((t) => t.text).join(' '), 'The Last Delivery Before Dawn', 'the title verbatim — not uppercased, nothing dropped')
+  for (const t of fills) {
+    assert.match(t.font, /^600 \d+px __Cormorant_check$/)
+    assert.equal(t.style, '#ffffff', 'white letters over the art')
+    assert.ok(near(t.x, g.width / 2), 'centred')
+    assert.ok(t.y >= g.title.top, 'from 5% down')
+  }
+  for (const t of strokes) assert.ok(t.style === INK && near(t.width, g.title.stroke), 'the ink outline under the fill')
+  // Paint order: each line's outline before its fill.
+  const order = rec.ops.filter((o) => o.op === 'fillText' || o.op === 'strokeText').map((o) => o.op)
+  assert.deepEqual(order, fills.flatMap(() => ['strokeText', 'fillText']))
+  // With no art, the title is ink on paper and nothing is drawn behind it.
+  const bare = recordingContext()
+  drawCover(bare.ctx, g, null, 'Return to Sender', '__Cormorant_check')
+  assert.equal(bare.ops.filter((o) => o.op === 'drawImage').length, 0)
+  assert.equal(bare.ops.filter((o) => o.op === 'strokeText').length, 0)
+  assert.ok(bare.ops.filter((o) => o.op === 'fillText').every((t) => t.op === 'fillText' && t.style === INK))
+})
+
+await check('cover: a balanced title — the greedy line count, evened out', () => {
+  const measure = (s: string) => s.length * 10
+  // Greedy at 200 would set "THE LAST DELIVERY" / "BEFORE DAWN"-ish uneven lines; balanced keeps two, evened.
+  const lines = balanceTitle(measure, 'The Last Delivery Before Dawn', 200)
+  assert.equal(lines.length, 2)
+  assert.equal(lines.join(' '), 'The Last Delivery Before Dawn')
+  const [a, b] = lines.map((l) => l.length)
+  assert.ok(Math.abs(a - b) <= 6, `even lines, got ${lines.join(' | ')}`)
+  assert.deepEqual(balanceTitle(measure, 'Short', 200), ['Short'])
+  assert.deepEqual(balanceTitle(measure, '   ', 200), [])
+})
+
+/** A real 16 × 24 JPEG, ink-grey (made once with Pillow; 635 bytes). */
+const TINY_JPEG =
+  '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAAYABADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD5+ooopDCiiigD/9k='
+
+/** A real PNG of the given size — one ink-grey colour, encoded with zlib. */
+function solidPng(width: number, height: number): Uint8Array {
+  const crcTable = Array.from({ length: 256 }, (_, n) => {
+    let c = n
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
+    return c >>> 0
+  })
+  const crc = (buf: Buffer) => {
+    let c = 0xffffffff
+    for (const b of buf) c = crcTable[(c ^ b) & 0xff] ^ (c >>> 8)
+    return (c ^ 0xffffffff) >>> 0
+  }
+  const chunk = (type: string, data: Buffer) => {
+    const len = Buffer.alloc(4)
+    len.writeUInt32BE(data.length)
+    const body = Buffer.concat([Buffer.from(type, 'ascii'), data])
+    const sum = Buffer.alloc(4)
+    sum.writeUInt32BE(crc(body))
+    return Buffer.concat([len, body, sum])
+  }
+  const ihdr = Buffer.alloc(13)
+  ihdr.writeUInt32BE(width, 0)
+  ihdr.writeUInt32BE(height, 4)
+  ihdr[8] = 8 // bit depth
+  ihdr[9] = 2 // RGB
+  const row = Buffer.alloc(1 + width * 3, 0x20)
+  row[0] = 0 // filter: none
+  const raw = Buffer.concat(Array.from({ length: height }, () => row))
+  const sig = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+  return new Uint8Array(Buffer.concat([sig, chunk('IHDR', ihdr), chunk('IDAT', deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]))
+}
+
+await check('pdf: cover + N pages, each at its own page size, in reading order, right-to-left when it reads so', async () => {
+  const cg = coverGeometry(EXPORT_WIDTH)
+  const pg = pageGeometry(EXPORT_WIDTH, 'rtl')
+  const sized = (w: number, h: number) => ({ bytes: solidPng(Math.round(w), Math.round(h)), type: 'png' as const, width: Math.round(w), height: Math.round(h) })
+  const cover = sized(cg.width, cg.height)
+  const page = sized(pg.width, pg.height)
+  const bytes = await buildPdf([cover, page, page, page], { title: 'Return to Sender', rtl: true })
+  assert.equal(Buffer.from(bytes.subarray(0, 5)).toString('latin1'), '%PDF-', 'a real PDF')
+  const doc = await PDFDocument.load(bytes)
+  assert.equal(doc.getPageCount(), 4, 'the cover and three pages')
+  assert.equal(doc.getTitle(), 'Return to Sender')
+  const [c, ...rest] = doc.getPages()
+  assert.ok(near(c.getWidth(), PDF_PAGE_WIDTH_PT) && near(c.getHeight(), PDF_PAGE_WIDTH_PT * 1.5), 'the cover is 6 × 9 in')
+  for (const p of rest) {
+    assert.ok(near(p.getWidth(), PDF_PAGE_WIDTH_PT), 'every page six inches wide')
+    assert.ok(near(p.getHeight() / p.getWidth(), page.height / page.width, 0.001), 'each page at its own proportions')
+  }
+  const prefs = doc.catalog.lookup(PDFName.of('ViewerPreferences'))
+  assert.ok(prefs && String(prefs).includes('/Direction /R2L'), 'a manga chapter tells the viewer it reads right to left')
+
+  // A vertical chapter: tall strips, and no right-to-left flag.
+  const vg = pageGeometry(EXPORT_WIDTH, 'vertical')
+  const strip = sized(vg.width, vg.height)
+  const vdoc = await PDFDocument.load(await buildPdf([cover, strip, strip], { title: 'Manhwa', rtl: false }))
+  assert.equal(vdoc.getPageCount(), 3)
+  assert.ok(near(vdoc.getPage(1).getHeight() / vdoc.getPage(1).getWidth(), strip.height / strip.width, 0.001), 'the strip keeps its length')
+  assert.equal(vdoc.catalog.lookup(PDFName.of('ViewerPreferences')), undefined)
+
+  // The browser embeds JPEG pages (a PNG page is ~9 MB): a real JPEG lands at
+  // the size it is declared at, whatever its own pixel count.
+  const jpeg = { bytes: new Uint8Array(Buffer.from(TINY_JPEG, 'base64')), type: 'jpeg' as const, width: page.width, height: page.height }
+  const jdoc = await PDFDocument.load(await buildPdf([cover, jpeg], { title: 'JPEG', rtl: false }))
+  assert.equal(jdoc.getPageCount(), 2)
+  assert.ok(near(jdoc.getPage(1).getHeight() / jdoc.getPage(1).getWidth(), page.height / page.width, 0.001))
+
+  // Nothing finished: refused with a sentence, never an empty file.
+  await assert.rejects(buildPdf([], { title: 'x', rtl: false }), ExportError)
+})
+
+await check('names v2: page PNGs and the chapter PDF', () => {
+  assert.equal(exportFilename('Return to Sender', 'page-2'), 'return-to-sender-page-2.png')
+  assert.equal(exportFilename('Return to Sender', 'cover'), 'return-to-sender-cover.png')
+  assert.equal(exportFilename('Return to Sender', undefined, 'pdf'), 'return-to-sender.pdf')
+  assert.equal(exportFilename('  ¡¿…?!  ', undefined, 'pdf'), 'ink-desk-chapter.pdf')
+})
+
+await check('reading order: manga presets page right to left, manhwa scrolls', () => {
+  assert.equal(readingMode('manga-bw'), 'paged-rtl')
+  assert.equal(readingMode('manhwa-colour'), 'vertical')
+})
+
+// A three-page chapter on the real store: page 1 inked, page 2 half inked,
+// page 3 written but blank, and a cover — the reader's view from every page.
+const v2 = (await createProject({ title: 'Chapter check', stylePresetId: 'manga-bw' })).address
+const inkedPage = (tag: string) => [0, 1, 2, 3].map((i) => panelFor(i as 0 | 1 | 2 | 3, { versions: [{ imageId: `${tag}-${i}.png`, createdAt: 'x' }] }))
+const blankPanel = (i: 0 | 1 | 2 | 3) => panelFor(i, { versions: [], status: 'empty' })
+await store.updateProject(v2.projectId, (p) => ({
+  ...p,
+  chapters: p.chapters.map((c) => ({
+    ...c,
+    cover: { brief: 'b', title: 'Chapter check', versions: [], currentVersion: 0, status: 'empty', startedAt: null, startedByRun: null },
+    pages: [
+      { index: 0, layoutId: 'four-shot' as const, panels: inkedPage('p1') },
+      { index: 1, layoutId: 'four-shot' as const, panels: [inkedPage('p2')[0], blankPanel(1), inkedPage('p2')[2], blankPanel(3)] },
+      { index: 2, layoutId: 'four-shot' as const, panels: [blankPanel(0), blankPanel(1), blankPanel(2), blankPanel(3)] },
+    ],
+  })),
+}))
+
+await check('sequence: the cover first, every page in order, incomplete pages as placeholders', async () => {
+  const desk = await readDesk(v2.projectId)
+  assert.equal(desk.chapterPanels.length, 3, 'the desk view carries every page')
+  const seq = readerSequence(desk)
+  assert.deepEqual(
+    seq.map((e) => (e.kind === 'cover' ? 'cover' : `p${e.index + 1}:${e.complete ? 'done' : `pencil(${e.inked})`}`)),
+    ['cover', 'p1:done', 'p2:pencil(2)', 'p3:pencil(0)']
+  )
+  // An undrawn cover still leads, but the reader opens on the first readable page.
+  assert.equal(firstReadable(seq), 1)
+  assert.deepEqual(publishable(seq).map((e) => e.kind), ['page'], 'the PDF holds only finished pages — no pencil cover')
+  // Draw the cover: it opens the reader and leads the PDF.
+  await store.updateProject(v2.projectId, (p) => ({
+    ...p,
+    chapters: p.chapters.map((c) => ({ ...c, cover: c.cover && { ...c.cover, versions: [{ imageId: 'cover-1.png', createdAt: 'x' }], status: 'done' } })),
+  }))
+  const drawn = readerSequence(await readDesk(v2.projectId))
+  assert.equal(firstReadable(drawn), 0)
+  assert.deepEqual(publishable(drawn).map((e) => (e.kind === 'cover' ? 'cover' : e.index)), ['cover', 0])
+  // The migrated v1 desk has no Director and no cover: it opens on page 1.
+  const noCover = readerSequence({ ...desk, cover: null })
+  assert.equal(noCover[0].kind, 'page')
+})
+
+await check('gate v2: the reader opens on the first complete page — from whichever page is open', async () => {
+  for (const n of [0, 1, 2]) {
+    const desk = await readDesk(v2.projectId, { chapterId: v2.chapterId, pageIndex: n })
+    assert.equal(desk.address.pageIndex, n)
+    assert.deepEqual(completePageIndices(desk), [0], `page ${n + 1} open: page 1 is the complete one`)
+    assert.equal(gates(desk).reader.open, true, `open with page ${n + 1} on the desk`)
+  }
+  // Page 1 not complete, page 2 complete: still open — the first complete page need not be page 1.
+  await store.updateProject(v2.projectId, (p) => ({
+    ...p,
+    chapters: p.chapters.map((c) => ({
+      ...c,
+      pages: [
+        { ...c.pages[0], panels: [blankPanel(0), ...c.pages[0].panels.slice(1)] },
+        { ...c.pages[1], panels: inkedPage('p2') },
+        c.pages[2],
+      ],
+    })),
+  }))
+  const d = await readDesk(v2.projectId, { chapterId: v2.chapterId, pageIndex: 0 })
+  assert.deepEqual(completePageIndices(d), [1])
+  assert.equal(gates(d).reader.open, true)
+  // Nothing complete anywhere: shut, and the hint names the open page's first blank panel.
+  await store.updateProject(v2.projectId, (p) => ({
+    ...p,
+    chapters: p.chapters.map((c) => ({
+      ...c,
+      pages: c.pages.map((pg) => ({ ...pg, panels: [blankPanel(0), ...pg.panels.slice(1)] })),
+    })),
+  }))
+  const shut = await readDesk(v2.projectId, { chapterId: v2.chapterId, pageIndex: 1 })
+  assert.equal(gates(shut).reader.open, false)
+  assert.equal(gates(shut).reader.hint, 'Finish panel 1 of page 2 first.')
+  // The browser's copy of the open page wins over the server's list: inking it there opens the gate.
+  const local = { ...shut, script: inkedPage('local') }
+  assert.deepEqual(chapterPages(local)[1].map((p) => p.versions[0]?.imageId), ['local-0.png', 'local-1.png', 'local-2.png', 'local-3.png'])
+  assert.equal(gates(local).reader.open, true)
+})
+
 await rm(dir, { recursive: true, force: true })
 if (failed) {
   console.error('\ncheck:export FAILED')
   process.exit(1)
 }
-console.log('\ncheck:export passed — the PNG’s size, art, bubbles and lettering; the gate; the freeze; the clears.')
+console.log('\ncheck:export passed — the PNG’s size, art, bubbles and lettering; the vertical page; the cover; the PDF; the chapter’s sequence and gate; the freeze; the clears.')

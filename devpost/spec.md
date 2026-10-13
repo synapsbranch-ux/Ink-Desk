@@ -1748,10 +1748,26 @@ expose it.
 
 - `ReaderStation` v2: cover page first, then pages; direction from the preset
   (`paged-rtl` with the v1 toggle, or `vertical`); the ink-in replay per page.
+  Built in slice 12 as: **paged** for manga — one page at a time, right to
+  left by default, turned with the page strip, the turn buttons or the arrow
+  keys (in manga order "next" is the left); **vertical** for manhwa — every
+  page in one full-width column (`pageGeometry(…, 'vertical')`), each inking
+  in as it scrolls into view. The cover leads whenever the chapter has one —
+  drawn, or a pencil with its title; an incomplete page is a pencil
+  placeholder with its number. The desk view carries every page's panels
+  (`Desk.chapterPanels`, derived) and `lib/reader.ts` walks the sequence for
+  the reader, the gate and the PDF alike.
 - **PDF** with `pdf-lib`, in the browser: each page is drawn by the existing
-  `drawPage` onto a canvas (art + bubbles, `currentVersion`), encoded as PNG,
-  embedded on a PDF page of the page's size; the cover gets the title text
-  drawn the same way. No server, no fonts to ship beyond what the page already
+  `drawPage` onto a canvas (art + bubbles, `currentVersion`), encoded and
+  embedded on a PDF page of the page's own proportions, 432 pt (6 in) wide —
+  the 2:3 cover is 6 × 9 in; the cover gets the title text drawn the same way
+  (`drawCover`, Cormorant Garamond, sized in proportion to the cover exactly
+  as the screen's `cqw` sizing). Inside the PDF the pages are **JPEG at
+  0.92**, not PNG: a composited page is ~9 MB as a PNG, so a six-page chapter
+  would have been a 50–75 MB file (measured: 22.8 MB → 3.4 MB for a cover and
+  two pages). The PNG export stays lossless. The PDF holds the drawn cover and
+  every complete page; a right-to-left chapter sets the viewer preference
+  `/Direction /R2L`. No server, no fonts to ship beyond what the page already
   loads. Chosen over print CSS because the output must be the same file on
   every browser and must include the composited bubbles.
 

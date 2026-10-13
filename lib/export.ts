@@ -1,15 +1,24 @@
-// The reader's PNG export: the same page the screen shows — each panel's
+// The reader's exports: the same page the screen shows — each panel's
 // *displayed* version, the bubbles exactly as placed, Comic Neue lettering —
 // composited onto an off-screen canvas and saved with `toBlob()`. No server
-// round trip, no extra dependency.
+// round trip. Since slice 12 the same canvases also make the chapter's PDF:
+// the cover with its title lettered by the app, then every complete page,
+// each embedded on a PDF page of its own proportions (`pdf-lib`, loaded only
+// when a PDF is asked for). Inside the PDF the pages are JPEG at
+// `PDF_JPEG_QUALITY`, not PNG: a composited page is ~9 MB as a PNG, so a
+// six-page chapter would be a 50–75 MB file nobody can send. The PNG export
+// stays lossless.
 //
-// Split on purpose: `pageGeometry` and `drawPage` are pure and take the
-// canvas as an argument, so `npm run check:export` can run the real
-// compositing code in Node against a recording context and assert what the
-// PNG will contain. Only `exportPng` touches the DOM (fetching bytes,
-// loading the font, the canvas itself).
-// See `devpost/spec.md > Components > Reader Station` and `> The Page Layout`.
+// Split on purpose: the geometry, `drawPage`, `drawCover` and `buildPdf` are
+// pure and take the canvas (or the PNG bytes) as arguments, so
+// `npm run check:export` runs the real compositing code in Node against a
+// recording context and assert what the PNG and the PDF will contain. Only
+// the functions under "Browser-only" touch the DOM (fetching bytes, loading
+// the fonts, the canvas itself).
+// See `devpost/spec.md > Components > Reader Station`, `> The Page Layout`
+// and `> Reader and Exports (v2)`.
 import { bubbleLayout, tailPath } from './bubble'
+import type { PageDirection, ReaderEntry } from './reader'
 import { currentImageId } from './script'
 import type { BubbleLayout, Panel } from './types'
 
@@ -49,26 +58,42 @@ export type PageGeometry = {
 }
 
 /** The slice 7 page frame, scaled from `The Page Layout`: a 3:2 wide panel,
- *  two 1:1 squares, a 3:2 wide panel, with equal gutters all round. */
-export function pageGeometry(width = EXPORT_WIDTH, rtl = false): PageGeometry {
+ *  two 1:1 squares, a 3:2 wide panel, with equal gutters all round. `rtl`
+ *  swaps where the squares sit; `vertical` (slice 12, the manhwa presets)
+ *  stacks the four panels in one full-width column, story order top to
+ *  bottom — the page as one stretch of a vertical scroll. */
+export function pageGeometry(width = EXPORT_WIDTH, direction: PageDirection = 'ltr'): PageGeometry {
   const scale = width / NOMINAL
   const padding = 14 * scale
   const gap = 14 * scale
   const inner = width - 2 * padding
   const wideH = inner / (3 / 2)
+  const common = { width, scale, padding, gap, frame: 2 * scale, stroke: 2 * scale, fontSize: 17 * scale }
+
+  if (direction === 'vertical') {
+    const y2 = padding + wideH + gap
+    const y3 = y2 + inner + gap
+    const y4 = y3 + inner + gap
+    return {
+      ...common,
+      height: y4 + wideH + padding,
+      panels: [
+        { x: padding, y: padding, w: inner, h: wideH },
+        { x: padding, y: y2, w: inner, h: inner },
+        { x: padding, y: y3, w: inner, h: inner },
+        { x: padding, y: y4, w: inner, h: wideH },
+      ],
+    }
+  }
+
+  const rtl = direction === 'rtl'
   const square = (inner - gap) / 2
   const midY = padding + wideH + gap
   const leftX = padding
   const rightX = padding + square + gap
   return {
-    width,
+    ...common,
     height: midY + square + gap + wideH + padding,
-    scale,
-    padding,
-    gap,
-    frame: 2 * scale,
-    stroke: 2 * scale,
-    fontSize: 17 * scale,
     panels: [
       { x: padding, y: padding, w: inner, h: wideH },
       { x: rtl ? rightX : leftX, y: midY, w: square, h: square },
@@ -77,6 +102,33 @@ export function pageGeometry(width = EXPORT_WIDTH, rtl = false): PageGeometry {
     ],
   }
 }
+
+export type CoverGeometry = {
+  width: number
+  height: number
+  /** The cover's ink frame, as `.cover-frame`'s border. */
+  frame: number
+  /** The title's box: centred text from `top`, inset `padX` each side. */
+  title: { top: number; padX: number; fontSize: number; lineHeight: number; stroke: number }
+}
+
+/** The cover page: 2:3 like `.cover-frame`, the title lettered from 5% down
+ *  with 7% side insets, its size and outline proportional to the width —
+ *  the same `cqw` units the screen letters it in, so the two match. */
+export function coverGeometry(width = EXPORT_WIDTH): CoverGeometry {
+  const fontSize = width * COVER_TITLE_EM
+  return {
+    width,
+    height: width * 1.5,
+    frame: 2 * (width / NOMINAL),
+    title: { top: width * 1.5 * 0.05, padX: width * 0.07, fontSize, lineHeight: fontSize * 1.02, stroke: width * COVER_TITLE_STROKE },
+  }
+}
+
+/** The cover title's size and outline as fractions of the cover's width —
+ *  `10cqw` and `1.6cqw` in `app/globals.css > .cover-title`. */
+export const COVER_TITLE_EM = 0.1
+export const COVER_TITLE_STROKE = 0.016
 
 /** `object-fit: contain` for the canvas: the image centred in its panel at
  *  its own ratio. The generated ratios match their slots, so in practice
@@ -87,6 +139,15 @@ export function containRect(img: { width: number; height: number }, slot: Rect):
   const w = img.width * k
   const h = img.height * k
   return { x: slot.x + (slot.w - w) / 2, y: slot.y + (slot.h - h) / 2, w, h }
+}
+
+/** `object-fit: cover`: the image filling the frame at its own ratio, the
+ *  overflow clipped — how the cover sits in `.cover-frame`. */
+export function coverRect(img: { width: number; height: number }, frame: Rect): Rect {
+  const k = Math.max(frame.w / img.width, frame.h / img.height)
+  const w = img.width * k
+  const h = img.height * k
+  return { x: frame.x + (frame.w - w) / 2, y: frame.y + (frame.h - h) / 2, w, h }
 }
 
 /**
@@ -111,10 +172,8 @@ export function bubbleRect(l: BubbleLayout, slot: Rect): Rect {
   return { x: slot.x + (l.x / 100) * slot.w, y: slot.y + (l.y / 100) * slot.h, w: (l.w / 100) * slot.w, h: (l.h / 100) * slot.h }
 }
 
-/** Greedy word wrap with the context's own measurements — the same lines the
- *  bubble shows, uppercased the way the CSS `text-transform` does. */
-export function wrapDialogue(measure: (text: string) => number, dialogue: string, maxWidth: number): string[] {
-  const words = dialogue.trim().toUpperCase().split(/\s+/).filter(Boolean)
+/** Greedy word wrap with the context's own measurements. */
+function wrapWords(measure: (text: string) => number, words: string[], maxWidth: number): string[] {
   const lines: string[] = []
   let line = ''
   for (const word of words) {
@@ -128,6 +187,29 @@ export function wrapDialogue(measure: (text: string) => number, dialogue: string
   }
   if (line) lines.push(line)
   return lines
+}
+
+/** The bubble's lines — the same lines the bubble shows, uppercased the way
+ *  the CSS `text-transform` does. */
+export function wrapDialogue(measure: (text: string) => number, dialogue: string, maxWidth: number): string[] {
+  return wrapWords(measure, dialogue.trim().toUpperCase().split(/\s+/).filter(Boolean), maxWidth)
+}
+
+/** The cover title's lines, as `text-wrap: balance` sets them: no more lines
+ *  than the greedy wrap needs, at the narrowest width that still fits them —
+ *  so a two-line title is two even lines, not a long one and a widow. */
+export function balanceTitle(measure: (text: string) => number, title: string, maxWidth: number): string[] {
+  const words = title.trim().split(/\s+/).filter(Boolean)
+  const greedy = wrapWords(measure, words, maxWidth)
+  if (greedy.length < 2) return greedy
+  let lo = 0
+  let hi = maxWidth
+  for (let i = 0; i < 24; i++) {
+    const mid = (lo + hi) / 2
+    if (wrapWords(measure, words, mid).length <= greedy.length) hi = mid
+    else lo = mid
+  }
+  return wrapWords(measure, words, hi)
 }
 
 /** What `drawPage` needs per panel: the displayed version's decoded image
@@ -153,6 +235,7 @@ export type DrawContext = Pick<
   | 'fill'
   | 'stroke'
   | 'fillText'
+  | 'strokeText'
   | 'measureText'
   | 'fillStyle'
   | 'strokeStyle'
@@ -169,6 +252,9 @@ export type DrawDeps = {
   /** The resolved Comic Neue family list for the canvas font string. */
   fontFamily: string
 }
+
+/** The cover's art (its displayed version, decoded), or null for no art. */
+export type CoverImage = { width: number; height: number; source: CanvasImageSource } | null
 
 /** Composite the page: paper, ink frame, each panel's art behind its border,
  *  then each bubble — ellipse, tail, lettering — exactly as the screen lays
@@ -235,68 +321,228 @@ export function drawPage(ctx: DrawContext, geom: PageGeometry, panels: ExportPan
   }
 }
 
-/** A filename from the chapter title: `ink-desk — the-offer….png`. */
-export function exportFilename(title: string): string {
+/**
+ * Composite the cover: paper, the art filling the 2:3 frame the way
+ * `object-fit: cover` does, then the title the app letters over it — white
+ * Cormorant Garamond with a heavy ink outline painted *under* the fill
+ * (`paint-order: stroke fill`), balanced across its lines, centred from 5%
+ * down. The title is never in the art: the model never saw it.
+ */
+export function drawCover(ctx: DrawContext, geom: CoverGeometry, image: CoverImage, title: string, headingFamily: string): void {
+  const frame = { x: 0, y: 0, w: geom.width, h: geom.height }
+  ctx.fillStyle = WHITE
+  ctx.fillRect(0, 0, geom.width, geom.height)
+  if (image) {
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(frame.x, frame.y, frame.w, frame.h)
+    ctx.clip()
+    const fit = coverRect(image, frame)
+    ctx.drawImage(image.source, fit.x, fit.y, fit.w, fit.h)
+    ctx.restore()
+  }
+
+  const t = geom.title
+  const text = title.trim()
+  if (text) {
+    ctx.font = `600 ${Math.round(t.fontSize)}px ${headingFamily}`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.lineJoin = 'round'
+    const lines = balanceTitle((s) => ctx.measureText(s).width, text, geom.width - 2 * t.padX)
+    lines.forEach((line, i) => {
+      const y = t.top + (i + 0.5) * t.lineHeight
+      // With art, white letters on an ink outline; on bare paper, ink letters.
+      if (image) {
+        ctx.strokeStyle = INK
+        ctx.lineWidth = t.stroke
+        ctx.strokeText(line, geom.width / 2, y)
+        ctx.fillStyle = WHITE
+      } else {
+        ctx.fillStyle = INK
+      }
+      ctx.fillText(line, geom.width / 2, y)
+    })
+  }
+
+  ctx.strokeStyle = INK
+  ctx.lineWidth = geom.frame
+  ctx.strokeRect(geom.frame / 2, geom.frame / 2, geom.width - geom.frame, geom.height - geom.frame)
+}
+
+/** A filename from the chapter title: `the-offer….png`, `…-page-2.png`,
+ *  `….pdf`. Safe on every OS and never empty. */
+export function exportFilename(title: string, part?: string, ext: 'png' | 'pdf' = 'png'): string {
   const slug = title
     .toLowerCase()
     .normalize('NFKD')
     .replace(/[^\p{Letter}\p{Number}]+/gu, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 60)
-  return `${slug || 'ink-desk-page'}.png`
+  const base = slug || (ext === 'pdf' ? 'ink-desk-chapter' : 'ink-desk-page')
+  return `${base}${part ? `-${part}` : ''}.${ext}`
+}
+
+/** A PDF page's width in points: six inches, so the 2:3 cover is a 6 × 9 in
+ *  trade-paperback cover and every page keeps its own proportions under it. */
+export const PDF_PAGE_WIDTH_PT = 432
+
+/** The JPEG quality of a page inside the PDF — high enough that the
+ *  lettering's edges stay clean at print size. */
+export const PDF_JPEG_QUALITY = 0.92
+
+/** One composited page, ready for the PDF: its encoded bytes and pixel size. */
+export type PdfPage = { bytes: Uint8Array; type: 'jpeg' | 'png'; width: number; height: number }
+
+/**
+ * The chapter's PDF from its composited pages, in reading order — one PDF
+ * page per image, `PDF_PAGE_WIDTH_PT` wide, as tall as the image's own
+ * proportions. A right-to-left chapter says so in the viewer preferences, so
+ * a reader that honours them pages it the manga way. Pure: the check runs it
+ * in Node and reads the file back.
+ */
+export async function buildPdf(pages: PdfPage[], opts: { title: string; rtl: boolean }): Promise<Uint8Array> {
+  if (pages.length === 0) throw new ExportError('There’s no finished page to put in the PDF yet.')
+  const { PDFDocument, ReadingDirection } = await import('pdf-lib')
+  const doc = await PDFDocument.create()
+  doc.setTitle(opts.title)
+  doc.setCreator('Ink Desk')
+  doc.setProducer('Ink Desk')
+  if (opts.rtl) doc.catalog.getOrCreateViewerPreferences().setReadingDirection(ReadingDirection.R2L)
+  for (const p of pages) {
+    const image = p.type === 'jpeg' ? await doc.embedJpg(p.bytes) : await doc.embedPng(p.bytes)
+    const w = PDF_PAGE_WIDTH_PT
+    const h = (w * p.height) / p.width
+    doc.addPage([w, h]).drawImage(image, { x: 0, y: 0, width: w, height: h })
+  }
+  return await doc.save()
 }
 
 // --- Browser-only from here down -------------------------------------------
 
-/** The generated Comic Neue family, resolved from the CSS variable
- *  `next/font` sets — the canvas font string needs real family names. */
-function letteringFamily(): string {
-  const family = getComputedStyle(document.body).getPropertyValue('--font-letter').trim()
-  return family || "'Comic Neue', cursive"
+/** A `next/font` family list, resolved from the CSS variable it sets on
+ *  `<html>` — the canvas font string needs real family names. */
+function fontVar(name: '--font-letter' | '--font-heading', fallback: string): string {
+  const family = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  return family || fallback
 }
 
 /**
- * Build the page PNG in the browser: fetch each displayed version's bytes,
- * make sure Comic Neue is loaded *before* anything is drawn (a canvas falls
- * back silently — the one way the export could not match the screen), then
- * composite and encode.
+ * The face must be in before anything is drawn — a canvas falls back
+ * silently, the one way the export could not match the screen. Each family in
+ * the stack loads separately with its failure tolerated: next/font's
+ * synthesized fallback points at local faces the OS may not have, and that
+ * rejection must not kill the export (it did, as "A network error occurred",
+ * on Linux — the face itself was already on screen the whole time).
  */
-export async function exportPng(panels: Panel[], rtl: boolean): Promise<Blob> {
-  const geom = pageGeometry(EXPORT_WIDTH, rtl)
+async function loadFont(weight: number, px: number, family: string): Promise<void> {
+  const spec = (f: string) => `${weight} ${Math.round(px)}px ${f}`
+  await Promise.allSettled(family.split(',').map((f) => document.fonts.load(spec(f.trim()), 'AaBb')))
+  await document.fonts.ready
+}
+
+/** One stored image, decoded. `what` names it in the sentence if it can't be read. */
+async function decode(imageId: string, what: string): Promise<ImageBitmap> {
+  const res = await fetch(`/api/image/${imageId}`)
+  if (!res.ok) throw new ExportError(`${what} couldn’t be read from the desk.`)
+  return await createImageBitmap(await res.blob())
+}
+
+function canvasOf(width: number, height: number): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } {
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.round(width)
+  canvas.height = Math.round(height)
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new ExportError('The page couldn’t be composited — this browser gave no canvas.')
+  return { canvas, ctx }
+}
+
+function encode(canvas: HTMLCanvasElement, type: 'image/png' | 'image/jpeg' = 'image/png', quality?: number): Promise<Blob> {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new ExportError('The page couldn’t be encoded.'))),
+      type,
+      quality
+    )
+  })
+}
+
+/**
+ * One page composited onto a canvas: fetch each displayed version's bytes,
+ * load Comic Neue, draw. `page` names it in a sentence ("Page 2, panel 3…")
+ * when the chapter has more than one.
+ */
+async function renderPage(panels: Panel[], direction: PageDirection, page?: number): Promise<HTMLCanvasElement> {
+  const geom = pageGeometry(EXPORT_WIDTH, direction)
+  const where = (i: number) => (page === undefined ? `Panel ${i + 1}` : `Page ${page + 1}, panel ${i + 1}`)
 
   const images = await Promise.all(
     panels.map(async (panel) => {
       // The displayed version — the one on the page — never blindly the newest.
       const id = currentImageId(panel)
-      if (!id) throw new ExportError(`Panel ${panel.index + 1} has no art to export yet.`)
-      const res = await fetch(`/api/image/${id}`)
-      if (!res.ok) throw new ExportError(`Panel ${panel.index + 1}’s art couldn’t be read from the desk.`)
-      const bitmap = await createImageBitmap(await res.blob())
+      if (!id) throw new ExportError(`${where(panel.index)} has no art to export yet.`)
+      const bitmap = await decode(id, `${where(panel.index)}’s art`)
       return { panel, image: { width: bitmap.width, height: bitmap.height, source: bitmap } }
     })
   )
 
-  // Comic Neue must be in before anything is drawn — a canvas falls back
-  // silently. Each family in the stack loads separately with its failure
-  // tolerated: next/font's synthesized fallback points at local faces the OS
-  // may not have, and that rejection must not kill the export (it did, as
-  // "A network error occurred", on Linux — the lettering face itself was
-  // already on screen the whole time).
-  const fontFamily = letteringFamily()
-  const spec = (family: string) => `700 ${Math.round(geom.fontSize)}px ${family}`
-  await Promise.allSettled(fontFamily.split(',').map((f) => document.fonts.load(spec(f.trim()), 'AaBb')))
-  await document.fonts.ready
+  const fontFamily = fontVar('--font-letter', "'Comic Neue', cursive")
+  await loadFont(700, geom.fontSize, fontFamily)
 
-  const canvas = document.createElement('canvas')
-  canvas.width = Math.round(geom.width)
-  canvas.height = Math.round(geom.height)
-  const ctx = canvas.getContext('2d')
-  if (!ctx) throw new ExportError('The page couldn’t be composited — this browser gave no canvas.')
+  const { canvas, ctx } = canvasOf(geom.width, geom.height)
   drawPage(ctx, geom, images, { makePath: (d) => new Path2D(d), fontFamily })
+  for (const { image } of images) image.source.close()
+  return canvas
+}
 
-  return await new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new ExportError('The PNG couldn’t be encoded.'))), 'image/png')
-  })
+/** The cover composited onto a canvas, its title lettered in Cormorant Garamond. */
+async function renderCover(imageId: string | null, title: string): Promise<HTMLCanvasElement> {
+  const geom = coverGeometry(EXPORT_WIDTH)
+  const bitmap = imageId ? await decode(imageId, 'The cover’s art') : null
+  const headingFamily = fontVar('--font-heading', "'Cormorant Garamond', Georgia, serif")
+  await loadFont(600, geom.title.fontSize, headingFamily)
+  const { canvas, ctx } = canvasOf(geom.width, geom.height)
+  drawCover(ctx, geom, bitmap ? { width: bitmap.width, height: bitmap.height, source: bitmap } : null, title, headingFamily)
+  bitmap?.close()
+  return canvas
+}
+
+/** Build one page's PNG in the browser. */
+export async function exportPng(panels: Panel[], direction: PageDirection, page?: number): Promise<Blob> {
+  return await encode(await renderPage(panels, direction, page))
+}
+
+/** Build the cover's PNG in the browser. */
+export async function exportCoverPng(imageId: string, title: string): Promise<Blob> {
+  return await encode(await renderCover(imageId, title))
+}
+
+/**
+ * The chapter's PDF, in the browser: the drawn cover, then every complete
+ * page in reading order, each composited exactly as its PNG would be (art,
+ * bubbles, lettering; current versions) and embedded at its own proportions.
+ * One page at a time, each canvas released before the next, so a six-page
+ * chapter never holds six full-size canvases at once.
+ */
+export async function exportPdf(entries: readonly ReaderEntry[], direction: PageDirection, title: string): Promise<Blob> {
+  const pages: PdfPage[] = []
+  for (const entry of entries) {
+    const canvas =
+      entry.kind === 'cover'
+        ? entry.imageId
+          ? await renderCover(entry.imageId, entry.title)
+          : null
+        : entry.complete
+          ? await renderPage(entry.panels, direction, entry.index)
+          : null
+    if (!canvas) continue
+    const bytes = new Uint8Array(await (await encode(canvas, 'image/jpeg', PDF_JPEG_QUALITY)).arrayBuffer())
+    pages.push({ bytes, type: 'jpeg', width: canvas.width, height: canvas.height })
+    canvas.width = 0
+    canvas.height = 0
+  }
+  const bytes = await buildPdf(pages, { title, rtl: direction === 'rtl' })
+  return new Blob([bytes as BlobPart], { type: 'application/pdf' })
 }
 
 /** Hand the blob to the browser as a download. */
@@ -306,5 +552,6 @@ export function downloadBlob(blob: Blob, filename: string): void {
   a.href = url
   a.download = filename
   a.click()
-  URL.revokeObjectURL(url)
+  // Revoked on the next turn: a large PDF's download may not have started yet.
+  setTimeout(() => URL.revokeObjectURL(url), 0)
 }

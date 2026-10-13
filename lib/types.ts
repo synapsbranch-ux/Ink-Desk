@@ -234,6 +234,10 @@ export type Desk = {
   pages: PageSummary[]
   /** The configured panel quality (`IMAGE_PANEL_QUALITY`), for the estimate. Read by the server. */
   panelQuality: string
+  /** Slice 12: every page's panels in page order (`[]` for an unwritten page) —
+   *  the reader reads and exports the whole chapter from it. Derived, never
+   *  written back; the open page's copy to edit is `script`. */
+  chapterPanels: Panel[][]
 }
 
 /** One page as the switcher sees it — derived from the project, never stored. */
@@ -286,6 +290,7 @@ export function emptyDesk(
     openPage: 0,
     pages: [{ index: 0, written: false, inked: 0, inking: 0, failed: 0, blank: 0, thumbnailImageId: null, panelImageIds: [] }],
     panelQuality: 'low',
+    chapterPanels: [[]],
   }
 }
 

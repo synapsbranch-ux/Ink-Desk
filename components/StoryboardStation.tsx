@@ -150,7 +150,7 @@ export function StoryboardStation({
         <StationFooter
           gate={gates.reader}
           label={'Next: Ink & Publish'}
-          ready="All four panels have art — the reader is open."
+          ready="A page is inked — the reader is open on every finished page."
           progress={script ? `${inked} of 4 panels inked` : undefined}
           onGo={onGoReader}
         />
