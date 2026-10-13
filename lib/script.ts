@@ -131,6 +131,20 @@ export function applyRewrite(
   })
 }
 
+/**
+ * The floor under "generation survives a reload" — `spec.md > Data Model >
+ * Reload Mid-Generation`. A panel still `inking` whose request cannot be in
+ * flight here — started by another server run (the dev server restarted), or
+ * started longer ago than the generation timeout — is stale and comes back
+ * as `failed` with Try again. Nothing spins forever.
+ */
+export function staleInkingIndices(chapter: Chapter, runId: string, timeoutMs: number, now = new Date()): number[] {
+  return (chapter.script ?? [])
+    .filter((p) => p.status === 'inking')
+    .filter((p) => p.startedByRun !== runId || !p.startedAt || now.getTime() - Date.parse(p.startedAt) > timeoutMs)
+    .map((p) => p.index)
+}
+
 export function currentImageId(panel: Panel): string | null {
   return panel.versions[panel.currentVersion]?.imageId ?? null
 }
