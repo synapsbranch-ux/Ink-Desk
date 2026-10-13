@@ -1193,9 +1193,14 @@ specified in `prd.md > States and Boundaries`; this is the mapping.
   A refusal is a wording problem, not a waiting problem, so it gets a different
   button than a timeout.
 - **A redraw fails** → the panel's **previous version stays on screen** and the
-  message offers **Try again**. The status only leaves `done` once a replacement
-  exists, so **Ink & Publish stays open** throughout. A failed redraw never
-  leaves a panel empty, and the page is never less finished than it was.
+  message offers **Try again**. The panel reads `failed` — the failure is real
+  and the data says so — but its version history is untouched, and the reader's
+  gate keys on *having at least one version*, not on the status, so **Ink &
+  Publish stays open** throughout. A failed redraw never leaves a panel empty,
+  and the page is never less finished than it was. *(Revised in slice 6: the
+  approved text said the status itself stays `done`; keying the gate on the
+  history instead keeps the same behavior while letting the data record the
+  failure — see `checklist.md > Revisions`.)*
 - **The dev server restarts mid-generation** (the common one — every code change
   does it) → in-flight panels are orphaned, and the `startedByRun !==
   serverRunId` check demotes them to `failed` with **Try again** on the next
@@ -1231,9 +1236,11 @@ terminal in full; the browser gets a sentence.
   benefit is the one that matters during the build — the images are in a folder
   you can open and compare.
 - **Polling instead of a live connection.** The browser asks
-  `GET /api/chapter` every ~1.5s while any panel is inking. Server-sent events
-  would be tidier and are invisible on camera; a poll is a few lines and cannot
-  get stuck half-open.
+  `GET /api/chapter` every ~1.5s while any panel is inking — and, since slice
+  6, whenever the storyboard is open at all, because a redraw sits briefly in
+  the queue before its panel reads `inking` and the poll is what sees the
+  flip. Server-sent events would be tidier and are invisible on camera; a poll
+  is a few lines and cannot get stuck half-open.
 - **A CSS reveal instead of real pencil→ink generation.** Already decided in
   `scope.md > Explicitly Cut`: identical on camera, half the generations, and no
   second chance for the face to drift.

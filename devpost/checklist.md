@@ -81,7 +81,7 @@ rather than being styled afterwards. Learner's call.
   Learner check: The 5b checkpoint, at `low` — this one judges the studio, not the art (learner's call). Run Storyboard once more. Watch a full generation: do the stage lines, elapsed time and page progress make the wait feel alive? Try every action on an unlocked and a locked card: is anything undiscoverable or unexplained? Click a bubble and retype a line, drag it, resize it, point its tail, then reload: did everything hold? Say whether Cast and Storyboard now read as your mockup's studio.
   Commit: In four small steps — `5b: always-visible actions and Next gates`, `5b: live generation states`, `5b: editable SVG speech bubbles`, `5b: Cast and Storyboard visual pass`
 
-- [ ] **6. Nothing is ever lost — redraw, versions, and honest failures**
+- [x] **6. Nothing is ever lost — redraw, versions, and honest failures**
   Becomes usable: **Redraw panel** reruns the same request with the same references while the current art stays on screen under an "Inking…" indicator, and a `‹ 2 / 2 ›` stepper appears once a panel has two versions, capping at three. A transient failure retries once silently, then shows a calm sentence with **Try again**; a refusal offers **Rewrite panel**, which rephrases only that panel's action, camera and background and never its dialogue. A reload mid-generation keeps generating, and a panel orphaned by a timeout or a dev-server restart comes back as failed with **Try again** rather than spinning forever.
   Why now: `prd.md > Storyboard — The Main Studio` has more acceptance criteria about repair than about generation, and `spec.md > Important Failure Modes` is where a demo actually breaks. Building it after the happy path means every failure state has real art to protect.
   PRD ref: `prd.md > Storyboard — The Main Studio` (the repair criteria), `prd.md > States and Boundaries`
@@ -114,7 +114,7 @@ field labels stay a clean contract.
 | 4. Cast + locked sheets | 2026-10-15 | done 2026-10-12 |
 | 5. Page script + four panels | 2026-10-17 | done 2026-10-12 |
 | 5b. Polish: actions, waits, bubbles, look | 2026-10-14 | done 2026-10-12 |
-| 6. Repair, versions, failures | 2026-10-19 | — |
+| 6. Repair, versions, failures | 2026-10-19 | done 2026-10-12 |
 | 7. Reader, export, new chapter | 2026-10-20 | — |
 
 **If a slice runs over, say what to cut — do not silently slip.** The learner's
@@ -169,6 +169,13 @@ Reflection: [pending]
 Activity mode: [pending]
 
 ## Revisions
+
+- **Slice 6: a failed redraw reads `failed`, not `done` — the gate keys on the history instead.** `spec.md > Important Failure Modes` said the status only leaves `done` once a replacement exists, which kept Ink & Publish open but made a failed redraw invisible in the data. Built instead as: the status records the failure honestly, the version history is untouched, and the reader's gate keys on *having at least one version* (which `lib/gates.ts` already did). Same observable behavior — previous art stays on screen, Try again appears, the reader never closes — plus a failure the data can show. Spec corrected in place with a pointer here. `check:repair` asserts the whole path.
+- **Slice 6: bubbles belong to the panel, not the version.** The learner's rule, enforced by shape: `attachPanelVersion`, `markFailed` and `applyRewrite` all spread the panel, so no redraw, version step, failure or rewrite can touch `bubble` or `dialogue`; `PanelRewriteSchema` has no dialogue field to return, so Claude cannot smuggle one in. `check:repair` re-asserts the bubble after every repair path, five failures deep.
+- **Slice 6: the poll runs whenever the storyboard is open, not only while inking.** A redraw sits briefly in the queue while its panel still reads `done`; without a poll the browser would never see it flip to `inking`. Spec's "What Was Simplified and Why" updated. The alternative — the route waiting for the flip — would have put a lock round-trip in the response path for no visible gain.
+- **Slice 6: the silent retry is exactly one, on exactly 429-or-timeout.** A 5xx fails honestly on the first answer (Try again is the human retry), a 402 never retries (it cannot pass on its own, and the terminal gets the four-line credit message), a refusal never retries (it is a wording problem — Rewrite panel is the fix). `check:repair` counts the stub's fetches in every scenario.
+- **Slice 6: the restart/timeout floor verified end-to-end, against a scratch desk** — a copy of the chapter with one panel orphaned by a dead `serverRunId` and one backdated past `GENERATION_TIMEOUT_MS` was served by a real dev server on a scratch `INKDESK_DATA_DIR`; one `GET /api/chapter` demoted both to `failed` with their version history kept. The learner's desk was never touched.
+- **Slice 6: two manual `useCallback`s dropped from `Panel.tsx`** — the React Compiler (which `eslint-config-next` 16 lints for) now owns that memoization and refused to compile around the manual ones.
 
 - **Slice 5b: Draw sheet and Redraw sheet are two fixed buttons with distinct meanings.** The old card had one morphing button (Draw sheet → Try again → Redraw sheet), which is how Redraw became undiscoverable. Now **Draw sheet always writes the DNA fresh from the look** (`reuseDna: false` — the server supported this all along) and **Redraw sheet always keeps the DNA and draws a new picture**, each with a caption saying so, disabled with the reason inline. A failed picture is retried through Redraw sheet (same DNA), captioned "try the picture again". The PRD's contract — Redraw reuses the DNA, a look edit retires it — is unchanged; what's new is a direct way to reroll just the DNA without editing the look.
 - **Slice 5b: `check:page` had a latent race — held requests were identified by arrival order.** The two concurrent panel jobs read different-sized sheet files before calling the provider, so either request can reach the stub first; the check assumed `held[0]` was panel 1's. It passed for months by luck and started failing 4-in-5 after 5b's unrelated module changes shifted timing. Fixed in the measurement, not the code: each held request is now identified by its panel's own action line in the prompt. Six consecutive clean runs after the fix.
