@@ -4,12 +4,18 @@
 // the dialogue and stores percentages, and an edit before the script exists
 // is refused, not dropped. Run with `npm run check:bubble`.
 import assert from 'node:assert/strict'
-import { bubbleLayout, clampBubble, defaultBubble, tailPath } from '../lib/bubble'
-import { Refused } from '../lib/errors'
-import { applyPatch, mergePatch } from '../lib/patch'
-import { BubbleLayoutSchema, ChapterPatchSchema } from '../lib/schemas'
-import { bubbleCorner, findPanel } from '../lib/script'
-import { emptyChapter, type Chapter, type Panel } from '../lib/types'
+import type { Chapter, Panel } from '../lib/types'
+
+// Loaded dynamically, like every other check: a static import from this
+// `.mts` entry and the libs' own `./errors` import can resolve to two module
+// instances under Node 22's loader, and then `instanceof Refused` is false
+// for a Refused thrown inside `lib/script.ts`. One loader path, one instance.
+const { bubbleLayout, clampBubble, defaultBubble, tailPath } = await import('../lib/bubble')
+const { Refused } = await import('../lib/errors')
+const { applyPatch, mergePatch } = await import('../lib/patch')
+const { BubbleLayoutSchema, ChapterPatchSchema } = await import('../lib/schemas')
+const { bubbleCorner, findPanel } = await import('../lib/script')
+const { emptyChapter } = await import('../lib/types')
 
 function panel(index: 0 | 1 | 2 | 3, camera = 'eye level'): Panel {
   return {

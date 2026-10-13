@@ -156,6 +156,7 @@ verified, and only if time allows before `6-ship`.
 
 - [x] Export PNG failed on Linux with a raw browser sentence — the font-stack load rejected on next/font's synthesized fallback. Fixed (`lib/export.ts` loads each family separately and tolerates a missing fallback; `ExportError` keeps raw errors off the screen), learner retried the export live: good.
 - [x] PDF export requested at the checkpoint — kept out of scope with the learner's okay: the PRD's deliverable is the PNG, and the browser's own Print → "Save as PDF" on the reader covers sharing. Noted as a possible later enhancement, not built.
+- [x] `check:bubble` failed on a fresh clone (Node 22.22, cloud session, 2026-10-13) while the other six checks, `typecheck` and `lint` passed — `assert.throws(…, Refused)` saw "identical name but a different prototype": the `.mts` entry's static `import { Refused } from '../lib/errors'` and `lib/script.ts`'s own `./errors` resolved to two module instances under the loader. A measurement fault, not a product one (Next bundles one instance). Fixed in the measurement: the check now loads the libs with `await import()` like every other check. Verified: three consecutive passes, `typecheck` and `eslint` clean.
 - [ ] Final review complete — feedback resolved and learner confirms ready to ship
 
 ## Code Tour and App Map
