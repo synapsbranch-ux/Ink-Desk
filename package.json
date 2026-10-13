@@ -13,7 +13,8 @@
     "check:cast": "tsx scripts/cast-check.mts",
     "check:page": "tsx scripts/page-check.mts",
     "check:stages": "tsx scripts/stages-check.mts",
-    "check:bubble": "tsx scripts/bubble-check.mts"
+    "check:bubble": "tsx scripts/bubble-check.mts",
+    "check:repair": "tsx scripts/repair-check.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",
