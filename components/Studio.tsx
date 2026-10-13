@@ -250,6 +250,39 @@ export function Studio({ projectId }: { projectId: string }) {
   const commitCard = useCallback((id: string, e: CharacterEdit) => commit({ cast: { [id]: e } }), [commit])
   const lock = useCallback((id: string) => commit({ cast: { [id]: { locked: true } } }), [commit])
 
+  /** Import reference: a shelf picture becomes the sheet, the DNA is read from it. */
+  const importSheet = useCallback(
+    (id: string, assetId: string) =>
+      cardRequest(id, 'importing', `${api}/import`, { id, assetId }, 'The picture couldn’t be read just now.'),
+    [api, cardRequest]
+  )
+
+  // The reference shelf: one upload at a time, the server's sentence on refusal.
+  const [uploading, setUploading] = useState(false)
+  const [uploadNotice, setUploadNotice] = useState<string | null>(null)
+  const upload = useCallback(
+    async (file: File) => {
+      setUploading(true)
+      setUploadNotice(null)
+      try {
+        const form = new FormData()
+        form.append('file', file)
+        const res = await fetch(`${api}/assets`, { method: 'POST', body: form })
+        const data = (await res.json()) as Reply
+        if (!res.ok || !('version' in data)) {
+          setUploadNotice('error' in data ? data.error : 'The reference couldn’t be put on the shelf just now.')
+          return
+        }
+        accept(data)
+      } catch {
+        setUploadNotice(UNREACHABLE)
+      } finally {
+        setUploading(false)
+      }
+    },
+    [api, accept]
+  )
+
   // --- Storyboard ---------------------------------------------------------
 
   // The open page: every page-scoped request names it.
@@ -383,6 +416,11 @@ export function Studio({ projectId }: { projectId: string }) {
           onReroll={reroll}
           onDraw={draw}
           onLock={lock}
+          onImport={importSheet}
+          uploading={uploading}
+          uploadNotice={uploadNotice}
+          onUpload={(f) => void upload(f)}
+          onUploadNotice={setUploadNotice}
           onGoStoryboard={() => goTo('storyboard')}
         />
       ) : chapter.station === 'storyboard' ? (

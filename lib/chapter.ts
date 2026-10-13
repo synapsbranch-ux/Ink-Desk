@@ -36,6 +36,7 @@ export function toDesk(p: Project, ref: PageRef): Desk {
     pitch: p.story.pitch,
     synopsis: p.story.synopsis,
     cast: p.library.characters,
+    assets: p.library.assets,
     script: page.panels.length > 0 ? page.panels : null,
     imageCount: p.usage.images,
     costUsd: p.usage.costUsd,
@@ -51,7 +52,7 @@ export function applyDesk(p: Project, ref: PageRef, desk: Desk): Project {
     ...p,
     station: desk.station,
     story: { ...p.story, pitch: desk.pitch, synopsis: desk.synopsis },
-    library: { ...p.library, characters: desk.cast },
+    library: { ...p.library, characters: desk.cast, assets: desk.assets },
     chapters: p.chapters.map((c) =>
       c.id !== ref.chapterId
         ? c

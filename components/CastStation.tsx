@@ -5,6 +5,7 @@
 // Sheets`; see `devpost/spec.md > Components > Cast Station and Character
 // Card`.
 import { useEffect, useRef } from 'react'
+import { AssetShelf } from '@/components/AssetShelf'
 import { CharacterCard, IDLE_CARD, type CardState } from '@/components/CharacterCard'
 import { GenerationStatus } from '@/components/GenerationStatus'
 import { StationFooter } from '@/components/StationFooter'
@@ -25,6 +26,11 @@ type Props = {
   onReroll: (id: string) => void
   onDraw: (id: string, reuseDna: boolean) => void
   onLock: (id: string) => void
+  onImport: (id: string, assetId: string) => void
+  uploading: boolean
+  uploadNotice: string | null
+  onUpload: (file: File) => void
+  onUploadNotice: (sentence: string) => void
   onGoStoryboard: () => void
 }
 
@@ -40,6 +46,11 @@ export function CastStation({
   onReroll,
   onDraw,
   onLock,
+  onImport,
+  uploading,
+  uploadNotice,
+  onUpload,
+  onUploadNotice,
   onGoStoryboard,
 }: Props) {
   const empty = chapter.cast.length === 0
@@ -64,10 +75,18 @@ export function CastStation({
           <div className="eyebrow">Station 2 · Model sheets</div>
           <h1 className="station-title">The cast</h1>
           <p className="station-lede">
-            Every panel is drawn from these sheets. Read the DNA beside the art, fix the words or redraw the
-            picture until they agree, then lock. Both locks open the storyboard.
+            Every panel is drawn from these sheets. Draw a sheet, or import one of your own drawings from the
+            shelf. Read the DNA beside the art, fix the words or redraw the picture until they agree, then lock. Both locks open the storyboard.
           </p>
         </div>
+
+        <AssetShelf
+          assets={chapter.assets}
+          uploading={uploading}
+          notice={uploadNotice}
+          onUpload={onUpload}
+          onNotice={onUploadNotice}
+        />
 
         {proposing ? (
           <div className="sketch cast-loading" aria-busy="true">
@@ -93,6 +112,8 @@ export function CastStation({
                 onReroll={onReroll}
                 onDraw={onDraw}
                 onLock={onLock}
+                assets={chapter.assets}
+                onImport={onImport}
               />
             ))}
           </div>

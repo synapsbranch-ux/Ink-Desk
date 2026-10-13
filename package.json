@@ -17,6 +17,7 @@
     "check:repair": "tsx scripts/repair-check.mts",
     "check:export": "tsx scripts/export-check.mts",
     "check:models": "tsx scripts/models-check.mts",
+    "check:assets": "tsx scripts/assets-check.mts",
     "check:llm": "tsx scripts/llm-check.mts"
   },
   "dependencies": {

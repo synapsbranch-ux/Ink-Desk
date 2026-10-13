@@ -10,7 +10,8 @@
 // opening the file. An unrecognised media type is a hard failure, not a guess.
 import { update } from './chapter'
 import { store, type BlobKind } from './store'
-import type { Desk, PageRef } from './types'
+import { addAsset, checkUpload } from './assets'
+import type { Asset, Desk, PageRef } from './types'
 
 export { isImageId, mediaTypeOf } from './store/local'
 
@@ -39,6 +40,26 @@ export async function saveImage(
     at
   )
   return { chapter, imageId }
+}
+
+/**
+ * Store one uploaded reference and put it on the project's shelf (slice 10).
+ * The bytes were already checked by `checkUpload`; an upload is not a
+ * generation, so it never counts toward the image counter or the spend.
+ */
+export async function saveAsset(
+  projectId: string,
+  bytes: Buffer,
+  mediaType: string,
+  name: string
+): Promise<{ chapter: Desk; asset: Asset }> {
+  const blobId = await store.putBlob(bytes, mediaType, 'asset')
+  const asset: Asset = { id: blobId, kind: 'reference', name, blobId, mediaType, bytes: bytes.length, createdAt: new Date().toISOString() }
+  const chapter = await update(projectId, (d) => {
+    checkUpload(bytes, d.assets.length) // the shelf limit, rechecked inside the lock
+    return addAsset(d, asset)
+  })
+  return { chapter, asset }
 }
 
 /** The bytes of a stored image, or null if there is no such file. */

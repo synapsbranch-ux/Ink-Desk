@@ -36,6 +36,9 @@ export type Character = {
   dna: string | null // written by Claude on Draw sheet, frozen at lock
   sheetImageId: string | null // → data/images/<id>.<ext>
   locked: boolean // final; no unlock in this version
+  /** v2 (slice 10): set when the sheet is the storyteller's own uploaded
+   *  picture rather than a generated sheet. Absent = drawn, as in v1. */
+  source?: 'imported'
 }
 
 export type PanelStatus = 'empty' | 'inking' | 'done' | 'failed' | 'refused'
@@ -155,8 +158,19 @@ export type ProjectSummary = {
   pagesInked: number
   /** The cover, else the first inked panel, else null. */
   thumbnailImageId: string | null
+  /** Every locked character in the project — the dashboard's library shelf. */
+  characters: LibraryCharacter[]
   createdAt: string
   updatedAt: string
+}
+
+/** One locked character as the global library shows it: read-only. */
+export type LibraryCharacter = {
+  id: string
+  name: string
+  role: string
+  sheetImageId: string
+  imported: boolean
 }
 
 // --- The desk view -----------------------------------------------------------
@@ -172,6 +186,8 @@ export type Desk = {
   pitch: Pitch
   synopsis: Synopsis | null
   cast: Character[] // exactly 2 once proposed
+  /** The project's uploaded references (slice 10) — the shelf in the Cast station. */
+  assets: Asset[]
   script: Panel[] | null // exactly 4 once written — this page's panels
   imageCount: number // the project's images, the header counter
   costUsd: number // the project's spend, from the providers' usage.cost
@@ -198,6 +214,7 @@ export function emptyDesk(
     pitch: { text: '', genre: '', tone: '' },
     synopsis: null,
     cast: [],
+    assets: [],
     script: null,
     imageCount: 0,
     costUsd: 0,

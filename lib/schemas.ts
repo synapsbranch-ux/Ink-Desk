@@ -158,3 +158,6 @@ export const SheetRequestSchema = z.object({
   /** Redraw: keep the DNA on the card. Draw / after a look edit: write it fresh. */
   reuseDna: z.boolean().optional(),
 })
+
+/** Import reference: this card's sheet becomes that shelf asset. */
+export const ImportRequestSchema = z.object({ id: z.string().min(1), assetId: z.string().min(1) })

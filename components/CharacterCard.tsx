@@ -9,10 +9,10 @@
 import { useState } from 'react'
 import { GenerationStatus } from '@/components/GenerationStatus'
 import type { CharacterEdit } from '@/lib/patch'
-import { SHEET_FRESH_STAGES, SHEET_STAGES } from '@/lib/stages'
-import type { Character } from '@/lib/types'
+import { SHEET_FRESH_STAGES, SHEET_STAGES, textStages } from '@/lib/stages'
+import type { Asset, Character } from '@/lib/types'
 
-export type CardState = { busy: 'rerolling' | 'drawing' | 'redrawing' | null; notice: string | null }
+export type CardState = { busy: 'rerolling' | 'drawing' | 'redrawing' | 'importing' | null; notice: string | null }
 export const IDLE_CARD: CardState = { busy: null, notice: null }
 
 type Props = {
@@ -26,15 +26,23 @@ type Props = {
   onReroll: (id: string) => void
   onDraw: (id: string, reuseDna: boolean) => void
   onLock: (id: string) => void
+  /** The project's reference shelf, for Import reference (slice 10). */
+  assets: Asset[]
+  onImport: (id: string, assetId: string) => void
 }
 
-export function CharacterCard({ index, character: c, state, onEdit, onCommit, onReroll, onDraw, onLock }: Props) {
+export function CharacterCard({ index, character: c, state, onEdit, onCommit, onReroll, onDraw, onLock, assets, onImport }: Props) {
   const { busy, notice } = state
   const working = busy !== null
   const hasDna = Boolean(c.dna)
   const hasSheet = Boolean(c.sheetImageId)
   const hasPair = hasDna && hasSheet
-  const drawing = busy === 'drawing' || busy === 'redrawing'
+  const drawing = busy === 'drawing' || busy === 'redrawing' || busy === 'importing'
+  const imported = c.source === 'imported'
+  // The shelf asset this card's sheet came from, for Reread picture.
+  const sheetAsset = imported ? assets.find((a) => a.blobId === c.sheetImageId) : undefined
+  const [pick, setPick] = useState<string>('')
+  const chosen = pick && assets.some((a) => a.id === pick) ? pick : (assets[assets.length - 1]?.id ?? '')
 
   // The four actions, always rendered in the same places with fixed labels —
   // the checkpoint verdict was that a morphing label hid Redraw entirely.
@@ -62,13 +70,26 @@ export function CharacterCard({ index, character: c, state, onEdit, onCommit, on
       kind: 'secondary',
       onClick: () => onDraw(c.id, false),
       disabled: working || c.locked,
-      caption: hasDna
+      caption: imported
+        ? 'Draws a sheet from the look instead of your picture.'
+        : hasDna
         ? 'Rereads the look, writes fresh DNA, draws again.'
         : hasSheet
           ? 'The look changed — Claude writes fresh DNA, then draws.'
           : 'Claude writes the visual DNA from the look, then draws.',
     },
-    {
+    imported
+      ? {
+          key: 'redraw',
+          label: busy === 'importing' ? 'Reading…' : 'Reread picture',
+          kind: 'secondary',
+          onClick: () => sheetAsset && onImport(c.id, sheetAsset.id),
+          disabled: working || c.locked || !sheetAsset,
+          caption: hasDna
+            ? 'Your picture is the sheet — Claude reads it again and rewrites the DNA.'
+            : 'Claude writes the DNA from your picture.',
+        }
+      : {
       key: 'redraw',
       label: busy === 'redrawing' ? 'Redrawing…' : 'Redraw sheet',
       kind: 'secondary',
@@ -81,7 +102,7 @@ export function CharacterCard({ index, character: c, state, onEdit, onCommit, on
         : hasSheet
           ? 'Same DNA, new picture.'
           : 'Same DNA — try the picture again.',
-    },
+        },
     {
       key: 'lock',
       label: 'Lock',
@@ -136,7 +157,15 @@ export function CharacterCard({ index, character: c, state, onEdit, onCommit, on
           {drawing ? (
             <div className="sketch sheet-art is-drawing">
               <div className="speedlines" />
-              <GenerationStatus stages={busy === 'redrawing' ? SHEET_STAGES : SHEET_FRESH_STAGES} />
+              <GenerationStatus
+                stages={
+                  busy === 'importing'
+                    ? textStages('Claude is reading your picture…')
+                    : busy === 'redrawing'
+                      ? SHEET_STAGES
+                      : SHEET_FRESH_STAGES
+                }
+              />
             </div>
           ) : c.sheetImageId ? (
             <div className="sheet-art">
@@ -148,7 +177,9 @@ export function CharacterCard({ index, character: c, state, onEdit, onCommit, on
               <span>No sheet yet</span>
             </div>
           )}
-          <figcaption className="eyebrow eyebrow-sm">Sheet · front, three-quarter, expressions</figcaption>
+          <figcaption className="eyebrow eyebrow-sm">
+            {imported ? 'Sheet · your picture, imported' : 'Sheet · front, three-quarter, expressions'}
+          </figcaption>
         </figure>
 
         <div className="dna">
@@ -157,9 +188,13 @@ export function CharacterCard({ index, character: c, state, onEdit, onCommit, on
             <p className="dna-text">{c.dna}</p>
           ) : (
             <p className="dna-empty">
-              {drawing
+              {busy === 'importing'
+                ? 'Claude is writing it from your picture.'
+                : drawing
                 ? 'Claude is writing it from the look below.'
-                : c.sheetImageId
+                : imported
+                  ? 'Not written yet — use Reread picture and Claude writes it from your picture, then read it against the art before you lock.'
+                  : c.sheetImageId
                   ? 'The look changed, so this DNA was retired. Draw the sheet again and Claude writes it fresh from the new words.'
                   : 'Written by Claude from the look below when you draw the sheet, then pasted word for word into every panel this character appears in. Read it against the art before you lock.'}
             </p>
@@ -202,6 +237,40 @@ export function CharacterCard({ index, character: c, state, onEdit, onCommit, on
           />
         )}
       </div>
+
+      {!c.locked && (
+        <div className="import-row">
+          <span className="eyebrow eyebrow-sm">Import reference</span>
+          {assets.length === 0 ? (
+            <span className="action-caption">Upload one of your own drawings to the shelf above, then pick it here.</span>
+          ) : (
+            <>
+              <select
+                className="input import-select"
+                value={chosen}
+                onChange={(e) => setPick(e.target.value)}
+                disabled={working}
+                aria-label={`Reference for ${c.name}`}
+              >
+                {assets.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={working || !chosen}
+                onClick={() => onImport(c.id, chosen)}
+              >
+                {busy === 'importing' ? 'Reading…' : 'Use as sheet'}
+              </button>
+              <span className="action-caption">Your picture becomes the sheet; Claude writes the DNA from it.</span>
+            </>
+          )}
+        </div>
+      )}
 
       {notice && (
         <div className="notice" role="alert">

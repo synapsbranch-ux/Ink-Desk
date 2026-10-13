@@ -164,6 +164,9 @@ export function summarize(p: Project): ProjectSummary {
     pageCount: pages.length,
     pagesInked: pages.filter((pg) => pg.panels.length === 4 && pg.panels.every((panel) => panel.versions.length > 0)).length,
     thumbnailImageId: cover ?? firstInked?.versions[firstInked.currentVersion]?.imageId ?? null,
+    characters: p.library.characters
+      .filter((c) => c.locked && c.sheetImageId)
+      .map((c) => ({ id: c.id, name: c.name, role: c.role, sheetImageId: c.sheetImageId as string, imported: c.source === 'imported' })),
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
   }

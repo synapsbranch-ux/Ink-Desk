@@ -27,6 +27,7 @@ export function Dashboard({ projects, notice = null }: { projects: ProjectSummar
   const search = useSearchParams()
   const [creating, setCreating] = useState(search.get('new') === '1')
 
+  const library = projects.flatMap((project) => project.characters.map((character) => ({ character, project })))
   const images = projects.reduce((n, p) => n + p.images, 0)
   const cost = projects.reduce((n, p) => n + p.costUsd, 0)
 
@@ -124,10 +125,32 @@ export function Dashboard({ projects, notice = null }: { projects: ProjectSummar
               <div className="eyebrow">Library</div>
               <h2 className="station-title is-small">Locked characters, across projects</h2>
               <p className="station-lede">
-                Every locked character will live here, read-only, with their sheet — the shelf fills in once imports
-                arrive.
+                Every locked character on the desk, read-only, with the sheet every panel of theirs is drawn against.
               </p>
             </div>
+            {library.length === 0 ? (
+              <p className="asset-empty">No locked characters yet — lock a sheet in any project and it appears here.</p>
+            ) : (
+              <ul className="library-grid" aria-label="Locked characters">
+                {library.map(({ character: c, project }) => (
+                  <li key={`${project.id}:${c.id}`} className="library-card card">
+                    <Link href={`/p/${project.id}`} className="library-link" title={`Open ${project.title}`}>
+                      <div className="library-sheet">
+                        {/* eslint-disable-next-line @next/next/no-img-element -- the locked sheet, served by id */}
+                        <img src={`/api/image/${c.sheetImageId}`} alt={`${c.name}’s locked sheet`} />
+                      </div>
+                      <div className="library-body">
+                        <span className="library-name">{c.name}</span>
+                        <span className="library-role">{c.role}</span>
+                        <span className="library-meta">
+                          {c.imported ? 'Imported' : 'Drawn'} · {project.title}
+                        </span>
+                      </div>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
         </div>
       </main>

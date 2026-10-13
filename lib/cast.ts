@@ -7,6 +7,7 @@
 //
 // Shared with the browser through `lib/patch.ts` (for `editCharacter`), so
 // no Node imports — `crypto.randomUUID()` is a global on both sides.
+import { findAsset } from './assets'
 import { Refused } from './errors'
 import type { Chapter, Character } from './types'
 
@@ -95,5 +96,30 @@ export function setDna(chapter: Chapter, id: string, dna: string): Chapter {
  */
 export function attachSheet(chapter: Chapter, id: string, dna: string, imageId: string): Chapter {
   assertUnlocked(findCharacter(chapter, id))
-  return { ...chapter, cast: chapter.cast.map((c) => (c.id === id ? { ...c, dna, sheetImageId: imageId } : c)) }
+  return {
+    ...chapter,
+    cast: chapter.cast.map((c) => {
+      if (c.id !== id) return c
+      // A drawn sheet replaces an imported one: the card is drawn again.
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { source, ...drawn } = c
+      return { ...drawn, dna, sheetImageId: imageId }
+    }),
+  }
+}
+
+/**
+ * Import reference (v2, slice 10): the storyteller's own picture becomes this
+ * character's sheet. The DNA is retired here and written next *from the
+ * picture*, so the frozen pair still cannot contradict itself — the same
+ * DNA-first argument as a drawn sheet, run the other way round. Lock then
+ * applies the v1 rule unchanged: DNA and sheet both present.
+ */
+export function importSheet(chapter: Chapter, id: string, assetId: string): Chapter {
+  assertUnlocked(findCharacter(chapter, id))
+  const asset = findAsset(chapter, assetId)
+  return {
+    ...chapter,
+    cast: chapter.cast.map((c) => (c.id === id ? { ...c, sheetImageId: asset.blobId, dna: null, source: 'imported' as const } : c)),
+  }
 }

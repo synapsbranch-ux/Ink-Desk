@@ -353,3 +353,43 @@ export function dnaPrompt(character: CharacterText, synopsis: { title: string; b
     '  Suitable for a general audience.',
   ].join('\n')
 }
+
+/**
+ * DNA from a picture (v2, slice 10). The storyteller uploaded their own
+ * reference; it becomes the locked sheet, and this paragraph is written FROM
+ * it, so the two frozen artifacts agree by construction — the picture wins
+ * wherever the card's words disagree with it. Same output contract as
+ * `dnaPrompt`: one drawable paragraph, pasted verbatim into every panel.
+ */
+export function dnaFromPicturePrompt(character: CharacterText, synopsis: { title: string; body: string }): string {
+  return [
+    'You are the character designer at Ink Desk, a small manga studio. The',
+    `storyteller uploaded the attached picture as their own reference for ${character.name}.`,
+    'It becomes this character’s locked model sheet: every panel they appear in is',
+    'drawn against it. Write their visual DNA — one paragraph that will be pasted,',
+    'word for word, into every one of those image requests.',
+    '',
+    `Story: ${synopsis.title} — ${synopsis.body}`,
+    '',
+    'The character, as the storyteller described them:',
+    `  name: ${character.name}`,
+    `  role: ${character.role}`,
+    `  traits: ${character.traits.join(', ')}`,
+    `  look: ${character.look}`,
+    '',
+    'Requirements:',
+    '- Describe the person the picture shows. Where the look above and the picture',
+    '  disagree, the picture wins — it is what every panel is drawn against.',
+    '- If the picture shows several people, describe the most prominent one only.',
+    '- Start with their name, apparent age and sex. Then hair (length, cut, colour,',
+    '  how it falls), eyes, face shape, skin tone, build, and the full outfit from',
+    '  head to foot with its colours, as far as the picture shows them.',
+    '- End with one or two distinguishing marks that are visible in the picture and',
+    '  would stay visible from a distance — a scar, a scarf, a cap, glasses, a pendant.',
+    '- Only what can be drawn. No art-style words (the project has its own style),',
+    '  no personality, no backstory, no setting, no pose.',
+    '- Never say who a real person in the picture might be.',
+    '- One paragraph of plain prose, no line breaks, no lists, no markdown.',
+    '  Suitable for a general audience.',
+  ].join('\n')
+}

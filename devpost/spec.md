@@ -1674,9 +1674,12 @@ expose it.
 
 - `POST /api/projects/[id]/assets` — multipart via the Web standard
   `await request.formData()`; accepts `image/png`, `image/jpeg`, `image/webp`
-  up to **8 MB**; refuses anything else with a sentence; stores the bytes with
-  `putBlob` and an `Asset` record on the project. `GET /api/blob/[id]` streams
-  any blob (sheets, panels, covers, uploads) with its media type.
+  — judged by the file's own first bytes, never its name or label — up to
+  **5 MB** (slice 10 lowered it from 8 MB so every upload is also within the
+  vision limit of both text providers) and 24 per shelf; refuses anything
+  else with a sentence; stores the bytes with
+  `putBlob` and an `Asset` record on the project. `GET /api/image/[id]` serves
+  it like any other stored image. An upload never counts as a generated image.
 - **Import reference** on a character card: `importSheet(project, characterId,
   assetId)` sets `sheetImageId` to the asset's blob, `source: 'imported'`,
   `dna: null`; the server then calls `writeDnaFromImage` (Claude vision, or the

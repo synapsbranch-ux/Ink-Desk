@@ -6,6 +6,7 @@ import { ask } from './llm'
 import { ProviderError } from './errors'
 import {
   castPrompt,
+  dnaFromPicturePrompt,
   dnaPrompt,
   pageScriptPrompt,
   rerollPrompt,
@@ -53,6 +54,20 @@ export function rewriteCharacter(
 /** The card's words → the paragraph every image request will carry. */
 export async function writeDna(character: CharacterText, synopsis: SynopsisText): Promise<string> {
   const { dna } = await ask(DnaSchema, dnaPrompt(character, synopsis), 1024, { label: 'dna' })
+  return dna.replace(/\s*\n\s*/g, ' ').trim()
+}
+
+/** An imported picture → the paragraph every image request will carry,
+ *  written from the picture itself (slice 10). */
+export async function writeDnaFromPicture(
+  character: CharacterText,
+  synopsis: SynopsisText,
+  picture: { bytes: Buffer; mediaType: string }
+): Promise<string> {
+  const { dna } = await ask(DnaSchema, dnaFromPicturePrompt(character, synopsis), 1024, {
+    label: 'dna-from-picture',
+    images: [picture],
+  })
   return dna.replace(/\s*\n\s*/g, ' ').trim()
 }
 
