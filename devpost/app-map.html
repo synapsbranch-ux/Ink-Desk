@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ink Desk — App Map</title>
+<meta name="description" content="A compact map of the Ink Desk proof of concept: what it is, how one action travels through the code, where to start a change, and one practice worth reusing.">
+<style>
+  :root{
+    --paper:#f3f2f2; --surface:#eae9e9; --ink:#201f1d; --hanko:#b5382e;
+    --n200:#eae7e7; --n300:#d7d3d3; --n700:#605d5d; --n800:#444141;
+    --font-head:"Cormorant Garamond", Garamond, Georgia, serif;
+    --font-body:"Lora", Georgia, "Times New Roman", serif;
+    --font-mono:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--font-body);font-size:16px;line-height:1.6;
+    background-image:radial-gradient(circle, rgba(32,31,29,.12) 1px, transparent 1.5px);background-size:7px 7px;padding:28px 16px 56px}
+  .sheet{max-width:880px;margin:0 auto;background:var(--paper);border:1.5px solid var(--ink);box-shadow:5px 5px 0 rgba(32,31,29,.15);padding:28px 24px 40px}
+  h1{font-family:var(--font-head);font-size:clamp(34px,6vw,54px);line-height:1;font-weight:600;margin:0 0 6px}
+  h2{font-family:var(--font-head);font-size:clamp(24px,4vw,32px);font-weight:600;line-height:1.15;margin:40px 0 10px;border-top:1.5px solid var(--ink);padding-top:18px}
+  h3{font-family:var(--font-head);font-size:21px;font-weight:600;margin:18px 0 6px}
+  p{margin:0 0 12px}
+  a{color:var(--hanko)}
+  a:focus-visible,summary:focus-visible{outline:3px solid var(--hanko);outline-offset:2px}
+  code{font-family:var(--font-mono);font-size:.87em;background:var(--n200);padding:1px 5px;border-radius:2px;white-space:nowrap}
+  pre{font-family:var(--font-mono);font-size:.84em;background:var(--n200);padding:12px 14px;overflow:auto;border-left:3px solid var(--ink);margin:0 0 12px}
+  pre code{background:none;padding:0;white-space:pre}
+  .eyebrow{font-size:11.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--n700)}
+  .lede{font-size:18.5px;line-height:1.5;color:var(--n800)}
+  .quiet{color:var(--n700);font-size:14.5px}
+  .stamp{display:inline-block;border:2px solid var(--hanko);color:var(--hanko);font-family:var(--font-head);font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:2px 10px;transform:rotate(-3deg);font-size:14px}
+  ol.route{counter-reset:stop;list-style:none;padding:0;margin:0}
+  ol.route li{position:relative;padding:12px 14px 12px 54px;border:1px solid var(--n300);background:#fff;margin:0 0 10px}
+  ol.route li::before{counter-increment:stop;content:counter(stop);position:absolute;left:14px;top:12px;width:28px;height:28px;border:2px solid var(--ink);border-radius:50%;text-align:center;line-height:24px;font-family:var(--font-head);font-weight:700}
+  table{border-collapse:collapse;width:100%;margin:0 0 12px;font-size:15px}
+  th,td{text-align:left;vertical-align:top;padding:7px 8px;border-bottom:1px solid var(--n300)}
+  th{font-family:var(--font-head);font-size:17px}
+  details{border:1px solid var(--n300);background:#fff;padding:8px 14px;margin:0 0 12px}
+  summary{cursor:pointer;font-weight:700}
+  figure{margin:0 0 12px}
+  figcaption{font-size:14px;color:var(--n700);margin-top:6px}
+  svg text{font-family:var(--font-body);font-size:12.5px;fill:var(--ink)}
+  svg .lane{font-family:var(--font-head);font-size:15px;font-weight:700}
+  svg .mono{font-family:var(--font-mono);font-size:10.5px}
+  svg .box{fill:#fff;stroke:var(--ink);stroke-width:1.5}
+  svg .ext{fill:var(--n200);stroke:var(--ink);stroke-width:1.5;stroke-dasharray:4 3}
+  svg .desk{fill:#fff;stroke:var(--hanko);stroke-width:2}
+  svg .arrow{fill:none;stroke:var(--ink);stroke-width:1.5;marker-end:url(#head)}
+  svg .red{stroke:var(--hanko)}
+  @media (max-width:640px){.sheet{padding:20px 14px 32px} body{padding:12px}}
+</style>
+</head>
+<body>
+<main class="sheet">
+  <p class="eyebrow">Ink Desk · app map · proof of concept v1</p>
+  <h1>Where things live</h1>
+  <p class="lede">A snapshot of the finished proof of concept at commit <code>5329b8a</code> (2026-10-13): what the app is, how one action travels through the code, where to start a change, and one practice from this build worth reusing. Code moves; this page does not. If a path here is wrong, the code is right.</p>
+
+  <h2 id="what">What this is, in four pieces</h2>
+  <p><strong>Ink Desk</strong> turns a story pitch into a real four-panel manga page, with two characters who stay recognisably themselves in every panel they appear in. One Next.js app, nothing else running:</p>
+  <table>
+    <tr><th>Piece</th><th>Where</th><th>What it does</th></tr>
+    <tr><td>The studio</td><td><code>app/page.tsx</code>, <code>components/</code></td><td>Four stations in the browser: Story → Cast → Storyboard → Ink &amp; Publish. Shows what exists, lets you act on it. Holds no secrets, generates nothing.</td></tr>
+    <tr><td>The route handlers</td><td><code>app/api/**/route.ts</code></td><td>Small server functions, one per action. The only code that sees the API keys and talks to the providers.</td></tr>
+    <tr><td>The desk</td><td><code>data/chapter.json</code>, <code>data/images/</code></td><td>One JSON file is the whole chapter; every generated picture is a file beside it. Written only through <code>lib/chapter.ts</code>, one change at a time.</td></tr>
+    <tr><td>Two providers</td><td><code>lib/claude.ts</code>, <code>lib/image-provider.ts</code></td><td>Claude writes every word (synopsis, cast, visual DNA, script, dialogue). An image model, reached through OpenRouter, draws every picture.</td></tr>
+  </table>
+  <p><strong>The kernel</strong> — the idea everything else serves: each character gets one model sheet and one short "visual DNA" text, both frozen when you <span class="stamp">Lock</span>. Every panel request carries that sheet as an attached reference picture plus the DNA word for word. Claude only ever writes the part that changes: action, camera, background. <em>Locked appearance, free action.</em></p>
+
+  <h2 id="action">One action, followed through</h2>
+  <p>The action worth knowing: <strong>both characters are locked, and the page inks in.</strong> Here is where each step happens.</p>
+  <figure>
+    <svg viewBox="0 0 860 400" role="img" aria-labelledby="diag-title diag-desc" width="100%">
+      <title id="diag-title">How a locked character becomes four inked panels</title>
+      <desc id="diag-desc">Three lanes: the browser, the server route handlers, and the desk plus providers. Locking a character posts a patch; the storyboard asks for the script and starts the panels; each panel job reads the locked sheet from disk, sends it as the single reference to the image model with the DNA text, saves the result as a file, and the browser's poll shows it ink in.</desc>
+      <defs><marker id="head" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#201f1d"/></marker></defs>
+      <text class="lane" x="16" y="26">Browser</text>
+      <text class="lane" x="316" y="26">Server route handlers</text>
+      <text class="lane" x="616" y="26">Desk &amp; providers</text>
+      <line x1="300" y1="34" x2="300" y2="390" stroke="#d7d3d3"/><line x1="600" y1="34" x2="600" y2="390" stroke="#d7d3d3"/>
+
+      <rect class="box" x="16" y="48" width="260" height="54"/>
+      <text x="26" y="68">① Lock on a character card</text>
+      <text class="mono" x="26" y="86">components/CharacterCard.tsx → onLock</text>
+      <text class="mono" x="26" y="98">page.tsx → lock() → POST /api/chapter</text>
+
+      <rect class="box" x="316" y="48" width="260" height="54"/>
+      <text x="326" y="68">② Refuse or apply the patch</text>
+      <text class="mono" x="326" y="86">app/api/chapter/route.ts</text>
+      <text class="mono" x="326" y="98">lib/cast.ts → assertEditAllowed</text>
+      <path class="arrow" d="M276 75 H314"/>
+
+      <rect class="desk" x="616" y="48" width="228" height="54"/>
+      <text x="626" y="68">chapter.json: locked = true</text>
+      <text class="mono" x="626" y="86">lib/chapter.ts → update()</text>
+      <text class="mono" x="626" y="98">serialized, atomic write</text>
+      <path class="arrow" d="M576 75 H614"/>
+
+      <rect class="box" x="16" y="128" width="260" height="54"/>
+      <text x="26" y="148">③ Storyboard opens</text>
+      <text class="mono" x="26" y="166">components/StoryboardStation.tsx</text>
+      <text class="mono" x="26" y="178">POST /api/script → /api/panels/start</text>
+
+      <rect class="box" x="316" y="128" width="260" height="54"/>
+      <text x="326" y="148">④ Script, then four queued jobs</text>
+      <text class="mono" x="326" y="166">lib/claude.ts → writePageScript</text>
+      <text class="mono" x="326" y="178">lib/panels.ts → queueBlankPanels</text>
+      <path class="arrow" d="M276 155 H314"/>
+
+      <rect class="ext" x="616" y="128" width="228" height="54"/>
+      <text x="626" y="148">Claude (text)</text>
+      <text class="mono" x="626" y="166">one character per panel,</text>
+      <text class="mono" x="626" y="178">enforced by the zod schema</text>
+      <path class="arrow" d="M576 155 H614"/>
+
+      <rect class="box" x="316" y="208" width="260" height="78"/>
+      <text x="326" y="228">⑤ One panel job, two at a time</text>
+      <text class="mono" x="326" y="246">lib/panels.ts → inkPanel</text>
+      <text class="mono" x="326" y="258">reads the locked sheet off disk,</text>
+      <text class="mono" x="326" y="270">prompt = DNA verbatim + framing</text>
+      <text class="mono" x="326" y="282">+ Claude's action, camera, background</text>
+      <path class="arrow" d="M446 182 V206"/>
+
+      <rect class="ext" x="616" y="208" width="228" height="78"/>
+      <text x="626" y="228">Image model via OpenRouter</text>
+      <text class="mono" x="626" y="246">POST /api/v1/images</text>
+      <text class="mono" x="626" y="258">input_references[0] = the sheet</text>
+      <text class="mono" x="626" y="270">no text in the image</text>
+      <text class="mono" x="626" y="282">lib/image-provider.ts</text>
+      <path class="arrow red" d="M576 247 H614"/>
+
+      <rect class="desk" x="616" y="310" width="228" height="54"/>
+      <text x="626" y="330">data/images/panel-&lt;id&gt;.png</text>
+      <text class="mono" x="626" y="348">lib/images.ts → saveImage</text>
+      <text class="mono" x="626" y="360">+ a version on the panel</text>
+      <path class="arrow" d="M730 286 V308"/>
+
+      <rect class="box" x="16" y="310" width="260" height="54"/>
+      <text x="26" y="330">⑥ The panel inks in</text>
+      <text class="mono" x="26" y="348">polls GET /api/chapter every 1.5 s</text>
+      <text class="mono" x="26" y="360">Panel.tsx → img src=/api/image/&lt;id&gt;</text>
+      <path class="arrow" d="M614 337 H278"/>
+    </svg>
+    <figcaption>Solid boxes are this app's code. Dashed boxes are the two providers. Red-rimmed boxes are the desk on disk. The red arrow is the kernel: the sheet travels with every panel request.</figcaption>
+  </figure>
+
+  <h2 id="route">A reference route, three stops</h2>
+  <p class="quiet">Not toured interactively — the learner's hands-on time went into the kernel test and the live checkpoints instead (see <a href="#practice">the practice below</a>). Open these in order to see the kernel in code.</p>
+  <ol class="route">
+    <li><strong><code>lib/panels.ts</code> → <code>inkPanel</code></strong><br>The panel job. It claims the panel inside the write lock, reads that character's locked sheet with <code>readImage</code>, and calls <code>generateImage</code> with <code>references: [sheet]</code>. Search for <code>references:</code> to find the one line that makes the face hold.</li>
+    <li><strong><code>lib/prompts.ts</code> → <code>panelPrompt</code>, <code>STYLE_RULES</code>, <code>PANEL_LAYOUT</code></strong><br>The frozen half of every request. <code>panelPrompt</code> pastes the DNA word for word, then the slot's framing line from <code>PANEL_LAYOUT</code>, then Claude's variable part, then <code>STYLE_RULES</code> with its "absolutely no text" rule. Nothing about the character is rewritten per panel.</li>
+    <li><strong><code>components/Panel.tsx</code></strong><br>The visible result. The <code>&lt;img&gt;</code> points at <code>/api/image/&lt;id&gt;</code>; a never-seen image id plays the ink-in (search <code>is-inking</code>), and <code>SpeechBubble</code> sits on top in Comic Neue. The art never carries lettering; the app draws it.</li>
+  </ol>
+  <details>
+    <summary>Where the lock itself is enforced</summary>
+    <p>Clicking <strong>Lock</strong> in <code>components/CharacterCard.tsx</code> calls <code>onLock</code>; <code>app/page.tsx</code>'s <code>lock()</code> commits the patch <code>{ cast: { [id]: { locked: true } } }</code> to <code>POST /api/chapter</code>. The server, not the UI, decides: <code>assertEditAllowed</code> in <code>lib/cast.ts</code> refuses a lock without both a DNA and a sheet, and refuses every later edit on a locked card with a 409. <code>npm run check:cast</code> asserts all of it with no provider in the loop.</p>
+  </details>
+
+  <h2 id="change">To change this, start here</h2>
+  <table>
+    <tr><th>You want to…</th><th>Start at</th></tr>
+    <tr><td>Change the drawing style (ink, screentone, "no text")</td><td><code>lib/prompts.ts</code> → <code>STYLE_RULES</code>. Pasted into every sheet and panel prompt; change it once, it changes everywhere. The copy in <code>scripts/kernel-test.mjs</code> is separate on purpose.</td></tr>
+    <tr><td>Change a shot (wide / medium / close-up) or which character takes a slot</td><td><code>lib/prompts.ts</code> → <code>PANEL_LAYOUT</code>. Each slot carries its shape, stance and framing line; the schema in <code>lib/schemas.ts</code> → <code>pageScriptSchema</code> reads the same slots.</td></tr>
+    <tr><td>Switch model, quality or aspect ratios</td><td><code>.env</code> → <code>IMAGE_MODEL</code>, <code>IMAGE_SHEET_QUALITY</code>, <code>IMAGE_PANEL_QUALITY</code>, <code>IMAGE_*_ASPECT</code>. Read at call time in <code>lib/image-provider.ts</code> → <code>imageConfig()</code>.</td></tr>
+    <tr><td>Run more or fewer panels at once</td><td><code>.env</code> → <code>PANEL_CONCURRENCY</code> (the queue in <code>lib/queue.ts</code>, pinned once per process in <code>lib/singleton.ts</code>).</td></tr>
+    <tr><td>Change where a bubble lands by default</td><td><code>lib/bubble.ts</code> → <code>defaultBubble</code>, driven by <code>bubbleCorner</code> in <code>lib/script.ts</code>.</td></tr>
+    <tr><td>Change the "Sketching the pose…" status lines</td><td><code>lib/stages.ts</code> → <code>PANEL_STAGES</code>, <code>SHEET_STAGES</code>. Pure; <code>npm run check:stages</code> covers it.</td></tr>
+    <tr><td>Change the genre and tone chips, or the sample pitch</td><td><code>lib/prompts.ts</code> → <code>GENRES</code>, <code>TONES</code>, <code>SAMPLE_PITCH</code>.</td></tr>
+    <tr><td>Change the exported PNG's size</td><td><code>lib/export.ts</code> → <code>EXPORT_WIDTH</code>; the geometry is <code>pageGeometry</code>, covered by <code>npm run check:export</code>.</td></tr>
+  </table>
+
+  <h2 id="practice">A practice to reuse</h2>
+  <h3>Prove the riskiest assumption with a throwaway script before building any screen</h3>
+  <p>The whole product rested on one unknown: <em>does a single reference picture plus a frozen text actually hold a face across shots?</em> Rather than find out after five stations were built, slice 1 and slice 2 of <code>devpost/checklist.md</code> ran <code>scripts/kernel-test.mjs</code> first. <code>--probe-only</code> asked the providers what they support, for about a cent; the full run drew one sheet and two panels at <code>medium</code> and wrote <code>data/kernel-test/index.html</code> so the answer was a thing you could look at.</p>
+  <p>What it caught, from <code>devpost/spec.md</code> and <code>checklist.md › Revisions</code>:</p>
+  <ul>
+    <li>The text model rejects <code>thinking: { type: 'disabled' }</code> with a 400; the accepted value is <code>between_tools</code>. Found by the probe, not three stations in.</li>
+    <li>The image endpoint has no <code>size</code> parameter and would have <strong>silently dropped</strong> it; <code>aspect_ratio</code> is the real knob. A 200 with the wrong shape is the worst kind of bug.</li>
+    <li>Cost is driven by scene density, not aspect ratio — the spec's cost table had the wrong shape, and the probe's real <code>usage.cost</code> replaced it.</li>
+  </ul>
+  <p><strong>Where it helps next time:</strong> any project whose value depends on one external behaviour you have not seen with your own eyes — an API's real limits, a model's real output, a library's real performance. Write the smallest script that produces runnable evidence, keep it in the repo, and re-run it before you ship (<code>spec.md › Verified: Image Model and Reference-Image Support</code> asks for exactly that before filming, as the canary for model drift).</p>
+  <details>
+    <summary>Its companion: acceptance checks with the provider stubbed</summary>
+    <p>Every station has a script under <code>scripts/*-check.mts</code> that replaces <code>fetch</code> and asserts the rules against a scratch folder: <code>check:page</code> proves every panel request carries exactly one reference and never the dialogue; <code>check:repair</code> proves one silent retry on a 429 or timeout and never on a 402; <code>check:store</code> proves two same-tick writes both land. They cost nothing and run in seconds, so the rules stay true while the code around them changes.</p>
+  </details>
+
+  <h2 id="run">Run it again</h2>
+<pre><code>npm install
+cp .env.example .env        # add ANTHROPIC_API_KEY and OPENROUTER_API_KEY
+npm run dev                 # http://localhost:3000
+
+npm run typecheck &amp;&amp; npm run lint
+npm run check:store &amp;&amp; npm run check:cast &amp;&amp; npm run check:page
+npm run check:stages &amp;&amp; npm run check:bubble &amp;&amp; npm run check:repair &amp;&amp; npm run check:export
+
+node scripts/kernel-test.mjs --probe-only   # ~$0.01, no UI needed
+node scripts/kernel-test.mjs                # ~$0.07, the lock itself</code></pre>
+  <p class="quiet">This map was generated from commit <code>5329b8a</code>. It is a snapshot: later commits can move a file or rename a symbol, and the planning record in <code>devpost/</code> (<code>scope.md</code>, <code>prd.md</code>, <code>spec.md</code>, <code>checklist.md</code>) stays the canonical story of why things are where they are. Reopen this page any time from <code>devpost/app-map.html</code>; it needs no server and no network.</p>
+</main>
+</body>
+</html>

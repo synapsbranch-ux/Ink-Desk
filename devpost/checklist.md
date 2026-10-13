@@ -157,19 +157,19 @@ verified, and only if time allows before `6-ship`.
 - [x] Export PNG failed on Linux with a raw browser sentence — the font-stack load rejected on next/font's synthesized fallback. Fixed (`lib/export.ts` loads each family separately and tolerates a missing fallback; `ExportError` keeps raw errors off the screen), learner retried the export live: good.
 - [x] PDF export requested at the checkpoint — kept out of scope with the learner's okay: the PRD's deliverable is the PNG, and the browser's own Print → "Save as PDF" on the reader covers sharing. Noted as a possible later enhancement, not built.
 - [x] `check:bubble` failed on a fresh clone (Node 22.22, cloud session, 2026-10-13) while the other six checks, `typecheck` and `lint` passed — `assert.throws(…, Refused)` saw "identical name but a different prototype": the `.mts` entry's static `import { Refused } from '../lib/errors'` and `lib/script.ts`'s own `./errors` resolved to two module instances under the loader. A measurement fault, not a product one (Next bundles one instance). Fixed in the measurement: the check now loads the libs with `await import()` like every other check. Verified: three consecutive passes, `typecheck` and `eslint` clean.
-- [ ] Final review complete — feedback resolved and learner confirms ready to ship
+- [x] Final review complete — feedback resolved and learner confirms ready to ship. **Confirmed 2026-10-13** by the learner, in their words: *"Before any v2 work: finish v1 now. Complete the Final review and the Code Tour / App Map, confirm all checks pass, commit, then tag it `v1-poc` and push the tag."* All checks pass on a fresh clone (above). The v1 proof of concept is tagged **`v1-poc`**; the learner's v2 request is handled as a plan revision below, not as more v1 review.
 
 ## Code Tour and App Map
 
-- [ ] Learning activity complete — guided route, focused alternative, prior practice connected, or brief recap
-- [ ] Optional edit and transfer reflection addressed — offered/declined/already covered/not applicable as appropriate
-- [ ] `devpost/app-map.html` generated from finished code, checked, and shown, including a project-grounded practice to reuse
+- [x] Learning activity complete — guided route, focused alternative, prior practice connected, or brief recap
+- [x] Optional edit and transfer reflection addressed — offered/declined/already covered/not applicable as appropriate
+- [x] `devpost/app-map.html` generated from finished code, checked, and shown, including a project-grounded practice to reuse
 
-Activity and evidence: [pending]
-Route and stops: [pending]
-Edit outcome: [pending]
-Reflection: [pending]
-Activity mode: [pending]
+Activity and evidence: **Prior practice connected**, not a new exercise — the learner is an experienced plan-first developer and asked to close v1 without an extra activity. Their stated learning outcome (`learner-profile.md > Desired Learning Outcome`, "how to keep character art consistent across AI-generated panels") was worked hands-on during the build itself: the slice 2 kernel test (`scripts/kernel-test.mjs`, `data/kernel-test/index.html`), judged by the learner at `medium` — "the face held"; then the lock judged again in the real product at the slice 5 / 5b checkpoints and the slice 7 live run ("Return to Sender"). What produced the consistency, as evidence rather than theory: one sheet image sent as `input_references[0]` with the DNA pasted verbatim (`lib/panels.ts > inkPanel`, `lib/prompts.ts > panelPrompt`), one character per panel enforced by `pageScriptSchema`, framing lines that keep the face readable, and no text in the image. The second outcome ("whether this flipped workflow is worth teaching") gets its honest read in the close-out message: the process caught the `thinking: disabled` 400, the `size` silent drop and the lost-update race before they reached a screen, and the learner's own live checkpoints found the export font bug and the UX verdict that became 5b; its costs were real too — two parallel slice 4 builds and a restarted worker that ticked a checkpoint falsely, both recorded under Revisions.
+Route and stops: Reference-only route in the map, not toured: `lib/panels.ts > inkPanel` (the one `references: [sheet]` line) → `lib/prompts.ts > panelPrompt`, `STYLE_RULES`, `PANEL_LAYOUT` (the frozen half) → `components/Panel.tsx` (`/api/image/<id>`, `is-inking`). Every path and symbol checked against the source at commit `5329b8a`.
+Edit outcome: Not applicable — no code edit was requested or offered as an exercise; the learner's hands-on changes during the build were product decisions (DNA edits, bubble edits, redraws), already recorded at the checkpoints.
+Reflection: Offered once in the close-out message ("what would you do differently next time you start with an agent?"); the learner's answer, if given, stays theirs and is not recorded in this public file.
+Activity mode: Prior practice connected, with a brief evidence-based recap; the map was rendered and checked in a headless browser (offline, no scripts required).
 
 ## Revisions
 
