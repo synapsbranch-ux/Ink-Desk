@@ -1,8 +1,12 @@
 // Pitch + genre + tone → Claude → a synopsis, written to the desk unaccepted.
-// Calling it again is "Rewrite": the new draft replaces the old one.
-import { update } from '@/lib/chapter'
+// Calling it again is "Rewrite": the new draft replaces the old one — but
+// only until the cast exists. The cast and page are built FROM the accepted
+// synopsis, so replacing the story after that would orphan everything
+// downstream; the PRD's remedy is New chapter (slice 7's confirm-then-clear),
+// never a silent swap. See `devpost/prd.md > States and Boundaries`.
+import { read, update } from '@/lib/chapter'
 import { writeSynopsis } from '@/lib/claude'
-import { errorResponse } from '@/lib/errors'
+import { errorResponse, Refused } from '@/lib/errors'
 import { SynopsisRequestSchema } from '@/lib/schemas'
 
 export const runtime = 'nodejs'
@@ -17,6 +21,12 @@ export async function POST(req: Request) {
   const { pitch, genre, tone } = parsed.data
 
   try {
+    const existing = await read()
+    if (existing.cast.length > 0) {
+      throw new Refused(
+        'This chapter’s cast and page were built from the accepted synopsis. Start a new chapter to tell a different story.'
+      )
+    }
     const synopsis = await writeSynopsis({ pitch, genre, tone })
     const chapter = await update((c) => ({
       ...c,

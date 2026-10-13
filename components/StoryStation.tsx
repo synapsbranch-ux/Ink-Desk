@@ -28,6 +28,13 @@ export function StoryStation({ chapter, gates, pending, notice, onEdit, onCommit
   const { pitch, synopsis } = chapter
   const ready = pitch.text.trim().length > 0 && pitch.genre !== '' && pitch.tone !== ''
   const accepted = synopsis?.accepted === true
+  // Once the cast exists it was built from this synopsis, so the story
+  // freezes: a rewrite here would orphan the sheets and the page. The server
+  // refuses it too; this just says so before the click. Slice 7's New chapter
+  // is how a different story starts.
+  const castBuilt = chapter.cast.length > 0
+  const frozen = pending || castBuilt
+  const frozenWhy = 'The cast and page were built from this synopsis. A different story needs a new chapter.'
 
   return (
     <main className="station">
@@ -43,7 +50,8 @@ export function StoryStation({ chapter, gates, pending, notice, onEdit, onCommit
           placeholder="A line or two is enough. Who, where, and what goes wrong."
           value={pitch.text}
           onChange={(e) => onEdit({ pitch: { text: e.target.value } })}
-          disabled={pending}
+          disabled={frozen}
+          title={castBuilt ? frozenWhy : undefined}
           aria-label="Your pitch"
         />
         <div className="pitch-aside">
@@ -52,7 +60,8 @@ export function StoryStation({ chapter, gates, pending, notice, onEdit, onCommit
             type="button"
             className="btn btn-ghost"
             onClick={() => onCommit({ pitch: { text: SAMPLE_PITCH } })}
-            disabled={pending}
+            disabled={frozen}
+            title={castBuilt ? frozenWhy : undefined}
           >
             Try the sample
           </button>
@@ -69,7 +78,7 @@ export function StoryStation({ chapter, gates, pending, notice, onEdit, onCommit
                 aria-checked={pitch.genre === g}
                 className={`chip${pitch.genre === g ? ' is-selected' : ''}`}
                 onClick={() => onCommit({ pitch: { genre: g } })}
-                disabled={pending}
+                disabled={frozen}
               >
                 {g}
               </button>
@@ -85,7 +94,7 @@ export function StoryStation({ chapter, gates, pending, notice, onEdit, onCommit
                 aria-checked={pitch.tone === t}
                 className={`chip chip-tone${pitch.tone === t ? ' is-selected' : ''}`}
                 onClick={() => onCommit({ pitch: { tone: t } })}
-                disabled={pending}
+                disabled={frozen}
               >
                 {t}
               </button>
@@ -94,13 +103,21 @@ export function StoryStation({ chapter, gates, pending, notice, onEdit, onCommit
         </div>
 
         <div className="action-row">
-          <button type="button" className="btn btn-primary btn-lg" onClick={onPitch} disabled={!ready || pending}>
+          <button
+            type="button"
+            className="btn btn-primary btn-lg"
+            onClick={onPitch}
+            disabled={!ready || frozen}
+            title={castBuilt ? frozenWhy : undefined}
+          >
             {pending ? 'Pitching…' : synopsis ? 'Pitch it again' : 'Pitch it to Claude'}
           </button>
           <span className="helper">
-            {ready
-              ? 'A short synopsis comes back. You edit it, accept it, or ask for another.'
-              : 'Write a pitch and pick a genre and a tone.'}
+            {castBuilt
+              ? frozenWhy
+              : ready
+                ? 'A short synopsis comes back. You edit it, accept it, or ask for another.'
+                : 'Write a pitch and pick a genre and a tone.'}
           </span>
         </div>
 
@@ -156,7 +173,13 @@ export function StoryStation({ chapter, gates, pending, notice, onEdit, onCommit
                   Accept
                 </button>
               )}
-              <button type="button" className="btn btn-secondary" onClick={onPitch} disabled={!ready}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={onPitch}
+                disabled={!ready || frozen}
+                title={castBuilt ? frozenWhy : undefined}
+              >
                 Rewrite
               </button>
             </div>
