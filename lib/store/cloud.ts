@@ -14,19 +14,21 @@
 //      A mismatch means another writer got there first: re-read and run `fn`
 //      again on the fresh project, a bounded number of times, then a calm
 //      failure. Inside one process the per-project promise chain still
-//      serializes updates first, so a retry only happens when a second
-//      process shares the database.
+//      serializes updates first, so a retry only happens when something
+//      else writes the database — a check, a script, a second server
+//      started by mistake. Run one Ink Desk server per database: a second
+//      one's stale-inking floor would demote this one's panels in flight.
 //
 // The browser still only ever sees `/api/image/<id>`; the bucket is never
 // public. The panel queue stays in this process in both modes, and the
 // stale-inking floor (`startedByRun`, `startedAt`) is unchanged — cloud mode
 // makes the data durable and shareable, not the app multi-instance.
 import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
-import { MongoClient, MongoServerError, type Collection } from 'mongodb'
+import { MongoClient, MongoNetworkError, MongoServerError, MongoServerSelectionError, type Collection } from 'mongodb'
 import { ProviderError, Refused } from '../errors'
 import { singletons } from '../singleton'
 import type { Project, ProjectSummary } from '../types'
-import { missingCloudEnv, missingCloudSentence } from './env'
+import { CLOUD_ENV, missingCloudEnv, missingCloudSentence } from './env'
 import { isImageId, isProjectId, mediaTypeOf, summarize } from './local'
 import type { BlobKind, Store } from './index'
 
@@ -45,36 +47,91 @@ const EXT_BY_MEDIA_TYPE: Record<string, string> = {
 
 // --- Connection -----------------------------------------------------------------
 
+/** The object every connect writes: proves the bucket, the endpoint and the
+ *  keys with the one permission the studio needs anyway. Never an image id
+ *  (`.txt`), so `/api/image` can never serve it. */
+export const BUCKET_PROBE_KEY = 'inkdesk-bucket-check.txt'
+
+const MONGO_UNREACHABLE =
+  'The studio couldn’t reach its MongoDB. Check MONGODB_URI (and that the database lets this machine in), then reload.'
+const BUCKET_UNREACHABLE =
+  'The studio couldn’t write to its bucket. Check S3_ENDPOINT, S3_REGION, S3_BUCKET and the S3 keys (and that the bucket exists), then reload.'
+
+type Pending = { settings: string; cloud: Promise<Cloud> }
+
 // On `globalThis` for the same reason as the locks (`lib/singleton.ts`): a hot
 // reload re-evaluates this module, and a client per reload would leak
-// connection pools until Atlas refuses new ones.
-const g = globalThis as typeof globalThis & { __inkdeskCloud?: Promise<Cloud> }
+// connection pools until Atlas refuses new ones. Keyed by the settings, so an
+// edited `.env` under a running dev server reconnects instead of writing on to
+// the old database or bucket.
+const g = globalThis as typeof globalThis & { __inkdeskCloud?: Pending }
 
-function cloud(): Promise<Cloud> {
-  g.__inkdeskCloud ??= connect().catch((err: unknown) => {
-    g.__inkdeskCloud = undefined // the next request tries again
-    throw err
-  })
-  return g.__inkdeskCloud
+/**
+ * What a failed connect leaves behind is plain data, not a `ProviderError`:
+ * the pending connection is shared by every route, and Next compiles
+ * `lib/errors.ts` once per layer, so a class made in one layer would fail
+ * `instanceof` in another. Each caller turns it into its own layer's error.
+ */
+function unreachable(which: 'mongo' | 'bucket', cause: unknown): Error {
+  return Object.assign(new Error(`cloud storage: ${which} unreachable`), { unreachable: which, cause })
 }
 
-async function connect(): Promise<Cloud> {
+function asProviderError(err: unknown): unknown {
+  const which = (err as { unreachable?: string } | null)?.unreachable
+  if (which === 'mongo') return new ProviderError(MONGO_UNREACHABLE, 'config', (err as Error).cause)
+  if (which === 'bucket') return new ProviderError(BUCKET_UNREACHABLE, 'config', (err as Error).cause)
+  return err
+}
+
+async function cloud(): Promise<Cloud> {
   const missing = missingCloudEnv()
   if (missing.length > 0) throw new ProviderError(missingCloudSentence(missing), 'config')
-  const env = process.env as Record<string, string>
-  // `ignoreUndefined`: an absent field stays absent, as it does in the JSON
-  // file — `bubble: undefined` and `bubble: null` mean different things.
-  const client = new MongoClient(env.MONGODB_URI, { ignoreUndefined: true, serverSelectionTimeoutMS: 10_000 })
+  const settings = CLOUD_ENV.map((name) => process.env[name] ?? '').join('\n')
+  let entry = g.__inkdeskCloud
+  if (entry?.settings !== settings) {
+    const retired = entry
+    const pending = connect(process.env as Record<string, string>)
+    entry = { settings, cloud: pending }
+    g.__inkdeskCloud = entry
+    pending.catch(() => {
+      if (g.__inkdeskCloud?.cloud === pending) g.__inkdeskCloud = undefined // the next request tries again
+    })
+    if (retired) void retired.cloud.then(close, () => {})
+  }
   try {
+    return await entry.cloud
+  } catch (err) {
+    throw asProviderError(err)
+  }
+}
+
+/** Where the connection points, for the terminal: hosts and names, never credentials. */
+function describe(env: Record<string, string>): string {
+  const mongoHost = env.MONGODB_URI.replace(/^[a-z+]+:\/\//i, '').replace(/^[^@/]*@/, '').split(/[/?]/)[0]
+  let bucketHost = env.S3_ENDPOINT
+  try {
+    bucketHost = new URL(env.S3_ENDPOINT).host
+  } catch {}
+  return `MongoDB “${env.MONGODB_DB}” on ${mongoHost} · bucket “${env.S3_BUCKET}” at ${bucketHost}`
+}
+
+async function connect(env: Record<string, string>): Promise<Cloud> {
+  let client: MongoClient | undefined
+  try {
+    // Inside the try: a malformed URI throws from the constructor. The URI
+    // itself is never repeated anywhere — it carries the password.
+    client = new MongoClient(env.MONGODB_URI, {
+      // An absent field stays absent, as it does in the JSON file —
+      // `bubble: undefined` and `bubble: null` mean different things.
+      ignoreUndefined: true,
+      // Ten seconds unless the URI chooses its own.
+      ...(/[?&]serverSelectionTimeoutMS=/i.test(env.MONGODB_URI) ? {} : { serverSelectionTimeoutMS: 10_000 }),
+    })
     await client.connect()
     await client.db(env.MONGODB_DB).command({ ping: 1 })
   } catch (err) {
-    await client.close().catch(() => {})
-    throw new ProviderError(
-      'The studio couldn’t reach its MongoDB. Check MONGODB_URI (and that the database lets this machine in), then reload.',
-      'config',
-      err
-    )
+    await client?.close().catch(() => {})
+    throw unreachable('mongo', err)
   }
   const s3 = new S3Client({
     endpoint: env.S3_ENDPOINT,
@@ -84,19 +141,50 @@ async function connect(): Promise<Cloud> {
     forcePathStyle: true,
     credentials: { accessKeyId: env.S3_ACCESS_KEY_ID, secretAccessKey: env.S3_SECRET_ACCESS_KEY },
   })
-  console.log(`[store] cloud: MongoDB “${env.MONGODB_DB}” · bucket “${env.S3_BUCKET}”`)
+  try {
+    // A wrong bucket or key found here costs nothing; found by `putBlob`, it
+    // would be found after an image was already paid for. A write, not
+    // HeadBucket: that needs ListBucket, which a bucket-scoped key may lack.
+    await s3.send(
+      new PutObjectCommand({ Bucket: env.S3_BUCKET, Key: BUCKET_PROBE_KEY, Body: 'Ink Desk keeps its images in this bucket.\n', ContentType: 'text/plain' })
+    )
+  } catch (err) {
+    s3.destroy()
+    await client.close().catch(() => {})
+    throw unreachable('bucket', err)
+  }
+  console.log(`[store] cloud: ${describe(env)}`)
   return { client, projects: client.db(env.MONGODB_DB).collection<ProjectDoc>('projects'), s3, bucket: env.S3_BUCKET }
+}
+
+async function close(c: Cloud): Promise<void> {
+  c.s3.destroy()
+  await c.client.close().catch(() => {})
 }
 
 /** Close the connection — for the checks, which must exit when they finish. */
 export async function closeCloud(): Promise<void> {
-  const pending = g.__inkdeskCloud
+  const entry = g.__inkdeskCloud
   g.__inkdeskCloud = undefined
-  if (!pending) return
-  const c = await pending.catch(() => null)
-  if (!c) return
-  c.s3.destroy()
-  await c.client.close()
+  const c = await entry?.cloud.catch(() => null)
+  if (c) await close(c)
+}
+
+/**
+ * One MongoDB operation. A connection lost after a good start (Atlas down,
+ * this machine's address dropped from the allowlist) is the same calm
+ * sentence as one that never came up, not a raw driver error on the desk.
+ */
+async function mongo<T>(op: (projects: Collection<ProjectDoc>) => Promise<T>): Promise<T> {
+  const { projects } = await cloud()
+  try {
+    return await op(projects)
+  } catch (err) {
+    if (err instanceof MongoNetworkError || err instanceof MongoServerSelectionError) {
+      throw new ProviderError(MONGO_UNREACHABLE, 'config', err)
+    }
+    throw err
+  }
 }
 
 // --- Projects -------------------------------------------------------------------
@@ -119,17 +207,15 @@ function checked(doc: ProjectDoc): Project {
 
 async function readProject(id: string): Promise<Project> {
   if (!isProjectId(id)) throw noSuchProject()
-  const { projects } = await cloud()
-  const doc = await projects.findOne({ _id: id })
+  const doc = await mongo((projects) => projects.findOne({ _id: id }))
   if (!doc) throw noSuchProject()
   return checked(doc)
 }
 
 async function createProject(project: Project): Promise<void> {
   if (!isProjectId(project.id)) throw noSuchProject()
-  const { projects } = await cloud()
   try {
-    await projects.insertOne({ _id: project.id, rev: 0, project: plain({ ...project, serverRunId: singletons.serverRunId }) })
+    await mongo((projects) => projects.insertOne({ _id: project.id, rev: 0, project: plain({ ...project, serverRunId: singletons.serverRunId }) }))
   } catch (err) {
     if (err instanceof MongoServerError && err.code === 11000) throw new Refused('That project already exists.')
     throw err
@@ -196,7 +282,7 @@ function updateProject(id: string, fn: (project: Project) => Project): Promise<P
   // Validated before the lock map is touched, so a garbage id is a 404 and
   // never a lock entry.
   if (!isProjectId(id)) return Promise.reject(noSuchProject())
-  const run = async (): Promise<Project> => revUpdate((await cloud()).projects, id, fn)
+  const run = (): Promise<Project> => mongo((projects) => revUpdate(projects, id, fn))
   const previous = singletons.locks.get(id) ?? Promise.resolve()
   // `.then(run, run)` so one failed update doesn't block the next.
   const result = previous.then(run, run)
@@ -205,9 +291,8 @@ function updateProject(id: string, fn: (project: Project) => Project): Promise<P
 }
 
 async function listProjects(): Promise<ProjectSummary[]> {
-  const { projects } = await cloud()
   const summaries: ProjectSummary[] = []
-  for (const doc of await projects.find({}).toArray()) {
+  for (const doc of await mongo((projects) => projects.find({}).toArray())) {
     try {
       summaries.push(summarize(checked(doc)))
     } catch (err) {
@@ -253,8 +338,10 @@ async function getBlob(id: string): Promise<{ bytes: Buffer; mediaType: string }
     // The id's extension is the media type, exactly as on the local desk.
     return { bytes: Buffer.from(await object.Body.transformToByteArray()), mediaType: mediaTypeOf(id) }
   } catch (err) {
-    const e = err as { name?: string; $metadata?: { httpStatusCode?: number } }
-    if (e.name === 'NoSuchKey' || e.name === 'NotFound' || e.$metadata?.httpStatusCode === 404) return null
+    // Only a missing *object* is "no such image". A missing bucket or a
+    // refused key is a 404 or 403 too, and must not make every image on the
+    // desk look deleted — it goes to the route's 502 and the terminal.
+    if ((err as { name?: string }).name === 'NoSuchKey') return null
     throw err
   }
 }

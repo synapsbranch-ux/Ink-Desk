@@ -26,6 +26,9 @@ import { join } from 'node:path'
 
 const dir = await mkdtemp(join(tmpdir(), 'inkdesk-store-'))
 process.env.INKDESK_DATA_DIR = dir
+// The local half runs on the local store whatever the shell exports; the
+// cloud half below talks to the cloud store directly.
+process.env.INKDESK_STORAGE = 'local'
 
 // Imported after the env is set, because the store reads it at load.
 const { createProject, listProjects, migrateLegacy, read, update } = await import('../lib/chapter')
@@ -273,8 +276,12 @@ async function cloudHalf(): Promise<void> {
   assert.deepEqual(missing, [], `the cloud half needs every cloud variable; missing: ${missing.join(', ')}`)
   const realDb = process.env.MONGODB_DB as string
   const scratchDb = `${realDb}-check-${crypto.randomUUID().slice(0, 8)}`
+  const movedDb = `${scratchDb}-moved`
   process.env.MONGODB_DB = scratchDb // read when the store connects, below
-  const { cloudStore: cs, closeCloud } = await import('../lib/store/cloud')
+  const mongoHost = (process.env.MONGODB_URI as string).replace(/^[a-z+]+:\/\//i, '').replace(/^[^@/]*@/, '').split(/[/?]/)[0]
+  // Said before the first write, because the shell's S3_* win over .env.
+  console.log(`  ..  cloud half: scratch database “${scratchDb}” on ${mongoHost}; bucket “${process.env.S3_BUCKET}” at ${process.env.S3_ENDPOINT}`)
+  const { BUCKET_PROBE_KEY, cloudStore: cs, closeCloud } = await import('../lib/store/cloud')
   const { Refused, ProviderError } = await import('../lib/errors')
   const { singletons } = await import('../lib/singleton')
   const { MongoClient } = await import('mongodb')
@@ -386,22 +393,60 @@ async function cloudHalf(): Promise<void> {
     await assert.rejects(cs.putBlob(png, 'image/gif', 'panel'), (err: unknown) => err instanceof ProviderError)
     console.log('  ok  cloud: blobs round-trip with their media type; missing and unsafe ids are null')
 
-    // c7. A MongoDB that can't be reached is the one config sentence.
-    await closeCloud()
-    const goodUri = process.env.MONGODB_URI
-    process.env.MONGODB_URI = 'mongodb://127.0.0.1:1/?serverSelectionTimeoutMS=500&connectTimeoutMS=500'
+    // c7. Bad settings are the one config sentence each, before anything is
+    //     paid for: an unreachable or malformed MongoDB URI, a bucket that
+    //     doesn't exist. The URI never appears in the sentence. And a bucket
+    //     error on read is an error, never "no such image".
+    const isConfig = (pattern: RegExp) => (err: unknown) =>
+      err instanceof ProviderError && err.kind === 'config' && pattern.test(err.message) && !err.message.includes('mongodb://')
+    const good = { uri: process.env.MONGODB_URI, bucket: process.env.S3_BUCKET }
     try {
-      await assert.rejects(cs.listProjects(), (err: unknown) => err instanceof ProviderError && err.kind === 'config' && /MONGODB_URI/.test(err.message))
+      process.env.MONGODB_URI = 'mongodb://127.0.0.1:1/?serverSelectionTimeoutMS=500&connectTimeoutMS=500'
+      await assert.rejects(cs.listProjects(), isConfig(/MONGODB_URI/), 'unreachable')
+      process.env.MONGODB_URI = 'mongodb://user:p@ss@host/'
+      await assert.rejects(cs.readProject('cloud-a'), isConfig(/MONGODB_URI/), 'malformed — the constructor throws')
+      process.env.MONGODB_URI = good.uri
+      process.env.S3_BUCKET = `inkdesk-no-such-bucket-${crypto.randomUUID().slice(0, 8)}`
+      await assert.rejects(cs.listProjects(), isConfig(/S3_BUCKET/), 'a missing bucket is refused at connect, not after a paid image')
     } finally {
-      process.env.MONGODB_URI = goodUri
+      process.env.MONGODB_URI = good.uri
+      process.env.S3_BUCKET = good.bucket
     }
-    console.log('  ok  cloud: an unreachable MongoDB is the calm config sentence naming MONGODB_URI')
+    assert.equal((await cs.readProject('cloud-a')).title, 'for A', 'good settings again: the store reconnects')
+    const elsewhere = new S3Client({
+      endpoint: process.env.S3_ENDPOINT,
+      region: process.env.S3_REGION,
+      forcePathStyle: true,
+      credentials: { accessKeyId: process.env.S3_ACCESS_KEY_ID as string, secretAccessKey: process.env.S3_SECRET_ACCESS_KEY as string },
+    })
+    await assert.rejects(
+      elsewhere.send(new GetObjectCommand({ Bucket: `inkdesk-no-such-bucket-${crypto.randomUUID().slice(0, 8)}`, Key: id })),
+      (err: unknown) => (err as { name?: string }).name !== 'NoSuchKey',
+      'a missing bucket is not a missing key — getBlob returns null only for NoSuchKey'
+    )
+    elsewhere.destroy()
+    assert.equal(await cs.getBlob(BUCKET_PROBE_KEY), null, 'the connect probe is never an image')
+    console.log('  ok  cloud: unreachable or malformed MONGODB_URI and a missing bucket are calm config sentences, before any spend')
+
+    // c8. Settings edited under a running server (.env reloaded): the next
+    //     call goes to the new database, never on to the old one.
+    process.env.MONGODB_DB = movedDb
+    try {
+      await assert.rejects(cs.readProject('cloud-a'), (err: unknown) => err instanceof Refused && err.status === 404, 'the moved database has no projects')
+    } finally {
+      process.env.MONGODB_DB = scratchDb
+    }
+    assert.equal((await cs.readProject('cloud-a')).title, 'for A')
+    console.log('  ok  cloud: changed settings reconnect instead of writing on to the old database')
   } finally {
     await closeCloud()
-    await mongo.db(scratchDb).dropDatabase().catch(() => {})
+    const left: string[] = []
+    for (const name of [scratchDb, movedDb]) await mongo.db(name).dropDatabase().catch(() => left.push(`database ${name}`))
     await mongo.close()
-    for (const key of written) await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: key })).catch(() => {})
+    for (const key of written) await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: key })).catch(() => left.push(`object ${key}`))
     s3.destroy()
+    // Never silent: what couldn't be cleaned up is named, to delete by hand.
+    if (left.length > 0) console.warn(`  !!  cloud half left behind (delete by hand): ${left.join(', ')}`)
     process.env.MONGODB_DB = realDb
   }
 }
