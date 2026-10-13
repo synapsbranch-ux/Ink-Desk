@@ -24,14 +24,16 @@ type Props = {
   panel: PanelData | null
   character: Character | null
   /** A repair request for this panel is on the wire. */
-  busy: boolean
+  busy: 'redraw' | 'rewrite' | null
   /** A bubble placed or a line retyped — saved to the desk at once. */
   onPanelEdit: (index: number, edit: PanelEdit) => void
   /** Redraw panel and Try again: the same request, the same locked sheet. */
   onRedraw: (index: number) => void
+  /** Rewrite panel, after a refusal: Claude rephrases only the visuals. */
+  onRewrite: (index: number) => void
 }
 
-export function Panel({ slot, panel, character, busy, onPanelEdit, onRedraw }: Props) {
+export function Panel({ slot, panel, character, busy, onPanelEdit, onRedraw, onRewrite }: Props) {
   const imageId = panel ? currentImageId(panel) : null
 
   // Ids whose art has been on screen before — present at mount, stepped back
@@ -145,11 +147,21 @@ export function Panel({ slot, panel, character, busy, onPanelEdit, onRedraw }: P
                 </button>
               </div>
             )}
-            {panel.status !== 'refused' && (
+            {panel.status === 'refused' ? (
               <button
                 type="button"
                 className="btn btn-panel"
-                disabled={inking || busy}
+                disabled={busy !== null}
+                title="Claude rephrases only this panel’s action, camera and background — never the dialogue, never the DNA — then redraws."
+                onClick={() => onRewrite(panel.index)}
+              >
+                {busy === 'rewrite' ? 'Rewriting…' : 'Rewrite panel'}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-panel"
+                disabled={inking || busy !== null}
                 title={
                   inking
                     ? 'This panel is inking right now.'
@@ -159,7 +171,7 @@ export function Panel({ slot, panel, character, busy, onPanelEdit, onRedraw }: P
                 }
                 onClick={() => onRedraw(panel.index)}
               >
-                {busy ? 'Queuing…' : failed ? 'Try again' : 'Redraw panel'}
+                {busy === 'redraw' ? 'Queuing…' : failed ? 'Try again' : 'Redraw panel'}
               </button>
             )}
           </div>

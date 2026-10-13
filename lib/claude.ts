@@ -16,18 +16,22 @@ import {
   dnaPrompt,
   pageScriptPrompt,
   rerollPrompt,
+  rewritePanelPrompt,
   synopsisPrompt,
   type CharacterText,
   type LockedCharacter,
+  type PanelSlot,
 } from './prompts'
 import {
   CastSchema,
   CharacterProposalSchema,
   DnaSchema,
   pageScriptSchema,
+  PanelRewriteSchema,
   SynopsisSchema,
   type CharacterProposal,
   type PageScriptOutput,
+  type PanelRewrite,
   type SynopsisOutput,
 } from './schemas'
 
@@ -109,4 +113,14 @@ export function writePageScript(
   cast: readonly [LockedCharacter, LockedCharacter]
 ): Promise<PageScriptOutput> {
   return ask(pageScriptSchema([cast[0].id, cast[1].id]), pageScriptPrompt(synopsis, cast), 2048)
+}
+
+/** A refused panel → calmer visuals. Only action, camera and background come
+ *  back; the dialogue and the DNA are never Claude's to change here. */
+export function rewritePanelVisuals(
+  panel: { action: string; camera: string; background: string; dialogue: string },
+  slot: PanelSlot,
+  character: { name: string; role: string }
+): Promise<PanelRewrite> {
+  return ask(PanelRewriteSchema, rewritePanelPrompt(panel, slot, character), 1024)
 }

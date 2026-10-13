@@ -76,6 +76,14 @@ export type PanelLine = PageScriptOutput['panel1']
 
 // --- Request bodies (what the browser sends) --------------------------------
 
+/** Rewrite panel: only the visuals come back. No dialogue, no DNA, by shape. */
+export const PanelRewriteSchema = z.object({
+  action: z.string().min(1).describe('What the character does and their expression, drawable as one still frame.'),
+  camera: z.string().min(1).describe('The camera angle, one short sentence, same shot size as before.'),
+  background: z.string().min(1).describe('The same location from that camera, one drawable sentence, no lettering.'),
+})
+export type PanelRewrite = z.infer<typeof PanelRewriteSchema>
+
 export const StationSchema = z.enum(['story', 'cast', 'storyboard', 'reader'])
 
 /** One card's edit. `locked: true` is the Lock click; there is no unlock. */

@@ -160,6 +160,43 @@ export function panelPrompt(
   ].join('\n')
 }
 
+/**
+ * Rewrite panel, for a refusal: the image model declined the description, so
+ * Claude rephrases ONLY the visuals — action, camera, background. The
+ * dialogue and the DNA are never Claude's to change here; the dialogue is
+ * context only. `prd.md > States and Boundaries`.
+ */
+export function rewritePanelPrompt(
+  panel: { action: string; camera: string; background: string; dialogue: string },
+  slot: PanelSlot,
+  character: { name: string; role: string }
+): string {
+  return [
+    'You are the page director at Ink Desk, a small manga studio. The image model',
+    'declined to draw one panel of the page as written. Rephrase ONLY that panel’s',
+    'visual description so it can be drawn — calmer and more concrete, with nothing',
+    'that could read as violent, unsafe, or against an image model’s content rules.',
+    'Keep the same story beat and the same setting.',
+    '',
+    `The panel: panel ${slot.index + 1} — ${character.name} (${character.role}), ${slot.shot}.`,
+    `Their spoken line stays exactly as written and is not yours to change: “${panel.dialogue}”.`,
+    '',
+    'The description that was declined:',
+    `- action: ${panel.action}`,
+    `- camera: ${panel.camera}`,
+    `- background: ${panel.background}`,
+    '',
+    'Write the replacement:',
+    '- action: what this character is doing and the expression on their face, in one',
+    '  or two sentences an artist can draw as a single still frame. Exactly one',
+    '  person in the panel.',
+    `- camera: one short sentence, staying inside this shot size: ${slot.shot}. Never`,
+    '  pull back to a distant wide, never cut in closer.',
+    '- background: the same location seen from that camera, in one sentence,',
+    '  specific and drawable, with no signs, posters or lettering of any kind.',
+  ].join('\n')
+}
+
 // --- Page script ----------------------------------------------------------
 //
 // The variable half of every panel request, written once per page by Claude

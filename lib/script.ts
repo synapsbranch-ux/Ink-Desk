@@ -108,10 +108,27 @@ export function attachPanelVersion(chapter: Chapter, index: number, imageId: str
   })
 }
 
-/** The art did not land. Recorded honestly; the repairs are slice 6. */
+/** The art did not land. Recorded honestly; Try again and Rewrite repair it. */
 export function markFailed(chapter: Chapter, index: number, status: 'failed' | 'refused'): Chapter {
   const panel = findPanel(chapter, index)
   return replacePanel(chapter, index, { ...panel, status, startedAt: null, startedByRun: null })
+}
+
+/** Rewrite panel: Claude's calmer visuals land on the panel. The dialogue,
+ *  bubble, versions and status are untouched — a refusal is a wording
+ *  problem, and only the wording changes. */
+export function applyRewrite(
+  chapter: Chapter,
+  index: number,
+  visuals: { action: string; camera: string; background: string }
+): Chapter {
+  const panel = findPanel(chapter, index)
+  return replacePanel(chapter, index, {
+    ...panel,
+    action: visuals.action.trim(),
+    camera: visuals.camera.trim(),
+    background: visuals.background.trim(),
+  })
 }
 
 export function currentImageId(panel: Panel): string | null {

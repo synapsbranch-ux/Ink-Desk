@@ -22,9 +22,10 @@ type Props = {
   onWriteScript: () => void
   onStartPanels: () => void
   onPanelEdit: (index: number, edit: PanelEdit) => void
-  /** Redraw panel / Try again, keyed by panel index. */
-  panelBusy: Record<number, boolean>
+  /** A repair on the wire, keyed by panel index. */
+  panelBusy: Record<number, 'redraw' | 'rewrite' | null>
   onRedraw: (index: number) => void
+  onRewrite: (index: number) => void
   onGoReader: () => void
 }
 
@@ -38,6 +39,7 @@ export function StoryboardStation({
   onPanelEdit,
   panelBusy,
   onRedraw,
+  onRewrite,
   onGoReader,
 }: Props) {
   const script = chapter.script
@@ -99,9 +101,10 @@ export function StoryboardStation({
                     slot={slot}
                     panel={panel}
                     character={character}
-                    busy={panelBusy[slot.index] ?? false}
+                    busy={panelBusy[slot.index] ?? null}
                     onPanelEdit={onPanelEdit}
                     onRedraw={onRedraw}
+                    onRewrite={onRewrite}
                   />
                 )
               })}

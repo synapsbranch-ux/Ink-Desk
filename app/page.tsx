@@ -234,26 +234,35 @@ export default function Studio() {
    *  saved at once. */
   const editPanel = useCallback((index: number, e: PanelEdit) => commit({ panels: { [index]: e } }), [commit])
 
-  /** Redraw panel / Try again: queue the same request again. The desk's poll
-   *  (below) watches it claim a slot, ink, and land. */
-  const [panelBusy, setPanelBusy] = useState<Record<number, boolean>>({})
-  const redrawPanel = useCallback(
-    async (index: number) => {
-      setPanelBusy((b) => ({ ...b, [index]: true }))
+  /** Redraw panel / Try again / Rewrite panel. Redraw queues and returns at
+   *  once; rewrite holds while Claude rephrases. The desk's poll (below)
+   *  watches the panel claim a slot, ink, and land. */
+  const [panelBusy, setPanelBusy] = useState<Record<number, 'redraw' | 'rewrite' | null>>({})
+  const panelRequest = useCallback(
+    async (index: number, kind: 'redraw' | 'rewrite', url: string) => {
+      setPanelBusy((b) => ({ ...b, [index]: kind }))
       try {
-        const { ok, data } = await postJson(`/api/panels/${index}`, {})
+        const { ok, data } = await postJson(url, {})
         if (ok && 'version' in data) absorb(data)
         else {
-          console.warn('[panel] redraw refused:', 'error' in data ? data.error : data)
+          console.warn(`[panel] ${kind} refused:`, 'error' in data ? data.error : data)
           await refresh()
         }
       } catch {
-        console.warn('[panel] redraw:', UNREACHABLE)
+        console.warn(`[panel] ${kind}:`, UNREACHABLE)
       } finally {
-        setPanelBusy((b) => ({ ...b, [index]: false }))
+        setPanelBusy((b) => ({ ...b, [index]: null }))
       }
     },
     [absorb, refresh]
+  )
+  const redrawPanel = useCallback(
+    (index: number) => panelRequest(index, 'redraw', `/api/panels/${index}`),
+    [panelRequest]
+  )
+  const rewritePanel = useCallback(
+    (index: number) => panelRequest(index, 'rewrite', `/api/panels/${index}/rewrite`),
+    [panelRequest]
   )
 
   /** Queue the blank panels; the server responds at once and the poll
@@ -341,6 +350,7 @@ export default function Studio() {
           onPanelEdit={editPanel}
           panelBusy={panelBusy}
           onRedraw={redrawPanel}
+          onRewrite={rewritePanel}
           onGoReader={() => goTo('reader')}
         />
       ) : (
