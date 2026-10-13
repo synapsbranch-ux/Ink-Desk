@@ -7,6 +7,8 @@ status: approved
 
 An AI manga creator studio for storytellers and manga fans who have ideas but can't draw: you pitch a story, and Ink Desk turns it into a real 4-panel manga page with your own characters drawn consistently across every panel.
 
+> **Revised 2026-10-13 — see [Revision — Ink Desk Studio (v2)](#revision--ink-desk-studio-v2) at the end.** Everything below is the approved v1 PRD, built and tagged `v1-poc`, kept intact. The v2 section adds the dashboard, projects with a locked style, scenario mode, the library with imported references, the Director's chapter plan, the chapter reader and the PDF export; the v1 page journey becomes the inner loop of every page. Source: `scope.md > Revision — Ink Desk Studio (v2)`.
+
 Source: `scope.md > The Unique Kernel`, `scope.md > Who It's For`. Scope headings are cited beside each major requirement below.
 
 ---
@@ -337,3 +339,159 @@ Everything else in this document stands as approved.
 - **Should the genre and tone chip sets stay exactly as the mockup has them?** Assumed yes. Does not block `4-spec`.
 - **How long the ink-in reveal should run in the reader** versus the mockup's ~1.4s per panel. A four-panel sequential reveal may want faster per-panel timing to stay watchable. Tune during build; does not block `4-spec`.
 - **The generation timeout that trips the "still inking" fallback.** Needs a real number, which depends on how slow `gpt-image-2.5-sunburst` actually is at `high`. Measured in the kernel test and set in `5-build`.
+
+---
+
+# Revision — Ink Desk Studio (v2)
+
+**Date:** 2026-10-13. **Decided by:** the learner, after the v1 final review. **Source:** `scope.md > Revision — Ink Desk Studio (v2)` — the kernel restated as one contract on three things, the v2 boundary (ten numbered items, feature freeze 2026-10-20), the v2 money shot, and the demo video as a deliverable. This section pins those down as behavior. **The v1 page journey above is unchanged and becomes the inner loop of every page.**
+
+## The Core Journey (v2)
+
+1. **Arrive at the dashboard.** Project cards (cover or first-page thumbnail, title, style, images used), **New project**, the global library (every locked character across projects, read-only), and the budget readout. A v1 desk shows up as one project.
+2. **New project.** Title, and a **style preset** chosen from a list — at least **Manga (black and white)** and **Manhwa (colour)**. The style is locked with the project; it is frozen rules text sent with every image request, exactly as v1's style rules were.
+3. **Tell the story.** Either the v1 pitch (pitch, genre, tone → synopsis → accept), or **Scenario mode**: paste a long scenario, with notes, and attach references from the project's assets. Accepting the story (v1) or saving the scenario (v2) unlocks the Library.
+4. **Build the library.** Claude proposes the cast as in v1. A character gets its sheet one of two ways: **Draw sheet** (DNA, then the picture, as v1) or **Import reference** — pick an uploaded image; it becomes the sheet and Claude writes the DNA *from the picture*. The card shows the DNA beside the art either way. **Lock** is the same stamp and the same contract.
+5. **Both characters locked unlocks the Director.** Claude reads the scenario (or the synopsis), the locked cast and the style, and writes a **chapter plan**: at least three pages, each the four-shot page of v1 (who is in which slot, action, camera, background, dialogue), plus a **cover brief**. The plan appears as pencil thumbnails with the **cost estimate** for the whole chapter at the configured quality, **before any image is generated.**
+6. **Edit the plan.** Any line on any page, the page count within the allowed range, the cover brief.
+7. **Generate.** **Generate page** inks one page exactly as v1 did — placeholders, stage lines, two at a time, ink-in on arrival. **Generate all** queues the pages in order. The **cover** is one image carrying the locked characters, with the title lettered by the app, never by the model.
+8. **Fix what missed.** Per panel: editable bubbles, Redraw with up to three versions, Try again, Rewrite — the slice 5b and 6 behavior, unchanged, now per page.
+9. **Read the chapter.** Ink & Publish opens on the first complete page: cover first, then every page that has art, in sequence — **right-to-left for manga, vertical scroll for manhwa** — with the ink-in replay per page.
+10. **Export.** **PNG** of any page (v1) and **PDF** of the chapter: cover plus pages, bubbles composited.
+11. **Success:** `scope.md > What "Working" Looks Like (v2)` — the imported character's upload beside their panels on pages 1, 2 and 3 and the cover, same face, same outfit, same marks; every locked character recognizably themselves in every panel they appear in, on every page and on the cover.
+
+## Screens and Layout (v2)
+
+Two surfaces, one rail.
+
+| Surface | Route | What it holds |
+|---|---|---|
+| **Dashboard** | `/` | Project cards · New project · global library · budget readout |
+| **Studio** | `/p/<project>` | The station rail for one project |
+
+**The rail inside a project**, in order, each gated like v1:
+
+| # | Station | Unlocks when |
+|---|---|---|
+| 1 | **Story** (pitch *or* scenario) | always |
+| 2 | **Library** (cast + assets) | a synopsis is accepted, or a scenario is saved |
+| 3 | **Director** (the chapter plan) | both characters are locked |
+| 4 | **Page** (the v1 storyboard, one page at a time, with a page switcher) | a plan exists |
+| 5 | **Ink & Publish** (the chapter) | at least one page has all four panels inked |
+
+**Rail behavior and back-navigation** keep the v1 rules. Two additions: the header shows **which page** is open and **"Images this project: N · ≈ $X"**; and *Back to Story* once a plan exists is view-only — rewriting the story is a new chapter, with the v1 confirmation.
+
+## Features and Behavior (v2)
+
+### Dashboard
+
+- [ ] A fresh install shows an empty dashboard with New project and an empty library
+- [ ] A v1 desk (`data/chapter.json`) appears as one project card, with its page and images intact, the first time the dashboard loads
+- [ ] A project card shows the cover when one exists, otherwise the first inked page, otherwise a pencil placeholder
+- [ ] The global library lists every locked character across projects with its sheet, read-only
+- [ ] The budget readout shows images generated and the running cost from the providers' reported `usage.cost`, per project and in total
+
+### New Project and Style Presets
+
+- [ ] New project asks for a title and a style preset, and nothing else
+- [ ] At least two presets exist: **Manga — black and white** (today's rules) and **Manhwa — colour** (full colour, clean line, vertical reading)
+- [ ] The chosen preset is **locked with the project** and shown on the card and in the rail; it cannot be changed afterwards (a new style is a new project)
+- [ ] Every sheet, panel and cover request for the project carries that preset's rules text verbatim
+- [ ] Presets never name a real work, artist or publisher — they describe a look
+
+### Scenario Mode and References
+
+- [ ] The Story station offers **Pitch** (v1) and **Scenario**; Scenario takes a long text (the sample scenario is provided) and optional notes
+- [ ] Assets can be uploaded to the project (PNG, JPEG, WebP, with a size cap) and appear on a shelf with a name and a thumbnail
+- [ ] The upload control carries a rights notice: the user must own or have permission for anything uploaded
+- [ ] A saved scenario unlocks the Library exactly as an accepted synopsis does
+- [ ] A scenario longer than the planner's comfortable size is summarized first, and the plan says so in plain language
+
+### Library — Characters, Imported or Generated
+
+Keeps every v1 Cast criterion. Adds:
+
+- [ ] A character card offers **Import reference** beside Draw sheet, listing the project's assets
+- [ ] Importing sets the asset as the sheet, and Claude writes the DNA **from the picture**; the DNA shows beside the art before Lock, exactly as a drawn sheet
+- [ ] Lock on an imported card is refused until the DNA exists, the same rule as a drawn card
+- [ ] A locked imported character sends **the imported bytes** as the single reference in every panel request
+- [ ] Redraw sheet on an imported card is unavailable (there is nothing to redraw; re-import or edit the look instead)
+
+### The Director — Chapter Plan and Cover
+
+- [ ] With both characters locked, the Director writes a plan of **at least three pages** and a cover brief, from the scenario (or the synopsis), the cast and the style
+- [ ] Each page is the v1 four-shot page: one locked character per slot, alternating, with action, camera, background and dialogue — enforced by schema, as v1
+- [ ] The plan shows as pencil thumbnails per page, every line editable, the page count adjustable within the allowed range
+- [ ] The **cost estimate** for the whole chapter at the configured quality is shown **before** any generation, and updates when the page count changes; it is labelled an estimate
+- [ ] **Generate page** inks one page; **Generate all** queues every un-inked page in order; both are idempotent
+- [ ] A page's failure never touches another page; per-panel repair works on any page
+- [ ] The cover is one image with the locked characters in the project's style; the title is lettered by the app over it, editable, never requested from the model
+
+### Pages — Generation, Lettering, Repair
+
+Every v1 Storyboard criterion holds per page: placeholders with labels, two at a time, ink-in on arrival, editable SVG bubbles stored as percentages, Redraw with three versions, a redraw never blanks a panel, Try again, Rewrite panel. Adds:
+
+- [ ] A page switcher moves between the chapter's pages without leaving the station
+- [ ] The header's page-level progress reads "N of 4 panels inked" for the open page and "P of Q pages complete" for the chapter
+
+### Reader (v2) — The Chapter
+
+- [ ] Ink & Publish unlocks on the first page with four inked panels, not after the whole chapter
+- [ ] The chapter reads cover first, then every complete page in order; incomplete pages show as pencil placeholders with their number
+- [ ] Manga presets read **right-to-left** with a toggle (v1); Manhwa presets read as one **vertical scroll**
+- [ ] The ink-in replay plays per page on entry
+
+### Export (v2) — PNG and PDF
+
+- [ ] Export PNG works on any complete page, as v1
+- [ ] Export PDF produces one file: cover, then every complete page at the page size, bubbles and lettering composited, using each panel's current version
+- [ ] Both exports run in the browser; no server round trip and no secrets involved
+
+## States and Boundaries (v2)
+
+- **Projects persist on the desk**, each in its own folder (local mode): `data/projects/<id>/project.json` plus its images. The v1 desk migrates once, on first read, and the original `chapter.json` is left in place untouched.
+- **Storage modes.** `INKDESK_STORAGE=local` (default; a clone runs with no account) or `cloud` (MongoDB for project state, an S3-compatible bucket for images). Same behavior, same checks; the demo and the video run local.
+- **Text fallback.** When Claude cannot be used — no `ANTHROPIC_API_KEY`, a 402, or a server error that survives the single retry — every text call falls back to `openai/gpt-5.6-terra` through OpenRouter with the same schemas. The terminal names the provider that answered; the screen does not change. `LLM_FALLBACK=never` disables it.
+- **Budget.** The readout is informational, as v1's counter was; **no hard cap in the product**. The Director's estimate exists so spending is a decision, not a surprise.
+- **Generation survives a reload**, per page, with the v1 timeout-and-restart floor.
+- **New chapter** and **New project** are explicit, confirmed actions; nothing is deleted silently.
+- **Feature freeze 2026-10-20.** After it: fixes, the video, the README.
+
+## Product Decisions (v2)
+
+- **One contract on three things.** The character lock is the anchor; style and setting locks are candidates until each passes its own kernel test. The video claims only what is proven.
+- **Style is locked per project, not per page.** A sheet is drawn in its style; switching styles mid-chapter would break the lock. A second style is a second project.
+- **Imported references join the lock, not bypass it.** DNA is written from the picture so the frozen pair still cannot contradict itself.
+- **The plan is editable and priced before a single image.** The cost of a chapter is the main thing that changed between one page and many.
+- **The v1 page engine is reused unchanged**, per page. Every repair behavior, every check, every stage line.
+- **Local files stay the default.** Cloud storage is a switch, never a prerequisite — the clone must run.
+- **The text fallback is silent on screen, loud in the terminal.** Same calm sentences; the provider is an implementation detail the user never has to think about.
+- **One layout per page.** The four-shot page proved the lock; more layouts are Later.
+
+## What We're Building (v2)
+
+The ten numbered items of `scope.md > The POC Boundary (v2)`, as behavior above: 1 Dashboard · 2 New project with a locked style preset (manga B&W, manhwa colour) · 3 Scenario mode with references · 4 Library with one imported and one generated locked character · 5 The Director's editable plan of ≥ 3 pages + cover with the cost estimate · 6 Page generation with the 5b states, editable bubbles and the slice 6 repair logic · 7 Chapter reader, RTL for manga, vertical for manhwa · 8 PNG per page + PDF of the chapter · 9 Storage behind an interface, local by default, Mongo + bucket switchable · 10 GPT Terra text fallback.
+
+## Deferred From the POC (v2)
+
+- In-app video export and in-app dubbing — only if items 1–9 are done by 2026-10-20; otherwise Later, no debate.
+- Two characters in one panel — needs a kernel test.
+- Multiple volumes in the UI.
+- Alternative image models in the app — unless one passes the kernel test before 2026-10-18.
+- Style and setting as reference-image locks beyond the candidate stage.
+- Accounts, deployment, the loading mini-game, a shared library between projects.
+- Everything on v1's Deferred list that v2 did not pull in (Director's Chair chat, Script Strip, LlamaGen).
+
+## Non-Goals (v2)
+
+- Claiming a candidate lock in the video before its kernel test.
+- A second page layout in the submission.
+- A hard image cap, accounts, or public deployment.
+- Any feature not on the numbered list after 2026-10-20.
+
+## Open Questions (v2)
+
+- **The page-count range the Director accepts** — drafted as 3 to 6; tune at the slice 11 checkpoint.
+- **Vertical reading for manhwa in the export** — the PDF keeps one page per sheet; a single tall strip is a possible later export. Does not block.
+- **Whether the global library should allow re-using a locked character in a new project** — read-only for now; copying a lock into a second project is Later.
+- **Which premade voice narrates the video** — the learner's choice when the script exists.

@@ -8,6 +8,15 @@ status: approved
 The blueprint for `prd.md`. One Next.js app, two AI providers called from the
 server, one chapter of work kept on disk.
 
+> **Revised 2026-10-13 — see [Revision — Ink Desk Studio (v2)](#revision--ink-desk-studio-v2)
+> at the end.** Everything below is the approved v1 spec, built and tagged
+> `v1-poc`, kept intact. The v2 section specifies the project data model and
+> its migration, the storage adapter (local by default, MongoDB + bucket
+> switchable), the text provider with the GPT Terra fallback, the image-model
+> registry and style presets, uploads and imported references, the Director,
+> routing and the dashboard, the chapter reader and PDF export, and the demo
+> video pipeline. The v1 page engine is reused per page, unchanged.
+
 ---
 
 ## How This Works, In Plain Language
@@ -1448,3 +1457,437 @@ warning in **Verified: Image Model and Reference-Image Support**.
   (tune during build).
 - **A server-side image cap** — not built, since the app stays local-only.
   Becomes required if deployment is revisited.
+
+---
+
+# Revision — Ink Desk Studio (v2)
+
+**Date:** 2026-10-13. **Decided by:** the learner. **Implements:**
+`prd.md > Revision — Ink Desk Studio (v2)` and
+`scope.md > Revision — Ink Desk Studio (v2)`. Build order and verification
+per slice live in `checklist.md` (slices 8–15).
+
+## What Changes, In Plain Language (v2)
+
+Still **one Next.js app**. Three things grow:
+
+1. **The desk becomes a shelf of projects.** `data/chapter.json` becomes
+   `data/projects/<id>/project.json`, one per project, each holding its style,
+   its library and its chapters of pages. The v1 file is migrated into the first
+   project the first time the dashboard reads it, and left where it was.
+2. **The server gets two seams it did not have.** A *storage* seam
+   (`lib/store/`) so the same code runs on local files or on MongoDB plus a
+   bucket, and a *text-provider* seam (`lib/llm.ts`) so Claude is called first
+   and GPT Terra through OpenRouter answers when Claude cannot.
+3. **The page engine runs per page.** `lib/panels.ts`, `lib/script.ts`, the
+   queue, the stale-inking floor, the bubbles and the repair UI are unchanged in
+   behavior; they are addressed by `project / chapter / page / panel` instead of
+   by panel index alone.
+
+**The kernel, mechanically, is the same request** — the locked sheet as
+`input_references[0]`, the DNA verbatim, Claude's variable part — with the
+project's **style rules** in place of the one hard-coded `STYLE_RULES`, and,
+for an imported character, the **uploaded bytes** as the sheet.
+
+## Data Model (v2)
+
+Shapes in `lib/types.ts`. `version: 2`. Everything derivable is still
+computed, never stored (`lib/gates.ts` grows per-page gates).
+
+```ts
+type Project = {
+  version: 2
+  id: string
+  title: string
+  stylePresetId: StylePresetId      // locked at creation; see Image Models and Style Presets
+  story: { mode: 'pitch' | 'scenario'; pitch: Pitch; synopsis: Synopsis | null;
+           scenario: { text: string; notes: string; referenceAssetIds: string[] } | null }
+  library: { characters: Character[]; assets: Asset[] }
+  chapters: Chapter[]               // the UI shows one; the shape allows more
+  usage: { images: number; costUsd: number }   // the budget readout, from usage.cost
+  station: Station                  // 'story' | 'library' | 'director' | 'page' | 'reader'
+  openPage: number
+  serverRunId: string
+  createdAt: string; updatedAt: string
+}
+
+type Asset = { id: string; kind: 'reference'; name: string; blobId: string;
+               mediaType: 'image/png' | 'image/jpeg' | 'image/webp'; bytes: number; createdAt: string }
+
+type Character = /* v1 fields */ & {
+  source: 'drawn' | 'imported'      // imported: sheetImageId is the asset's blob; Redraw sheet unavailable
+}
+
+type Chapter = {
+  id: string; title: string
+  plan: ChapterPlan | null          // written by the Director; editable
+  cover: { brief: string; title: string; versions: PanelVersion[]; currentVersion: number;
+           status: PanelStatus; startedAt: string | null; startedByRun: string | null } | null
+  pages: Page[]
+}
+
+type Page = {
+  index: number                     // 0-based within the chapter
+  layoutId: 'four-shot'             // the v1 layout; the only one built
+  panels: Panel[]                   // exactly 4, the v1 Panel shape, index 0..3
+}
+
+type ChapterPlan = { pageCount: number; coverBrief: string;
+                     pages: { panels: PanelLine[] }[] }   // PanelLine = the v1 script line
+```
+
+**Migration (`lib/migrate.ts`):** a `version: 1` chapter becomes one project
+(`title` = synopsis title or "Chapter 1", `stylePresetId: 'manga-bw'`, mode
+`pitch`), one chapter, one page carrying the four v1 panels with their versions
+and bubbles, `usage.images = imageCount`. Image files are **not moved**: blob
+ids keep their v1 image ids, and the local blob store looks in
+`data/images/` as a fallback path, so the migrated project serves the same
+bytes. Verified by `check:store`.
+
+**Where each piece lives** keeps the v1 table, keyed by project. Queue keys are
+`${projectId}:${chapterId}:${pageIndex}:${panelIndex}` (and
+`${projectId}:${chapterId}:cover`), so two pages can never collide and a redraw
+on page 2 never dedupes against page 1.
+
+## Storage Adapter (v2)
+
+```ts
+// lib/store/index.ts
+interface Store {
+  listProjects(): Promise<ProjectSummary[]>
+  readProject(id): Promise<Project>
+  updateProject(id, fn: (p: Project) => Project): Promise<Project>   // serialized per project
+  createProject(p: Project): Promise<void>
+  putBlob(bytes: Buffer, mediaType): Promise<string>                 // → blobId
+  getBlob(blobId): Promise<{ bytes: Buffer; mediaType: string } | null>
+}
+```
+
+- **`local.ts`** — today's `lib/chapter.ts` generalized: one promise-chain lock
+  **per project id** on `globalThis`, temp-file-then-rename, `data/projects/`
+  and `data/blobs/` (with `data/images/` as the read fallback for migrated
+  ids). The default: a clone runs with nothing but the two API keys.
+- **`cloud.ts`** — `mongodb` driver, collection `projects` with a `rev`
+  counter; `updateProject` is read → `fn` → `findOneAndUpdate({ _id, rev })`
+  with `$inc: { rev: 1 }`, retried from a fresh read on a mismatch (bounded,
+  then a calm failure). Blobs go to an S3-compatible bucket with
+  `@aws-sdk/client-s3` (works for AWS S3, Cloudflare R2, MinIO); the browser
+  still only ever sees `/api/blob/<id>`, which streams from the bucket.
+- **Selected by** `INKDESK_STORAGE=local|cloud`; cloud needs `MONGODB_URI`,
+  `MONGODB_DB`, `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`,
+  `S3_SECRET_ACCESS_KEY`. All server-side.
+- **The queue stays in-process in both modes.** The single-process assumption
+  of v1 holds (`Singletons and the Dev Server`); the stale-inking floor
+  (`startedByRun`, `startedAt`) is what makes a restart safe, and it is
+  unchanged. Cloud storage makes *data* durable and shareable; it does not make
+  the app multi-instance, and `prd.md > Deferred (v2)` keeps deployment Later.
+- **Honest limit:** `check:store` runs the cloud half only when `MONGODB_URI`
+  is set; the clean-clone check covers local.
+
+## Text Provider and the Terra Fallback (v2)
+
+`lib/llm.ts` owns the one `ask()`:
+
+```ts
+ask<S extends z.ZodType>(schema: S, prompt: string, maxTokens: number,
+                         opts?: { images?: { bytes: Buffer; mediaType: string }[] }): Promise<z.infer<S>>
+```
+
+- **Primary — Anthropic, unchanged:** `messages.parse` with
+  `thinking: { type: 'between_tools' }`, `output_config: { effort: 'low',
+  format: zodOutputFormat(schema) }`. Images, when given, are
+  `{ type: 'image', source: { type: 'base64', media_type, data } }` content
+  blocks ahead of the prompt — the DNA-from-picture call.
+- **Fallback — OpenRouter chat completions, `LLM_FALLBACK_MODEL`
+  (default `openai/gpt-5.6-terra`):** `POST /api/v1/chat/completions` with
+  `response_format: { type: 'json_schema', json_schema: { name, strict: true,
+  schema: z.toJSONSchema(schema) } }` and `provider: { require_parameters: true }`
+  so routing only hits endpoints that enforce the schema; images as
+  `image_url` data URIs. The reply's `content` is parsed and **validated with
+  the same zod schema** — the SDK did that for Claude; here the app does it.
+- **Strict-mode constraints** on the fallback side: every object
+  `additionalProperties: false`, every property required, no `min`/`max`.
+  `check:llm` runs `z.toJSONSchema` over every output schema and names any that
+  would not survive strict mode; optional fields become nullable-required.
+- **When the fallback fires** (`LLM_FALLBACK=auto`, the default): no
+  `ANTHROPIC_API_KEY`; a 402; a 5xx/529/429 that survives the existing single
+  retry. `always` forces it (for the live probe); `never` disables it.
+- **The terminal says which provider answered** on every call
+  (`[text] synopsis — anthropic/claude-sonnet-5-5 · 1.8s` or
+  `[text] synopsis — openrouter/openai/gpt-5.6-terra · 2.4s`); the browser's
+  sentences do not change.
+- **Verified 2026-10-13** (see *Verified for v2*): `openai/gpt-5.6-terra`
+  lists `structured_outputs` and `response_format` in its supported parameters.
+
+## Image Models and Style Presets (v2)
+
+`lib/image-models.ts` is a registry read from OpenRouter's published
+capabilities, so the request body is built **per model** from its parameter
+list — the lesson of v1's silent `size` drop, generalized:
+
+| Model | Params it accepts | Max references | Status |
+|---|---|---|---|
+| `openai/gpt-image-2.5-sunburst` | `aspect_ratio`, `quality`, `background`, `n`, `input_references` | 16 | **verified** (v1 kernel test) |
+| `google/gemini-nano-banana-2.1` | `resolution`, `aspect_ratio`, `n`, `input_references` — no `quality` | 14 | candidate |
+| `bytedance-seed/seedream-5-0-*` | `resolution`, `aspect_ratio`, `n`, `input_references`, `seed` | 14 | candidate |
+| `black-forest-labs/flux-3-image` | `resolution`, `aspect_ratio`, `n`, `input_references` | 10 | candidate |
+| `recraft/recraft-v4-styles` | `aspect_ratio`, `n`, `input_references` (1–10, style references) | 10 | candidate |
+
+A candidate enters the app only if `scripts/kernel-test.mjs --model <id>`
+passes before 2026-10-18 (`scope.md > Later (v2)`). Sending a parameter a
+model does not list is refused by the registry before the request leaves.
+
+**Style presets (`lib/styles.ts`)** — frozen rules text per project, in place
+of the one `STYLE_RULES`:
+
+| id | Rules (summary) | Colour | Reading |
+|---|---|---|---|
+| `manga-bw` | today's rules: black and white, screentone, inked line, strong blacks, no text | no | right-to-left, paged |
+| `manhwa-colour` | full colour, clean digital line, soft cel shading, bright key light, generous vertical framing, no text | yes | vertical scroll |
+
+Reserved ids, text written only if time allows: `manhua-ink`, `chibi`,
+`western`. Rules never name a real work, artist or publisher.
+
+**Candidate locks and their kernel tests.** A *style reference image* or a
+*setting reference image* is sent as `input_references[1]` beside the sheet.
+`kernel-test.mjs --style-ref <file>` and `--setting-ref <file>` draw one sheet
+and **three panels at `medium`** each (≈ $0.10 per test) and write a
+side-by-side `index.html`, like slice 2. A lock is called a lock in the docs
+only after its test passes; until then it is a candidate and the app does not
+expose it.
+
+## Assets and Imported References (v2)
+
+- `POST /api/projects/[id]/assets` — multipart via the Web standard
+  `await request.formData()`; accepts `image/png`, `image/jpeg`, `image/webp`
+  up to **8 MB**; refuses anything else with a sentence; stores the bytes with
+  `putBlob` and an `Asset` record on the project. `GET /api/blob/[id]` streams
+  any blob (sheets, panels, covers, uploads) with its media type.
+- **Import reference** on a character card: `importSheet(project, characterId,
+  assetId)` sets `sheetImageId` to the asset's blob, `source: 'imported'`,
+  `dna: null`; the server then calls `writeDnaFromImage` (Claude vision, or the
+  fallback's `image_url`) with the character's text and the picture, and
+  stores the DNA. Lock applies the v1 rule: DNA and sheet both present.
+- The **rights notice** on the upload control is copy, not enforcement: the
+  user must own or have permission for what they upload (hackathon rule on
+  third-party material).
+
+## The Director (v2)
+
+- `chapterPlanSchema(lockedIds, pageCount)` — `pages` is a fixed-length tuple
+  of `pageCount` pages, each the v1 `pageScriptSchema` shape (per-slot
+  `z.enum` of the one character that slot takes, alternating), plus
+  `coverBrief`. Page count is clamped **3–6** (open question in the PRD).
+- `planPrompt(story, cast, style, pageCount)` — scenario text up to ~12 000
+  characters is sent whole; longer text is first condensed by a `summarize`
+  call to a beat list, and the plan prompt says it is planning from a summary.
+- **Cost before spending** — `lib/cost.ts`, pure:
+  `estimateChapterUsd(pageCount, quality)` = pageCount × 4 × the per-panel
+  figure for that quality + the cover, from the measured `low` values and the
+  spec's `high` estimates, labelled an estimate. Shown in the Director and in
+  the New-project dialog.
+- `POST /api/projects/[id]/plan` (write once; edits go through the patch route
+  as `plan` edits), `POST .../pages/[n]/start` (queues that page's blank
+  panels), `POST .../pages/[n]/panels/[i]` and `/rewrite` (the v1 routes, keyed
+  per page), `POST .../cover` (one image: `coverPrompt(brief, cast, style)` with
+  **both** sheets as references only if the two-character kernel test has
+  passed; otherwise the lead character alone — the honest default).
+- **The title on the cover is lettered by the app**, in Cormorant Garamond over
+  the image, editable, composited into the PNG/PDF exactly like bubbles.
+
+## Routing and the Dashboard (v2)
+
+- `app/page.tsx` → the dashboard (server component listing projects via the
+  store; client islands for New project and the library).
+- `app/p/[projectId]/page.tsx` → the studio: today's `Studio` client component,
+  scoped to one project, with the patch/debounce/poll pattern unchanged.
+- `app/api/projects/route.ts` (list, create), `app/api/projects/[id]/route.ts`
+  (GET with stale-inking demotion, POST patch, DELETE), and the per-project
+  routes above; `app/api/blob/[id]/route.ts` replaces `app/api/image/[id]`
+  (kept as an alias for migrated ids).
+- **Prerequisite before any routing code:** `npm install`, then read
+  `node_modules/next/dist/docs/` as `AGENTS.md` requires — this Next version
+  (16.4) has breaking changes; in particular confirm the shape of `params` in
+  route handlers and pages, and the server/client component boundary for the
+  dashboard. Nothing here assumes an API that has not been read first.
+
+## Reader and Exports (v2)
+
+- `ReaderStation` v2: cover page first, then pages; direction from the preset
+  (`paged-rtl` with the v1 toggle, or `vertical`); the ink-in replay per page.
+- **PDF** with `pdf-lib`, in the browser: each page is drawn by the existing
+  `drawPage` onto a canvas (art + bubbles, `currentVersion`), encoded as PNG,
+  embedded on a PDF page of the page's size; the cover gets the title text
+  drawn the same way. No server, no fonts to ship beyond what the page already
+  loads. Chosen over print CSS because the output must be the same file on
+  every browser and must include the composited bubbles.
+
+## The Demo Video Pipeline (v2)
+
+A separate package, `video/`, so the app's dependencies stay clean:
+
+- **Remotion** compositions (`video/src/`): `Intro` (logo, animated title),
+  `Section` titles and transitions, `Footage` (plays the captured webm with
+  trim and speed-up ranges from `timeline.json`), `MoneyShot` (the upload /
+  locked sheet beside its panels from pages 1–3 and the cover, animated), and
+  `Outro`; brand tokens from `app/globals.css` copied into `video/src/theme.ts`.
+  Rendered with `@remotion/cli` to `inkdesk-demo.mp4`, 1920×1080, h264 + aac,
+  under three minutes. Remotion needs a browser to render; the pre-installed
+  Chromium is passed with `--browser-executable`. **Licence:** Remotion is free
+  for individuals and companies of up to three people; the README states it.
+- **Capture** (`video/capture/record.mts`): Playwright drives the real app
+  (viewport 1920×1080, `recordVideo`), on a seeded fresh project at filming
+  quality; every generation is real, waits are time-lapsed in the edit, not
+  faked; marks are written to `timeline.json` as the script runs.
+- **Narration** (`video/narrate.mts`): the learner's script, split into
+  segments, sent to `POST https://openrouter.ai/api/v1/audio/speech` with
+  `model: 'elevenlabs/eleven-v4'`, a premade `voice`, `response_format: 'mp3'`;
+  one mp3 per segment, cached, ≈ $0.10 in total.
+- **Music:** royalty-free with a licence file in `video/assets/`, or none.
+  Never a copyrighted track.
+- **Subtitles:** burned-in English captions from the same script.
+- **Committed:** the compositions, `timeline.json`, the script, the capture
+  and narration scripts, the licence notes. **Not committed:** the captured
+  webm, the mp3s and the rendered mp4 (sizes); the mp4 is uploaded to YouTube,
+  public, and linked from the submission.
+
+## Verified for v2 (2026-10-13)
+
+Read off OpenRouter's APIs and documentation, not from memory:
+
+- `GET /api/v1/models` lists `openai/gpt-5.6-terra` (also
+  `~openai/gpt-terra-latest`, `openai/gpt-5.6-terra-pro`): 1.05 M context,
+  $2 / $12 per million tokens, `structured_outputs` and `response_format` in
+  `supported_parameters`. `anthropic/claude-sonnet-5.5` is listed too ($2 /
+  $10), a second possible fallback with no SDK.
+- Structured outputs on chat completions: `response_format.type =
+  'json_schema'` with `json_schema.{name, strict, schema}`; support is per
+  endpoint, so `provider.require_parameters: true` is the guard.
+- `POST /api/v1/audio/speech` exists (OpenAI-compatible), body
+  `{ model, input, voice, response_format: 'mp3' | 'pcm', speed?, instructions? }`,
+  raw audio back, `X-Generation-Id` header. ElevenLabs models on it:
+  `elevenlabs/eleven-v4` ($0.00004/char, 10 000 chars per request),
+  `elevenlabs/eleven-v4-turbo` and `elevenlabs/eleven-flash-v2.5`
+  ($0.00002/char), `elevenlabs/eleven-multilingual-v2`; premade voices by name
+  (`george`, `sarah`, `adam`, `alice`, `bella`, `bill`, `brian`, `charlie`,
+  `daniel`, `jessica`, `roger`, `will`). Listed by
+  `GET /api/v1/models?output_modalities=speech`.
+- `GET /api/v1/images/models` (59 models) — the capability table under *Image
+  Models and Style Presets*; `openai/gpt-image-2.5-sunburst` is the only one
+  with a `quality` parameter among the candidates.
+- `GET /api/v1/videos/models` exists (Veo 3.1, Kling 3, Seedance 2, Wan 3,
+  image-to-video via `supported_frame_images`) — noted for Later only.
+- In this build environment: ffmpeg, Playwright 1.56.1 and Chromium are
+  present; the project's `node_modules` had to be installed (`npm install`,
+  366 packages, 16 s).
+
+## Quality, Cost and Budget (v2)
+
+The learner's cap for everything until the deadline: **≈ $10.**
+
+| Item | Estimate |
+|---|---|
+| Development at `low`: ~4 one-page runs + sheets, slices 8–12 | ≈ $1.00 |
+| Slice 11 live plan + page 1 at `low`; slice 12 export run | ≈ $0.20 |
+| Two presets, one page each at `low` | ≈ $0.20 |
+| Candidate-lock kernel tests, style + setting, 3 panels at `medium` each | ≈ $0.25 |
+| One alternative image model, `kernel-test --model` (optional; price unpublished) | ≤ $1.00 |
+| Filming: 2 sheets + 8 panels + 1 cover at `high`, with a redraw or two | ≈ $2.00 |
+| Text, all calls, Claude or Terra | ≈ $0.30 |
+| Narration, ElevenLabs via OpenRouter, with retakes | ≈ $0.15 |
+| **Total** | **≈ $5–6**, margin ≈ $4 |
+
+Development stays at `low`; `high` only in the filming `.env`. The dashboard's
+budget readout sums the providers' reported `usage.cost` so the number is read,
+not reconstructed.
+
+## Important Failure Modes (v2)
+
+The v1 list holds per page. Added:
+
+- **Claude unavailable** (no key, 402, persistent 5xx) → the Terra fallback
+  answers; terminal names it. Both unavailable → the v1 calm config sentence.
+- **A fallback reply that fails the schema** → refused and retried once on the
+  fallback, then the calm sentence; never written to the desk.
+- **An upload that is too large or not an image** → a sentence on the shelf;
+  nothing stored.
+- **A migration that cannot parse the v1 file** → the dashboard opens empty
+  with a sentence naming the file, and the file is never modified.
+- **Cloud mode without its env** → refused at startup with the missing names;
+  the app does not silently fall back to local.
+- **A parameter a model does not support** → refused by the registry before
+  the request leaves; never a silent 200 of the wrong shape.
+- **The Director's plan references an unlocked character or two in a slot** →
+  rejected by the schema (SDK or app-side), as v1.
+
+## File Structure (v2)
+
+```
+app/page.tsx                       # dashboard
+app/p/[projectId]/page.tsx         # the studio for one project
+app/api/projects/route.ts          # list · create
+app/api/projects/[id]/route.ts     # GET (stale demotion) · POST patch · DELETE
+app/api/projects/[id]/{synopsis,scenario,cast,cast/reroll,sheet,import,assets,plan,cover}/route.ts
+app/api/projects/[id]/pages/[n]/{start,panels/[i],panels/[i]/rewrite}/route.ts
+app/api/blob/[id]/route.ts         # any blob; /api/image/[id] stays as an alias
+components/Dashboard.tsx · NewProjectDialog.tsx · AssetShelf.tsx · DirectorStation.tsx · PagePlanCard.tsx · PageSwitcher.tsx
+lib/types.ts (v2) · lib/migrate.ts · lib/store/{index,local,cloud}.ts · lib/llm.ts · lib/image-models.ts · lib/styles.ts · lib/cost.ts · lib/plan.ts
+scripts/{llm,assets,plan,demo-timeline}-check.mts; store-check and export-check extended; kernel-test.mjs gains --model, --style-ref, --setting-ref
+video/                             # Remotion package, capture and narration scripts
+data/projects/<id>/project.json · data/blobs/ (data/images/ kept for migrated ids)
+```
+
+New dependencies, pinned at install: `mongodb`, `@aws-sdk/client-s3`
+(server, cloud mode only), `pdf-lib` (browser export); in `video/` only:
+`remotion`, `@remotion/cli`. No other additions.
+
+## Checks (v2)
+
+Same pattern as v1 (scratch folder, `INKDESK_DATA_DIR`, dynamic imports,
+`fetch` stubbed; Claude never called):
+
+| Check | Asserts |
+|---|---|
+| `check:store` (extended) | v1 → v2 migration keeps every image id and bubble; two projects update independently; same-tick updates both land; cloud half only with `MONGODB_URI` |
+| `check:llm` | fallback on missing key / 402 / 529-after-retry; strict JSON-schema body; every output schema survives `z.toJSONSchema` strict; malformed reply refused; `never` → config sentence |
+| `check:models` | body built from the model's parameter list; unsupported param refused; reference cap enforced; the two presets' rules reach the prompt verbatim |
+| `check:assets` | type and size caps; blob + record written together; import sets the sheet and leaves DNA null; lock still refused without DNA; imported bytes are the panel reference |
+| `check:plan` | schema refuses < 3 pages or a wrong slot; cost estimate arithmetic; queue keys include project and page; `Generate all` idempotent; one page's failure isolated |
+| `check:export` (extended) | PDF has cover + N pages at page size; RTL and vertical geometry; gate opens on the first complete page |
+| `check:demo-timeline` | marks → segments; total under 180 s; every segment has a caption |
+| `kernel-test.mjs` | unchanged live probes + `--model`, `--style-ref`, `--setting-ref` |
+
+## Decisions and Open Issues (v2)
+
+### Decided
+
+- **Projects, chapters, pages as the model; one layout.** Learner's call; the
+  shape allows more layouts and volumes, the build adds none.
+- **Local files default, cloud behind the same interface.** Learner's call —
+  the clone must run; Mongo and a bucket are their stack and a switch.
+- **Claude first, GPT Terra through OpenRouter as fallback, same schemas.**
+  Learner's call; verified available.
+- **Style presets as frozen rules text; style and setting reference images as
+  candidate locks until tested.** Learner's rule; the video claims only
+  proven locks.
+- **Imported sheets get their DNA from the picture.** Keeps the frozen pair
+  consistent by construction, the v1 argument.
+- **Cost estimate before generation, from measured values.** The Director's
+  first job.
+- **Remotion for the video, Playwright for capture, ElevenLabs via OpenRouter
+  for narration, in `video/`.** Learner's call; the edit is code in the repo.
+- **Feature freeze 2026-10-20; `v1-poc` is the fallback submission.**
+
+### Open
+
+- **The strict-schema shape of the v1 output schemas under `z.toJSONSchema`.**
+  Answered by `check:llm` in slice 9, not by reading.
+- **Whether Next 16.4's route-handler `params` and server/client boundaries
+  match what the file structure above assumes.** Answered by reading
+  `node_modules/next/dist/docs/` at the start of slice 8.
+- **Whether a candidate lock (style, setting) holds.** Answered by its
+  kernel test in slice 15, for ≈ $0.10 each.
+- **Whether one alternative image model is worth adding before 2026-10-18.**
+  Answered by `kernel-test --model`, budget-capped at $1.
+- **The exact Remotion version and its browser flags.** Checked at install in
+  slice 14.

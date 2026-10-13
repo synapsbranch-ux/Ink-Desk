@@ -1,7 +1,9 @@
 ---
 doc: checklist
-status: approved
+status: draft
 ---
+
+> **Status note, 2026-10-13:** slices 1–7 are built, reviewed and tagged `v1-poc` under the approved plan. The frontmatter reads `draft` because slices 8–15 (the v2 revision, see **Revisions**) await the learner's gut check; it returns to `approved` on their word.
 
 # Build Checklist
 
@@ -101,6 +103,90 @@ rather than being styled afterwards. Learner's call.
   Learner check: Read the finished page, flip the reading order, export the PNG and open it, then start a new chapter and confirm the studio is back to a clean first-use state.
   Commit: `Add Ink & Publish reader, export, and new chapter`
 
+### v2 — Ink Desk Studio (revision of 2026-10-13; see **Revisions**)
+
+Generation quality stays **`low` throughout**; `medium` only for the candidate-lock kernel tests; `high` only in the filming `.env` (slice 15). Budget ≈ $10 for everything — `spec.md > Quality, Cost and Budget (v2)`.
+
+- [ ] **8. Projects on the desk — the dashboard opens, a project has a locked style, and the v1 desk is migrated**
+  Becomes usable: `/` is the dashboard: project cards (cover or first inked page, title, style, images used and cost), **New project** (title + style preset: *Manga — black and white*, *Manhwa — colour*), and the global library shelf (empty for now). Opening a card goes to `/p/<id>`, where the four v1 stations run unchanged inside the project. A v1 `data/chapter.json` is migrated on first read into one project, one chapter, one page; nothing generated is lost and the original file is untouched.
+  Why now: the data model and the storage interface everything else sits on, and the two real risks of v2 — the migration and Next 16's routing — belong at the front. The v1 journey must keep working inside a project, so the build is never left broken. Risk first, usable at every step.
+  PRD ref: `prd.md > Screens and Layout (v2)`, `prd.md > Dashboard`, `prd.md > New Project and Style Presets`, `prd.md > States and Boundaries (v2)`
+  Spec ref: `spec.md > Data Model (v2)`, `spec.md > Storage Adapter (v2)` (the local half), `spec.md > Routing and the Dashboard (v2)`, `spec.md > Image Models and Style Presets (v2)` (presets only)
+  Build: `npm install`, then read `node_modules/next/dist/docs/` (routing, route handlers and their `params`, server/client components) before touching `app/`, as `AGENTS.md` requires. `lib/types.ts` v2 shapes; `lib/migrate.ts`; `lib/store/{index,local}.ts` with one lock per project on `globalThis` and temp-then-rename, `data/images/` as the read fallback for migrated ids; `lib/chapter.ts` becomes a thin facade over the store for the open project; queue keys `project:chapter:page:panel`; routes move under `app/api/projects/[id]/…` (v1 handlers, bodies unchanged); `app/page.tsx` → `Dashboard`, `app/p/[projectId]/page.tsx` → the studio; `lib/styles.ts` with the two presets feeding the rules text into `sheetPrompt`/`panelPrompt` in place of the constant; `components/Dashboard.tsx`, `NewProjectDialog.tsx`; the header's "Images this project: N · ≈ $X".
+  Verify (mechanical): `tsc`, `eslint`; `check:store` v2: a version-1 desk migrates to one project / chapter / page with every image id and bubble intact and the original file byte-identical, two projects update independently, same-tick updates both land, no stray temp file; `check:cast`, `check:page`, `check:repair`, `check:bubble`, `check:export`, `check:stages` pass against a page inside a project; `check:models` (first half): the two presets' rules reach the prompt verbatim; the dev server serves `/` and `/p/<id>`; the v1 journey completes end to end on a fresh project, live at `low` (≈ $0.09).
+  Learner check: Start the dev server on your current desk. "Return to Sender" should appear as a project card with its page; open it and confirm nothing is lost. Create a new project, pick *Manhwa — colour*, and say whether the dashboard and the new-project step feel like a studio's front door. **Hands-on checkpoint.**
+  Commit: `Projects on the desk: dashboard, style presets, v1 desk migrated`
+
+- [ ] **9. Text never goes dark — Claude first, GPT Terra through OpenRouter as the fallback**
+  Becomes usable: every text call (synopsis, cast, reroll, DNA, script, rewrite — and later the plan and the DNA-from-picture) goes through one `ask()` in `lib/llm.ts`: Claude first; `openai/gpt-5.6-terra` through OpenRouter when Claude cannot be used — no `ANTHROPIC_API_KEY`, a 402, or a 5xx/529/429 that survives the single retry. The terminal names the provider that answered; the screen does not change. `LLM_FALLBACK=never` turns it off.
+  Why now: small and independent, it de-risks every later slice that needs a text call during demo week, and it is item 10 of the boundary. Doing it before the Director means the plan call is born with the fallback.
+  PRD ref: `prd.md > States and Boundaries (v2)` (text fallback)
+  Spec ref: `spec.md > Text Provider and the Terra Fallback (v2)`, `spec.md > Verified for v2 (2026-10-13)`
+  Build: `lib/llm.ts` — `ask(schema, prompt, maxTokens, { images? })`; the Anthropic branch is today's call moved; the OpenRouter branch posts `/api/v1/chat/completions` with `response_format: { type: 'json_schema', json_schema: { name, strict: true, schema: z.toJSONSchema(schema) } }` and `provider: { require_parameters: true }`, then parses and validates with the same zod schema; `lib/claude.ts` keeps the prompt-specific functions and calls `ask`; env `LLM_FALLBACK_MODEL`, `LLM_FALLBACK`; `scripts/llm-check.mts`; `kernel-test.mjs --probe-only` gains one Terra probe (≈ $0.001).
+  Verify (mechanical): `tsc`, `eslint`; `check:llm` with `fetch` stubbed: no key → fallback used with the strict body; every output schema survives `z.toJSONSchema` strict (or the check names the one that does not and the fix is recorded); a 402 → fallback without retry; a 529 → one retry, then fallback; a malformed fallback reply is refused by the schema and never written; `LLM_FALLBACK=never` → the calm config sentence; the terminal line names the provider. Live: the Terra probe answers the synopsis schema.
+  Learner check: Covered at the slice 11 checkpoint — blank the Anthropic key for one call and watch the synopsis still arrive, with the terminal reading `openrouter/openai/gpt-5.6-terra`.
+  Commit: `Text never goes dark: Claude first, GPT Terra through OpenRouter as fallback`
+
+- [ ] **10. The library — import your own character, and references on the shelf**
+  Becomes usable: a project has a Library with an **Assets** shelf: upload PNG/JPEG/WebP (with the rights notice) and see them as cards. On a character card, **Import reference** picks an asset: it becomes the sheet, Claude writes the DNA *from the picture*, the DNA shows beside it, and **Lock** works as before. The dashboard's global library lists every locked character across projects, read-only.
+  Why now: item 4, and the second half of the v2 money shot — an imported character recognizably matching the upload. The vision call is the only new provider behavior in v2 and should be proven before the Director depends on the library.
+  PRD ref: `prd.md > Library — Characters, Imported or Generated`, `prd.md > Scenario Mode and References` (the assets half)
+  Spec ref: `spec.md > Assets and Imported References (v2)`, `spec.md > Storage Adapter (v2)` (blobs), `spec.md > Text Provider and the Terra Fallback (v2)` (images in `ask`)
+  Build: `POST /api/projects/[id]/assets` (multipart via `request.formData()`, type and 8 MB caps), `GET /api/blob/[id]` with `/api/image/[id]` kept as an alias; `Asset` records; `lib/cast.ts` → `importSheet`; `dnaFromImagePrompt` and `writeDnaFromImage` through `ask(..., { images })`; `components/AssetShelf.tsx`, the Import button, the rights notice and `source: 'imported'` states on `CharacterCard` (no Redraw sheet); the dashboard library list.
+  Verify (mechanical): `tsc`, `eslint`; `check:assets`: a PNG upload lands as a blob and a record in one update, an oversize or wrong-type file is refused with a sentence and nothing stored, an import sets `sheetImageId` and leaves `dna` null until written, a lock without DNA is still refused, a locked imported card refuses edits; `check:page` additionally asserts that the single reference in a panel request is the imported bytes when the character was imported. Live, once: one DNA-from-picture call (≈ $0.01).
+  Learner check: Upload your own character drawing, import it on a card, read the DNA Claude wrote from it, lock it, and say whether the words match your picture.
+  Commit: `Library: imported references become locked sheets, DNA written from the picture`
+
+- [ ] **11. The Director — a scenario becomes a planned chapter, and page 1 inks in**
+  Becomes usable: **Scenario mode** on the Story station (paste a long scenario — the sample is provided — with notes and ticked references). The **Director** station reads scenario + library + style and shows the chapter plan: at least three pages as pencil thumbnails (the four slots, who is in each, action, camera, background, dialogue) plus the cover brief, with the **cost estimate** before any image. Every line is editable; the page count moves within 3–6. **Generate page** inks one page with the v1 engine; **Generate all** queues the pages in order; the **cover** is one image with the title lettered by the app.
+  Why now: the moment v2 becomes a manga creator. The kernel is proven, so what is at risk is the plan schema, the per-page queue and the cost before spending — all checkable with the provider stubbed, then one real page.
+  PRD ref: `prd.md > The Director — Chapter Plan and Cover`, `prd.md > Pages — Generation, Lettering, Repair`, `prd.md > The Core Journey (v2)`
+  Spec ref: `spec.md > The Director (v2)`, `spec.md > Data Model (v2)`, `spec.md > Quality, Cost and Budget (v2)`
+  Build: `chapterPlanSchema(lockedIds, pageCount)` (a fixed-length tuple of v1 page-script shapes, alternation per slot), `planPrompt` with the summarize-first path past ~12 000 characters, `lib/cost.ts` (`estimateChapterUsd`, pure), `lib/plan.ts` (pure plan mutations), routes `plan`, `pages/[n]/start`, `pages/[n]/panels/[i]`, `/rewrite`, `cover`; `components/DirectorStation.tsx`, `PagePlanCard.tsx`, `PageSwitcher.tsx`; `STATIONS` gains `director` and `page`; per-page gates in `lib/gates.ts`; the cover carries the lead character's sheet only (two references only after a kernel test, which v2 does not run).
+  Verify (mechanical): `tsc`, `eslint`; `check:plan`: the schema refuses a page count under 3 or over 6 and a wrong character in a slot, the estimate equals pages × 4 × the per-panel figure + the cover at `low` and `high`, queue keys include project, chapter and page, `Generate all` is idempotent and keeps `PANEL_CONCURRENCY` within a page, a page's failure never touches another, the cover's title never appears in its image prompt; live at `low`: one plan (Claude) + page 1 (≈ $0.09) + the cover (≈ $0.02).
+  Learner check: Paste the sample scenario, read the plan, change one panel's action and the cover brief, check the estimate, generate page 1 and the cover, and compare your imported character's upload with their panel. Say what the Director got wrong. **Hands-on checkpoint.**
+  Commit: `The Director: scenario to chapter plan, cost before spending, pages ink in`
+
+- [ ] **12. The chapter reads and exports — pages in sequence, PDF**
+  Becomes usable: Ink & Publish reads the whole chapter: cover first, then every complete page — right-to-left with the toggle for manga presets, one vertical scroll for manhwa — with the ink-in replay per page. **Export PNG** per page (v1) and **Export PDF** of the chapter (cover + pages, bubbles and title composited, current versions).
+  Why now: closes the v2 loop the video needs, and reads what slice 11 produces.
+  PRD ref: `prd.md > Reader (v2) — The Chapter`, `prd.md > Export (v2) — PNG and PDF`
+  Spec ref: `spec.md > Reader and Exports (v2)`
+  Build: `ReaderStation` v2 (page list, direction from the preset, the cover page with its lettered title), `lib/export.ts` gains `exportPdf(chapter)` with `pdf-lib` (each page through the existing `drawPage` onto a canvas, embedded as PNG at page size), the reader gate = the first page with four versions.
+  Verify (mechanical): `tsc`, `eslint`; `check:export` v2: the PDF has cover + N pages at the page size, RTL and vertical geometry are distinct and complete, the gate opens on the first complete page and incomplete pages render as placeholders; one real PDF exported in the headless browser and opened.
+  Learner check: Read "Return to Sender" and the new chapter end to end in both directions, export the PDF, open it.
+  Commit: `The chapter reads and exports: pages in sequence, PDF`
+
+- [ ] **13. Cloud storage, switchable — MongoDB and an S3-compatible bucket behind the same interface**
+  Becomes usable: `INKDESK_STORAGE=cloud` with `MONGODB_URI`, `MONGODB_DB` and the `S3_*` variables runs the same app on MongoDB (a `projects` collection with an optimistic `rev`) and a bucket (R2, S3 or MinIO) for every blob, served through `/api/blob/[id]`. The default stays local; the demo runs local.
+  Why now: item 9, and last among the studio slices on purpose — the second implementation is written once, after the data model has settled in 8–12.
+  PRD ref: `prd.md > States and Boundaries (v2)` (storage modes)
+  Spec ref: `spec.md > Storage Adapter (v2)` (the cloud half)
+  Build: `lib/store/cloud.ts` (`mongodb`, `@aws-sdk/client-s3`): `findOneAndUpdate` on `rev` with a bounded re-read retry for the serialized-update contract; blobs put/get with the media type; the stale-inking floor unchanged; startup refuses cloud mode with missing env by name; `scripts/store-check.mts` runs the cloud half only when `MONGODB_URI` is set.
+  Verify (mechanical): `tsc`, `eslint`; `check:store` local always; the cloud half against a MongoDB and a bucket reachable from the session if any, otherwise against the learner's Atlas/R2 at the checkpoint; the same v2 journey completes with `INKDESK_STORAGE=cloud` on a scratch database at `low`.
+  Learner check: Optional and your stack — point `.env` at your Atlas and R2, run one page, confirm the images come from the bucket.
+  Commit: `Cloud storage behind the interface: MongoDB and an S3-compatible bucket`
+
+- [ ] **14. The video project — motion design, real footage, narration, subtitles**
+  Becomes usable: `video/` is a Remotion package with `Intro`, section titles, transitions, the **money-shot** animation and `Outro` in the brand's tokens; `video/capture/record.mts` records the real app with Playwright on a seeded project at filming quality and writes `timeline.json` with marks; `video/narrate.mts` turns the learner's script into mp3 segments (ElevenLabs via OpenRouter); `npm run video:render` produces `inkdesk-demo.mp4` (1920×1080, h264 + aac, under three minutes, burned-in English captions).
+  Why now: the learner's schedule — build the motion design on Oct 18–19 in parallel with slices 11–13 (it does not depend on them), record after the freeze on Oct 21–22, finish on Oct 23–24.
+  PRD ref: `scope.md > The Demo Video (v2)`
+  Spec ref: `spec.md > The Demo Video Pipeline (v2)`
+  Build: `video/package.json` (own dependencies: `remotion`, `@remotion/cli`; Playwright from the app's devDependencies), compositions `Intro`, `Section`, `Footage` (trim and speed-up ranges from `timeline.json`), `MoneyShot`, `Outro`, `Captions`; `video/README.md` with the three commands, the browser flag and the Remotion licence note; music only royalty-free with its licence file, or none.
+  Verify (mechanical): `check:demo-timeline` (pure: marks → segments, total under 180 s, every segment captioned); a render of the motion-design compositions without footage; one short real capture at `low` (≈ $0.09) to prove the recorder; `ffprobe` on the render: duration, 1920×1080, audio present.
+  Learner check: Watch the intro, outro and money-shot render and the test capture; write the narration script (≈ 350 words) and pick a premade voice; say what to change before the real recording. **Hands-on checkpoint.**
+  Commit: `The video project: Remotion motion design, Playwright capture, narration pipeline`
+
+- [ ] **15. Freeze and film — the v2 final review**
+  Becomes usable: `SIMULATE_PANEL_FAILURE` removed with its banner; the kernel test re-run as the style-drift canary; the two candidate-lock tests (style reference, setting reference; three panels at `medium` each) recorded as passed or failed so the docs say *lock* or *candidate*; the full v2 journey filmed on a fresh project at `IMAGE_SHEET_QUALITY=high`, `IMAGE_PANEL_QUALITY=high` (two pages); the README with run instructions, the storage switch, the fallback, the licences and the pre-existing-work disclosure (the mockup and the logo).
+  Why now: the feature freeze on 2026-10-20. Nothing after this slice is a feature.
+  PRD ref: `prd.md > What We're Building (v2)`
+  Spec ref: `spec.md > Quality, Cost and Budget (v2)`, `spec.md > Decisions and Open Issues (v2)`
+  Build: delete the switch and its `.env.example` banner; `kernel-test.mjs --style-ref`, `--setting-ref`; the filming `.env` values documented; the README (also checked again by `6-ship`).
+  Verify (mechanical): every check passes; `npm run build` succeeds; the filmed run's summed `usage.cost` is under the budget; the README's commands run on a fresh clone.
+  Learner check: The final kick-the-tires on v2 — run the whole journey yourself, try to break it, and say what is not ready for the video. **Hands-on checkpoint and the v2 Final Review.**
+  Commit: `Freeze: switch removed, canaries run, README, filming configuration`
+
 ## Target Dates
 
 Set by the learner at the plan review. Kept out of the slice fields above so the
@@ -136,6 +222,30 @@ offered, and each item names what it costs:
 Nothing in `scope.md > The Unique Kernel` is on this list, and nothing on it is
 cut without being recorded under **Revisions**.
 
+### v2 target dates (set by the learner on 2026-10-13)
+
+| Slice | Target | Status |
+|---|---|---|
+| 8. Projects, dashboard, presets, migration | 2026-10-14 | — |
+| 9. Terra fallback | 2026-10-14 | — |
+| 10. Library and imported references | 2026-10-15 | — |
+| 11. The Director, page 1, cover | 2026-10-16 → 17 | — |
+| 12. Chapter reader and PDF | 2026-10-18 | — |
+| 13. Cloud storage | 2026-10-19 | — |
+| 14. Video project: build Oct 18–19 · record Oct 21–22 · final Oct 23–24 | 2026-10-24 | — |
+| 15. Freeze and film | **2026-10-20 (freeze)**, filming 21–22 | — |
+| Submit on Devpost | **2026-10-25**; Oct 26 is buffer only | — |
+
+**The v2 cut list**, in the order it would be offered, each with its cost; the learner's rule "say what to cut — do not silently slip" still holds:
+
+1. **Slice 13 — cloud storage.** Ship local-only, with the interface in place and the README saying so. Costs item 9's second half; the demo is unaffected.
+2. **Slice 12 — vertical scroll for manhwa.** Paged reading for both presets. Costs one line in the video.
+3. **Slice 11 — the cover.** A lettered title card in the app's own type instead of a generated cover. Costs the cover in the money shot.
+4. **Slice 10 — the global library on the dashboard.** Per-project library only.
+5. **Slice 15 — the candidate-lock kernel tests.** Style and setting stay candidates; the video already does not claim them.
+
+**Never on the list:** the character lock, the Director with at least three pages, the imported character, the two presets, the PDF, the migration of the v1 desk, and the video. **Already decided, not a cut:** in-app video export and dubbing are Later unless slices 8–13 are done by 2026-10-20 — *"otherwise Later, no debate."* **The fallback submission is `v1-poc`** with a polished video if v2 is not solid on 2026-10-20.
+
 ## Stretch Goals
 
 Named so they cannot sneak into a slice. Touched only after slice 7 is done and
@@ -151,13 +261,17 @@ verified, and only if time allows before `6-ship`.
 - [x] Core journey explored — after slice 5, the learner runs Story through to a finished inked page and compares a locked sheet against the panels in the real app. Distinct value: it is the first time the kernel appears in the product rather than in a script, and prompt or framing feedback is still cheap here. **Done 2026-10-12**, one local run covering both checkpoints. **The learner's verdict: the UX is not acceptable yet.** Reported: the Redraw option is undiscoverable, the card feels stuck with no clear next step, no visible feedback while panels generate for 20s–2min, the bubbles look broken and generic, and Cast and Storyboard read as "AI-made" beside the mockup. The verdict spawned slice 5b — see **Revisions**. The sheet-versus-panel comparison went unremarked in the feedback; it gets another natural look at the 5b checkpoint.
 - [x] Polish explored — after slice 5b, at `low` (this checkpoint judges the studio, not the art — learner's call): the learner re-runs Cast and Storyboard in the browser and judges the actions, the live waits, the editable bubbles and the look against their mockup, before slice 6 builds the repair UI on top. Added at the slice 4–5 checkpoint. **Done 2026-10-12 — the learner's verdict: 5b is done and checkpointed; continue with slice 6.** No changes requested.
 - [x] Final kick-the-tires exploration and feedback completed — after slice 7. **Done 2026-10-12, live on the learner's own desk**: a full fresh chapter ("Return to Sender") pitched through the new accept-and-clear flow, sheets locked, four panels inked through real network flakiness (Try again exercised repeatedly, honestly), the reader entered, the ink-in replay watched, the reading order flipped, and the page exported. Two findings: the export failed on Linux with a raw "network error" sentence (the font-fallback bug — fixed and re-verified the same evening, see **Revisions**), and the learner asked about PDF export (kept out of scope, see **Final Review**). Verdict after the fix: good.
+- [ ] **v2:** Dashboard and migration explored — after slice 8, on the learner's own desk: the migrated project, a new project with the manhwa preset. Where the new front door is cheapest to change.
+- [ ] **v2:** The Director explored — after slice 11: the plan from the sample scenario, the estimate, page 1 and the cover, and the imported character beside their panel. The first time v2 is a manga creator; prompt and plan feedback is still cheap here.
+- [ ] **v2:** The video drafts explored — after slice 14: the motion-design render and the test capture, and the learner's narration script written.
+- [ ] **v2:** Final kick-the-tires on v2 — after slice 15, at the freeze.
 
 ## Final Review
 
 - [x] Export PNG failed on Linux with a raw browser sentence — the font-stack load rejected on next/font's synthesized fallback. Fixed (`lib/export.ts` loads each family separately and tolerates a missing fallback; `ExportError` keeps raw errors off the screen), learner retried the export live: good.
 - [x] PDF export requested at the checkpoint — kept out of scope with the learner's okay: the PRD's deliverable is the PNG, and the browser's own Print → "Save as PDF" on the reader covers sharing. Noted as a possible later enhancement, not built.
 - [x] `check:bubble` failed on a fresh clone (Node 22.22, cloud session, 2026-10-13) while the other six checks, `typecheck` and `lint` passed — `assert.throws(…, Refused)` saw "identical name but a different prototype": the `.mts` entry's static `import { Refused } from '../lib/errors'` and `lib/script.ts`'s own `./errors` resolved to two module instances under the loader. A measurement fault, not a product one (Next bundles one instance). Fixed in the measurement: the check now loads the libs with `await import()` like every other check. Verified: three consecutive passes, `typecheck` and `eslint` clean.
-- [x] Final review complete — feedback resolved and learner confirms ready to ship. **Confirmed 2026-10-13** by the learner, in their words: *"Before any v2 work: finish v1 now. Complete the Final review and the Code Tour / App Map, confirm all checks pass, commit, then tag it `v1-poc` and push the tag."* All checks pass on a fresh clone (above). The v1 proof of concept is tagged **`v1-poc`**; the learner's v2 request is handled as a plan revision below, not as more v1 review.
+- [x] Final review complete — feedback resolved and learner confirms ready to ship. **Confirmed 2026-10-13** by the learner, in their words: *"Before any v2 work: finish v1 now. Complete the Final review and the Code Tour / App Map, confirm all checks pass, commit, then tag it `v1-poc` and push the tag."* All checks pass on a fresh clone (above). The v1 proof of concept is tagged **`v1-poc`** at commit `11923fe` — locally in the build session, because the session's push policy refuses tag refs (HTTP 403 on every try); **the learner pushes the tag from their machine** (`git fetch origin main && git tag -a v1-poc 11923fe -m "Ink Desk v1 proof of concept" && git push origin v1-poc`). The learner's v2 request is handled as a plan revision below, not as more v1 review.
 
 ## Code Tour and App Map
 
@@ -173,6 +287,7 @@ Activity mode: Prior practice connected, with a brief evidence-based recap; the 
 
 ## Revisions
 
+- **v2 — Ink Desk Studio: a plan revision after the v1 final review (2026-10-13).** The learner's verdict on v1, in their words: *"our app has a direct, cumbersome flow — it is not really an AI manga creator with chapters and volumes, it is much more a single storyboard creator."* Handled under `5-build`'s rule for a request that substantially changes the project: v1 was finished first (final review confirmed, app map, every check passing on a fresh clone, tag `v1-poc` at `11923fe`), then the affected planning decisions were revisited with the learner — not by restarting the planning skills — and recorded in `scope.md`, `prd.md` and `spec.md` under *Revision — Ink Desk Studio (v2)*, each with a pointer at its top and the v1 text left intact. **What the learner decided:** the kernel restated as one contract on three things (character, style, setting), with the character lock as the only proven lock and the others *candidates* until each passes a three-panel kernel test at `medium`; a ten-item boundary for the submission (dashboard, projects with a locked style preset — manga B&W and manhwa colour at least —, scenario mode with references, a library with one imported and one generated locked character, the Director's editable plan of at least three pages plus a cover with a cost estimate before generating, the v1 page engine per page, a chapter reader with RTL and vertical reading, PNG + PDF export, storage behind an interface with local default and Mongo + bucket switchable, a GPT Terra text fallback); a **feature freeze on 2026-10-20**; the demo video as a produced deliverable (Remotion in `video/`, Playwright capture of real generations, ElevenLabs narration via OpenRouter from a script the learner writes, royalty-free music, English subtitles, under three minutes); a budget of ≈ $10; and **`v1-poc` as the fallback submission** if v2 is not solid on Oct 20. Slices 8–15 above are the re-plan; the gut check on their order is the learner's next word. One fact recorded for the build: the session's git policy refuses tag pushes (403), so the tag is pushed by the learner.
 - **Slice 7: the story freeze had a second door — closed.** The desk got orphaned again *after* the slice 6 fix because the fix only guarded `POST /api/synopsis`; the generic patch route (`POST /api/chapter`) still accepted `pitch` and `synopsis` edits with no cast guard, so a stale tab's debounced typing walked straight through it. `assertStoryEditable` in `lib/patch.ts` now refuses both on every write path once a cast exists; `check:export` asserts the refusal and what still flows (station moves, panel edits, the fresh-desk pitch).
 - **Slice 7: a new story is drafted without ever touching the desk.** With a cast on the desk, `POST /api/synopsis` writes nothing and returns `{ draft }` to the browser alone; the Story station holds the new pitch and draft in local state beside the frozen current story. Accepting runs one atomic `POST /api/chapter/new` — reset plus pitch plus accepted synopsis in a single write — behind the ConfirmDialog, so no half-state (new synopsis over old cast) can exist on disk, reload or crash included. The plain New-chapter button in the reader is `DELETE /api/chapter` behind the same dialog.
 - **Slice 7: New chapter keeps the generated image files.** The clear empties the chapter; the art stays in `data/images/` (tracked in git anyway) and the desk never shows the orphans. Deleting the learner's art automatically felt wrong; the learner can prune the folder deliberately.
