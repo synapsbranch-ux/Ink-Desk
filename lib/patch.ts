@@ -3,6 +3,7 @@
 // typing feels instant) and the server (which adds the gate checks on top).
 import { clampBubble } from './bubble'
 import { editCharacter, type CharacterEdit } from './cast'
+import { Refused } from './errors'
 import type { BubbleLayout, Chapter, Station } from './types'
 
 export type { CharacterEdit }
@@ -38,6 +39,19 @@ export function mergePatch(a: ChapterPatch, b: ChapterPatch): ChapterPatch {
     cast: a.cast || b.cast ? mergeKeyed(a.cast, b.cast) : undefined,
     panels: a.panels || b.panels ? mergeKeyed(a.panels, b.panels) : undefined,
   }
+}
+
+export const STORY_FROZEN =
+  'This chapter’s cast and page were built from the accepted synopsis. Start a new chapter to tell a different story.'
+
+/**
+ * Once the cast exists the story is frozen on *every* write path, not only
+ * `POST /api/synopsis` — at the slice 6 checkpoint a stale tab's debounced
+ * pitch edit walked through this patch route and orphaned the desk (slice 7's
+ * fix). A new story goes through the confirmed clear: `POST /api/chapter/new`.
+ */
+export function assertStoryEditable(chapter: Chapter, patch: ChapterPatch): void {
+  if ((patch.pitch || patch.synopsis) && chapter.cast.length > 0) throw new Refused(STORY_FROZEN)
 }
 
 export function applyPatch(chapter: Chapter, patch: ChapterPatch): Chapter {

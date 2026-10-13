@@ -6,7 +6,7 @@ import { read, reset, update } from '@/lib/chapter'
 import { errorResponse, Refused } from '@/lib/errors'
 import { gates } from '@/lib/gates'
 import { imageConfig } from '@/lib/image-provider'
-import { applyPatch, type ChapterPatch } from '@/lib/patch'
+import { applyPatch, assertStoryEditable, type ChapterPatch } from '@/lib/patch'
 import { ChapterPatchSchema } from '@/lib/schemas'
 import { findPanel, markFailed, staleInkingIndices } from '@/lib/script'
 import { singletons } from '@/lib/singleton'
@@ -42,6 +42,9 @@ export async function POST(req: Request) {
 
   try {
     const chapter = await update((c) => {
+      // Once the cast exists, the story is frozen on this path too — a stale
+      // tab's pitch edit orphaned the desk at the slice 6 checkpoint.
+      assertStoryEditable(c, patch)
       // Gating is enforced here, not only in the rail.
       if (patch.station) {
         const gate = gates(c)[patch.station]

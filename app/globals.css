@@ -1483,6 +1483,123 @@ input.cast-role:disabled,
   font-size: 15px;
 }
 
+/* Station 4 — the reader. The finished page, read full-size: the ink-in
+   replays panel by panel on entry (the shot that gets filmed), and the RTL
+   toggle swaps where the middle squares sit by flipping the grid's
+   direction — story order never changes, reading direction does. */
+.reader-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.reader-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.reader-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: 760px;
+  width: 100%;
+  margin: 0 auto;
+}
+.read-arrow {
+  align-self: center;
+  font-family: var(--font-heading), serif;
+  font-style: italic;
+  font-size: 15px;
+  letter-spacing: 0.08em;
+  color: var(--neutral-700);
+}
+.reader-page.is-rtl {
+  direction: rtl;
+}
+.reader-page.is-rtl .panel {
+  direction: ltr;
+}
+/* The replayed reveal: the same ink-in wipe as the storyboard, each panel on
+   its own clock, the bubble landing as its panel's ink dries. */
+.reader-panel .reader-reveal {
+  opacity: 1;
+  animation: ink-in var(--ink-speed) cubic-bezier(0.6, 0, 0.3, 1) both;
+  animation-delay: var(--reveal-delay, 0s);
+}
+.reader-panel .reader-bubble {
+  opacity: 0;
+  animation: bubble-in 0.45s ease-out forwards;
+  animation-delay: var(--bubble-delay, 0s);
+}
+@keyframes bubble-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* The reader's bubbles are the storyboard's, read-only. */
+.bubble-static {
+  position: absolute;
+}
+.bubble-text.is-static {
+  pointer-events: none;
+  cursor: default;
+}
+@media (prefers-reduced-motion: reduce) {
+  .reader-panel .reader-reveal,
+  .reader-panel .reader-bubble {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/* The confirmation before anything clears the desk. */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  background: color-mix(in srgb, var(--ink) 42%, transparent);
+}
+.confirm-card {
+  max-width: 460px;
+  padding: var(--space-6);
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  box-shadow: 7px 7px 0 color-mix(in srgb, var(--ink) 25%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.confirm-title {
+  margin: 0;
+  font-family: var(--font-heading), serif;
+  font-weight: 600;
+  font-size: 24px;
+  line-height: 1.2;
+}
+.confirm-body {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--neutral-700);
+}
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;

@@ -6,19 +6,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { CastStation } from '@/components/CastStation'
 import { IDLE_CARD, type CardState } from '@/components/CharacterCard'
+import { ReaderStation } from '@/components/ReaderStation'
 import { StationRail, type SaveState } from '@/components/StationRail'
-import { StoryStation } from '@/components/StoryStation'
+import { StoryStation, type SynopsisDraft } from '@/components/StoryStation'
 import { StoryboardStation } from '@/components/StoryboardStation'
 import { gates } from '@/lib/gates'
 import { applyPatch, mergePatch, type ChapterPatch, type CharacterEdit, type PanelEdit } from '@/lib/patch'
-import type { Chapter, Station } from '@/lib/types'
+import type { Chapter, Pitch, Station } from '@/lib/types'
 
 const SAVE_DELAY_MS = 600
 /** While any panel is in flight the studio re-reads the desk this often. */
 const POLL_MS = 1500
 const UNREACHABLE = 'The studio couldn’t be reached. Is the dev server running?'
 
-type Reply = Chapter | { error: string }
+type Reply = Chapter | { error: string } | { draft: SynopsisDraft }
 
 async function postJson(url: string, body: unknown): Promise<{ ok: boolean; status: number; data: Reply }> {
   const res = await fetch(url, {
@@ -126,27 +127,73 @@ export default function Studio() {
 
   const goTo = useCallback((station: Station) => commit({ station }), [commit])
 
-  const pitch = useCallback(async () => {
-    if (!chapter) return
-    setPending(true)
-    setNotice(null)
-    try {
-      const { ok, data } = await postJson('/api/synopsis', {
-        pitch: chapter.pitch.text,
-        genre: chapter.pitch.genre,
-        tone: chapter.pitch.tone,
-      })
-      if (!ok || !('version' in data)) {
-        setNotice('error' in data ? data.error : 'The studio couldn’t write a synopsis just now.')
-        return
+  // A new-story draft (slice 7): held here only — the desk's story is frozen
+  // once the cast exists, so the draft never touches the chapter until the
+  // confirmed clear.
+  const [draft, setDraft] = useState<SynopsisDraft | null>(null)
+
+  const pitch = useCallback(
+    async (p: Pitch) => {
+      setPending(true)
+      setNotice(null)
+      try {
+        const { ok, data } = await postJson('/api/synopsis', {
+          pitch: p.text,
+          genre: p.genre,
+          tone: p.tone,
+        })
+        if (ok && 'draft' in data) {
+          setDraft(data.draft)
+          return
+        }
+        if (!ok || !('version' in data)) {
+          setNotice('error' in data ? data.error : 'The studio couldn’t write a synopsis just now.')
+          return
+        }
+        accept(data)
+      } catch {
+        setNotice(UNREACHABLE)
+      } finally {
+        setPending(false)
       }
-      accept(data)
-    } catch {
-      setNotice(UNREACHABLE)
-    } finally {
-      setPending(false)
+    },
+    [accept]
+  )
+
+  /** A fresh chapter replaces everything: queued edits, drafts and per-card
+   *  state all belonged to the old one. */
+  const adoptFresh = useCallback((fresh: Chapter) => {
+    if (timer.current) {
+      clearTimeout(timer.current)
+      timer.current = null
     }
-  }, [chapter, accept])
+    queued.current = {}
+    setChapter(fresh)
+    setSaveState('saved')
+    setDraft(null)
+    setCards({})
+    setNotice(null)
+    setProposeNotice(null)
+    setScriptNotice(null)
+  }, [])
+
+  /** New chapter, both doors: the reader's button clears to a blank desk;
+   *  accepting a new synopsis clears to a desk with that story accepted.
+   *  Each sits behind its own ConfirmDialog. */
+  const newChapter = useCallback(async () => {
+    const res = await fetch('/api/chapter', { method: 'DELETE' })
+    if (!res.ok) throw new Error('reset failed')
+    adoptFresh((await res.json()) as Chapter)
+  }, [adoptFresh])
+
+  const acceptNewStory = useCallback(
+    async (p: Pitch, synopsis: SynopsisDraft) => {
+      const { ok, data } = await postJson('/api/chapter/new', { pitch: p, synopsis })
+      if (!ok || !('version' in data)) throw new Error('error' in data ? data.error : 'new chapter failed')
+      adoptFresh(data)
+    },
+    [adoptFresh]
+  )
 
   // --- Cast ---------------------------------------------------------------
 
@@ -319,9 +366,12 @@ export default function Studio() {
           gates={g}
           pending={pending}
           notice={notice}
+          draft={draft}
           onEdit={edit}
           onCommit={commit}
-          onPitch={pitch}
+          onPitch={(p) => void pitch(p)}
+          onDraftChange={setDraft}
+          onAcceptNewStory={acceptNewStory}
           onGoCast={() => goTo('cast')}
         />
       ) : chapter.station === 'cast' ? (
@@ -354,24 +404,8 @@ export default function Studio() {
           onGoReader={() => goTo('reader')}
         />
       ) : (
-        <ComingNext />
+        <ReaderStation chapter={chapter} onGoStoryboard={() => goTo('storyboard')} onNewChapter={newChapter} />
       )}
     </div>
-  )
-}
-
-/** The reader, not built yet. Replaced in slice 7. */
-function ComingNext() {
-  const [eyebrow, title, lede] = ['Station 4 · The reader', 'Ink & Publish', 'The finished page. Built last.']
-  return (
-    <main className="station">
-      <div className="station-inner">
-        <div className="station-head">
-          <div className="eyebrow">{eyebrow}</div>
-          <h1 className="station-title">{title}</h1>
-          <p className="station-lede">{lede}</p>
-        </div>
-      </div>
-    </main>
   )
 }

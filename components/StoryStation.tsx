@@ -3,45 +3,100 @@
 // Station 1 — the pitch desk. Pitch, genre, tone, "Try the sample", then
 // Claude's synopsis in an editable card with Rewrite and Accept.
 // Implements `devpost/prd.md > Story — The Pitch Desk`.
+//
+// Once the cast exists the desk's story is frozen (slice 6) — but a *new*
+// story can still be pitched (slice 7): the pitch is typed into local state,
+// the draft Claude returns never touches the desk, and accepting it runs the
+// confirmed clear — `devpost/prd.md > Screens and Layout`, "Back to Story and
+// accepting a new synopsis starts a new chapter."
+import { useState } from 'react'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { GenerationStatus } from '@/components/GenerationStatus'
 import { StationFooter } from '@/components/StationFooter'
 import type { Gates } from '@/lib/gates'
 import type { ChapterPatch } from '@/lib/patch'
 import { GENRES, SAMPLE_PITCH, TONES } from '@/lib/prompts'
 import { textStages } from '@/lib/stages'
-import type { Chapter } from '@/lib/types'
+import type { Chapter, Pitch, Synopsis } from '@/lib/types'
+
+export type SynopsisDraft = { title: string; body: string }
 
 type Props = {
   chapter: Chapter
   gates: Gates
   pending: boolean
   notice: string | null
+  /** A new-story draft held in the browser only — never on the desk. */
+  draft: SynopsisDraft | null
   /** Typing: applied locally now, saved after a pause. */
   onEdit: (patch: ChapterPatch) => void
   /** Clicks: saved immediately. */
   onCommit: (patch: ChapterPatch) => void
-  onPitch: () => void
+  onPitch: (pitch: Pitch) => void
+  onDraftChange: (draft: SynopsisDraft) => void
+  /** The confirmed clear: a new chapter wakes with this story accepted. */
+  onAcceptNewStory: (pitch: Pitch, synopsis: SynopsisDraft) => Promise<void>
   onGoCast: () => void
 }
 
-export function StoryStation({ chapter, gates, pending, notice, onEdit, onCommit, onPitch, onGoCast }: Props) {
-  const { pitch, synopsis } = chapter
-  const ready = pitch.text.trim().length > 0 && pitch.genre !== '' && pitch.tone !== ''
+export function StoryStation({
+  chapter,
+  gates,
+  pending,
+  notice,
+  draft,
+  onEdit,
+  onCommit,
+  onPitch,
+  onDraftChange,
+  onAcceptNewStory,
+  onGoCast,
+}: Props) {
+  const { synopsis } = chapter
   const accepted = synopsis?.accepted === true
-  // Once the cast exists it was built from this synopsis, so the story
-  // freezes: a rewrite here would orphan the sheets and the page. The server
-  // refuses it too; this just says so before the click. Slice 7's New chapter
-  // is how a different story starts.
   const castBuilt = chapter.cast.length > 0
-  const frozen = pending || castBuilt
-  const frozenWhy = 'The cast and page were built from this synopsis. A different story needs a new chapter.'
+
+  // With a cast on the desk, typing edits this local pitch — the desk's own
+  // pitch stays exactly as the chapter was built from it.
+  const [newPitch, setNewPitch] = useState<Pitch>(() => ({ ...chapter.pitch }))
+  const pitch = castBuilt ? newPitch : chapter.pitch
+  const setPitch = (p: Partial<Pitch>) =>
+    castBuilt ? setNewPitch((prev) => ({ ...prev, ...p })) : onEdit({ pitch: p })
+  const choosePitch = (p: Partial<Pitch>) =>
+    castBuilt ? setNewPitch((prev) => ({ ...prev, ...p })) : onCommit({ pitch: p })
+
+  const ready = pitch.text.trim().length > 0 && pitch.genre !== '' && pitch.tone !== ''
+
+  const [confirming, setConfirming] = useState(false)
+  const [clearing, setClearing] = useState(false)
+  const [clearNotice, setClearNotice] = useState<string | null>(null)
+  const acceptNewStory = async () => {
+    if (!draft) return
+    setClearing(true)
+    setClearNotice(null)
+    try {
+      await onAcceptNewStory(newPitch, draft)
+      setConfirming(false)
+    } catch {
+      setClearNotice('The desk couldn’t start the new chapter. Is the dev server running?')
+      setConfirming(false)
+    } finally {
+      setClearing(false)
+    }
+  }
 
   return (
     <main className="station">
       <div className="station-inner">
         <div className="station-head">
           <div className="eyebrow">Station 1 · The pitch desk</div>
-          <h1 className="station-title">What’s your story?</h1>
+          <h1 className="station-title">{castBuilt ? 'Tell a different story?' : 'What’s your story?'}</h1>
+          {castBuilt && (
+            <p className="station-lede">
+              This chapter is built — its story is frozen below. Pitch a new one here: nothing changes until you
+              accept the new synopsis, and that starts a new chapter.
+            </p>
+          )}
         </div>
 
         <textarea
@@ -49,9 +104,8 @@ export function StoryStation({ chapter, gates, pending, notice, onEdit, onCommit
           rows={3}
           placeholder="A line or two is enough. Who, where, and what goes wrong."
           value={pitch.text}
-          onChange={(e) => onEdit({ pitch: { text: e.target.value } })}
-          disabled={frozen}
-          title={castBuilt ? frozenWhy : undefined}
+          onChange={(e) => setPitch({ text: e.target.value })}
+          disabled={pending}
           aria-label="Your pitch"
         />
         <div className="pitch-aside">
@@ -59,9 +113,8 @@ export function StoryStation({ chapter, gates, pending, notice, onEdit, onCommit
           <button
             type="button"
             className="btn btn-ghost"
-            onClick={() => onCommit({ pitch: { text: SAMPLE_PITCH } })}
-            disabled={frozen}
-            title={castBuilt ? frozenWhy : undefined}
+            onClick={() => choosePitch({ text: SAMPLE_PITCH })}
+            disabled={pending}
           >
             Try the sample
           </button>
@@ -77,8 +130,8 @@ export function StoryStation({ chapter, gates, pending, notice, onEdit, onCommit
                 role="radio"
                 aria-checked={pitch.genre === g}
                 className={`chip${pitch.genre === g ? ' is-selected' : ''}`}
-                onClick={() => onCommit({ pitch: { genre: g } })}
-                disabled={frozen}
+                onClick={() => choosePitch({ genre: g })}
+                disabled={pending}
               >
                 {g}
               </button>
@@ -93,8 +146,8 @@ export function StoryStation({ chapter, gates, pending, notice, onEdit, onCommit
                 role="radio"
                 aria-checked={pitch.tone === t}
                 className={`chip chip-tone${pitch.tone === t ? ' is-selected' : ''}`}
-                onClick={() => onCommit({ pitch: { tone: t } })}
-                disabled={frozen}
+                onClick={() => choosePitch({ tone: t })}
+                disabled={pending}
               >
                 {t}
               </button>
@@ -106,15 +159,14 @@ export function StoryStation({ chapter, gates, pending, notice, onEdit, onCommit
           <button
             type="button"
             className="btn btn-primary btn-lg"
-            onClick={onPitch}
-            disabled={!ready || frozen}
-            title={castBuilt ? frozenWhy : undefined}
+            onClick={() => onPitch(pitch)}
+            disabled={!ready || pending}
           >
-            {pending ? 'Pitching…' : synopsis ? 'Pitch it again' : 'Pitch it to Claude'}
+            {pending ? 'Pitching…' : castBuilt ? (draft ? 'Pitch it again' : 'Pitch a new story') : synopsis ? 'Pitch it again' : 'Pitch it to Claude'}
           </button>
           <span className="helper">
             {castBuilt
-              ? frozenWhy
+              ? 'The new synopsis arrives as a draft. Accepting it clears this chapter — after a confirmation.'
               : ready
                 ? 'A short synopsis comes back. You edit it, accept it, or ask for another.'
                 : 'Write a pitch and pick a genre and a tone.'}
@@ -126,6 +178,11 @@ export function StoryStation({ chapter, gates, pending, notice, onEdit, onCommit
             {notice}
           </div>
         )}
+        {clearNotice && (
+          <div className="notice" role="alert">
+            {clearNotice}
+          </div>
+        )}
 
         <div className="hr" />
 
@@ -133,58 +190,63 @@ export function StoryStation({ chapter, gates, pending, notice, onEdit, onCommit
           <div className="sketch synopsis-loading" aria-busy="true">
             <GenerationStatus stages={textStages('Claude is reading your pitch…')} />
           </div>
+        ) : castBuilt && draft ? (
+          <article className="card synopsis-card">
+            <div className="eyebrow">New story · draft · click to edit — accepting starts a new chapter</div>
+            <input
+              className="synopsis-title"
+              value={draft.title}
+              onChange={(e) => onDraftChange({ ...draft, title: e.target.value })}
+              aria-label="New chapter title"
+            />
+            <textarea
+              className="synopsis-body"
+              rows={5}
+              value={draft.body}
+              onChange={(e) => onDraftChange({ ...draft, body: e.target.value })}
+              aria-label="New synopsis"
+            />
+            <div className="synopsis-actions">
+              <button
+                type="button"
+                className="btn btn-primary btn-lg"
+                onClick={() => setConfirming(true)}
+                disabled={draft.title.trim() === '' || draft.body.trim() === ''}
+                title="Clears the current chapter and starts this one — it asks first."
+              >
+                Accept — new chapter…
+              </button>
+              <button type="button" className="btn btn-secondary" onClick={() => onPitch(pitch)} disabled={!ready}>
+                Rewrite
+              </button>
+            </div>
+          </article>
         ) : synopsis === null ? (
           <div className="synopsis-empty">
             <span>Your synopsis lands here — editable, never final.</span>
           </div>
         ) : (
-          <article className="card synopsis-card">
-            <div className="eyebrow">{accepted ? 'Synopsis · accepted' : 'Synopsis · draft · click to edit'}</div>
-            {accepted ? (
-              <>
-                <h2 className="synopsis-title">{synopsis.title}</h2>
-                <p className="synopsis-text">{synopsis.body}</p>
-              </>
-            ) : (
-              <>
-                <input
-                  className="synopsis-title"
-                  value={synopsis.title}
-                  onChange={(e) => onEdit({ synopsis: { title: e.target.value } })}
-                  aria-label="Chapter title"
-                />
-                <textarea
-                  className="synopsis-body"
-                  rows={5}
-                  value={synopsis.body}
-                  onChange={(e) => onEdit({ synopsis: { body: e.target.value } })}
-                  aria-label="Synopsis"
-                />
-              </>
-            )}
-            <div className="synopsis-actions">
-              {!accepted && (
-                <button
-                  type="button"
-                  className="btn btn-primary btn-lg"
-                  onClick={() => onCommit({ synopsis: { accepted: true } })}
-                  disabled={synopsis.title.trim() === '' || synopsis.body.trim() === ''}
-                >
-                  Accept
-                </button>
-              )}
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={onPitch}
-                disabled={!ready || frozen}
-                title={castBuilt ? frozenWhy : undefined}
-              >
-                Rewrite
-              </button>
-            </div>
-            {accepted && <span className="stamp">Accepted</span>}
-          </article>
+          <CurrentSynopsis
+            synopsis={synopsis}
+            accepted={accepted}
+            castBuilt={castBuilt}
+            ready={ready}
+            pending={pending}
+            onEdit={onEdit}
+            onCommit={onCommit}
+            onRewrite={() => onPitch(pitch)}
+          />
+        )}
+
+        {confirming && draft && (
+          <ConfirmDialog
+            title={`Start a new chapter with “${draft.title.trim()}”?`}
+            body="Accepting this synopsis clears the current chapter — the cast, their locked sheets, the page script, and all four panels. The new story takes their place on a fresh desk."
+            confirmLabel="Accept and clear the desk"
+            busy={clearing}
+            onConfirm={() => void acceptNewStory()}
+            onCancel={() => setConfirming(false)}
+          />
         )}
 
         <StationFooter
@@ -195,5 +257,79 @@ export function StoryStation({ chapter, gates, pending, notice, onEdit, onCommit
         />
       </div>
     </main>
+  )
+}
+
+/** The desk's own synopsis: editable until accepted, read-only after, and
+ *  explicitly the frozen source of the chapter once the cast exists. */
+function CurrentSynopsis({
+  synopsis,
+  accepted,
+  castBuilt,
+  ready,
+  pending,
+  onEdit,
+  onCommit,
+  onRewrite,
+}: {
+  synopsis: Synopsis
+  accepted: boolean
+  castBuilt: boolean
+  ready: boolean
+  pending: boolean
+  onEdit: (patch: ChapterPatch) => void
+  onCommit: (patch: ChapterPatch) => void
+  onRewrite: () => void
+}) {
+  return (
+    <article className="card synopsis-card">
+      <div className="eyebrow">
+        {castBuilt
+          ? 'Synopsis · accepted — the cast and page were built from this'
+          : accepted
+            ? 'Synopsis · accepted'
+            : 'Synopsis · draft · click to edit'}
+      </div>
+      {accepted ? (
+        <>
+          <h2 className="synopsis-title">{synopsis.title}</h2>
+          <p className="synopsis-text">{synopsis.body}</p>
+        </>
+      ) : (
+        <>
+          <input
+            className="synopsis-title"
+            value={synopsis.title}
+            onChange={(e) => onEdit({ synopsis: { title: e.target.value } })}
+            aria-label="Chapter title"
+          />
+          <textarea
+            className="synopsis-body"
+            rows={5}
+            value={synopsis.body}
+            onChange={(e) => onEdit({ synopsis: { body: e.target.value } })}
+            aria-label="Synopsis"
+          />
+        </>
+      )}
+      {!castBuilt && (
+        <div className="synopsis-actions">
+          {!accepted && (
+            <button
+              type="button"
+              className="btn btn-primary btn-lg"
+              onClick={() => onCommit({ synopsis: { accepted: true } })}
+              disabled={synopsis.title.trim() === '' || synopsis.body.trim() === ''}
+            >
+              Accept
+            </button>
+          )}
+          <button type="button" className="btn btn-secondary" onClick={onRewrite} disabled={!ready || pending}>
+            Rewrite
+          </button>
+        </div>
+      )}
+      {accepted && <span className="stamp">Accepted</span>}
+    </article>
   )
 }

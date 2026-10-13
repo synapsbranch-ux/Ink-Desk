@@ -134,6 +134,13 @@ export const SynopsisRequestSchema = z.object({
   tone: z.string().min(1),
 })
 
+/** Accepting a new synopsis while a chapter is on the desk: the confirmed
+ *  clear (`POST /api/chapter/new`). The new story arrives whole. */
+export const NewChapterSchema = z.object({
+  pitch: z.object({ text: z.string().trim().min(1), genre: z.string().min(1), tone: z.string().min(1) }),
+  synopsis: z.object({ title: z.string().trim().min(1), body: z.string().trim().min(1) }),
+})
+
 export const RerollRequestSchema = z.object({ id: z.string().min(1) })
 
 export const SheetRequestSchema = z.object({

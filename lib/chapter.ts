@@ -11,7 +11,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { singletons } from './singleton'
-import { emptyChapter, type Chapter } from './types'
+import { emptyChapter, type Chapter, type Pitch } from './types'
 
 // Overridable so the acceptance check can run against a scratch folder.
 export const DATA_DIR = process.env.INKDESK_DATA_DIR ?? 'data'
@@ -73,4 +73,20 @@ export function update(fn: (chapter: Chapter) => Chapter): Promise<Chapter> {
 /** New chapter: back to the first-use state. */
 export function reset(): Promise<Chapter> {
   return update(() => emptyChapter(singletons.serverRunId))
+}
+
+/**
+ * The other way a chapter starts over (slice 7): accepting a *new* synopsis
+ * while a chapter is on the desk. One atomic write — the desk returns to
+ * first use and wakes with the new story already accepted, never a half-state
+ * where a new synopsis sits over an old cast. Generated image files stay on
+ * disk: the desk never shows them again, and deleting the learner's art
+ * automatically is not this function's call.
+ */
+export function newChapter(story: { pitch: Pitch; synopsis: { title: string; body: string } }): Promise<Chapter> {
+  return update(() => ({
+    ...emptyChapter(singletons.serverRunId),
+    pitch: story.pitch,
+    synopsis: { title: story.synopsis.title, body: story.synopsis.body, accepted: true },
+  }))
 }

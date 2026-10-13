@@ -2,11 +2,14 @@
 // Calling it again is "Rewrite": the new draft replaces the old one — but
 // only until the cast exists. The cast and page are built FROM the accepted
 // synopsis, so replacing the story after that would orphan everything
-// downstream; the PRD's remedy is New chapter (slice 7's confirm-then-clear),
-// never a silent swap. See `devpost/prd.md > States and Boundaries`.
+// downstream. Once a cast is on the desk this route still writes synopses —
+// it just stops writing them to the desk: the draft goes back to the browser
+// alone, and accepting it runs the confirmed clear through
+// `POST /api/chapter/new` (slice 7). See `devpost/prd.md > States and
+// Boundaries` and `> Screens and Layout` (back-navigation rules).
 import { read, update } from '@/lib/chapter'
 import { writeSynopsis } from '@/lib/claude'
-import { errorResponse, Refused } from '@/lib/errors'
+import { errorResponse } from '@/lib/errors'
 import { SynopsisRequestSchema } from '@/lib/schemas'
 
 export const runtime = 'nodejs'
@@ -22,12 +25,11 @@ export async function POST(req: Request) {
 
   try {
     const existing = await read()
-    if (existing.cast.length > 0) {
-      throw new Refused(
-        'This chapter’s cast and page were built from the accepted synopsis. Start a new chapter to tell a different story.'
-      )
-    }
     const synopsis = await writeSynopsis({ pitch, genre, tone })
+    if (existing.cast.length > 0) {
+      // The desk's story is frozen; the new draft never touches it.
+      return Response.json({ draft: { title: synopsis.title, body: synopsis.body } })
+    }
     const chapter = await update((c) => ({
       ...c,
       pitch: { text: pitch, genre, tone },
