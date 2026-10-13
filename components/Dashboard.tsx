@@ -22,7 +22,7 @@ export function usd(n: number): string {
   return n < 0.005 && n > 0 ? '< $0.01' : `$${n.toFixed(2)}`
 }
 
-export function Dashboard({ projects }: { projects: ProjectSummary[] }) {
+export function Dashboard({ projects, notice = null }: { projects: ProjectSummary[]; notice?: string | null }) {
   // `/?new=1` opens the dialog straight away — the reader's "New project…" door.
   const search = useSearchParams()
   const [creating, setCreating] = useState(search.get('new') === '1')
@@ -66,6 +66,12 @@ export function Dashboard({ projects }: { projects: ProjectSummary[] }) {
                 keep working, or start another — nothing here is ever cleared without asking.
               </p>
             </div>
+
+            {notice && (
+              <p className="notice" role="status">
+                {notice}
+              </p>
+            )}
 
             {projects.length === 0 ? (
               <div className="desk-empty card">

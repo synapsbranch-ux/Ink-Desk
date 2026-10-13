@@ -171,11 +171,14 @@ export function Studio({ projectId }: { projectId: string }) {
     async (p: Pitch, synopsis: SynopsisDraft) => {
       if (!chapter) return
       const { ok, data } = await postJson('/api/projects', {
-        title: synopsis.title.trim() || 'Untitled project',
+        // The project title is the schema's: at most 120 characters.
+        title: (synopsis.title.trim() || 'Untitled project').slice(0, 120),
         stylePresetId: chapter.stylePresetId,
         story: { pitch: p, synopsis },
       })
-      if (!ok || !('version' in data)) throw new Error('error' in data ? data.error : 'new project failed')
+      if (!ok || !('version' in data)) {
+        throw new Error('error' in data ? data.error : 'The desk couldn’t start the new project just now.')
+      }
       router.push(`/p/${data.address.projectId}`)
     },
     [chapter, router]

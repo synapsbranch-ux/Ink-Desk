@@ -6,9 +6,9 @@
 //
 // Once the cast exists the desk's story is frozen (slice 6) — but a *new*
 // story can still be pitched (slice 7): the pitch is typed into local state,
-// the draft Claude returns never touches the desk, and accepting it runs the
-// confirmed clear — `devpost/prd.md > Screens and Layout`, "Back to Story and
-// accepting a new synopsis starts a new chapter."
+// the draft Claude returns never touches the desk, and accepting it starts a
+// NEW project in the same style with that story (v2, slice 8) — this project
+// is never cleared. `devpost/prd.md > Screens and Layout (v2)`.
 import { useState } from 'react'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { GenerationStatus } from '@/components/GenerationStatus'
@@ -77,8 +77,11 @@ export function StoryStation({
     try {
       await onAcceptNewStory(newPitch, draft)
       setConfirming(false)
-    } catch {
-      setClearNotice('The desk couldn’t start the new project. Is the dev server running?')
+    } catch (err) {
+      // The desk's own sentence when it refused; the reachability sentence
+      // only when nothing answered at all.
+      const refused = err instanceof Error && err.name !== 'TypeError' && err.message
+      setClearNotice(refused || 'The desk couldn’t start the new project. Is the dev server running?')
       setConfirming(false)
     } finally {
       setClearing(false)
@@ -166,7 +169,7 @@ export function StoryStation({
           </button>
           <span className="helper">
             {castBuilt
-              ? 'The new synopsis arrives as a draft. Accepting it clears this chapter — after a confirmation.'
+              ? 'The new synopsis arrives as a draft. Accepting it starts a new project in the same style — after a confirmation; this one stays as it is.'
               : ready
                 ? 'A short synopsis comes back. You edit it, accept it, or ask for another.'
                 : 'Write a pitch and pick a genre and a tone.'}
@@ -192,12 +195,12 @@ export function StoryStation({
           </div>
         ) : castBuilt && draft ? (
           <article className="card synopsis-card">
-            <div className="eyebrow">New story · draft · click to edit — accepting starts a new chapter</div>
+            <div className="eyebrow">New story · draft · click to edit — accepting starts a new project</div>
             <input
               className="synopsis-title"
               value={draft.title}
               onChange={(e) => onDraftChange({ ...draft, title: e.target.value })}
-              aria-label="New chapter title"
+              aria-label="New project title"
             />
             <textarea
               className="synopsis-body"
@@ -212,9 +215,9 @@ export function StoryStation({
                 className="btn btn-primary btn-lg"
                 onClick={() => setConfirming(true)}
                 disabled={draft.title.trim() === '' || draft.body.trim() === ''}
-                title="Clears the current chapter and starts this one — it asks first."
+                title="Starts a new project with this story — it asks first. Nothing here is cleared."
               >
-                Accept — new chapter…
+                Accept — new project…
               </button>
               <button type="button" className="btn btn-secondary" onClick={() => onPitch(pitch)} disabled={!ready}>
                 Rewrite

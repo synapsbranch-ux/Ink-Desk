@@ -12,7 +12,7 @@
 // increments read back as 4 (the lost-update canary); a failing update neither
 // wedges the chain nor corrupts the file; no temp file is left behind.
 import assert from 'node:assert/strict'
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -20,8 +20,9 @@ const dir = await mkdtemp(join(tmpdir(), 'inkdesk-store-'))
 process.env.INKDESK_DATA_DIR = dir
 
 // Imported after the env is set, because the store reads it at load.
-const { createProject, listProjects, read, update } = await import('../lib/chapter')
+const { createProject, listProjects, migrateLegacy, read, update } = await import('../lib/chapter')
 const { migrateV1 } = await import('../lib/migrate')
+const { singletons } = await import('../lib/singleton')
 
 import type { ChapterV1 } from '../lib/migrate'
 import type { Panel } from '../lib/types'
@@ -145,6 +146,29 @@ try {
     assert.deepEqual(files, ['project.json'], `unexpected files left behind in ${id}: ${files.join(', ')}`)
   }
   console.log('  ok  only project.json in each project folder — no stray temp file')
+
+  // 7. Nothing unreadable takes the desk down: a broken project is skipped
+  //    with a warning, a broken v1 file is left alone and named in a sentence,
+  //    and a garbage id is a 404 that never becomes a lock entry.
+  const quiet = console.warn
+  console.warn = () => {}
+  try {
+    await mkdir(join(dir, 'projects', 'zzz-broken'), { recursive: true })
+    await writeFile(join(dir, 'projects', 'zzz-broken', 'project.json'), '{ not json')
+    assert.equal((await listProjects()).length, 3, 'a broken project.json is skipped, the others still list')
+    await rm(join(dir, 'projects', 'v1-migrated.json'))
+    await writeFile(join(dir, 'chapter.json'), '{ "version": 1, truncated')
+    const outcome = await migrateLegacy()
+    assert.equal(outcome.projectId, null)
+    assert.match(outcome.problem ?? '', /chapter\.json/, 'the sentence names the file')
+    assert.equal((await listProjects()).length, 3, 'nothing was migrated from a broken v1 file')
+    assert.equal(await readFile(join(dir, 'chapter.json'), 'utf8'), '{ "version": 1, truncated', 'and it was left exactly as it was')
+    await assert.rejects(update('../../etc', (c) => c), /no such project/)
+    assert.equal(singletons.locks.has('../../etc'), false, 'a refused id never becomes a lock entry')
+  } finally {
+    console.warn = quiet
+  }
+  console.log('  ok  a broken project is skipped, a broken v1 file is named and left alone, a garbage id is a 404')
 
   console.log('\n  Store acceptance check passed.\n')
 } finally {

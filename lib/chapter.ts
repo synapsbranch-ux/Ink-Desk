@@ -128,3 +128,8 @@ export async function createProject(input: {
 export function listProjects(): Promise<ProjectSummary[]> {
   return store.listProjects()
 }
+
+/** The v1 migration's outcome, for the dashboard's one sentence when the v1 file can't be read. */
+export function migrateLegacy(): Promise<{ projectId: string | null; problem: string | null }> {
+  return store.migrateLegacy()
+}

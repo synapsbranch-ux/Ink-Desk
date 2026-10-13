@@ -16,6 +16,10 @@ export type BlobKind = 'sheet' | 'panel' | 'cover' | 'asset'
 export interface Store {
   /** Every project on the desk, newest first. Runs the one-time v1 migration. */
   listProjects(): Promise<ProjectSummary[]>
+  /** The one-time v1 migration on its own: the project it made, or the
+   *  sentence that says why the v1 file was left alone. Nulls when there is
+   *  nothing to migrate. */
+  migrateLegacy(): Promise<{ projectId: string | null; problem: string | null }>
   readProject(id: string): Promise<Project>
   /** Refuses if the id exists. */
   createProject(project: Project): Promise<void>
@@ -39,6 +43,7 @@ function notYet(): Store {
     )
   return {
     listProjects: refuse,
+    migrateLegacy: refuse,
     readProject: refuse,
     createProject: refuse,
     updateProject: refuse,

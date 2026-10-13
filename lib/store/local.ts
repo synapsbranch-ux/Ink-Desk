@@ -127,6 +127,9 @@ async function createProject(project: Project): Promise<void> {
  * file untouched; the chain itself never wedges.
  */
 function updateProject(id: string, fn: (project: Project) => Project): Promise<Project> {
+  // Validated before the lock map is touched, so a garbage id is a 404 and
+  // never a lock entry.
+  if (!isProjectId(id)) return Promise.reject(new Refused('There is no such project.', 404))
   const run = async (): Promise<Project> => {
     const current = await readProject(id) // fresh read, inside the lock
     const next: Project = {
@@ -170,26 +173,37 @@ export function summarize(p: Project): ProjectSummary {
  * The one-time migration of the v1 desk (`data/chapter.json`) into a project.
  * Runs on the first listing; the marker makes it run exactly once, so a
  * migrated project that is later deleted does not come back from the v1 file.
- * The v1 file is read and never written.
+ * The v1 file is read and never written. A file that cannot be read as a v1
+ * desk is left exactly as it is and named in `problem` — the dashboard opens
+ * empty with that sentence rather than failing (`spec.md > Important Failure
+ * Modes (v2)`).
  */
-export async function migrateV1IfNeeded(): Promise<string | null> {
-  if (await exists(V1_MARKER)) return null
-  const raw = await readJson(V1_FILE)
-  if (raw === null) return null
+export async function migrateLegacy(): Promise<{ projectId: string | null; problem: string | null }> {
+  if (await exists(V1_MARKER)) return { projectId: null, problem: null }
+  let raw: unknown
+  try {
+    raw = await readJson(V1_FILE)
+  } catch (err) {
+    const problem = `${V1_FILE} couldn’t be read as a desk (${err instanceof Error ? err.message : String(err)}). It was left as it is; fix or move it to migrate it.`
+    console.warn(`[store] ${problem}`)
+    return { projectId: null, problem }
+  }
+  if (raw === null) return { projectId: null, problem: null }
   if (!isChapterV1(raw)) {
-    console.warn(`[store] ${V1_FILE} is not a version-1 desk; left as it is, nothing migrated`)
-    return null
+    const problem = `${V1_FILE} is not a version-1 desk. It was left as it is, nothing migrated.`
+    console.warn(`[store] ${problem}`)
+    return { projectId: null, problem }
   }
   const ids = { projectId: `v1-${crypto.randomUUID().slice(0, 8)}`, chapterId: crypto.randomUUID() }
   const project = migrateV1(raw, ids, singletons.serverRunId, new Date().toISOString(), 'chapter.json')
   await createProject(project)
   await writeAtomic(PROJECTS_DIR, 'v1-migrated.json', { projectId: ids.projectId, at: project.updatedAt })
   console.log(`[store] migrated the v1 desk into project ${ids.projectId} (“${project.title}”); ${V1_FILE} untouched`)
-  return ids.projectId
+  return { projectId: ids.projectId, problem: null }
 }
 
 async function listProjects(): Promise<ProjectSummary[]> {
-  await migrateV1IfNeeded()
+  await migrateLegacy()
   let entries: string[]
   try {
     entries = await readdir(PROJECTS_DIR)
@@ -200,7 +214,14 @@ async function listProjects(): Promise<ProjectSummary[]> {
   const summaries: ProjectSummary[] = []
   for (const id of entries) {
     if (!isProjectId(id)) continue // the marker file, a stray .tmp, anything else
-    const raw = await readJson(join(PROJECTS_DIR, id, 'project.json'))
+    let raw: unknown
+    try {
+      raw = await readJson(join(PROJECTS_DIR, id, 'project.json'))
+    } catch (err) {
+      // One unreadable project never takes the desk down with it.
+      console.warn(`[store] projects/${id}/project.json couldn’t be read; skipped:`, err instanceof Error ? err.message : err)
+      continue
+    }
     if (raw === null || (raw as Project).version !== 2) continue
     summaries.push(summarize(raw as Project))
   }
@@ -234,4 +255,4 @@ async function getBlob(id: string): Promise<{ bytes: Buffer; mediaType: string }
   }
 }
 
-export const localStore: Store = { listProjects, readProject, createProject, updateProject, putBlob, getBlob }
+export const localStore: Store = { listProjects, migrateLegacy, readProject, createProject, updateProject, putBlob, getBlob }
