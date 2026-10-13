@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "serverRunId": "a4136a4d-8151-4801-b748-7884330a46b5",
+  "serverRunId": "dee5c79d-1446-403a-ae5e-f1335320c305",
   "station": "storyboard",
   "pitch": {
     "text": "A 15-year-old Haitian student, obsessed with quantum physics, leaves school at 4 p.m. and gets hit by a bus while crossing the street. He wakes up in a strange, futuristic world, face to face with two agents of a secret agency that can travel through time and space. They tell him one of their agents saved his life, but the rescue left a strange liquid inside his body that he must constantly renew whenever he returns to his own time and world. Since he now belongs to their universe, they make him an offer: become an agent and go on missions with them.",
@@ -59,7 +59,15 @@
       "currentVersion": 0,
       "status": "done",
       "startedAt": null,
-      "startedByRun": null
+      "startedByRun": null,
+      "bubble": {
+        "x": 62,
+        "y": 5,
+        "w": 34,
+        "h": 30,
+        "tailX": 51.8,
+        "tailY": 26.1
+      }
     },
     {
       "index": 1,
@@ -90,9 +98,13 @@
         {
           "imageId": "panel-04d98c86-d6f1-4a35-b2ff-ca9bffb33902.png",
           "createdAt": "2026-10-12T22:59:35.885Z"
+        },
+        {
+          "imageId": "panel-74312f2f-fa2d-4c91-a11c-f9ceae0777b8.png",
+          "createdAt": "2026-10-13T00:42:37.480Z"
         }
       ],
-      "currentVersion": 0,
+      "currentVersion": 1,
       "status": "done",
       "startedAt": null,
       "startedByRun": null
@@ -116,6 +128,6 @@
       "startedByRun": null
     }
   ],
-  "imageCount": 7,
-  "updatedAt": "2026-10-12T23:11:24.318Z"
+  "imageCount": 8,
+  "updatedAt": "2026-10-13T00:43:01.748Z"
 }
