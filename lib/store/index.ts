@@ -2,12 +2,17 @@
 //   • `local` (default) — files under `data/`, the way v1 worked. A clone runs
 //     with nothing but the two API keys.
 //   • `cloud` — MongoDB for project state and an S3-compatible bucket for
-//     images. Arrives in slice 13; until then the switch refuses by name.
+//     images (slice 13, `cloud.ts`). Loaded on first use, so a local desk
+//     never loads either driver. Started without its settings, every call is
+//     refused with the sentence naming the missing variables — never a quiet
+//     fall back to the local desk. `instrumentation.ts` refuses the same thing
+//     once, at server start.
 // See `devpost/spec.md > Storage Adapter (v2)`.
 //
 // The mode is read once, at module load, like `INKDESK_DATA_DIR`: the checks
 // set the environment before their first dynamic import.
 import { ProviderError } from '../errors'
+import { missingCloudEnv, missingCloudSentence, storageMode } from './env'
 import { localStore } from './local'
 import type { Project, ProjectSummary } from '../types'
 
@@ -30,17 +35,8 @@ export interface Store {
   getBlob(id: string): Promise<{ bytes: Buffer; mediaType: string } | null>
 }
 
-const MODE = process.env.INKDESK_STORAGE ?? 'local'
-
-function notYet(): Store {
-  const refuse = () =>
-    Promise.reject(
-      new ProviderError(
-        'The studio’s cloud storage isn’t available in this build. Set INKDESK_STORAGE=local (or leave it unset) and restart the dev server.',
-        'config',
-        `INKDESK_STORAGE=${MODE} — the MongoDB + bucket store is slice 13`
-      )
-    )
+function refusing(sentence: string): Store {
+  const refuse = () => Promise.reject(new ProviderError(sentence, 'config'))
   return {
     listProjects: refuse,
     migrateLegacy: refuse,
@@ -52,11 +48,24 @@ function notYet(): Store {
   }
 }
 
-export const store: Store =
-  MODE === 'local'
-    ? localStore
-    : MODE === 'cloud'
-      ? notYet()
-      : (() => {
-          throw new Error(`INKDESK_STORAGE is "${MODE}"; this build knows "local" (default) and, from slice 13, "cloud".`)
-        })()
+/** The cloud store behind a dynamic import: `mongodb` and the S3 client load on the first call. */
+function lazyCloud(): Store {
+  const load = () => import('./cloud').then((m) => m.cloudStore)
+  return {
+    listProjects: async () => (await load()).listProjects(),
+    migrateLegacy: async () => (await load()).migrateLegacy(),
+    readProject: async (id) => (await load()).readProject(id),
+    createProject: async (project) => (await load()).createProject(project),
+    updateProject: async (id, fn) => (await load()).updateProject(id, fn),
+    putBlob: async (bytes, mediaType, kind) => (await load()).putBlob(bytes, mediaType, kind),
+    getBlob: async (id) => (await load()).getBlob(id),
+  }
+}
+
+function choose(): Store {
+  if (storageMode() === 'local') return localStore
+  const missing = missingCloudEnv()
+  return missing.length > 0 ? refusing(missingCloudSentence(missing)) : lazyCloud()
+}
+
+export const store: Store = choose()

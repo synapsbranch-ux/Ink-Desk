@@ -8,11 +8,24 @@
 import { connection } from 'next/server'
 import { Dashboard } from '@/components/Dashboard'
 import { listProjects, migrateLegacy } from '@/lib/chapter'
+import { ProviderError } from '@/lib/errors'
 
 export default async function DeskPage() {
   await connection()
-  const { problem } = await migrateLegacy()
-  const projects = await listProjects()
+  let problem: string | null
+  let projects: Awaited<ReturnType<typeof listProjects>>
+  try {
+    problem = (await migrateLegacy()).problem
+    projects = await listProjects()
+  } catch (err) {
+    // A storage that can't be reached (cloud mode without its settings, a
+    // MongoDB that refuses this machine) opens an empty desk with its one
+    // sentence, never a stack trace.
+    if (!(err instanceof ProviderError && err.kind === 'config')) throw err
+    console.error(`[desk] ${err.message}`, err.cause ?? '')
+    problem = err.message
+    projects = []
+  }
   // The panel quality is the server's setting; the dialog only prices it.
   return <Dashboard projects={projects} notice={problem} panelQuality={process.env.IMAGE_PANEL_QUALITY ?? 'low'} />
 }

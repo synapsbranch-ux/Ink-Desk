@@ -1569,22 +1569,40 @@ interface Store {
   for state and `data/images/` for every image (slice 8 kept v1's one image
   folder instead of adding `data/blobs/` plus a fallback). The default: a
   clone runs with nothing but the two API keys.
-- **`cloud.ts`** — `mongodb` driver, collection `projects` with a `rev`
-  counter; `updateProject` is read → `fn` → `findOneAndUpdate({ _id, rev })`
-  with `$inc: { rev: 1 }`, retried from a fresh read on a mismatch (bounded,
-  then a calm failure). Blobs go to an S3-compatible bucket with
-  `@aws-sdk/client-s3` (works for AWS S3, Cloudflare R2, MinIO); the browser
-  still only ever sees `/api/blob/<id>`, which streams from the bucket.
-- **Selected by** `INKDESK_STORAGE=local|cloud`; cloud needs `MONGODB_URI`,
-  `MONGODB_DB`, `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`,
-  `S3_SECRET_ACCESS_KEY`. All server-side.
+- **`cloud.ts`** (built in slice 13) — `mongodb` driver, collection
+  `projects`, one document per project: `{ _id: <project id>, rev, project }`,
+  the project stored exactly as the local store would write it (a JSON
+  round-trip, `ignoreUndefined`, so an absent bubble stays absent).
+  `updateProject` is read → `fn` → `findOneAndUpdate({ _id, rev })` with
+  `$inc: { rev: 1 }`, retried from a fresh read on a mismatch (5 attempts,
+  jittered, then the calm "busy" failure); inside one process the
+  per-project promise chain still serializes first, so `rev` only has work
+  when a second process shares the database. `fn` must therefore be pure — a
+  lost race runs it again. Blobs go to an S3-compatible bucket with
+  `@aws-sdk/client-s3`, path-style addressing (AWS S3, Cloudflare R2, MinIO),
+  keyed by the same `<kind>-<uuid>.<ext>` ids as the local desk. The bucket
+  stays private; the browser only ever sees `/api/image/<id>` (there is no
+  `/api/blob` — `checklist.md > Revisions`, slice 10), which reads from the
+  bucket. One connection per process, kept on `globalThis` across hot
+  reloads. Cloud mode does **not** migrate the v1 `data/chapter.json`: its
+  images are on this disk, not in the bucket; it stays on the local desk.
+- **Selected by** `INKDESK_STORAGE=local|cloud` (unset = local; anything else
+  is refused by name); cloud needs `MONGODB_URI`, `MONGODB_DB`, `S3_ENDPOINT`,
+  `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`. All
+  server-side. `lib/store/env.ts` names them; `instrumentation.ts` refuses a
+  cloud start with any missing, and the store refuses every call with the
+  same sentence, so nothing ever lands on the local desk by accident. The
+  cloud drivers load only in cloud mode (a dynamic import).
 - **The queue stays in-process in both modes.** The single-process assumption
   of v1 holds (`Singletons and the Dev Server`); the stale-inking floor
   (`startedByRun`, `startedAt`) is what makes a restart safe, and it is
   unchanged. Cloud storage makes *data* durable and shareable; it does not make
   the app multi-instance, and `prd.md > Deferred (v2)` keeps deployment Later.
 - **Honest limit:** `check:store` runs the cloud half only when `MONGODB_URI`
-  is set; the clean-clone check covers local.
+  is set (on a scratch database `<MONGODB_DB>-check-<random>`, dropped
+  afterwards, and only the objects it wrote, deleted afterwards); the
+  clean-clone check covers local, the switch, and the `rev` retry against a
+  collection that loses races on purpose.
 
 ## Text Provider and the Terra Fallback (v2)
 
@@ -1878,9 +1896,10 @@ app/api/projects/route.ts          # list · create
 app/api/projects/[id]/route.ts     # GET (stale demotion) · POST patch · DELETE
 app/api/projects/[id]/{synopsis,scenario,cast,cast/reroll,sheet,import,assets,plan,cover}/route.ts
 app/api/projects/[id]/pages/[n]/{start,panels/[i],panels/[i]/rewrite}/route.ts
-app/api/image/[id]/route.ts        # any stored image: sheet, panel, cover, upload
+app/api/image/[id]/route.ts        # any stored image: sheet, panel, cover, upload — from data/images or the bucket
+instrumentation.ts                 # refuses a cloud start with missing settings, by name
 components/Dashboard.tsx · NewProjectDialog.tsx · AssetShelf.tsx · DirectorStation.tsx · PagePlanCard.tsx · PageSwitcher.tsx
-lib/types.ts (v2) · lib/migrate.ts · lib/store/{index,local,cloud}.ts · lib/llm.ts · lib/image-models.ts · lib/styles.ts · lib/cost.ts · lib/plan.ts
+lib/types.ts (v2) · lib/migrate.ts · lib/store/{index,env,local,cloud}.ts · lib/llm.ts · lib/image-models.ts · lib/styles.ts · lib/cost.ts · lib/plan.ts
 scripts/{llm,assets,plan,demo-timeline}-check.mts; store-check and export-check extended; kernel-test.mjs gains --model, --style-ref, --setting-ref
 video/                             # Remotion package, capture and narration scripts
 data/projects/<id>/project.json · data/images/ (every image, v1 and v2) · data/chapter.json (the v1 desk, read once, never written)

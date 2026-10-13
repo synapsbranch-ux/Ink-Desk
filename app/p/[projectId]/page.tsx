@@ -5,6 +5,7 @@
 // `devpost/spec.md > Routing and the Dashboard (v2)`.
 import { notFound } from 'next/navigation'
 import { Studio } from '@/components/Studio'
+import { Refused } from '@/lib/errors'
 import { store } from '@/lib/store'
 import { isProjectId } from '@/lib/store/local'
 
@@ -15,7 +16,10 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
   try {
     await store.readProject(projectId)
     exists = true
-  } catch {
+  } catch (err) {
+    // Only a project that isn't there is the not-found page; a storage that
+    // can't be reached is a different problem and must not read as one.
+    if (!(err instanceof Refused && err.status === 404)) throw err
     exists = false
   }
   if (!exists) notFound()
