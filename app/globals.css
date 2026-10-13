@@ -1171,82 +1171,108 @@ input.cast-role:disabled,
   color: var(--hanko-800);
 }
 
-/* The speech bubble: Comic Neue, uppercase, an ellipse with a tail toward
-   the speaker. App UI over the art, never drawn by the model. Faint over a
-   placeholder, full once the art has inked in. */
-.bubble {
+/* The speech bubble: an SVG oval with a smooth tail, ink outline, white
+   fill — real manga lettering, never drawn by the model. Click the text to
+   edit, drag the body to move, pull a corner to resize, drag the tail tip to
+   the speaker. Faint over a placeholder, full once the art has inked in. */
+.bubble-layer {
   position: absolute;
+  inset: 0;
   z-index: 4;
-  max-width: 38%;
   pointer-events: none;
-  padding: 0.7em 1.1em;
-  background: var(--neutral-100);
-  border: 1.5px solid var(--ink);
+  transition: opacity 0.3s;
+}
+.bubble-layer.is-faint {
+  opacity: 0.4;
+}
+.bubble-shape {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.bubble-shape ellipse,
+.bubble-shape path {
+  fill: #fff;
+  stroke: var(--ink);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.bubble-rnd {
+  pointer-events: auto;
+  z-index: 5;
+}
+.bubble-drag {
+  position: absolute;
+  inset: 0;
+  cursor: grab;
   border-radius: 50%;
+}
+.bubble-drag:active {
+  cursor: grabbing;
+}
+.bubble-text-wrap {
+  position: absolute;
+  inset: 11% 14%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.bubble-text {
+  pointer-events: auto;
+  min-width: 2ch;
+  max-width: 100%;
+  max-height: 100%;
+  overflow: hidden;
   color: var(--ink);
   font-family: var(--font-letter), 'Comic Neue', cursive;
   font-weight: 700;
-  font-size: clamp(12px, 1.25vw, 18px);
+  font-size: clamp(11px, 1.2vw, 17px);
   line-height: 1.15;
   text-align: center;
   text-transform: uppercase;
-  text-wrap: balance;
-  transition: opacity 0.3s;
+  cursor: text;
+  outline: none;
 }
-.bubble.is-faint {
-  opacity: 0.35;
+.bubble-text:empty::before {
+  content: 'Say it…';
+  opacity: 0.4;
 }
-.bubble.is-top-left {
-  top: 5%;
-  left: 4%;
-}
-.bubble.is-top-right {
-  top: 5%;
-  right: 4%;
-}
-.bubble.is-bottom-left {
-  bottom: 7%;
-  left: 4%;
-}
-.bubble.is-bottom-right {
-  bottom: 7%;
-  right: 4%;
-}
-.bubble::after {
-  content: '';
+/* The handles: the tail tip's dot, and react-rnd's corner dots. Subtle until
+   the panel is hovered, so the page still reads as a page. */
+.bubble-tail-handle {
   position: absolute;
-  width: 0.75em;
-  height: 0.75em;
-  background: var(--neutral-100);
-  border-right: 1.5px solid var(--ink);
-  border-bottom: 1.5px solid var(--ink);
+  z-index: 6;
+  width: 13px;
+  height: 13px;
+  padding: 0;
+  border: 1.5px solid var(--ink);
+  border-radius: 50%;
+  background: var(--paper);
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  cursor: move;
+  touch-action: none;
+  opacity: 0.3;
+  transition: opacity 0.15s;
 }
-/* The tail points at the speaker: a bubble on the right points down-left, on
-   the left down-right; a bottom bubble points up. */
-.bubble.is-top-right::after {
-  left: 22%;
-  bottom: -0.42em;
-  transform: rotate(40deg) skewX(10deg);
+.bubble-resize {
+  border: 1.5px solid var(--ink);
+  border-radius: 50%;
+  background: var(--paper);
+  opacity: 0.3;
+  transition: opacity 0.15s;
+  /* react-rnd positions its handles; only size them down a touch. */
+  width: 11px !important;
+  height: 11px !important;
 }
-.bubble.is-top-left::after {
-  right: 22%;
-  bottom: -0.42em;
-  transform: rotate(50deg) skewX(-10deg);
-}
-.bubble.is-bottom-right::after,
-.bubble.is-bottom-left::after {
-  top: -0.42em;
-  border: 0;
-  border-left: 1.5px solid var(--ink);
-  border-top: 1.5px solid var(--ink);
-}
-.bubble.is-bottom-right::after {
-  left: 22%;
-  transform: rotate(40deg) skewX(10deg);
-}
-.bubble.is-bottom-left::after {
-  right: 22%;
-  transform: rotate(50deg) skewX(-10deg);
+.panel:hover .bubble-tail-handle,
+.panel:hover .bubble-resize,
+.bubble-tail-handle:focus-visible {
+  opacity: 1;
 }
 
 /* The page script beside the page. */

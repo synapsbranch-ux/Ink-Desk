@@ -25,13 +25,30 @@ export type PanelStatus = 'empty' | 'inking' | 'done' | 'failed' | 'refused'
 
 export type PanelVersion = { imageId: string; createdAt: string }
 
+/**
+ * Where a panel's speech bubble sits, as percentages of the panel — so the
+ * layout survives any resolution, a reload, and the slice 7 PNG export
+ * composites exactly what the user placed. Absent/null = the derived corner
+ * default from `lib/bubble.ts`; it is stored only once the user touches the
+ * bubble. A slice 5b addition — `prd.md > Changes Since Approval`.
+ */
+export type BubbleLayout = {
+  x: number // left edge, % of panel width
+  y: number // top edge, % of panel height
+  w: number // width, % of panel width
+  h: number // height, % of panel height
+  tailX: number // tail tip, % of panel width — dragged to point at the speaker
+  tailY: number // tail tip, % of panel height
+}
+
 export type Panel = {
   index: 0 | 1 | 2 | 3
   characterId: string // exactly one, enforced by schema
   action: string
   camera: string
   background: string
-  dialogue: string
+  dialogue: string // Claude's line to start; the user's edits replace it
+  bubble?: BubbleLayout | null // null/absent = derived default, see above
   versions: PanelVersion[] // newest last, max 3, oldest dropped
   currentVersion: number // the one that counts: on the page and in the export
   status: PanelStatus

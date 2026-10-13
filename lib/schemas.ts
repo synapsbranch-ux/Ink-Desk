@@ -90,6 +90,19 @@ const CharacterEditSchema = z
   .partial()
   .strict()
 
+/** Percentages of the panel; the shared clamp tightens them further. */
+const pct = z.number().min(0).max(100)
+export const BubbleLayoutSchema = z
+  .object({ x: pct, y: pct, w: pct, h: pct, tailX: pct, tailY: pct })
+  .strict()
+
+export const PanelEditSchema = z
+  .object({
+    dialogue: z.string().max(500).optional(),
+    bubble: BubbleLayoutSchema.optional(),
+  })
+  .strict()
+
 export const ChapterPatchSchema = z
   .object({
     station: StationSchema.optional(),
@@ -100,6 +113,8 @@ export const ChapterPatchSchema = z
       .optional(),
     /** Keyed by character id. */
     cast: z.record(z.string(), CharacterEditSchema).optional(),
+    /** Keyed by panel index, "0"–"3". */
+    panels: z.record(z.string().regex(/^[0-3]$/), PanelEditSchema).optional(),
   })
   .strict()
 

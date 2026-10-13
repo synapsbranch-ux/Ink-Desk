@@ -10,7 +10,7 @@ import { StationRail, type SaveState } from '@/components/StationRail'
 import { StoryStation } from '@/components/StoryStation'
 import { StoryboardStation } from '@/components/StoryboardStation'
 import { gates } from '@/lib/gates'
-import { applyPatch, mergePatch, type ChapterPatch, type CharacterEdit } from '@/lib/patch'
+import { applyPatch, mergePatch, type ChapterPatch, type CharacterEdit, type PanelEdit } from '@/lib/patch'
 import type { Chapter, Station } from '@/lib/types'
 
 const SAVE_DELAY_MS = 600
@@ -230,6 +230,9 @@ export default function Studio() {
     }
   }, [accept])
 
+  /** A bubble placed, a tail pointed, or a line retyped: saved at once. */
+  const editPanel = useCallback((index: number, e: PanelEdit) => commit({ panels: { [index]: e } }), [commit])
+
   /** Queue the blank panels; the server responds at once and the poll
    *  watches them land. A refusal here is a sentence in the terminal — the
    *  panel-level repair buttons are slice 6. */
@@ -308,6 +311,7 @@ export default function Studio() {
           scriptNotice={scriptNotice}
           onWriteScript={writeScript}
           onStartPanels={startPanels}
+          onPanelEdit={editPanel}
           onGoReader={() => goTo('reader')}
         />
       ) : (

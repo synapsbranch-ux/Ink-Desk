@@ -10,6 +10,7 @@ import { PageScript } from '@/components/PageScript'
 import { Panel } from '@/components/Panel'
 import { StationFooter } from '@/components/StationFooter'
 import type { Gates } from '@/lib/gates'
+import type { PanelEdit } from '@/lib/patch'
 import { PANEL_LAYOUT } from '@/lib/prompts'
 import type { Chapter } from '@/lib/types'
 
@@ -20,6 +21,7 @@ type Props = {
   scriptNotice: string | null
   onWriteScript: () => void
   onStartPanels: () => void
+  onPanelEdit: (index: number, edit: PanelEdit) => void
   onGoReader: () => void
 }
 
@@ -30,6 +32,7 @@ export function StoryboardStation({
   scriptNotice,
   onWriteScript,
   onStartPanels,
+  onPanelEdit,
   onGoReader,
 }: Props) {
   const script = chapter.script
@@ -85,7 +88,9 @@ export function StoryboardStation({
                 const character = panel
                   ? (chapter.cast.find((c) => c.id === panel.characterId) ?? null)
                   : (chapter.cast[slot.cast] ?? null)
-                return <Panel key={slot.index} slot={slot} panel={panel} character={character} />
+                return (
+                  <Panel key={slot.index} slot={slot} panel={panel} character={character} onPanelEdit={onPanelEdit} />
+                )
               })}
             </section>
           </div>

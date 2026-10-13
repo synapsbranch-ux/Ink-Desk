@@ -7,6 +7,7 @@ import { errorResponse, Refused } from '@/lib/errors'
 import { gates } from '@/lib/gates'
 import { applyPatch, type ChapterPatch } from '@/lib/patch'
 import { ChapterPatchSchema } from '@/lib/schemas'
+import { findPanel } from '@/lib/script'
 
 export const runtime = 'nodejs'
 
@@ -39,6 +40,11 @@ export async function POST(req: Request) {
           const character = c.cast.find((x) => x.id === id)
           if (character) assertEditAllowed(character, edit)
         }
+      }
+      // A bubble or dialogue edit needs its panel to exist — refused before
+      // the script is written, never silently dropped.
+      if (patch.panels) {
+        for (const index of Object.keys(patch.panels)) findPanel(c, Number(index))
       }
       return applyPatch(c, patch)
     })

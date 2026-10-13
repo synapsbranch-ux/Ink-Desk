@@ -7,16 +7,9 @@
 // slice 5b.
 import type { CSSProperties } from 'react'
 import { GenerationStatus } from '@/components/GenerationStatus'
-import type { PanelSlot, PanelStance } from '@/lib/prompts'
+import { FIGURE_CENTRE } from '@/lib/bubble'
+import type { PanelSlot } from '@/lib/prompts'
 import { PANEL_STAGES } from '@/lib/stages'
-
-/** Where the speed lines converge: the dotted figure's centre, per stance. */
-const FIGURE_CENTRE: Record<PanelStance, [number, number]> = {
-  left: [21, 56],
-  right: [79, 56],
-  medium: [50, 52],
-  close: [50, 48],
-}
 
 type Props = {
   slot: PanelSlot

@@ -12,13 +12,15 @@
     "check:store": "tsx scripts/chapter-store-check.mts",
     "check:cast": "tsx scripts/cast-check.mts",
     "check:page": "tsx scripts/page-check.mts",
-    "check:stages": "tsx scripts/stages-check.mts"
+    "check:stages": "tsx scripts/stages-check.mts",
+    "check:bubble": "tsx scripts/bubble-check.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",
     "next": "16.4.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "react-rnd": "^10.5.3",
     "zod": "^4.6.7"
   },
   "devDependencies": {

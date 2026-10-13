@@ -261,11 +261,23 @@ try {
     assert.equal(p.startedByRun, singletons.serverRunId, 'stamped with the server run, for the restart fallback')
     assert.ok(p.startedAt, 'stamped with a start time, for the timeout fallback')
   }
+
+  // Which held request belongs to which panel is identified by the panel's
+  // own action line in the prompt — never by arrival order, which races: the
+  // two jobs read different-sized sheet files before calling the provider,
+  // so either request can reach the stub first.
+  const actions = chapter.script?.map((p) => p.action) ?? []
+  const heldFor = async (index: number): Promise<Held> => {
+    await until(`panel ${index + 1}’s request`, () =>
+      held.some((h) => String(h.body.prompt).includes(actions[index]))
+    )
+    return held.find((h) => String(h.body.prompt).includes(actions[index]))!
+  }
   for (const [i, sheet] of [
     [0, kaitoSheet],
     [1, mioSheet],
   ] as const) {
-    const body = held[i].body
+    const body = (await heldFor(i)).body
     const slot = PANEL_LAYOUT[i]
     const panel = chapter.script?.[i]
     const who = chapter.cast.find((c) => c.id === panel?.characterId)
@@ -293,7 +305,7 @@ try {
   // Land them out of page order: 2, then 1, then 4, then 3.
   const landed: number[] = []
   const land = async (i: number) => {
-    held[i].release()
+    ;(await heldFor(i)).release()
     await until(`panel ${i + 1} to land`, async () => (await status())[i] === 'done')
     landed.push(i)
   }

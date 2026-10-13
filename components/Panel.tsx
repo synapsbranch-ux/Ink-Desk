@@ -8,8 +8,9 @@
 import { useCallback, useState } from 'react'
 import { PencilPlaceholder } from '@/components/PencilPlaceholder'
 import { SpeechBubble } from '@/components/SpeechBubble'
+import type { PanelEdit } from '@/lib/patch'
 import type { PanelSlot } from '@/lib/prompts'
-import { bubbleCorner, currentImageId, panelLabel } from '@/lib/script'
+import { currentImageId, panelLabel } from '@/lib/script'
 import type { Character, Panel as PanelData } from '@/lib/types'
 
 type Props = {
@@ -17,9 +18,11 @@ type Props = {
   /** Null until the page script is written. */
   panel: PanelData | null
   character: Character | null
+  /** A bubble placed or a line retyped — saved to the desk at once. */
+  onPanelEdit: (index: number, edit: PanelEdit) => void
 }
 
-export function Panel({ slot, panel, character }: Props) {
+export function Panel({ slot, panel, character, onPanelEdit }: Props) {
   const imageId = panel ? currentImageId(panel) : null
 
   // Art already on the desk when this panel mounted shows at once; art that
@@ -79,7 +82,14 @@ export function Panel({ slot, panel, character }: Props) {
           onAnimationEnd={() => setInked(imageId)}
         />
       )}
-      {panel && <SpeechBubble text={panel.dialogue} corner={bubbleCorner(panel)} faint={pencilUnder} />}
+      {panel && (
+        <SpeechBubble
+          panel={panel}
+          faint={pencilUnder}
+          onLayout={(bubble) => onPanelEdit(panel.index, { bubble })}
+          onDialogue={(dialogue) => onPanelEdit(panel.index, { dialogue })}
+        />
+      )}
       <span className="panel-num" aria-hidden="true">
         {n}
       </span>

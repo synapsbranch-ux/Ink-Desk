@@ -400,9 +400,22 @@ the art is displayed at its native shape and never scaled into a crop.
 Positioned over the panel art as app UI in Comic Neue, never drawn by the image
 model. Implements `scope.md > Lettering`.
 
-Bubble placement is **derived, not authored**: a small lookup keyed on the
-panel's camera angle picks a corner, so Claude never has to return coordinates
-and there is nothing extra to get wrong.
+**Rewritten in slice 5b** — `prd.md > Changes Since Approval > Speech bubbles`.
+The bubble is an **SVG oval with a smooth two-curve tail** (geometry in
+`lib/bubble.ts`: the tail is one open path, filled white so it merges with the
+rim, stroked only on its two sides), not a CSS box. **Click the text to edit
+it in place** (the edit replaces `dialogue`); **drag the body to move, pull a
+corner to resize** (react-rnd, chosen for its maintained drag+resize with
+`bounds="parent"` on React 19-safe internals); **drag the tail tip** to point
+at the speaker. The placed layout is stored per panel as **percentages of the
+panel** (`Panel.bubble`), clamped by the shared `clampBubble` on both sides of
+the wire, so a reload and the slice 7 export reproduce it exactly — the export
+can feed the identical path strings to `new Path2D()`.
+
+Until the user touches a bubble, placement is still **derived, not authored**:
+the camera-angle lookup picks a corner and `defaultBubble` lays the bubble out
+there, so Claude never returns coordinates. Claude's dialogue is only the
+starting text.
 
 ### Reader Station
 
@@ -588,7 +601,9 @@ type Character = {
 type Panel = {
   index: 0 | 1 | 2 | 3
   characterId: string           // exactly one, enforced by schema
-  action: string; camera: string; background: string; dialogue: string
+  action: string; camera: string; background: string
+  dialogue: string              // Claude's line to start; the user's edits replace it (5b)
+  bubble?: BubbleLayout | null  // user-placed lettering; absent = derived default (5b)
   versions: PanelVersion[]      // newest last, max 3, oldest dropped
   currentVersion: number        // the one that counts: on the page and in the export
   status: 'empty' | 'inking' | 'done' | 'failed' | 'refused'
@@ -597,6 +612,16 @@ type Panel = {
 }
 
 type PanelVersion = { imageId: string; createdAt: string }
+
+// Slice 5b (prd.md > Changes Since Approval): where the bubble sits, as
+// percentages of the panel, so the layout survives any resolution, a reload,
+// and the slice 7 export. Stored only once the user touches the bubble; a
+// chapter written before 5b simply has no `bubble` and keeps the default.
+type BubbleLayout = {
+  x: number; y: number          // top-left corner, % of panel
+  w: number; h: number          // size, % of panel
+  tailX: number; tailY: number  // tail tip, % of panel — points at the speaker
+}
 ```
 
 **Where each piece lives, how it updates, what happens when you come back:**
@@ -610,6 +635,7 @@ type PanelVersion = { imageId: string; createdAt: string }
 | Sheet images | `data/images/<id>.png` | `POST /api/sheet` | restored, served by id |
 | Page script | `chapter.json` | `POST /api/script` | restored |
 | Panel art + history | `data/images/` + `versions[]` | `POST /api/panels/[i]` | restored, including the version stepper |
+| Bubble layout + dialogue edits | `chapter.json` | `POST /api/chapter` on drop/blur | restored exactly where placed |
 | Current station | `chapter.json` | every navigation | restored |
 | Image count | `chapter.json` | every image written | restored |
 
