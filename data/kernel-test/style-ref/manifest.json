@@ -1,0 +1,112 @@
+{
+  "test": "candidate-lock",
+  "mode": "style",
+  "reference": {
+    "path": "data/kernel-test/refs/style-ref.png",
+    "bytes": 3402012,
+    "mediaType": "image/png",
+    "copy": "ref.png"
+  },
+  "provider": "openrouter",
+  "endpoint": "https://openrouter.ai/api/v1/images",
+  "imageModel": "openai/gpt-image-2.5-sunburst",
+  "imageModelPinned": false,
+  "quality": "medium",
+  "capabilities": {
+    "inputReferencesMax": 16,
+    "aspects": [
+      "1:1",
+      "3:2",
+      "2:3",
+      "4:3",
+      "3:4",
+      "16:9",
+      "9:16",
+      "21:9",
+      "auto"
+    ],
+    "qualities": [
+      "auto",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
+  },
+  "images": {
+    "sheet": {
+      "file": "0-sheet.png",
+      "aspect": "3:2",
+      "inputReferences": [
+        "ref.png"
+      ],
+      "ms": 25406,
+      "costUsd": 0.023963,
+      "dimensions": {
+        "w": 1536,
+        "h": 1024
+      }
+    },
+    "wide": {
+      "file": "1-wide.png",
+      "aspect": "3:2",
+      "inputReferences": [
+        "0-sheet.png",
+        "ref.png"
+      ],
+      "ms": 28025,
+      "costUsd": 0.036976,
+      "dimensions": {
+        "w": 1536,
+        "h": 1024
+      }
+    },
+    "medium": {
+      "file": "2-medium.png",
+      "aspect": "1:1",
+      "inputReferences": [
+        "0-sheet.png",
+        "ref.png"
+      ],
+      "ms": 31449,
+      "costUsd": 0.039661,
+      "dimensions": {
+        "w": 1024,
+        "h": 1024
+      }
+    },
+    "close": {
+      "file": "3-close.png",
+      "aspect": "1:1",
+      "inputReferences": [
+        "0-sheet.png",
+        "ref.png"
+      ],
+      "ms": 31800,
+      "costUsd": 0.039636,
+      "dimensions": {
+        "w": 1024,
+        "h": 1024
+      }
+    }
+  },
+  "slowestMs": 31800,
+  "totalCostUsd": 0.140236,
+  "prompts": {
+    "sheet": "A single character model sheet on one sheet of paper, for animation reference.\nOne character only, shown three times in one frame: full-body front view,\nfull-body three-quarter view, and a row of three head-and-shoulders expressions\n(neutral, determined, surprised). Plain light background, consistent lighting.\n\nThe attached image is a style reference. Match its style exactly, meaning its\nlinework, shading, rendering and palette, but do not copy its subject: nothing\nfrom that picture appears on this sheet except the way it is drawn.\n\nThe character:\nKaito Ren, an 18-year-old male rooftop courier. Short messy black hair with a blunt fringe falling over the left eyebrow. Sharp amber eyes, thin angular face, light olive skin. Wears a dark grey high-collared courier jacket over a white shirt, cargo trousers and worn lace-up boots. Distinguishing marks: a long pale scar through the right eyebrow, and a frayed deep-red scarf always wound twice around his neck, one end hanging to his waist.\n\nMatch the style of the attached image exactly: its linework, shading, rendering and palette. ABSOLUTELY NO TEXT, no speech bubbles, no sound effects, no signatures, no watermarks and no panel borders anywhere in the image.",
+    "wide": "A single manga panel with exactly one person in it: the character shown in the\nfirst attached image, a reference sheet. No other people, figures or silhouettes\nanywhere in the panel.\n\nKeep his face, hairstyle, eyes, outfit, scar and scarf EXACTLY as the\nreference sheet shows. Do not restyle, age, or redesign him.\nOnly his pose, expression and surroundings change.\n\nThe second attached image is a style reference. Match its style exactly, meaning\nits linework, shading, rendering and palette, but do not copy its subject.\n\nHis fixed appearance, for reference:\nKaito Ren, an 18-year-old male rooftop courier. Short messy black hair with a blunt fringe falling over the left eyebrow. Sharp amber eyes, thin angular face, light olive skin. Wears a dark grey high-collared courier jacket over a white shirt, cargo trousers and worn lace-up boots. Distinguishing marks: a long pale scar through the right eyebrow, and a frayed deep-red scarf always wound twice around his neck, one end hanging to his waist.\n\nFraming: Wide landscape panel, medium-wide shot. The character stands in the left third of the frame, their figure at least a third of the panel’s height and ideally half — face and outfit clearly readable, never a small figure in the distance — with clear margin on every side. The setting fills the rest of the frame.\nCamera: Wide establishing shot, eye level, three-quarter view.\nAction: He has just stopped walking and stands with one hand holding the end of his scarf, looking off to the right, alert.\nBackground: A quiet night street with a food stall, paper lanterns, steam and cables overhead.\n\nMatch the style of the second attached image exactly: its linework, shading, rendering and palette. ABSOLUTELY NO TEXT, no speech bubbles, no sound effects, no signatures, no watermarks and no panel borders anywhere in the image.",
+    "medium": "A single manga panel with exactly one person in it: the character shown in the\nfirst attached image, a reference sheet. No other people, figures or silhouettes\nanywhere in the panel.\n\nKeep his face, hairstyle, eyes, outfit, scar and scarf EXACTLY as the\nreference sheet shows. Do not restyle, age, or redesign him.\nOnly his pose, expression and surroundings change.\n\nThe second attached image is a style reference. Match its style exactly, meaning\nits linework, shading, rendering and palette, but do not copy its subject.\n\nHis fixed appearance, for reference:\nKaito Ren, an 18-year-old male rooftop courier. Short messy black hair with a blunt fringe falling over the left eyebrow. Sharp amber eyes, thin angular face, light olive skin. Wears a dark grey high-collared courier jacket over a white shirt, cargo trousers and worn lace-up boots. Distinguishing marks: a long pale scar through the right eyebrow, and a frayed deep-red scarf always wound twice around his neck, one end hanging to his waist.\n\nFraming: Square panel. Frame the character from the waist up, centred, with headroom above and nothing important near the edges.\nCamera: Medium shot, eye level, facing the camera.\nAction: He is tugging the scarf tighter with both hands, a small tired smile, eyes on something just past the camera.\nBackground: The counter of a night food stall behind him, a few lanterns, warm light on the steam.\n\nMatch the style of the second attached image exactly: its linework, shading, rendering and palette. ABSOLUTELY NO TEXT, no speech bubbles, no sound effects, no signatures, no watermarks and no panel borders anywhere in the image.",
+    "close": "A single manga panel with exactly one person in it: the character shown in the\nfirst attached image, a reference sheet. No other people, figures or silhouettes\nanywhere in the panel.\n\nKeep his face, hairstyle, eyes, outfit, scar and scarf EXACTLY as the\nreference sheet shows. Do not restyle, age, or redesign him.\nOnly his pose, expression and surroundings change.\n\nThe second attached image is a style reference. Match its style exactly, meaning\nits linework, shading, rendering and palette, but do not copy its subject.\n\nHis fixed appearance, for reference:\nKaito Ren, an 18-year-old male rooftop courier. Short messy black hair with a blunt fringe falling over the left eyebrow. Sharp amber eyes, thin angular face, light olive skin. Wears a dark grey high-collared courier jacket over a white shirt, cargo trousers and worn lace-up boots. Distinguishing marks: a long pale scar through the right eyebrow, and a frayed deep-red scarf always wound twice around his neck, one end hanging to his waist.\n\nFraming: Square panel. Centre the character’s face in frame with headroom above and below; keep the eyes on the upper third line and nothing important near the edges.\nCamera: Close-up on his face, slight low angle.\nAction: He is breathing hard, jaw set, eyes narrowed, a strand of hair across the scar.\nBackground: Lantern light out of focus behind him, shallow depth of field.\n\nMatch the style of the second attached image exactly: its linework, shading, rendering and palette. ABSOLUTELY NO TEXT, no speech bubbles, no sound effects, no signatures, no watermarks and no panel borders anywhere in the image."
+  },
+  "dna": "Kaito Ren, an 18-year-old male rooftop courier. Short messy black hair with a blunt fringe falling over the left eyebrow. Sharp amber eyes, thin angular face, light olive skin. Wears a dark grey high-collared courier jacket over a white shirt, cargo trousers and worn lace-up boots. Distinguishing marks: a long pale scar through the right eyebrow, and a frayed deep-red scarf always wound twice around his neck, one end hanging to his waist.",
+  "generatedAt": "2026-10-14T12:28:18.395Z",
+  "verdict": "pass",
+  "verdictNote": "A person records \"pass\" or \"fail\" here after looking at index.html. The script never fills this in; a null verdict means nobody has looked yet.",
+  "verdictBy": "the build session, by eye, 2026-10-14; the learner confirms or overturns at the v2 final review",
+  "verdictNotes": [
+    "Same person in all three panels: scar through the right eyebrow, amber eyes, short messy black hair, the frayed red scarf.",
+    "Every image, the sheet included, is unmistakably in the reference style: watercolour washes, soft palette, visible paper grain, graphite underdrawing; nothing of the manga preset remains.",
+    "Caveat: the reference’s subject bled into the panels although the prompt said not to copy it. The harbour, boats and a lighthouse appear in the wide and close-up backgrounds. A style lock in the app would have to pin the place or accept this."
+  ]
+}

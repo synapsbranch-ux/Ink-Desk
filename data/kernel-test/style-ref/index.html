@@ -1,0 +1,33 @@
+<!doctype html><meta charset="utf-8"><title>Ink Desk — style reference test</title>
+<style>
+  body{margin:0;padding:40px;background:#f3f2f2;color:#201f1d;
+       font:16px/1.6 Lora,Georgia,serif}
+  h1{font:600 30px/1.2 "Cormorant Garamond",Georgia,serif;margin:0 0 6px}
+  p.sub{margin:0 0 32px;color:#6b6762}
+  .row{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}
+  figure{margin:0;flex:1 1 300px;min-width:280px}
+  img{width:100%;border:1px solid #d6d4d1;background:#fff;display:block}
+  figcaption{margin-top:10px;font-size:14px;color:#6b6762}
+  b{color:#b5382e}
+  .q{margin-top:36px;padding:20px 24px;border-left:3px solid #b5382e;background:#eae9e9}
+  .nums{margin-top:28px;padding:16px 20px;background:#eae9e9;font-size:14px}
+  .nums code{background:#f3f2f2;padding:1px 5px}
+</style>
+<h1>Candidate lock — style reference</h1>
+<p class="sub">openai/gpt-image-2.5-sunburst via OpenRouter &middot; quality <b>medium</b>
+  &middot; slowest image call 31.8s
+  &middot; total <b>$0.1402</b></p>
+<div class="row">
+  <figure><img src="ref.png"><figcaption><b>Reference.</b> image/png &middot; 3322 KB &middot; The style reference. Attached alone to the sheet, and second to every panel.</figcaption></figure>
+  <figure><img src="0-sheet.png"><figcaption><b>The sheet.</b> 3:2 &middot; 1536x1024 &middot; The sheet, drawn with the style reference attached. Not the manga preset.</figcaption></figure>
+</div>
+<div class="row" style="margin-top:24px">
+  <figure><img src="1-wide.png"><figcaption><b>Wide establishing shot.</b> 3:2 &middot; 1536x1024 &middot; <code>input_references</code> = [sheet, reference].</figcaption></figure>
+  <figure><img src="2-medium.png"><figcaption><b>Medium shot.</b> 1:1 &middot; 1024x1024 &middot; same two references.</figcaption></figure>
+  <figure><img src="3-close.png"><figcaption><b>Close-up.</b> 1:1 &middot; 1024x1024 &middot; same two references.</figcaption></figure>
+</div>
+<div class="q"><strong>The question:</strong> Is this recognisably the same person as the sheet in all three panels, <em>and</em> is every image unmistakably in the reference’s style?
+If yes to both, the style reference is a lock and the docs may say so. If no to either, it stays a candidate.
+Record the answer as <code>"verdict"</code> in <code>manifest.json</code>.</div>
+<div class="nums">Slowest image call <b>31.8s</b> &middot;
+  sheet $0.0240, wide $0.0370, medium $0.0397, close $0.0396 at <code>medium</code>.</div>

@@ -1694,6 +1694,18 @@ side-by-side `index.html`, like slice 2. A lock is called a lock in the docs
 only after its test passes; until then it is a candidate and the app does not
 expose it.
 
+*Tested 2026-10-14, slice 15 — both passed,* judged by eye in the build
+session and the learner's to confirm at the v2 final review:
+`data/kernel-test/style-ref/` and `data/kernel-test/setting-ref/`, each with
+its `index.html` and a `manifest.json` carrying the verdict and its notes. The
+style reference held its style on the sheet and all three panels with the
+face intact, with one caveat: its *subject* bled into the panels' backgrounds
+although the prompt said not to copy it. The setting reference held its place
+from three cameras with the face intact. A panel with two references cost
+$0.037–$0.040 at `medium`, so a test costs ≈ $0.13–$0.14, not $0.10. Neither
+lock is exposed in the app: that is a feature, and the freeze follows slice
+15 (`checklist.md > Revisions`).
+
 ## Assets and Imported References (v2)
 
 - `POST /api/projects/[id]/assets` — multipart via the Web standard
@@ -1935,7 +1947,7 @@ The learner's cap for everything until the deadline: **≈ $10.**
 | Development at `low`: ~4 one-page runs + sheets, slices 8–12 | ≈ $1.00 |
 | Slice 11 live plan + page 1 at `low`; slice 12 export run | ≈ $0.20 |
 | Two presets, one page each at `low` | ≈ $0.20 |
-| Candidate-lock kernel tests, style + setting, 3 panels at `medium` each | ≈ $0.25 |
+| Candidate-lock kernel tests, style + setting, 3 panels at `medium` each | ≈ $0.25 — measured 2026-10-14: $0.14 + $0.13, plus $0.02 for the two reference plates |
 | One alternative image model, `kernel-test --model` (optional; price unpublished) | ≤ $1.00 |
 | Filming: 2 sheets + 8 panels + 1 cover at `high`, with a redraw or two | ≈ $2.00 |
 | Text, all calls, Claude or Terra | ≈ $0.30 |
@@ -1979,7 +1991,7 @@ app/api/image/[id]/route.ts        # any stored image: sheet, panel, cover, uplo
 instrumentation.ts                 # refuses a cloud start with missing settings, by name
 components/Dashboard.tsx · NewProjectDialog.tsx · AssetShelf.tsx · DirectorStation.tsx · PagePlanCard.tsx · PageSwitcher.tsx
 lib/types.ts (v2) · lib/migrate.ts · lib/store/{index,env,local,cloud}.ts · lib/llm.ts · lib/image-models.ts · lib/styles.ts · lib/cost.ts · lib/plan.ts
-scripts/{llm,assets,plan,demo-timeline}-check.mts; store-check and export-check extended; kernel-test.mjs gains --model, --style-ref, --setting-ref
+scripts/{llm,assets,plan,demo-timeline}-check.mts; store-check and export-check extended; kernel-test.mjs gains --style-ref, --setting-ref and --out (slice 15; --model was never needed: no alternative model was tried, see Decisions and Open Issues (v2))
 video/                             # Remotion package, capture, narration and music scripts (music/{compose,generate}.mts, openrouter.ts, src/Method.tsx, src/mix.ts)
 data/projects/<id>/project.json · data/images/ (every image, v1 and v2) · data/chapter.json (the v1 desk, read once, never written)
 ```
@@ -2004,7 +2016,7 @@ Same pattern as v1 (scratch folder, `INKDESK_DATA_DIR`, dynamic imports,
 | `check:plan` | schema refuses < 3 pages or a wrong slot; cost estimate arithmetic; queue keys include project and page; `Generate all` idempotent; one page's failure isolated |
 | `check:export` (extended) | PDF has cover + N pages at page size; RTL and vertical geometry; gate opens on the first complete page |
 | `check:demo-timeline` | marks → segments; total under 180 s; every segment has a caption |
-| `kernel-test.mjs` | unchanged live probes + `--model`, `--style-ref`, `--setting-ref` |
+| `kernel-test.mjs` | unchanged live probes; `--style-ref` and `--setting-ref` run a candidate-lock test (one sheet, three panels at `medium`, `[sheet, reference]` on every panel); `--out` keeps a re-run beside the day-one evidence (`--model` was never built: no alternative model was tried) |
 
 ## Decisions and Open Issues (v2)
 
@@ -2035,8 +2047,13 @@ Same pattern as v1 (scratch folder, `INKDESK_DATA_DIR`, dynamic imports,
   match what the file structure above assumes.** Answered by reading
   `node_modules/next/dist/docs/` at the start of slice 8.
 - **Whether a candidate lock (style, setting) holds.** Answered by its
-  kernel test in slice 15, for ≈ $0.10 each.
+  kernel test in slice 15, for ≈ $0.10 each. *Answered 2026-10-14: both held
+  (the style reference with its subject bleeding into the backgrounds), at
+  $0.14 and $0.13 — see Image Models and Style Presets (v2). Neither is
+  exposed in the app.*
 - **Whether one alternative image model is worth adding before 2026-10-18.**
-  Answered by `kernel-test --model`, budget-capped at $1.
+  Answered by `kernel-test --model`, budget-capped at $1. *2026-10-14: none
+  was tried and `--model` was not built; slice 15 is the last feature slice,
+  so this closes as "no" unless the learner reopens it before the freeze.*
 - **The exact Remotion version and its browser flags.** Checked at install in
   slice 14.

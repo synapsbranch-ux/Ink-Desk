@@ -29,7 +29,6 @@ process.env.OPENROUTER_API_KEY = 'check-only-never-sent' // fetch is stubbed bel
 process.env.LLM_FALLBACK = 'always' // every text call goes to the stubbed chat endpoint
 delete process.env.ANTHROPIC_API_KEY
 delete process.env.IMAGE_COVER_ASPECT
-delete process.env.SIMULATE_PANEL_FAILURE
 
 // Imported after the env is set, because the store and the queue read it at load.
 const { createProject, read: readDesk, update: updateDesk, demoteStale } = await import('../lib/chapter')

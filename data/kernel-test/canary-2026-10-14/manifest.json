@@ -1,0 +1,67 @@
+{
+  "provider": "openrouter",
+  "endpoint": "https://openrouter.ai/api/v1/images",
+  "imageModel": "openai/gpt-image-2.5-sunburst",
+  "imageModelPinned": false,
+  "textModel": "claude-sonnet-5-5",
+  "textProvider": "anthropic-direct",
+  "quality": "medium",
+  "aspects": {
+    "sheet": "3:2",
+    "wide": "3:2",
+    "square": "1:1"
+  },
+  "capabilities": {
+    "inputReferencesMax": 16,
+    "aspects": [
+      "1:1",
+      "3:2",
+      "2:3",
+      "4:3",
+      "3:4",
+      "16:9",
+      "9:16",
+      "21:9",
+      "auto"
+    ],
+    "qualities": [
+      "auto",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
+  },
+  "timingsMs": {
+    "capabilityProbe": 2617,
+    "imageProbe": 11479,
+    "fallbackProbe": 3142,
+    "sheet": 21693,
+    "close": 27317,
+    "wide": 25807
+  },
+  "costsUsd": {
+    "imageProbe": 0.005985,
+    "fallbackProbe": 0.00141,
+    "sheet": 0.011435,
+    "close": 0.027038,
+    "wide": 0.024203
+  },
+  "totalCostUsd": 0.070071,
+  "dimensions": {
+    "sheet": {
+      "w": 1536,
+      "h": 1024
+    },
+    "close": {
+      "w": 1024,
+      "h": 1024
+    },
+    "wide": {
+      "w": 1536,
+      "h": 1024
+    }
+  },
+  "dna": "Kaito Ren, an 18-year-old male rooftop courier. Short messy black hair with a blunt fringe falling over the left eyebrow. Sharp amber eyes, thin angular face, light olive skin. Wears a dark grey high-collared courier jacket over a white shirt, cargo trousers and worn lace-up boots. Distinguishing marks: a long pale scar through the right eyebrow, and a frayed deep-red scarf always wound twice around his neck, one end hanging to his waist."
+}

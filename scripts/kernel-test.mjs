@@ -56,15 +56,55 @@
  *
  * Cost at the default `medium`: about $0.08 for all four images.
  *
+ * Slice 15 — candidate-lock tests (v2):
+ *   `spec.md > Image Models and Style Presets (v2)`: a style reference image
+ *   or a setting reference image is a CANDIDATE lock until its own kernel test
+ *   passes. Only then may the docs call it a lock; the app exposes neither
+ *   yet. The test is the slice 2 test with the candidate riding beside the sheet:
+ *     0a.  the free capability probe, as above. 0b, 0c and 0d are skipped:
+ *          they were proven on day one and they cost money.
+ *     1.   one model sheet. --style-ref draws it WITH the reference as its
+ *          only input_references entry, so the sheet itself is in the
+ *          candidate style. --setting-ref draws it from the DNA alone, exactly
+ *          as the default test does.
+ *     2-4. three panels in production's PANEL_LAYOUT shapes: a wide
+ *          establishing shot (3:2), a medium shot (1:1) and a close-up (1:1),
+ *          each with input_references = [sheet, reference], in that order.
+ *   index.html asks the mode's question: the same person in all three panels
+ *   AND unmistakably the reference's style (--style-ref) or the reference's
+ *   place (--setting-ref). manifest.json records the prompts, costs, timings
+ *   and dimensions and carries "verdict": null until a person who has looked
+ *   fills it in. Measured at `medium` on 2026-10-14: $0.14 (--style-ref) and
+ *   $0.13 (--setting-ref). A panel carrying two references cost $0.037 to
+ *   $0.040, about 1.5x a one-reference panel, and the style-mode sheet drawn
+ *   against its reference about 2x a sheet from the DNA alone.
+ *
+ *   The prompts are frozen as those runs recorded them (manifest.json >
+ *   prompts in data/kernel-test/style-ref/ and setting-ref/, both "pass").
+ *   Change a word and the evidence no longer belongs to this script.
+ *
+ *   The reference is checked before any network call: it must exist, its
+ *   first bytes must say PNG, JPEG or WebP (the media type on the data URI
+ *   comes from those bytes, never from the extension), and it must be at or
+ *   under the app's 3.75 MB upload cap (`lib/assets.ts`).
+ *
  * Usage:
- *   node scripts/kernel-test.mjs              # probes, then the kernel test
- *   node scripts/kernel-test.mjs --probe-only # just prove the setup
+ *   node scripts/kernel-test.mjs                          # probes, then the kernel test
+ *   node scripts/kernel-test.mjs --probe-only             # just prove the setup
+ *   node scripts/kernel-test.mjs --out <dir>              # any mode: write results to <dir>
+ *   node scripts/kernel-test.mjs --style-ref <image>      # candidate-lock test, data/kernel-test/style-ref/
+ *   node scripts/kernel-test.mjs --setting-ref <image>    # candidate-lock test, data/kernel-test/setting-ref/
+ *
+ * --out exists so a re-run keeps its own folder. The spec asks for the default
+ * test to run again before filming as the style-drift canary (the model is an
+ * unpinned alias), and that run belongs beside the day-one evidence in
+ * data/kernel-test/, not over it.
  */
 
 import { writeFile, mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-const OUT_DIR = 'data/kernel-test'
+const DEFAULT_OUT_DIR = 'data/kernel-test'
 const API = 'https://openrouter.ai/api/v1'
 const ANTHROPIC_API = 'https://api.anthropic.com/v1'
 
@@ -115,12 +155,31 @@ if (!KEY) {
 // measures the method, not Claude's wording on any given run.
 // ---------------------------------------------------------------------------
 
-const STYLE_RULES = [
+// The look lines are what a style reference replaces. The text ban is what
+// no mode ever touches.
+const LOOK_LINES = [
   'Black and white manga artwork, screentone shading, confident inked linework.',
   'Seinen style, detailed backgrounds, strong use of blacks.',
+]
+const NO_TEXT_RULE = [
   'ABSOLUTELY NO TEXT, no speech bubbles, no sound effects, no signatures,',
   'no watermarks and no panel borders anywhere in the image.',
-].join(' ')
+]
+
+const STYLE_RULES = [...LOOK_LINES, ...NO_TEXT_RULE].join(' ')
+
+/**
+ * --style-ref: the rules with the look lines swapped for the reference. The
+ * sheet attaches the reference alone, so for it `which` is "the attached
+ * image"; a panel attaches the sheet first, so there it is "the second
+ * attached image". NO_TEXT_RULE rides verbatim either way.
+ */
+function styleRefRules(which) {
+  return [
+    `Match the style of ${which} exactly: its linework, shading, rendering and palette.`,
+    ...NO_TEXT_RULE,
+  ].join(' ')
+}
 
 // Kaito Ren, from `scope.md > Inspiration & Identity`. This stands in for the
 // DNA that Claude writes once per character and that is then frozen at lock.
@@ -135,16 +194,35 @@ const KAITO_DNA = [
   'one end hanging to his waist.',
 ].join(' ')
 
-const SHEET_PROMPT = [
+const SHEET_HEAD = [
   'A single character model sheet on one sheet of paper, for animation reference.',
   'One character only, shown three times in one frame: full-body front view,',
   'full-body three-quarter view, and a row of three head-and-shoulders expressions',
   '(neutral, determined, surprised). Plain light background, consistent lighting.',
+]
+
+const SHEET_PROMPT = [
+  ...SHEET_HEAD,
   '',
   'The character:',
   KAITO_DNA,
   '',
   STYLE_RULES,
+].join('\n')
+
+// --style-ref: the same sheet, drawn with the reference attached as its only
+// input_references entry. The subject of the reference must not leak in.
+const STYLE_SHEET_PROMPT = [
+  ...SHEET_HEAD,
+  '',
+  'The attached image is a style reference. Match its style exactly, meaning its',
+  'linework, shading, rendering and palette, but do not copy its subject: nothing',
+  'from that picture appears on this sheet except the way it is drawn.',
+  '',
+  'The character:',
+  KAITO_DNA,
+  '',
+  styleRefRules('the attached image'),
 ].join('\n')
 
 // The variable half — what Claude authors per panel. Only action, camera and
@@ -197,6 +275,102 @@ function panelPrompt(p) {
 }
 
 // ---------------------------------------------------------------------------
+// Candidate-lock panels (slice 15).
+//
+// Three shots in the shapes production's PANEL_LAYOUT uses (lib/prompts.ts):
+// the wide establishing shot of panel 1, the medium shot of panel 2, the
+// close-up of panel 3. The framing lines are production's, word for word.
+// Only action, camera and background vary; one person, always Kaito.
+//
+// The background line depends on the mode. With a setting reference the
+// location IS the second attached image, so the line only says how much of
+// it this camera sees; it never describes a place, because the plate can be
+// any picture. With a style reference the place is free, as in slice 2.
+// ---------------------------------------------------------------------------
+
+const CANDIDATE_PANELS = [
+  {
+    id: 'wide',
+    label: 'wide establishing shot (landscape)',
+    aspect: ASPECT_WIDE,
+    framing:
+      'Wide landscape panel, medium-wide shot. The character stands in the left third of the frame, their figure at least a third of the panel’s height and ideally half — face and outfit clearly readable, never a small figure in the distance — with clear margin on every side. The setting fills the rest of the frame.',
+    camera: 'Wide establishing shot, eye level, three-quarter view.',
+    action: 'He has just stopped walking and stands with one hand holding the end of his scarf, looking off to the right, alert.',
+    background: {
+      style: 'A quiet night street with a food stall, paper lanterns, steam and cables overhead.',
+      setting: 'The location in the second attached image, seen whole from this camera, filling the frame around him.',
+    },
+  },
+  {
+    id: 'medium',
+    label: 'medium shot (square)',
+    aspect: ASPECT_SQUARE,
+    framing:
+      'Square panel. Frame the character from the waist up, centred, with headroom above and nothing important near the edges.',
+    camera: 'Medium shot, eye level, facing the camera.',
+    action: 'He is tugging the scarf tighter with both hands, a small tired smile, eyes on something just past the camera.',
+    background: {
+      style: 'The counter of a night food stall behind him, a few lanterns, warm light on the steam.',
+      setting: 'Part of the location in the second attached image directly behind him, close enough that its props stay readable.',
+    },
+  },
+  {
+    id: 'close',
+    label: 'close-up (square)',
+    aspect: ASPECT_SQUARE,
+    framing:
+      'Square panel. Centre the character’s face in frame with headroom above and below; keep the eyes on the upper third line and nothing important near the edges.',
+    camera: 'Close-up on his face, slight low angle.',
+    action: 'He is breathing hard, jaw set, eyes narrowed, a strand of hair across the scar.',
+    background: {
+      style: 'Lantern light out of focus behind him, shallow depth of field.',
+      setting: 'The lights of the location in the second attached image out of focus behind his face, shallow depth of field.',
+    },
+  },
+]
+
+// The opening noun is production's ("A single manga panel", lib/prompts.ts
+// panelPrompt, for every preset), kept in style mode too so the test measures
+// the prompt the app sends. The style instruction appears twice in style mode,
+// once in the body and once in the closing rules. Both are as the recorded
+// 2026-10-14 runs had them; see the header.
+function candidatePanelPrompt(p, mode) {
+  const reference =
+    mode === 'style'
+      ? [
+          'The second attached image is a style reference. Match its style exactly, meaning',
+          'its linework, shading, rendering and palette, but do not copy its subject.',
+        ]
+      : [
+          'The second attached image is the location this panel takes place in. Keep its',
+          'architecture, props, lighting and time of day; put the character into it. Do not',
+          'copy any person from it.',
+        ]
+  return [
+    'A single manga panel with exactly one person in it: the character shown in the',
+    'first attached image, a reference sheet. No other people, figures or silhouettes',
+    'anywhere in the panel.',
+    '',
+    'Keep his face, hairstyle, eyes, outfit, scar and scarf EXACTLY as the',
+    'reference sheet shows. Do not restyle, age, or redesign him.',
+    'Only his pose, expression and surroundings change.',
+    '',
+    ...reference,
+    '',
+    'His fixed appearance, for reference:',
+    KAITO_DNA,
+    '',
+    `Framing: ${p.framing}`,
+    `Camera: ${p.camera}`,
+    `Action: ${p.action}`,
+    `Background: ${p.background[mode]}`,
+    '',
+    mode === 'style' ? styleRefRules('the second attached image') : STYLE_RULES,
+  ].join('\n')
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -216,6 +390,33 @@ function pngSize(buf) {
   if (!isPng) return null
   return { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) }
 }
+
+/**
+ * What the first bytes say a file is, or null. The same three signatures as
+ * `sniffImage` in lib/assets.ts: the app never trusts an extension, so this
+ * script does not either.
+ */
+function sniffImage(b) {
+  if (
+    b.length >= 8 &&
+    b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47 &&
+    b[4] === 0x0d && b[5] === 0x0a && b[6] === 0x1a && b[7] === 0x0a
+  ) {
+    return 'image/png'
+  }
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg'
+  if (
+    b.length >= 12 &&
+    b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && // RIFF
+    b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50 // WEBP
+  ) {
+    return 'image/webp'
+  }
+  return null
+}
+
+/** The app's upload cap, from lib/assets.ts: 3.75 MB of bytes. */
+const UPLOAD_LIMIT_BYTES = (5 * 1024 * 1024 * 3) / 4
 
 async function fail(label, res) {
   const body = await res.text()
@@ -240,6 +441,79 @@ async function fail(label, res) {
   }
   process.exit(1)
 }
+
+// ---------------------------------------------------------------------------
+// Arguments. Every refusal here happens before the first network call.
+// ---------------------------------------------------------------------------
+
+function refuse(sentence) {
+  console.error(`\n  ${sentence}\n`)
+  process.exit(1)
+}
+
+function parseArgs(argv) {
+  const opts = { probeOnly: false, out: null, mode: 'default', refPath: null }
+  const modeOf = { '--style-ref': 'style', '--setting-ref': 'setting' }
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]
+    if (arg === '--probe-only') {
+      opts.probeOnly = true
+      continue
+    }
+    // Object.hasOwn, not `in`: `in` would accept every Object.prototype name
+    // (toString, constructor, ...) as a mode flag and run a paid test on a typo.
+    if (arg !== '--out' && !Object.hasOwn(modeOf, arg)) {
+      refuse(`Unknown argument "${arg}". This script takes --probe-only, --out <dir>, --style-ref <image> or --setting-ref <image>.`)
+    }
+    const value = argv[i + 1]
+    if (!value || value.startsWith('--')) {
+      refuse(`${arg} needs a value: ${arg === '--out' ? 'the folder to write into' : 'the path of a PNG, JPEG or WebP image'}.`)
+    }
+    i++
+    if (arg === '--out') {
+      if (opts.out != null) refuse('--out was given twice; pass one folder.')
+      opts.out = value
+      continue
+    }
+    if (opts.mode === modeOf[arg]) {
+      refuse(`${arg} was given twice; pass one reference.`)
+    }
+    if (opts.mode !== 'default') {
+      refuse('--style-ref and --setting-ref are two separate tests; run one at a time, with one reference each.')
+    }
+    opts.mode = modeOf[arg]
+    opts.refPath = value
+  }
+  return opts
+}
+
+/**
+ * The candidate reference, read and checked the way the app checks an
+ * upload: it exists, its first bytes name a PNG, JPEG or WebP, and it is
+ * within the upload cap. The media type the data URI carries is the sniffed
+ * one, so a PNG named .jpg goes out as the PNG it is.
+ */
+async function loadReference(path, flag) {
+  let buf
+  try {
+    buf = await readFile(path)
+  } catch (err) {
+    refuse(`${flag}: cannot read "${path}" (${err.code ?? err.message}).`)
+  }
+  const mediaType = sniffImage(buf)
+  if (!mediaType) {
+    refuse(`${flag}: "${path}" is not a PNG, JPEG or WebP. Its first bytes decide, not its extension.`)
+  }
+  if (buf.length > UPLOAD_LIMIT_BYTES) {
+    refuse(`${flag}: "${path}" is ${buf.length.toLocaleString('en-US')} bytes; the app's upload cap is ${UPLOAD_LIMIT_BYTES.toLocaleString('en-US')} bytes, 3.75 MB (lib/assets.ts), so a reference this size could never be used in the app.`)
+  }
+  return { path, buf, mediaType, ext: EXT_BY_MEDIA_TYPE[mediaType], bytes: buf.length }
+}
+
+const ARGS = parseArgs(process.argv.slice(2))
+const MODE = ARGS.mode
+const REF = MODE === 'default' ? null : await loadReference(ARGS.refPath, `--${MODE}-ref`)
+const OUT_DIR = ARGS.out ?? (MODE === 'default' ? DEFAULT_OUT_DIR : join(DEFAULT_OUT_DIR, `${MODE}-ref`))
 
 // ---------------------------------------------------------------------------
 // API calls
@@ -460,9 +734,16 @@ async function fallbackProbe() {
 /**
  * One function for both surfaces, because OpenRouter has one endpoint.
  *
- * A sheet is this call without `references`. A panel is this call with one.
- * That is the whole difference, and it is why the kernel stopped being a
- * separate endpoint when images moved to OpenRouter.
+ * A sheet is this call without `references` (or, for --style-ref, with the
+ * style reference alone). A panel is this call with the sheet first and, in
+ * a candidate-lock test, the reference second. That is the whole difference,
+ * and it is why the kernel stopped being a separate endpoint when images
+ * moved to OpenRouter.
+ *
+ * A reference is a Buffer (taken as PNG, which is what this model returns)
+ * or `{ buf, mediaType }` when the bytes are something else, as an uploaded
+ * JPEG or WebP reference can be. Order is kept: references[0] is the first
+ * attached image.
  *
  * NOTE: `input_fidelity` is not sent and cannot be — it was a gpt-image-1.x
  * parameter, and OpenRouter passes through only `moderation` for this model.
@@ -483,10 +764,13 @@ async function generateImage({ prompt, quality, aspect, label, references = [] }
   // no Blob. An HTTP(S) URL would also be accepted, but the sheet is a local
   // file. Note this makes the body ~4/3 the size of the PNG.
   if (references.length) {
-    body.input_references = references.map((png) => ({
-      type: 'image_url',
-      image_url: { url: `data:image/png;base64,${png.toString('base64')}` },
-    }))
+    body.input_references = references.map((ref) => {
+      const { buf, mediaType } = Buffer.isBuffer(ref) ? { buf: ref, mediaType: 'image/png' } : ref
+      return {
+        type: 'image_url',
+        image_url: { url: `data:${mediaType};base64,${buf.toString('base64')}` },
+      }
+    })
   }
 
   const res = await fetch(`${API}/images`, {
@@ -529,7 +813,8 @@ async function generateImage({ prompt, quality, aspect, label, references = [] }
 // Run
 // ---------------------------------------------------------------------------
 
-await mkdir(OUT_DIR, { recursive: true })
+// The output folder is created only once something is about to be written,
+// so a probe-only run or a failed probe leaves nothing behind.
 const timings = {}
 const costs = {}
 const dims = {}
@@ -537,13 +822,22 @@ const dims = {}
 const money = (n) => (n == null ? 'cost not reported' : `$${n.toFixed(4)}`)
 const shape = (d) => (d ? `${d.w}x${d.h}` : 'unknown')
 
-console.log(`\n  Ink Desk kernel test`)
-console.log(`  text    ${TEXT_MODEL}            (Anthropic, direct)${ANTHROPIC_KEY ? '' : ' — no key, probe skipped'}`)
-console.log(`  backup  ${FALLBACK_MODEL}  (OpenRouter, text fallback)`)
-console.log(`  image   ${MODEL}  (OpenRouter)`)
-console.log(`  quality ${QUALITY} (image probe at low)`)
-console.log(`  ratios  sheet ${ASPECT_SHEET} · wide ${ASPECT_WIDE} · square ${ASPECT_SQUARE}`)
-console.log(`  output  ${OUT_DIR}/\n`)
+if (MODE === 'default') {
+  console.log(`\n  Ink Desk kernel test`)
+  console.log(`  text    ${TEXT_MODEL}            (Anthropic, direct)${ANTHROPIC_KEY ? '' : ' — no key, probe skipped'}`)
+  console.log(`  backup  ${FALLBACK_MODEL}  (OpenRouter, text fallback)`)
+  console.log(`  image   ${MODEL}  (OpenRouter)`)
+  console.log(`  quality ${QUALITY} (image probe at low)`)
+  console.log(`  ratios  sheet ${ASPECT_SHEET} · wide ${ASPECT_WIDE} · square ${ASPECT_SQUARE}`)
+  console.log(`  output  ${OUT_DIR}/\n`)
+} else {
+  console.log(`\n  Ink Desk kernel test — ${MODE} reference (candidate lock)`)
+  console.log(`  ref     ${REF.path}  (${REF.mediaType}, ${(REF.bytes / (1024 * 1024)).toFixed(2)} MB)`)
+  console.log(`  image   ${MODEL}  (OpenRouter)`)
+  console.log(`  quality ${QUALITY}`)
+  console.log(`  ratios  sheet ${ASPECT_SHEET} · wide ${ASPECT_WIDE} · square ${ASPECT_SQUARE}`)
+  console.log(`  output  ${OUT_DIR}/\n`)
+}
 
 // ---- Slice 1: three probes ----------------------------------------------
 
@@ -554,6 +848,23 @@ console.log(`ok (${(caps.ms / 1000).toFixed(1)}s) — free`)
 console.log(`        input_references supported, up to ${caps.refMax} — the kernel is buildable`)
 console.log(`        aspect_ratio ${caps.aspects.join(' ')}`)
 console.log(`        quality      ${caps.qualities.join(' ')}`)
+
+if (MODE !== 'default') {
+  // A candidate-lock test pays for its four images and nothing else. The
+  // three paid probes proved the setup on day one; the free one above is
+  // enough to catch a renamed parameter or a dropped ratio before spending.
+  console.log('  [0b-0d] skipped — the text, image and fallback probes cost money and were proven on day one; this test pays only for its four images')
+  if (caps.refMax < 2) {
+    console.error(`\n  ✗ input_references max is ${caps.refMax}; a candidate-lock test sends two (the sheet and the reference).\n`)
+    process.exit(1)
+  }
+  if (ARGS.probeOnly) {
+    console.log('\n  --probe-only: stopping here. Spent $0.0000.\n')
+    process.exit(0)
+  }
+  await runCandidate()
+  process.exit(0)
+}
 
 process.stdout.write('  [0b]  probing text model + structured output ... ')
 if (ANTHROPIC_KEY) {
@@ -581,7 +892,7 @@ timings.fallbackProbe = fp.ms
 costs.fallbackProbe = fp.cost
 console.log(`ok (${(fp.ms / 1000).toFixed(1)}s) — "${FALLBACK_MODEL}" answers the synopsis schema · ${money(fp.cost)} · "${fp.title}"`)
 
-if (process.argv.includes('--probe-only')) {
+if (ARGS.probeOnly) {
   const spent = [probe.cost, fp.cost].filter((c) => c != null).reduce((a, b) => a + b, 0)
   console.log('\n  --probe-only: stopping here. Everything this spec assumes is confirmed.')
   console.log(`  Spent ${money(spent)}.\n`)
@@ -590,6 +901,7 @@ if (process.argv.includes('--probe-only')) {
 
 // ---- Slice 2: the kernel -------------------------------------------------
 
+await mkdir(OUT_DIR, { recursive: true })
 process.stdout.write(`  [1/3] model sheet from DNA (${ASPECT_SHEET}) ... `)
 const sheet = await generateImage({
   prompt: SHEET_PROMPT,
@@ -699,3 +1011,164 @@ console.log(`       GENERATION_TIMEOUT_MS to about ${Math.ceil((slowest * 3) / 1
 console.log(`    2. Real cost at ${QUALITY}: ${money(costs.sheet)} (${ASPECT_SHEET}), ${money(costs.close)} (${ASPECT_SQUARE}).`)
 console.log(`       Total for this run ${money(totalCost)}. The spec's cost table is an estimate.`)
 console.log(`    3. Dimensions returned: ${shape(dims.sheet)} at ${ASPECT_SHEET}, ${shape(dims.close)} at ${ASPECT_SQUARE}.\n`)
+
+// ---------------------------------------------------------------------------
+// Slice 15: the candidate-lock test. One sheet, three panels, the reference
+// beside the sheet in every panel. Declared after the default run above so
+// the slice 2 path reads top to bottom as it always has.
+// ---------------------------------------------------------------------------
+
+async function runCandidate() {
+  await mkdir(OUT_DIR, { recursive: true })
+  const refFile = `ref.${REF.ext}`
+  await writeFile(join(OUT_DIR, refFile), REF.buf)
+  const refEntry = { buf: REF.buf, mediaType: REF.mediaType }
+
+  const prompts = {}
+  const files = {}
+  const inputs = {}
+
+  // The sheet. In style mode the reference is its only attached image; in
+  // setting mode it is the slice 2 sheet, from the DNA alone.
+  const sheetPrompt = MODE === 'style' ? STYLE_SHEET_PROMPT : SHEET_PROMPT
+  const sheetRefs = MODE === 'style' ? [refEntry] : []
+  process.stdout.write(`  [1/4] model sheet ${MODE === 'style' ? 'in the reference style' : 'from DNA'} (${ASPECT_SHEET}) ... `)
+  const sheet = await generateImage({
+    prompt: sheetPrompt,
+    quality: QUALITY,
+    aspect: ASPECT_SHEET,
+    label: 'Model sheet',
+    references: sheetRefs,
+  })
+  files.sheet = `0-sheet.${sheet.ext}`
+  await writeFile(join(OUT_DIR, files.sheet), sheet.buf)
+  prompts.sheet = sheetPrompt
+  inputs.sheet = MODE === 'style' ? [refFile] : []
+  timings.sheet = sheet.ms
+  costs.sheet = sheet.cost
+  dims.sheet = sheet.dims
+  console.log(`ok (${(sheet.ms / 1000).toFixed(1)}s) · ${money(sheet.cost)} · ${shape(sheet.dims)}`)
+
+  // The panels: [sheet, reference], in that order, every time.
+  const sheetEntry = { buf: sheet.buf, mediaType: sheet.mediaType }
+  for (const [i, p] of CANDIDATE_PANELS.entries()) {
+    process.stdout.write(`  [${i + 2}/4] ${p.label} ... `)
+    const prompt = candidatePanelPrompt(p, MODE)
+    const out = await generateImage({
+      prompt,
+      references: [sheetEntry, refEntry],
+      quality: QUALITY,
+      aspect: p.aspect,
+      label: `Panel ${p.id}`,
+    })
+    files[p.id] = `${i + 1}-${p.id}.${out.ext}`
+    await writeFile(join(OUT_DIR, files[p.id]), out.buf)
+    prompts[p.id] = prompt
+    inputs[p.id] = [files.sheet, refFile]
+    timings[p.id] = out.ms
+    costs[p.id] = out.cost
+    dims[p.id] = out.dims
+    console.log(`ok (${(out.ms / 1000).toFixed(1)}s) · ${money(out.cost)} · ${shape(out.dims)}`)
+  }
+
+  const slowest = Math.max(timings.sheet, timings.wide, timings.medium, timings.close)
+  const reported = Object.values(costs).filter((c) => c != null)
+  const totalCost = reported.length ? reported.reduce((a, b) => a + b, 0) : null
+
+  const question =
+    MODE === 'style'
+      ? 'Is this recognisably the same person as the sheet in all three panels, <em>and</em> is every image unmistakably in the reference’s style?'
+      : 'Is this recognisably the same person in all three panels, <em>and</em> is every panel unmistakably the same place as the reference (same lanterns, stall, vending machine, bicycle, pillar)?'
+  const refCaption =
+    MODE === 'style'
+      ? 'The style reference. Attached alone to the sheet, and second to every panel.'
+      : 'The setting reference. Attached second to every panel; the sheet never sees it.'
+  const sheetCaption =
+    MODE === 'style'
+      ? 'The sheet, drawn with the style reference attached. Not the manga preset.'
+      : 'The sheet, generated from the DNA text alone, no references.'
+
+  await writeFile(
+    join(OUT_DIR, 'index.html'),
+    `<!doctype html><meta charset="utf-8"><title>Ink Desk — ${MODE} reference test</title>
+<style>
+  body{margin:0;padding:40px;background:#f3f2f2;color:#201f1d;
+       font:16px/1.6 Lora,Georgia,serif}
+  h1{font:600 30px/1.2 "Cormorant Garamond",Georgia,serif;margin:0 0 6px}
+  p.sub{margin:0 0 32px;color:#6b6762}
+  .row{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}
+  figure{margin:0;flex:1 1 300px;min-width:280px}
+  img{width:100%;border:1px solid #d6d4d1;background:#fff;display:block}
+  figcaption{margin-top:10px;font-size:14px;color:#6b6762}
+  b{color:#b5382e}
+  .q{margin-top:36px;padding:20px 24px;border-left:3px solid #b5382e;background:#eae9e9}
+  .nums{margin-top:28px;padding:16px 20px;background:#eae9e9;font-size:14px}
+  .nums code{background:#f3f2f2;padding:1px 5px}
+</style>
+<h1>Candidate lock — ${MODE} reference</h1>
+<p class="sub">${MODEL} via OpenRouter &middot; quality <b>${QUALITY}</b>
+  &middot; slowest image call ${(slowest / 1000).toFixed(1)}s
+  &middot; total ${totalCost == null ? 'cost not reported' : '<b>$' + totalCost.toFixed(4) + '</b>'}</p>
+<div class="row">
+  <figure><img src="${refFile}"><figcaption><b>Reference.</b> ${REF.mediaType} &middot; ${(REF.bytes / 1024).toFixed(0)} KB &middot; ${refCaption}</figcaption></figure>
+  <figure><img src="${files.sheet}"><figcaption><b>The sheet.</b> ${ASPECT_SHEET} &middot; ${shape(dims.sheet)} &middot; ${sheetCaption}</figcaption></figure>
+</div>
+<div class="row" style="margin-top:24px">
+  <figure><img src="${files.wide}"><figcaption><b>Wide establishing shot.</b> ${ASPECT_WIDE} &middot; ${shape(dims.wide)} &middot; <code>input_references</code> = [sheet, reference].</figcaption></figure>
+  <figure><img src="${files.medium}"><figcaption><b>Medium shot.</b> ${ASPECT_SQUARE} &middot; ${shape(dims.medium)} &middot; same two references.</figcaption></figure>
+  <figure><img src="${files.close}"><figcaption><b>Close-up.</b> ${ASPECT_SQUARE} &middot; ${shape(dims.close)} &middot; same two references.</figcaption></figure>
+</div>
+<div class="q"><strong>The question:</strong> ${question}
+If yes to both, the ${MODE} reference is a lock and the docs may say so. If no to either, it stays a candidate.
+Record the answer as <code>"verdict"</code> in <code>manifest.json</code>.</div>
+<div class="nums">Slowest image call <b>${(slowest / 1000).toFixed(1)}s</b> &middot;
+  sheet ${money(costs.sheet)}, wide ${money(costs.wide)}, medium ${money(costs.medium)}, close ${money(costs.close)} at <code>${QUALITY}</code>.</div>`
+  )
+
+  const image = (id, aspect) => ({
+    file: files[id],
+    aspect,
+    inputReferences: inputs[id],
+    ms: timings[id],
+    costUsd: costs[id],
+    dimensions: dims[id],
+  })
+
+  await writeFile(
+    join(OUT_DIR, 'manifest.json'),
+    JSON.stringify(
+      {
+        test: 'candidate-lock',
+        mode: MODE,
+        reference: { path: REF.path, bytes: REF.bytes, mediaType: REF.mediaType, copy: refFile },
+        provider: 'openrouter',
+        endpoint: `${API}/images`,
+        imageModel: MODEL,
+        imageModelPinned: false,
+        quality: QUALITY,
+        capabilities: { inputReferencesMax: caps.refMax, aspects: caps.aspects, qualities: caps.qualities },
+        images: {
+          sheet: image('sheet', ASPECT_SHEET),
+          wide: image('wide', ASPECT_WIDE),
+          medium: image('medium', ASPECT_SQUARE),
+          close: image('close', ASPECT_SQUARE),
+        },
+        slowestMs: slowest,
+        totalCostUsd: totalCost,
+        prompts,
+        dna: KAITO_DNA,
+        generatedAt: new Date().toISOString(),
+        verdict: null,
+        verdictNote:
+          'A person records "pass" or "fail" here after looking at index.html. The script never fills this in; a null verdict means nobody has looked yet.',
+      },
+      null,
+      2
+    )
+  )
+
+  console.log(`\n  Done. Look at them:`)
+  console.log(`    ${OUT_DIR}/index.html`)
+  console.log(`  Then record "verdict" in ${OUT_DIR}/manifest.json. Until it says pass, the ${MODE} reference is a candidate, not a lock.`)
+  console.log(`\n  Output ${OUT_DIR}/ · slowest image call ${(slowest / 1000).toFixed(1)}s · total ${money(totalCost)}\n`)
+}

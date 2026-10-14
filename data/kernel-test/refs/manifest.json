@@ -1,0 +1,23 @@
+{
+  "model": "openai/gpt-image-2.5-sunburst",
+  "quality": "medium",
+  "generatedAt": "2026-10-14T12:09:11.428Z",
+  "plates": {
+    "style-ref": {
+      "file": "style-ref.png",
+      "aspect": "3:2",
+      "prompt": "A finished illustration of a quiet harbour town at dusk, boats moored along a stone quay, lit windows, gulls. Style: loose watercolour storybook illustration — soft pastel palette, wet-on-wet washes that bleed at the edges, visible cold-press paper grain, a delicate graphite underdrawing showing through, no hard outlines. No people anywhere in the picture. ABSOLUTELY NO TEXT, no speech bubbles, no sound effects, no signatures, no watermarks and no panel borders anywhere in the image.",
+      "mediaType": "image/png",
+      "ms": 23342,
+      "costUsd": 0.010845
+    },
+    "setting-ref": {
+      "file": "setting-ref.png",
+      "aspect": "3:2",
+      "prompt": "An empty street-side ramen stall under an elevated railway at night, seen from across the narrow street: a row of red paper lanterns along the stall’s awning, steam rising from the counter, a rain-slick road reflecting the lantern light, a bicycle leaning against a concrete railway pillar on the right, a glowing vending machine at the far left, cables overhead. No people anywhere in the picture. Black and white manga artwork, screentone shading, confident inked linework. Seinen style, detailed backgrounds, strong use of blacks. ABSOLUTELY NO TEXT, no speech bubbles, no sound effects, no signatures, no watermarks and no panel borders anywhere in the image.",
+      "mediaType": "image/png",
+      "ms": 18321,
+      "costUsd": 0.01102
+    }
+  }
+}

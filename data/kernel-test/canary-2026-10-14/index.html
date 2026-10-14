@@ -1,0 +1,33 @@
+<!doctype html><meta charset="utf-8"><title>Ink Desk — kernel test</title>
+<style>
+  body{margin:0;padding:40px;background:#f3f2f2;color:#201f1d;
+       font:16px/1.6 Lora,Georgia,serif}
+  h1{font:600 30px/1.2 "Cormorant Garamond",Georgia,serif;margin:0 0 6px}
+  p.sub{margin:0 0 32px;color:#6b6762}
+  .row{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}
+  figure{margin:0;flex:1 1 300px;min-width:280px}
+  img{width:100%;border:1px solid #d6d4d1;background:#fff;display:block}
+  figcaption{margin-top:10px;font-size:14px;color:#6b6762}
+  b{color:#b5382e}
+  .q{margin-top:36px;padding:20px 24px;border-left:3px solid #b5382e;background:#eae9e9}
+  .nums{margin-top:28px;padding:16px 20px;background:#eae9e9;font-size:14px}
+  .nums code{background:#f3f2f2;padding:1px 5px}
+</style>
+<h1>Kernel test — does the face hold?</h1>
+<p class="sub">openai/gpt-image-2.5-sunburst via OpenRouter &middot; quality <b>medium</b>
+  &middot; slowest image call 27.3s
+  &middot; total <b>$0.0701</b></p>
+<div class="row">
+  <figure><img src="0-sheet.png"><figcaption><b>The sheet.</b> 3:2 &middot; 1536x1024 &middot; generated from the DNA text alone, no references. This is the reference.</figcaption></figure>
+  <figure><img src="1-close.png"><figcaption><b>Close-up.</b> 1:1 &middot; 1024x1024 &middot; sheet sent in <code>input_references</code>.</figcaption></figure>
+  <figure><img src="2-wide.png"><figcaption><b>Wide shot.</b> 3:2 &middot; 1536x1024 &middot; same sheet, same DNA, different shot.</figcaption></figure>
+</div>
+<div class="q"><strong>The only question:</strong> is this recognizably the same person in all three &mdash;
+same face, same scar through the right eyebrow, same frayed scarf &mdash; from a close-up <em>and</em> from a wide shot?
+If yes, the kernel holds and the build can proceed. If no, that is worth knowing before five stations are built on top of it.</div>
+<div class="nums"><strong>Three numbers the spec was guessing at.</strong>
+  Set <code>GENERATION_TIMEOUT_MS</code> above <b>27.3s</b> &mdash; try <code>90000</code>.
+  Real cost at <code>medium</code>: <b>$0.0114</b> for 3:2, <b>$0.0270</b> for 1:1
+  &mdash; update the cost table in <code>devpost/spec.md</code>, which is currently an estimate.
+  Returned dimensions: <b>1536x1024</b> at 3:2, <b>1024x1024</b> at 1:1
+  &mdash; not ours to request any more, so size panel CSS from the ratio.</div>
