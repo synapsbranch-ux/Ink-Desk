@@ -1,9 +1,90 @@
 {
   "version": 1,
-  "recordedAt": null,
-  "quality": null,
-  "footage": null,
-  "duration": null,
-  "marks": [],
-  "stills": null
+  "recordedAt": "2026-10-14T00:39:21.196Z",
+  "quality": "low",
+  "footage": "capture/footage.webm",
+  "duration": 247.72,
+  "marks": [
+    {
+      "name": "dashboard",
+      "t": 1.14
+    },
+    {
+      "name": "project-created",
+      "t": 13.29
+    },
+    {
+      "name": "scenario-ready",
+      "t": 20.91
+    },
+    {
+      "name": "library-open",
+      "t": 28.75
+    },
+    {
+      "name": "import-done",
+      "t": 45.1
+    },
+    {
+      "name": "cast-locked",
+      "t": 73.77
+    },
+    {
+      "name": "director-open",
+      "t": 76.12
+    },
+    {
+      "name": "plan-ready",
+      "t": 113.25
+    },
+    {
+      "name": "pages-queued",
+      "t": 119.22
+    },
+    {
+      "name": "page1-inked",
+      "t": 169.49
+    },
+    {
+      "name": "bubble-edited",
+      "t": 176.85
+    },
+    {
+      "name": "redraw-done",
+      "t": 204.32
+    },
+    {
+      "name": "reader-open",
+      "t": 209.86
+    },
+    {
+      "name": "pdf-exported",
+      "t": 215.3
+    },
+    {
+      "name": "end",
+      "t": 217.8
+    }
+  ],
+  "stills": {
+    "title": "The Last Delivery Before Dawn",
+    "character": {
+      "name": "Kaito Ren",
+      "reference": "capture/stills/asset-7e694adf-1836-40e3-80c3-847c26d3c8b4.png",
+      "source": "upload"
+    },
+    "panels": [
+      {
+        "src": "capture/stills/panel-835b40f0-d3e8-43d5-800f-b79a0c06367d.png",
+        "page": 1,
+        "panel": 1
+      },
+      {
+        "src": "capture/stills/panel-00aebb7b-8c01-4e6d-9836-e52e7dc697bb.png",
+        "page": 1,
+        "panel": 3
+      }
+    ],
+    "cover": null
+  }
 }

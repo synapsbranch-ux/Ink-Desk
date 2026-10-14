@@ -1,0 +1,10 @@
+{
+  "_note": "What the capture types and uploads. Paths are relative to this file. `character` is a stand-in: the kernel-test sheet from slices 1-2, committed in data/. Before the real recording, replace it with your own drawing of the lead (PNG, JPEG or WebP, under 3.75 MB) — the video's point is that YOUR picture becomes the locked sheet. `scenario` is 'sample' (the app's Try the sample scenario) or a path to a .txt file with your own.",
+  "title": "The Last Delivery Before Dawn",
+  "preset": "manga-bw",
+  "scenario": "sample",
+  "character": "../../data/kernel-test/0-sheet.png",
+  "uploadName": "my-character.png",
+  "bubble": "My own handwriting. Dated Thursday.",
+  "redrawPanel": 2
+}
