@@ -1800,7 +1800,7 @@ expose it.
 A separate package, `video/`, so the app's dependencies stay clean:
 
 - **Remotion** compositions (`video/src/`): `Intro` (logo, animated title),
-  `Section` titles and transitions, `Footage` (plays the captured webm with
+  `Section` titles and transitions, `Footage` (plays the captured footage with
   trim and speed-up ranges from `timeline.json`), `MoneyShot` (the upload /
   locked sheet beside its panels from pages 1–3 and the cover, animated), and
   `Outro`; brand tokens from `app/globals.css` copied into `video/src/theme.ts`.
@@ -1821,8 +1821,27 @@ A separate package, `video/`, so the app's dependencies stay clean:
 - **Subtitles:** burned-in English captions from the same script.
 - **Committed:** the compositions, `timeline.json`, the script, the capture
   and narration scripts, the licence notes. **Not committed:** the captured
-  webm, the mp3s and the rendered mp4 (sizes); the mp4 is uploaded to YouTube,
+  footage, the mp3s and the rendered mp4 (sizes); the mp4 is uploaded to YouTube,
   public, and linked from the submission.
+- *Built as (slice 14):* the edit is data — `video/src/cut.ts` (eight beats,
+  170 s budgeted), `timeline.ts` (the sixteen marks the capture writes, and
+  `resolvePlan`: a span that overruns its budget is time-lapsed to fit, never
+  slowed, and labelled on screen with the real time it covers; a mark not yet
+  captured is a slate of its budget) and `script.ts` (`narration.md`, one
+  `## <beat>` section each, is both the narration and the captions).
+  `prepare.mts` runs before every render, resolves frames into
+  `out/props.json`, and lists what is still draft — the render carries a DRAFT
+  stamp until nothing is. **The capture is not `recordVideo`:** it drifted
+  (+29 s over a four-minute test capture) and encoded soft VP8, so
+  `capture/screencast.mts` pipes a Chromium screencast (CDP, JPEG q92) into
+  ffmpeg at a constant 30 fps h264 on its own clock — footage time is wall
+  time and a mark is exact by construction; `capture/clock-check.mts` proves it
+  for free. Playwright still drives the app. The footage is
+  `public/capture/footage.mp4`. Narration is cached by words + voice + model
+  and has no default voice (`--samples` writes all twelve to choose from).
+  Fonts are the three OFL families as local files in `public/fonts/`. Every
+  render carries an aac track (`--enforce-audio-track`), silent until
+  narration exists. Music: none for now.
 
 ## Verified for v2 (2026-10-13)
 
@@ -1913,7 +1932,9 @@ data/projects/<id>/project.json · data/images/ (every image, v1 and v2) · data
 
 New dependencies, pinned at install: `mongodb`, `@aws-sdk/client-s3`
 (server, cloud mode only), `pdf-lib` (browser export); in `video/` only:
-`remotion`, `@remotion/cli`. No other additions.
+`remotion`, `@remotion/cli` (4.0.531), with `react`/`react-dom` (their peers)
+and `playwright` (1.56.1, the capture — in `video/` rather than the app's
+devDependencies, so the app's stay clean). No other additions.
 
 ## Checks (v2)
 
