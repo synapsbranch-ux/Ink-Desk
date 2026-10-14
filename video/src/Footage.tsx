@@ -31,8 +31,10 @@ export const Footage: React.FC<{ shot: ResolvedShot; src: string | null }> = ({ 
       {lapse ? (
         <div
           style={{
+            // Under the studio's rail, clear of its header — the cost readout
+            // there is worth seeing on camera.
             position: 'absolute',
-            top: 36,
+            top: 148,
             right: 40,
             padding: '10px 18px',
             background: color.ink,

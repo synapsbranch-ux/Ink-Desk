@@ -72,8 +72,10 @@ const shotName = (shot: ResolvedShot) =>
 const DraftStamp: React.FC = () => (
   <div
     style={{
+      // Bottom-left, above the captions: empty in the app's footage and in
+      // every motion piece.
       position: 'absolute',
-      top: 28,
+      bottom: 200,
       left: 32,
       padding: '4px 12px',
       border: `3px solid ${color.hanko}`,
