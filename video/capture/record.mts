@@ -9,7 +9,7 @@
 //                                          [--stop-after <mark>]
 //   npm run video:capture -- --short       (from the repo root)
 //
-// Writes, as it goes:
+// Writes, once the run succeeds (it reaches `end`, or --stop-after's mark):
 //   video/timeline.json                 marks (MARKS in src/timeline.ts, in order,
 //                                       each when its moment is on screen; t =
 //                                       seconds into the footage, which is wall
@@ -33,10 +33,17 @@
 // e.g. `--stop-after scenario-ready` films only what costs nothing — the
 // Library's cast proposal right after it is the first paid call.
 //
-// On any failure the footage so far is still saved and the timeline keeps the
-// marks reached; the script then exits non-zero naming the step that stopped.
+// A run records into its own folder beside the capture, public/capture/run-<time>/,
+// and only moves its footage, stills/, chapter.pdf and timeline over the
+// previous ones when it succeeds — the last good capture was paid for, and a
+// failed or interrupted run (or a test) must not cost it. On any failure the
+// footage so far is still finished, the folder is renamed failed-<time>/ with
+// the marks reached in its own timeline.json, the previous capture and
+// video/timeline.json are left as they were, and the script exits non-zero
+// naming the step that stopped. The folder mirrors the capture's, so its files
+// can be moved into place by hand if that partial run is wanted.
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, extname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
@@ -89,6 +96,7 @@ const flags = readFlags()
 
 const BASE = flags.url!.replace(/\/+$/, '')
 const SHORT = flags.short === true
+// Only a fallback: the timeline records the app's own quality once the project exists.
 const QUALITY = flags.quality ?? process.env.IMAGE_PANEL_QUALITY ?? 'unknown'
 const SEED_PATH = flags.seed ? resolve(INVOKED_FROM, flags.seed) : join(VIDEO, 'capture', 'seed.json')
 
@@ -96,8 +104,18 @@ const SEED_PATH = flags.seed ? resolve(INVOKED_FROM, flags.seed) : join(VIDEO, '
 const OUT = flags.out ? resolve(INVOKED_FROM, flags.out) : null
 const CAPTURE_DIR = OUT ?? join(VIDEO, 'public', 'capture')
 const TIMELINE = OUT ? join(OUT, 'timeline.json') : join(VIDEO, 'timeline.json')
-const FOOTAGE_FILE = join(CAPTURE_DIR, 'footage.mp4')
-const STILLS_DIR = join(CAPTURE_DIR, 'stills')
+// This run's own folder: it replaces the capture above only on success, and
+// is set aside as failed-<time> otherwise (see the top of the file).
+const STAMP = new Date().toISOString().slice(0, 19).replace(/:/g, '-')
+const RUN_DIR = join(CAPTURE_DIR, `run-${STAMP}`)
+const FAILED_DIR = join(CAPTURE_DIR, `failed-${STAMP}`)
+const RUN_TIMELINE = join(RUN_DIR, 'timeline.json')
+const FOOTAGE_FILE = join(RUN_DIR, 'footage.mp4')
+const STILLS_DIR = join(RUN_DIR, 'stills')
+const PDF_FILE = join(RUN_DIR, 'chapter.pdf')
+const FAILURE_PNG = join(RUN_DIR, 'failure.png')
+/** What a successful run replaces in CAPTURE_DIR, as one set; failure.png is an old run's, cleared with it. */
+const CAPTURED = ['footage.mp4', 'stills', 'chapter.pdf', 'failure.png']
 /** A path as the person typing would write it: relative when it is under where they ran us, whole otherwise. */
 const shown = (path: string) => {
   const r = relative(INVOKED_FROM, path)
@@ -161,8 +179,10 @@ function readSeed(): Seed & { scenarioText: string | null; picture: Buffer; pict
 }
 
 // ---------------------------------------------------------------------------
-// The timeline, written after every mark so a capture that stops still has
-// the marks it reached.
+// The timeline, written into the run's folder after every mark so a capture
+// that stops still has the marks it reached; the real one is written only on
+// success. The quality starts as the flag's (or this shell's) guess and is
+// replaced by the app's own once the project exists.
 
 const timeline: CaptureTimeline = {
   version: 1,
@@ -173,9 +193,15 @@ const timeline: CaptureTimeline = {
   marks: [],
   stills: null,
 }
-const saveTimeline = () => writeFileSync(TIMELINE, `${JSON.stringify(timeline, null, 2)}\n`)
+const saveTimeline = (file = RUN_TIMELINE) => writeFileSync(file, `${JSON.stringify(timeline, null, 2)}\n`)
 
 let recording: Recording | null = null
+/**
+ * Why the capture is stopping, once something outside the journey says so (a
+ * Ctrl+C, ffmpeg failing). The journey checks it at every wait and mark, so
+ * nothing more is started — or spent — after it is set.
+ */
+let failure: unknown = null
 
 const ORDER = MARKS.map((m) => m.name as string)
 /** Ends the journey after --stop-after's mark; not a failure. */
@@ -183,6 +209,7 @@ class StoppedAfter extends Error {}
 
 /** The moment on screen now, in footage seconds — the recorder's own clock, so it is where the file shows it. */
 async function mark(name: MarkName): Promise<void> {
+  if (failure) throw failure
   const last = timeline.marks.at(-1)
   if (last && ORDER.indexOf(name) <= ORDER.indexOf(last.name)) throw new Error(`mark ${name} out of order`)
   const { t, late } = await onScreen(page, recording!)
@@ -321,6 +348,7 @@ class Stopped extends Error {}
 async function until(what: string, timeoutMs: number, check: () => Promise<boolean | string>): Promise<void> {
   const end = Date.now() + timeoutMs
   for (;;) {
+    if (failure) throw failure
     const r = await check()
     if (r === true) return
     if (typeof r === 'string') throw new Stopped(r)
@@ -446,9 +474,18 @@ async function journey(seed: ReturnType<typeof readSeed>): Promise<void> {
   await mark('project-created')
   await pause(BEAT)
 
-  const desk = projectId ? await readDesk(projectId) : null
-  if (desk && QUALITY !== 'unknown' && desk.panelQuality !== QUALITY) {
-    console.warn(`  ! The app is drawing panels at "${desk.panelQuality}", but this capture is recorded as "${QUALITY}".`)
+  // The timeline records the quality the app really draws at (the project is
+  // stamped with it), not the flag's or this shell's guess, so the edit's DRAFT
+  // stamp is right either way. A --quality the app doesn't match stops here:
+  // the project is free, and the Library's cast proposal is the first paid call.
+  step = 'checking the app’s quality'
+  if (projectId) {
+    const desk = await readDesk(projectId)
+    if (flags.quality !== undefined && desk.panelQuality !== flags.quality) {
+      throw new Stopped(`the app is drawing panels at "${desk.panelQuality}", not the "${flags.quality}" asked for, so restart it with IMAGE_PANEL_QUALITY=${flags.quality} or drop --quality`)
+    }
+    timeline.quality = desk.panelQuality
+    saveTimeline()
   }
 
   step = 'writing the scenario'
@@ -486,6 +523,9 @@ async function journey(seed: ReturnType<typeof readSeed>): Promise<void> {
   const tiles = shelf.locator('figure.asset-tile')
   const before = await tiles.count()
   const chooser = page.waitForEvent('filechooser')
+  // Awaited after the press; if the press fails first, closing the page
+  // rejects this wait, and unhandled that would kill us before the save.
+  chooser.catch(() => {})
   await press(shelf.getByRole('button', { name: 'Upload a reference', exact: true }))
   await (await chooser).setFiles({ name: seed.uploadName!, mimeType: seed.pictureType, buffer: seed.picture })
   await until('the picture on the shelf', 60_000, async () => {
@@ -563,7 +603,8 @@ async function journey(seed: ReturnType<typeof readSeed>): Promise<void> {
     await pause(BEAT)
     await press(page1Card.getByRole('button', { name: 'Open page 1 →' }))
   }
-  await heading('The page').waitFor({ timeout: 60_000 })
+  // A refused start (or cover) is only a notice on the Director: watch for it too.
+  await until('the page to open', 60_000, async () => (await heading('The page').isVisible()) || (await alertText()) || false)
   await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'smooth' }))
   await settleScroll()
 
@@ -625,6 +666,10 @@ async function journey(seed: ReturnType<typeof readSeed>): Promise<void> {
     const coverFrame = page.getByRole('article', { name: 'The cover' }).locator('.cover-frame')
     const pageCount = await page.locator('[data-plan-page]').count()
     await until('every page and the cover', IMAGE_MS * (pageCount * 2 + 2), async () => {
+      // A refused or failed request (the cover's POST, say) is only a notice;
+      // the statuses below would never change and this would wait it out.
+      const notice = await alertText()
+      if (notice) return notice
       const labels = await statuses.allTextContents()
       const failed = labels.find((l) => l.includes('didn’t come back'))
       if (failed) return `a page reports “${failed}”`
@@ -653,8 +698,13 @@ async function journey(seed: ReturnType<typeof readSeed>): Promise<void> {
 
   step = 'exporting the PDF'
   const download = page.waitForEvent('download', { timeout: 180_000 })
+  // Handled at once, as the file chooser's wait is; and a refused export is a
+  // notice rather than a download, so the two are watched together.
+  let downloaded = false
+  download.then(() => (downloaded = true), () => {})
   await press(exportPdf)
-  await (await download).saveAs(join(CAPTURE_DIR, 'chapter.pdf'))
+  await until('the PDF', 180_000, async () => downloaded || (await alertText()) || false)
+  await (await download).saveAs(PDF_FILE)
   await until('the export to finish', 60_000, async () =>
     (await exportPdf.textContent()) === 'Export PDF' || (await alertText()) || false
   )
@@ -689,39 +739,44 @@ async function main(): Promise<void> {
     quit(`Ink Desk isn't answering at ${BASE}. Start it first (npm run dev), or pass --url.`)
   }
 
-  mkdirSync(CAPTURE_DIR, { recursive: true })
-  rmSync(FOOTAGE_FILE, { force: true })
-  rmSync(join(CAPTURE_DIR, 'failure.png'), { force: true })
+  // Nothing of the previous capture is touched until this run has succeeded.
+  mkdirSync(RUN_DIR, { recursive: true })
 
-  console.log(`Recording ${BASE} — ${SHORT ? 'short (page 1 only, no cover)' : 'the full chapter and its cover'}, quality recorded as "${QUALITY}"${STOP_AFTER ? `, stopping after ${STOP_AFTER}` : ''}.`)
+  console.log(`Recording ${BASE} — ${SHORT ? 'short (page 1 only, no cover)' : 'the full chapter and its cover'}, ${flags.quality ? `expecting "${flags.quality}" quality` : 'at the app’s own quality'}${STOP_AFTER ? `, stopping after ${STOP_AFTER}` : ''}.`)
   if (OUT) console.log(`Writing to ${shown(OUT)}, not the real capture.`)
 
   let browser: Browser | null = null
   let context: BrowserContext | null = null
-  let failure: unknown = null
   let stoppedAfter = false
-  // Ctrl+C: closing the context makes the pending step fail, and the footage
-  // so far is finished and saved like any other stop. A second Ctrl+C leaves
-  // at once (ffmpeg, in its own process group, still closes the file when its
-  // input ends). Playwright's own SIGINT handling is off so it can't take the
+  // Ctrl+C: closing the context (or, before there is one, the browser) makes
+  // the pending step fail, and the footage so far is finished and set aside
+  // like any other stop; the journey also checks `failure` at every wait, so
+  // a press during start-up still stops it. A second Ctrl+C leaves at once
+  // (ffmpeg, in its own process group, still closes the file when its input
+  // ends). Playwright's own SIGINT handling is off so it can't take the
   // browser away mid-step.
   let interrupted = 0
   process.on('SIGINT', () => {
     // npm and tsx relay the terminal's Ctrl+C to us as well, so one press can
     // arrive twice within a moment; only a later one is the second press.
     if (interrupted) {
-      if (Date.now() - interrupted > 700) process.exit(130)
+      if (Date.now() - interrupted > 700) {
+        console.error(`Left at once; what was filmed stays in ${shown(RUN_DIR)}, and the previous capture is untouched.`)
+        process.exit(130)
+      }
       return
     }
     interrupted = Date.now()
     failure = new Stopped('the capture was interrupted')
     console.error('\nInterrupted — saving the footage so far (Ctrl+C again to leave without it).')
-    void context?.close().catch(() => {})
+    void (context ?? browser)?.close().catch(() => {})
   })
 
   try {
     browser = await chromium.launch({ handleSIGINT: false })
+    if (failure) throw failure
     context = await browser.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: 1, acceptDownloads: true })
+    if (failure) throw failure
     context.setDefaultTimeout(60_000)
     await context.addInitScript(CURSOR_SCRIPT)
     page = await context.newPage()
@@ -736,6 +791,7 @@ async function main(): Promise<void> {
         void context?.close().catch(() => {})
       },
     })
+    if (failure) throw failure
     timeline.recordedAt = new Date().toISOString()
     saveTimeline()
     await journey(seed)
@@ -743,12 +799,13 @@ async function main(): Promise<void> {
     if (err instanceof StoppedAfter) stoppedAfter = true
     else {
       failure ??= err
-      if (page) await page.screenshot({ path: join(CAPTURE_DIR, 'failure.png') }).catch(() => {})
+      if (page) await page.screenshot({ path: FAILURE_PNG }).catch(() => {})
     }
   }
 
   // The footage, whatever happened: finished before the browser goes.
   if (recording) {
+    step = 'finishing the footage'
     const rec = await recording.stop()
     if (rec.failure) {
       failure ??= new Stopped(rec.failure)
@@ -758,7 +815,8 @@ async function main(): Promise<void> {
     if (probed.seconds !== null) {
       timeline.footage = FOOTAGE
       timeline.duration = probed.seconds
-      console.log(`Footage: ${shown(FOOTAGE_FILE)} · ${probed.seconds.toFixed(1)} s · ${rec.received} screen frames into ${rec.frames} at ${FPS} fps`)
+      saveTimeline() // at once: the footage is the part worth keeping, whatever happens next
+      console.log(`Footage: ${probed.seconds.toFixed(1)} s · ${rec.received} screen frames into ${rec.frames} at ${FPS} fps`)
       if (probed.frames !== null && probed.frames !== rec.frames) {
         console.warn(`  ! The file holds ${probed.frames} frames but ${rec.frames} were written; check the marks against the footage before cutting.`)
       }
@@ -773,7 +831,7 @@ async function main(): Promise<void> {
     try {
       timeline.stills = await copyStills(projectId)
       if (timeline.stills) {
-        console.log(`Stills: ${1 + timeline.stills.panels.length + (timeline.stills.cover ? 1 : 0)} pictures in ${shown(STILLS_DIR)}`)
+        console.log(`Stills: ${1 + timeline.stills.panels.length + (timeline.stills.cover ? 1 : 0)} pictures`)
       }
       const desk = await readDesk(projectId)
       console.log(`Spend on this project, as the providers reported it: ${desk.imageCount} images · $${desk.costUsd.toFixed(4)}`)
@@ -781,18 +839,43 @@ async function main(): Promise<void> {
       console.error(`The stills couldn't be copied: ${(err as Error).message}`)
     }
   }
+  // A run with no footage to show can't stand in for the capture, however far it got.
+  if (!failure && !timeline.footage) failure = new Stopped('the footage couldn’t be read back, so this run can’t replace the capture')
   saveTimeline()
-  console.log(`Timeline: ${shown(TIMELINE)} · ${timeline.marks.length} marks`)
 
   if (failure) {
     const why = failure instanceof Stopped ? failure.message : ((failure as Error).message ?? String(failure)).split('\n')[0]
     console.error(`\nThe capture stopped while ${step}: ${why}.`)
-    const kept = timeline.footage ? 'The footage so far and the marks reached are saved' : 'The marks reached are saved'
-    console.error(`${kept}; ${shown(join(CAPTURE_DIR, 'failure.png'))} is the last screen, if it could be taken.\n`)
+    const untouched = `the previous capture and ${shown(TIMELINE)} are untouched`
+    if (!timeline.footage && timeline.marks.length === 0 && !existsSync(FAILURE_PNG)) {
+      rmSync(RUN_DIR, { recursive: true, force: true }) // nothing was filmed, so there is nothing to keep
+      console.error(`Nothing was filmed; ${untouched}.\n`)
+      process.exit(1)
+    }
+    let kept = FAILED_DIR
+    try {
+      renameSync(RUN_DIR, FAILED_DIR)
+    } catch {
+      kept = RUN_DIR
+    }
+    const what = timeline.footage ? 'The footage so far and the marks reached are' : 'The marks reached are'
+    const png = existsSync(join(kept, 'failure.png')) ? ', with failure.png as the last screen' : ''
+    console.error(`${what} kept in ${shown(kept)} (its own timeline.json${png}); ${untouched}.\n`)
     process.exit(1)
   }
-  if (stoppedAfter) console.log(`\nThe capture stopped after ${STOP_AFTER}, as asked.`)
-  else console.log('\nThe capture is complete. Next: npm run video:render')
+
+  // Success: this run becomes the capture, as one set — what it didn't make
+  // (no stills or PDF after an early --stop-after) is not left over from the last.
+  for (const name of CAPTURED) {
+    rmSync(join(CAPTURE_DIR, name), { recursive: true, force: true })
+    if (existsSync(join(RUN_DIR, name))) renameSync(join(RUN_DIR, name), join(CAPTURE_DIR, name))
+  }
+  saveTimeline(TIMELINE)
+  rmSync(RUN_DIR, { recursive: true, force: true })
+  console.log(`Capture: ${shown(CAPTURE_DIR)} · Timeline: ${shown(TIMELINE)} · ${timeline.marks.length} marks`)
+
+  if (stoppedAfter) console.log(`\nThe capture stopped after ${STOP_AFTER}, as asked, and replaced the previous one.`)
+  else console.log('\nThe capture is complete and replaced the previous one. Next: npm run video:render')
 }
 
 await main()

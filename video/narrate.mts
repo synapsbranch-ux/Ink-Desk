@@ -4,9 +4,8 @@
 // and the subtitles cannot disagree.
 //
 //   cd video && npx tsx narrate.mts --voice <name> [--model elevenlabs/eleven-v4]
-//                                   [--only intro,pages] [--script narration.md]
-//                                   [--dry-run]
-//   cd video && npx tsx narrate.mts --samples [george,sarah,...]
+//                                   [--only intro,pages] [--dry-run]
+//   cd video && npx tsx narrate.mts --samples [george,sarah,...] [--dry-run]
 //   npm run video:narrate -- --voice george      (from the repo root)
 //
 // Writes:
@@ -21,7 +20,7 @@
 // never printed.
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname, join, relative, resolve } from 'node:path'
+import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { CUT } from './src/cut.ts'
@@ -33,6 +32,8 @@ const ROOT = join(VIDEO, '..')
 const PUBLIC = join(VIDEO, 'public')
 const NARRATION_DIR = join(PUBLIC, 'narration')
 const MANIFEST = join(NARRATION_DIR, 'manifest.json')
+/** The only script: prepare.mts keys the clips on this file's words, so a clip from any other file would never play. */
+const SCRIPT = join(VIDEO, 'narration.md')
 const VOICES_DIR = join(VIDEO, 'out', 'voices')
 
 const ENDPOINT = 'https://openrouter.ai/api/v1/audio/speech'
@@ -79,13 +80,10 @@ function readDotEnv(path: string, name: string): string | undefined {
     if (!line || line.startsWith('#')) continue
     const m = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line)
     if (!m || m[1] !== name) continue
-    let value = m[2].trim()
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1)
-    } else {
-      value = value.replace(/\s+#.*$/, '')
-    }
-    return value || undefined
+    // A quoted value may still carry a comment after its closing quote, as dotenv allows.
+    const value = m[2].trim()
+    const quoted = /^(["'])(.*)\1\s*(?:#.*)?$/.exec(value)
+    return (quoted ? quoted[2] : value.replace(/\s+#.*$/, '')) || undefined
   }
   return undefined
 }
@@ -145,6 +143,16 @@ async function speak(key: string, model: string, voice: string, text: string, wh
   return { audio, generationId: res.headers.get('x-generation-id') }
 }
 
+/**
+ * Asked before each paid request: a clip that cannot be measured is not
+ * recorded, so it would be paid for again on the next run.
+ */
+function requireFfprobe() {
+  if (spawnSync('ffprobe', ['-version']).error) {
+    throw new NarrateError('ffprobe is not installed, and the clips cannot be measured without it; install ffmpeg and run again.')
+  }
+}
+
 /** Seconds of audio, measured — the edit is timed from this, not an estimate. */
 function measureSeconds(path: string): number {
   const r = spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'a:0', '-show_entries', 'stream=codec_name:format=duration', '-of', 'json', path], {
@@ -200,6 +208,8 @@ const shown = (path: string) => {
 }
 const money = (usd: number | null) => (usd === null ? 'price unknown' : `$${usd.toFixed(4)}`)
 const estimate = (model: string, chars: number) => (model in PRICE_PER_CHAR ? chars * PRICE_PER_CHAR[model] : null)
+/** One unpriced request makes the whole total unknown, rather than quietly $0. */
+const addCost = (total: number | null, cost: number | null) => (total === null || cost === null ? null : total + cost)
 const list = (value: string | undefined) =>
   (value ?? '')
     .split(',')
@@ -233,18 +243,18 @@ function removeOlderClips(id: string, keep: string) {
 
 // --- --samples -------------------------------------------------------------------
 
-async function samples(key: string, model: string, voices: string[]) {
-  mkdirSync(VOICES_DIR, { recursive: true })
+async function samples(key: string, model: string, voices: string[], dryRun: boolean) {
   const indexPath = join(VOICES_DIR, 'samples.json')
   const index: Record<string, string> = existsSync(indexPath) ? JSON.parse(readFileSync(indexPath, 'utf8')) : {}
   const ids: string[] = []
   const missed: string[] = []
-  let spent = 0
+  let spent: number | null = 0
   for (const voice of voices) {
     // The name becomes a file name, so it is held to a plain word.
     if (!/^[a-z0-9_-]+$/i.test(voice)) fail(`"${voice}" is not a voice name; the premade voices are ${PREMADE_VOICES.join(', ')}.`)
   }
-  console.log(`Voice samples with ${model}: "${SAMPLE_SENTENCE}" (${SAMPLE_SENTENCE.length} chars each)`)
+  console.log(`Voice samples with ${model}: "${SAMPLE_SENTENCE}" (${SAMPLE_SENTENCE.length} chars each)${dryRun ? ' (dry run: nothing is sent)' : ''}`)
+  if (!dryRun) mkdirSync(VOICES_DIR, { recursive: true })
   for (const voice of voices) {
     const file = join(VOICES_DIR, `${voice}.mp3`)
     const k = narrationKey(SAMPLE_SENTENCE, voice, model)
@@ -252,13 +262,20 @@ async function samples(key: string, model: string, voices: string[]) {
       console.log(`  ${voice.padEnd(8)} cached     ${measureSeconds(file).toFixed(1)} s`)
       continue
     }
+    const cost = estimate(model, SAMPLE_SENTENCE.length)
+    if (dryRun) {
+      console.log(`  ${voice.padEnd(8)} would be sent   ≈ ${money(cost)}`)
+      spent = addCost(spent, cost)
+      continue
+    }
     try {
+      requireFfprobe()
       const { audio, generationId } = await speak(key, model, voice, SAMPLE_SENTENCE, `the sample for "${voice}"`)
+      // Counted as soon as it is paid for, so a clip that then fails to save or measure still shows in the total.
+      spent = addCost(spent, cost)
+      if (generationId) ids.push(generationId)
       writeFileSync(file, audio)
       const seconds = measureSeconds(file)
-      const cost = estimate(model, SAMPLE_SENTENCE.length)
-      spent += cost ?? 0
-      if (generationId) ids.push(generationId)
       index[voice] = k
       writeJson(indexPath, index)
       console.log(`  ${voice.padEnd(8)} ${seconds.toFixed(1)} s   ≈ ${money(cost)}   generation ${generationId ?? 'not reported'}`)
@@ -272,13 +289,17 @@ async function samples(key: string, model: string, voices: string[]) {
       missed.push(voice)
     }
   }
+  if (dryRun) {
+    console.log(`Total: ≈ ${money(spent)} would be spent`)
+    return
+  }
   await report(key, spent, ids)
   const made = voices.filter((v) => !missed.includes(v))
   if (made.length) console.log(`\nListen to ${made.map((v) => `${v}.mp3`).join(', ')} in ${shown(VOICES_DIR)}/ and pass the one you like: --voice <name>.`)
   if (missed.length) fail(`No sample was made for ${missed.join(', ')}; the premade voices are ${PREMADE_VOICES.join(', ')}.`)
 }
 
-async function report(key: string, estimated: number, ids: string[]) {
+async function report(key: string, estimated: number | null, ids: string[]) {
   const actual = await actualCost(key, ids)
   const line = actual === null ? 'OpenRouter has not reported the actual cost yet' : `actual ${money(actual)}`
   console.log(`Total: ≈ ${money(estimated)} estimated · ${line} · ${ids.length} request${ids.length === 1 ? '' : 's'}`)
@@ -286,12 +307,12 @@ async function report(key: string, estimated: number, ids: string[]) {
 
 // --- the narration ------------------------------------------------------------------
 
-async function narrate(opts: { model: string; voice: string; only: string[]; script: string; dryRun: boolean }) {
+async function narrate(opts: { model: string; voice: string; only: string[]; dryRun: boolean }) {
   const { model, voice } = opts
-  if (!existsSync(opts.script)) fail(`There is no script at ${shown(opts.script)}.`)
+  if (!existsSync(SCRIPT)) fail(`There is no script at ${shown(SCRIPT)}.`)
   let sections: NarrationSegment[]
   try {
-    sections = parseNarration(readFileSync(opts.script, 'utf8'))
+    sections = parseNarration(readFileSync(SCRIPT, 'utf8'))
   } catch (err) {
     fail((err as Error).message)
   }
@@ -315,9 +336,11 @@ async function narrate(opts: { model: string; voice: string; only: string[]; scr
   const previous = readManifest()
   const manifest: NarrationManifest = { model, voice, segments: { ...(previous?.segments ?? {}) } }
 
-  console.log(`Narrating ${shown(opts.script)} with ${model} in "${voice}"${opts.dryRun ? ' (dry run: nothing is sent)' : ''}`)
+  console.log(`Narrating ${shown(SCRIPT)} with ${model} in "${voice}"${opts.dryRun ? ' (dry run: nothing is sent)' : ''}`)
   const ids: string[] = []
-  let spent = 0
+  let spent: number | null = 0
+  // Sections with a clip in this run's voice and model, made now or cached.
+  let current = 0
   let failure: string | null = null
   for (const s of chosen) {
     if (s.placeholder) {
@@ -328,16 +351,21 @@ async function narrate(opts: { model: string; voice: string; only: string[]; scr
     const had = manifest.segments[s.id]
     if (had && had.key === k && existsSync(join(PUBLIC, had.src))) {
       console.log(`  ${s.id.padEnd(10)} ${String(s.text.length).padStart(5)} chars   ${had.seconds.toFixed(1).padStart(5)} s   cached`)
+      current++
       continue
     }
     const cost = estimate(model, s.text.length)
     if (opts.dryRun) {
       console.log(`  ${s.id.padEnd(10)} ${String(s.text.length).padStart(5)} chars   would be sent   ≈ ${money(cost)}`)
-      spent += cost ?? 0
+      spent = addCost(spent, cost)
       continue
     }
     try {
+      requireFfprobe()
       const { audio, generationId } = await speak(key, model, voice, s.text, `"${s.id}"`)
+      // Counted as soon as it is paid for, so a clip that then fails to save or measure still shows in the total.
+      spent = addCost(spent, cost)
+      if (generationId) ids.push(generationId)
       const name = `${s.id}-${k}.mp3`
       writeFileSync(join(NARRATION_DIR, name), audio)
       const seconds = measureSeconds(join(NARRATION_DIR, name))
@@ -345,8 +373,7 @@ async function narrate(opts: { model: string; voice: string; only: string[]; scr
       manifest.segments[s.id] = { src: `narration/${name}`, seconds: Math.round(seconds * 1000) / 1000, key: k }
       // Saved after every clip: a stop half-way keeps (and caches) what was made.
       writeJson(MANIFEST, manifest)
-      spent += cost ?? 0
-      if (generationId) ids.push(generationId)
+      current++
       console.log(
         `  ${s.id.padEnd(10)} ${String(s.text.length).padStart(5)} chars   ${seconds.toFixed(1).padStart(5)} s   ≈ ${money(cost)}   generation ${generationId ?? 'not reported'}`,
       )
@@ -361,19 +388,28 @@ async function narrate(opts: { model: string; voice: string; only: string[]; scr
     console.log(`Total: ≈ ${money(spent)} would be spent`)
     return
   }
-  // A voice or model change makes every clip not re-made in this run stale.
-  if (previous && (previous.voice !== voice || previous.model !== model)) {
-    const stale = Object.entries(manifest.segments)
-      .filter(([id, c]) => {
-        const s = sections.find((x) => x.id === id)
-        return s && c.key !== narrationKey(s.text, voice, model)
-      })
-      .map(([id]) => id)
-    if (stale.length) console.log(`The earlier clips were ${previous.model} in "${previous.voice}"; ${stale.join(', ')} will be narrated again on a full run.`)
+  // prepare.mts plays only the clips that match the manifest's voice and model,
+  // so they switch only once this run has a clip in the new ones; a failed
+  // first request or a run that sent nothing keeps the earlier clips playing.
+  const switched = previous && (previous.voice !== voice || previous.model !== model)
+  if (current > 0) {
+    // A voice or model change makes every clip not re-made in this run stale.
+    if (previous && switched) {
+      const stale = Object.entries(manifest.segments)
+        .filter(([id, c]) => {
+          const s = sections.find((x) => x.id === id)
+          return s && c.key !== narrationKey(s.text, voice, model)
+        })
+        .map(([id]) => id)
+      if (stale.length) console.log(`The earlier clips were ${previous.model} in "${previous.voice}"; ${stale.join(', ')} will be narrated again on a full run.`)
+    }
+    writeJson(MANIFEST, manifest)
+  } else if (previous && switched) {
+    console.log(`No clip was made with ${model} in "${voice}", so the narration stays ${previous.model} in "${previous.voice}".`)
   }
-  writeJson(MANIFEST, manifest)
   await report(key, spent, ids)
-  roomCheck(sections, manifest)
+  const kept = current > 0 ? manifest : previous
+  if (kept) roomCheck(sections, kept)
   if (failure) fail(failure)
 }
 
@@ -396,7 +432,7 @@ function roomCheck(sections: readonly NarrationSegment[], manifest: NarrationMan
 async function main() {
   // `--samples` takes an optional list; a bare one means every premade voice.
   const argv = process.argv.slice(2).flatMap((a, i, all) => (a === '--samples' && (i === all.length - 1 || all[i + 1].startsWith('--')) ? ['--samples=all'] : [a]))
-  let values: { voice?: string; model?: string; only?: string; script?: string; samples?: string; 'dry-run'?: boolean }
+  let values: { voice?: string; model?: string; only?: string; samples?: string; 'dry-run'?: boolean }
   try {
     ;({ values } = parseArgs({
       args: argv,
@@ -404,19 +440,20 @@ async function main() {
         voice: { type: 'string' },
         model: { type: 'string' },
         only: { type: 'string' },
-        script: { type: 'string' },
         samples: { type: 'string' },
         'dry-run': { type: 'boolean' },
       },
     }))
   } catch (err) {
-    fail(`${(err as Error).message.replace(/\s+/g, ' ').replace(/\.?$/, '.')} Usage: npx tsx narrate.mts --voice <name> [--model <id>] [--only a,b] [--script <path>] [--dry-run], or --samples [a,b].`)
+    fail(`${(err as Error).message.replace(/\s+/g, ' ').replace(/\.?$/, '.')} Usage: npx tsx narrate.mts --voice <name> [--model <id>] [--only a,b] [--dry-run], or --samples [a,b] [--dry-run].`)
   }
   const model = values.model?.trim() || DEFAULT_MODEL
+  const dryRun = values['dry-run'] === true
 
   if (values.samples !== undefined) {
     const voices = values.samples === 'all' ? PREMADE_VOICES : list(values.samples)
-    await samples(apiKey(), model, voices)
+    // A dry run needs no key, so it cannot send anything even by mistake.
+    await samples(dryRun ? '' : apiKey(), model, voices, dryRun)
     return
   }
 
@@ -429,8 +466,7 @@ async function main() {
     model,
     voice,
     only: list(values.only),
-    script: values.script ? resolve(process.cwd(), values.script) : join(VIDEO, 'narration.md'),
-    dryRun: values['dry-run'] === true,
+    dryRun,
   })
 }
 
