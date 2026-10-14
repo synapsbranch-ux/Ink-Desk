@@ -1584,7 +1584,13 @@ interface Store {
   stays private; the browser only ever sees `/api/image/<id>` (there is no
   `/api/blob` — `checklist.md > Revisions`, slice 10), which reads from the
   bucket. One connection per process, kept on `globalThis` across hot
-  reloads. Cloud mode does **not** migrate the v1 `data/chapter.json`: its
+  reloads and keyed by the settings (an edited `.env` reconnects). Every
+  connect proves what the studio will need before anything is paid for: a
+  MongoDB ping, a read of `projects` and an upsert into a one-document
+  `connect_check` collection (a user without `readWrite` on `MONGODB_DB` is
+  refused by name), and a write and read-back of `inkdesk-bucket-check.txt`
+  in the bucket (never an image id, so never served). A connection lost
+  later is the same calm sentence. Cloud mode does **not** migrate the v1 `data/chapter.json`: its
   images are on this disk, not in the bucket; it stays on the local desk.
 - **Selected by** `INKDESK_STORAGE=local|cloud` (unset = local; anything else
   is refused by name); cloud needs `MONGODB_URI`, `MONGODB_DB`, `S3_ENDPOINT`,

@@ -278,13 +278,13 @@ async function cloudHalf(): Promise<void> {
   const scratchDb = `${realDb}-check-${crypto.randomUUID().slice(0, 8)}`
   const movedDb = `${scratchDb}-moved`
   process.env.MONGODB_DB = scratchDb // read when the store connects, below
-  const mongoHost = (process.env.MONGODB_URI as string).replace(/^[a-z+]+:\/\//i, '').replace(/^[^@/]*@/, '').split(/[/?]/)[0]
+  const { BUCKET_PROBE_KEY, cloudStore: cs, closeCloud, isMissingObject, isRefusal, mongoHost } = await import('../lib/store/cloud')
   // Said before the first write, because the shell's S3_* win over .env.
-  console.log(`  ..  cloud half: scratch database “${scratchDb}” on ${mongoHost}; bucket “${process.env.S3_BUCKET}” at ${process.env.S3_ENDPOINT}`)
-  const { BUCKET_PROBE_KEY, cloudStore: cs, closeCloud } = await import('../lib/store/cloud')
+  console.log(`  ..  cloud half: scratch database “${scratchDb}” on ${mongoHost(process.env.MONGODB_URI as string)}; bucket “${process.env.S3_BUCKET}” at ${process.env.S3_ENDPOINT}`)
   const { Refused, ProviderError } = await import('../lib/errors')
   const { singletons } = await import('../lib/singleton')
-  const { MongoClient } = await import('mongodb')
+  const { MongoClient, MongoServerError } = await import('mongodb')
+  const net = await import('node:net')
   const { S3Client, GetObjectCommand, DeleteObjectCommand } = await import('@aws-sdk/client-s3')
   const { migrateV1 } = await import('../lib/migrate')
   const mongo = new MongoClient(process.env.MONGODB_URI as string)
@@ -419,12 +419,21 @@ async function cloudHalf(): Promise<void> {
       forcePathStyle: true,
       credentials: { accessKeyId: process.env.S3_ACCESS_KEY_ID as string, secretAccessKey: process.env.S3_SECRET_ACCESS_KEY as string },
     })
-    await assert.rejects(
-      elsewhere.send(new GetObjectCommand({ Bucket: `inkdesk-no-such-bucket-${crypto.randomUUID().slice(0, 8)}`, Key: id })),
-      (err: unknown) => (err as { name?: string }).name !== 'NoSuchKey',
-      'a missing bucket is not a missing key — getBlob returns null only for NoSuchKey'
+    // The classifier getBlob uses, held to real errors from this bucket: a
+    // missing key is "no such image", a missing bucket is not.
+    const errorOf = (p: Promise<unknown>) => p.then(() => assert.fail('expected the bucket to refuse'), (err: unknown) => err)
+    assert.equal(isMissingObject(await errorOf(elsewhere.send(new GetObjectCommand({ Bucket: bucket, Key: `panel-${crypto.randomUUID()}.png` })))), true, 'a missing key')
+    assert.equal(
+      isMissingObject(await errorOf(elsewhere.send(new GetObjectCommand({ Bucket: `inkdesk-no-such-bucket-${crypto.randomUUID().slice(0, 8)}`, Key: id })))),
+      false,
+      'a missing bucket is not a missing image'
     )
     elsewhere.destroy()
+    // And the MongoDB refusal classifier: a role problem, not an outage.
+    assert.equal(isRefusal(new MongoServerError({ code: 13, errmsg: 'not authorized on inkdesk to execute command' })), true)
+    assert.equal(isRefusal(new MongoServerError({ code: 8000, errmsg: 'user is not allowed to do action [find]' })), true)
+    assert.equal(isRefusal(new MongoServerError({ code: 11000, errmsg: 'duplicate key' })), false)
+    assert.equal(mongoHost('mongodb+srv://alice:pa/ss@cluster0.x.mongodb.net/?retryWrites=true'), 'cluster0.x.mongodb.net', 'no part of a password is printed')
     assert.equal(await cs.getBlob(BUCKET_PROBE_KEY), null, 'the connect probe is never an image')
     console.log('  ok  cloud: unreachable or malformed MONGODB_URI and a missing bucket are calm config sentences, before any spend')
 
@@ -438,6 +447,43 @@ async function cloudHalf(): Promise<void> {
     }
     assert.equal((await cs.readProject('cloud-a')).title, 'for A')
     console.log('  ok  cloud: changed settings reconnect instead of writing on to the old database')
+
+    // c9. A connection lost after a good start — Atlas down, this machine
+    //     dropped from the allowlist — is the same calm sentence, on a read
+    //     and on an update. A proxy in front of MongoDB, cut after one read.
+    const target = new URL((process.env.MONGODB_URI as string).replace(/^mongodb(\+srv)?:/, 'http:'))
+    const sockets = new Set<import('node:net').Socket>()
+    const proxy = net.createServer((client) => {
+      const upstream = net.connect(Number(target.port || 27017), target.hostname)
+      for (const sock of [client, upstream]) {
+        sockets.add(sock)
+        sock.on('error', () => {})
+        sock.on('close', () => sockets.delete(sock))
+      }
+      client.pipe(upstream).pipe(client)
+    })
+    await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve))
+    const port = (proxy.address() as import('node:net').AddressInfo).port
+    const viaProxy = !target.username && !(process.env.MONGODB_URI as string).startsWith('mongodb+srv:')
+    if (!viaProxy) {
+      proxy.close()
+      console.log('  --  cloud: the lost-connection case was skipped — it needs a plain mongodb:// URI without credentials')
+    } else {
+      process.env.MONGODB_URI = `mongodb://127.0.0.1:${port}/?directConnection=true&serverSelectionTimeoutMS=500&connectTimeoutMS=500`
+      try {
+        assert.equal((await cs.readProject('cloud-a')).title, 'for A', 'through the proxy')
+        await new Promise<void>((resolve) => {
+          proxy.close(() => resolve())
+          for (const sock of sockets) sock.destroy()
+        })
+        await assert.rejects(cs.readProject('cloud-a'), isConfig(/MONGODB_URI/), 'a read after the connection is lost')
+        await assert.rejects(cs.updateProject('cloud-a', (p) => p), isConfig(/MONGODB_URI/), 'an update after the connection is lost')
+      } finally {
+        process.env.MONGODB_URI = good.uri
+      }
+      assert.equal((await cs.readProject('cloud-a')).title, 'for A', 'back on the real address')
+      console.log('  ok  cloud: a connection lost after a good start is the calm sentence on reads and updates')
+    }
   } finally {
     await closeCloud()
     const left: string[] = []

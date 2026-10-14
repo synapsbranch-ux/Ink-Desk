@@ -54,6 +54,8 @@ export const BUCKET_PROBE_KEY = 'inkdesk-bucket-check.txt'
 
 const MONGO_UNREACHABLE =
   'The studio couldn’t reach its MongoDB. Check MONGODB_URI (and that the database lets this machine in), then reload.'
+const MONGO_REFUSED =
+  'The studio reached its MongoDB, but that user can’t read and write the MONGODB_DB database. Give the user readWrite on it (in Atlas: Database Access), then reload.'
 const BUCKET_UNREACHABLE =
   'The studio couldn’t write to its bucket. Check S3_ENDPOINT, S3_REGION, S3_BUCKET and the S3 keys (and that the bucket exists), then reload.'
 
@@ -72,13 +74,14 @@ const g = globalThis as typeof globalThis & { __inkdeskCloud?: Pending }
  * `lib/errors.ts` once per layer, so a class made in one layer would fail
  * `instanceof` in another. Each caller turns it into its own layer's error.
  */
-function unreachable(which: 'mongo' | 'bucket', cause: unknown): Error {
+function unreachable(which: 'mongo' | 'mongo-refused' | 'bucket', cause: unknown): Error {
   return Object.assign(new Error(`cloud storage: ${which} unreachable`), { unreachable: which, cause })
 }
 
 function asProviderError(err: unknown): unknown {
   const which = (err as { unreachable?: string } | null)?.unreachable
   if (which === 'mongo') return new ProviderError(MONGO_UNREACHABLE, 'config', (err as Error).cause)
+  if (which === 'mongo-refused') return new ProviderError(MONGO_REFUSED, 'config', (err as Error).cause)
   if (which === 'bucket') return new ProviderError(BUCKET_UNREACHABLE, 'config', (err as Error).cause)
   return err
 }
@@ -105,14 +108,20 @@ async function cloud(): Promise<Cloud> {
   }
 }
 
+/** The host part of a MongoDB URI — everything after the last `@`, so no
+ *  part of a password (even one with an unescaped `/`) is ever printed. */
+export function mongoHost(uri: string): string {
+  const rest = uri.replace(/^[a-z+]+:\/\//i, '')
+  return rest.slice(rest.lastIndexOf('@') + 1).split(/[/?]/)[0]
+}
+
 /** Where the connection points, for the terminal: hosts and names, never credentials. */
 function describe(env: Record<string, string>): string {
-  const mongoHost = env.MONGODB_URI.replace(/^[a-z+]+:\/\//i, '').replace(/^[^@/]*@/, '').split(/[/?]/)[0]
   let bucketHost = env.S3_ENDPOINT
   try {
     bucketHost = new URL(env.S3_ENDPOINT).host
   } catch {}
-  return `MongoDB “${env.MONGODB_DB}” on ${mongoHost} · bucket “${env.S3_BUCKET}” at ${bucketHost}`
+  return `MongoDB “${env.MONGODB_DB}” on ${mongoHost(env.MONGODB_URI)} · bucket “${env.S3_BUCKET}” at ${bucketHost}`
 }
 
 async function connect(env: Record<string, string>): Promise<Cloud> {
@@ -133,6 +142,17 @@ async function connect(env: Record<string, string>): Promise<Cloud> {
     await client?.close().catch(() => {})
     throw unreachable('mongo', err)
   }
+  try {
+    // A ping needs no privileges. A read and a write do — and a user with
+    // rights on some other database is a common Atlas mistake, found here
+    // rather than by the write after a paid image.
+    const db = client.db(env.MONGODB_DB)
+    await db.collection<ProjectDoc>('projects').findOne({ _id: '' }, { projection: { _id: 1 } })
+    await db.collection<{ _id: string; at: string }>('connect_check').updateOne({ _id: 'last' }, { $set: { at: new Date().toISOString() } }, { upsert: true })
+  } catch (err) {
+    await client.close().catch(() => {})
+    throw unreachable(isRefusal(err) ? 'mongo-refused' : 'mongo', err)
+  }
   const s3 = new S3Client({
     endpoint: env.S3_ENDPOINT,
     region: env.S3_REGION,
@@ -148,6 +168,9 @@ async function connect(env: Record<string, string>): Promise<Cloud> {
     await s3.send(
       new PutObjectCommand({ Bucket: env.S3_BUCKET, Key: BUCKET_PROBE_KEY, Body: 'Ink Desk keeps its images in this bucket.\n', ContentType: 'text/plain' })
     )
+    // And back: a key that can write but not read would store every image
+    // and serve none.
+    await s3.send(new GetObjectCommand({ Bucket: env.S3_BUCKET, Key: BUCKET_PROBE_KEY }))
   } catch (err) {
     s3.destroy()
     await client.close().catch(() => {})
@@ -175,6 +198,11 @@ export async function closeCloud(): Promise<void> {
  * this machine's address dropped from the allowlist) is the same calm
  * sentence as one that never came up, not a raw driver error on the desk.
  */
+/** Unauthorized (13), or Atlas's own refusal (8000) — a role problem, not an outage. */
+export function isRefusal(err: unknown): boolean {
+  return err instanceof MongoServerError && (err.code === 13 || err.code === 8000)
+}
+
 async function mongo<T>(op: (projects: Collection<ProjectDoc>) => Promise<T>): Promise<T> {
   const { projects } = await cloud()
   try {
@@ -183,6 +211,7 @@ async function mongo<T>(op: (projects: Collection<ProjectDoc>) => Promise<T>): P
     if (err instanceof MongoNetworkError || err instanceof MongoServerSelectionError) {
       throw new ProviderError(MONGO_UNREACHABLE, 'config', err)
     }
+    if (isRefusal(err)) throw new ProviderError(MONGO_REFUSED, 'config', err)
     throw err
   }
 }
@@ -341,9 +370,15 @@ async function getBlob(id: string): Promise<{ bytes: Buffer; mediaType: string }
     // Only a missing *object* is "no such image". A missing bucket or a
     // refused key is a 404 or 403 too, and must not make every image on the
     // desk look deleted — it goes to the route's 502 and the terminal.
-    if ((err as { name?: string }).name === 'NoSuchKey') return null
+    if (isMissingObject(err)) return null
     throw err
   }
 }
 
 export const cloudStore: Store = { listProjects, migrateLegacy, readProject, createProject, updateProject, putBlob, getBlob }
+
+/** Only a missing *object* is "no such image" — exported so `check:store` can
+ *  hold it to real errors from a real bucket. */
+export function isMissingObject(err: unknown): boolean {
+  return (err as { name?: string } | null)?.name === 'NoSuchKey'
+}
