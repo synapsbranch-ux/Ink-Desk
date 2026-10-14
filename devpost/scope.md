@@ -348,7 +348,7 @@ The learner's line: *about $10 of provider credit for the whole build and demo; 
 
 | Item | Estimate |
 |---|---|
-| Motion kernel test: 3 shots × 5 s at 720p on `seedance-2.0`, modes A and B | ≈ $3.20 |
+| Motion kernel test: 3 shots × 5 s at 720p on `seedance-2.0`, modes A and B | ≈ $3.20 planned; **$4.60 measured** (1:1 renders at 960×960, so it costs the same as 16:9) |
 | Development runs of the trailer at 480p on `seedance-2.0-fast` (two pages) | ≈ $1.30 |
 | The filmed trailer: 4 shots × 5 s at 720p on `seedance-2.0` | ≈ $2.40 |
 | Re-filming the chapter's images at `high` | ≈ $1.00 |

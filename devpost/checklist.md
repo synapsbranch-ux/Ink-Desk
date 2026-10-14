@@ -221,7 +221,8 @@ Order by risk, as the learner set it — *domain + storage + Redis/BullMQ worker
   PRD ref: `prd.md > Animate a Page (v3)` (the motion proof), `scope.md > The Unique Kernel (v3)`
   Spec ref: `spec.md > Revision v3 > Verified for v3`, `> Animate a Page (v3)`, `> Decisions and Open Issues (v3)`
   Build: the free capability probe (`GET /api/v1/videos/models`); submit, poll and download per the verified flow; frames with ffmpeg; the strips page; spend read from `usage.cost` and compared with the token formula.
-  Verify (mechanical): the probe passes for `seedance-2.0`; six clips downloaded and playable (`ffprobe`); the billed cost within 5% of the formula (≈ $3.20 in all); the page renders all strips.
+  Verify (mechanical): the probe passes for `seedance-2.0`; six clips downloaded and playable (`ffprobe`); the billed cost within 5% of the formula (planned ≈ $3.20; **measured $4.60** — 1:1 renders at 960×960); the page renders all strips.
+  *Built 2026-10-14, all mechanical checks pass; waiting only on the learner's verdict, so the box stays open.* See `spec.md > As built — slice 17`.
   Learner check: open `data/kernel-test/motion/index.html` and judge, shot by shot, whether the face, outfit and marks hold **to the last frame**, in A and in B; choose the method (or neither). Your verdict goes in the manifest and in `spec.md > Decisions and Open Issues (v3)`. **Hands-on checkpoint — the kernel decision is yours.**
   Commit: `Motion kernel test: two methods, three shots, the learner's verdict` — tag `v3-cp2`
 
