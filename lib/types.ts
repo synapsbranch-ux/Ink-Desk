@@ -16,6 +16,7 @@
 //
 // Anything derivable from these (which stations are open, where a speech
 // bubble sits) is computed, never stored — see `lib/gates.ts`.
+import type { Activity } from './queue/jobs'
 import type { PanelLine } from './schemas'
 import { DEFAULT_STYLE_PRESET_ID, type StylePresetId } from './styles'
 
@@ -241,6 +242,11 @@ export type Desk = {
    *  the reader reads and exports the whole chapter from it. Derived, never
    *  written back; the open page's copy to edit is `script`. */
   chapterPanels: Panel[][]
+  /** Slice 18: what is being drawn (the job records) and whether the queue is up.
+   *  Added to a reply by the routes that report it — the project GET and the
+   *  generation POSTs — never stored, never written back; a reply without it
+   *  says nothing new, and the studio keeps what it last had. */
+  activity?: Activity
 }
 
 /** One page as the switcher sees it — derived from the project, never stored. */

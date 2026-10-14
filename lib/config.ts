@@ -14,6 +14,11 @@
 //   S3_FORCE_PATH_STYLE  'true' | 'false', default true
 //   S3_PUBLIC_ENDPOINT   the host for signed URLs, default S3_ENDPOINT
 //   S3_KEY_PREFIX        where in the buckets Ink Desk writes, default `inkdesk/`
+//   Redis                REDIS_URL (Railway's Redis provides it)
+//   queue mode           INKDESK_QUEUE: `inline` (this process runs jobs; the
+//                        checks and a bare dev desk) or `bullmq` (a `worker`
+//                        service runs them; the only mode in production)
+//   image concurrency    QUEUE_CONCURRENCY_IMAGE, else PANEL_CONCURRENCY
 //
 // Server only (SEC-15): importing this from a client component is a build
 // error. The checks run under tsx, where `scripts/server-only.mts` resolves the
@@ -49,6 +54,9 @@ export const NAMES = {
   forcePathStyle: ['S3_FORCE_PATH_STYLE'],
   keyPrefix: ['S3_KEY_PREFIX'],
 } as const satisfies Record<string, readonly string[]>
+
+/** Redis — the queue's, not the store's; kept apart from `NAMES` so a change to it is not "a new database connection". */
+const REDIS_NAMES = ['REDIS_URL'] as const
 
 /** What cloud mode cannot start without, in the order the sentences name them. */
 export const CLOUD_REQUIRED = ['mongoUrl', 'mongoDb', 'endpoint', 'region', 'projectFilesBucket', 'accessKeyId', 'secretAccessKey'] as const
@@ -179,6 +187,10 @@ const wholeNumber = (min: number, max: number) =>
 
 const NUMBERS = {
   PANEL_CONCURRENCY: { schema: wholeNumber(1, 8), fallback: 2, rule: 'a whole number from 1 to 8' },
+  QUEUE_CONCURRENCY_IMAGE: { schema: wholeNumber(1, 8), fallback: 0, rule: 'a whole number from 1 to 8' },
+  QUEUE_USER_INFLIGHT: { schema: wholeNumber(1, 200), fallback: 30, rule: 'a whole number from 1 to 200' },
+  QUEUE_MAX_WAITING: { schema: wholeNumber(1, 5000), fallback: 200, rule: 'a whole number from 1 to 5000' },
+  QUEUE_RETRY_BACKOFF_MS: { schema: wholeNumber(0, 60_000), fallback: 5_000, rule: 'a whole number of milliseconds from 0 to 60000' },
   GENERATION_TIMEOUT_MS: { schema: wholeNumber(30_000, 900_000), fallback: 360_000, rule: 'a whole number of milliseconds from 30000 to 900000' },
 } as const
 
@@ -201,6 +213,12 @@ export function panelConcurrency(env: Env = process.env): number {
   return readNumber(env, 'PANEL_CONCURRENCY')
 }
 
+/** How many image jobs a worker (or the inline queue) runs at once: QUEUE_CONCURRENCY_IMAGE, else PANEL_CONCURRENCY, default 2. */
+export function imageConcurrency(env: Env = process.env): number {
+  const own = env.QUEUE_CONCURRENCY_IMAGE?.trim()
+  return own ? readNumber(env, 'QUEUE_CONCURRENCY_IMAGE') : readNumber(env, 'PANEL_CONCURRENCY')
+}
+
 /** How long one image call may take (GENERATION_TIMEOUT_MS, 30 s–15 min, default 6 min). */
 export function generationTimeoutMs(env: Env = process.env): number {
   return readNumber(env, 'GENERATION_TIMEOUT_MS')
@@ -218,6 +236,69 @@ export function generationEnabled(env: Env = process.env): boolean {
   return raw === 'true'
 }
 
+// --- The queue ------------------------------------------------------------------
+
+export type QueueMode = 'inline' | 'bullmq'
+
+export type QueueSettings = {
+  mode: QueueMode
+  /** Null on the inline queue — and on a production web service with generation closed and no Redis yet. */
+  redisUrl: string | null
+  imageConcurrency: number
+  /** How many jobs one person may have queued or running at once. */
+  userInflight: number
+  /** How many jobs may be queued or running across everyone before the studio says it is busy. */
+  maxWaiting: number
+  /** The first pause before BullMQ re-runs a job whose worker hit a store outage; it doubles each time. */
+  retryBackoffMs: number
+}
+
+const REDIS_URL = z.string().regex(/^rediss?:\/\/\S+$/i)
+
+/**
+ * INKDESK_QUEUE. Unset: `bullmq` in production, `inline` everywhere else, so a
+ * clone with two API keys still runs. Production refuses `inline` — two
+ * processes cannot share an in-memory queue.
+ */
+function queueMode(env: Env): QueueMode {
+  const raw = env.INKDESK_QUEUE?.trim()
+  if (!raw) return env.NODE_ENV === 'production' ? 'bullmq' : 'inline'
+  return raw === 'bullmq' ? 'bullmq' : 'inline'
+}
+
+function queueProblems(env: Env, role: 'web' | 'worker'): string[] {
+  const problems: string[] = []
+  const raw = env.INKDESK_QUEUE?.trim()
+  if (raw && raw !== 'inline' && raw !== 'bullmq') problems.push('INKDESK_QUEUE must be inline or bullmq')
+  else if (env.NODE_ENV === 'production' && raw === 'inline') problems.push('INKDESK_QUEUE must be bullmq in production (a worker service runs the jobs)')
+  const redis = pick(env, REDIS_NAMES)
+  if (redis !== undefined && !REDIS_URL.safeParse(redis).success) problems.push('REDIS_URL must be a redis:// or rediss:// address')
+  if (queueMode(env) === 'bullmq' && redis === undefined) {
+    // A web service that cannot generate yet may start without Redis (reads
+    // need none); the worker, and a web service that can generate, may not.
+    if (role === 'worker' || generationEnabled(env)) problems.push('REDIS_URL is not set')
+  }
+  return problems
+}
+
+/** The queue's settings from `env`; throws `ConfigError`. `role: 'worker'` refuses a missing Redis outright. */
+export function queueSettings(env: Env = process.env, role: 'web' | 'worker' = 'web'): QueueSettings {
+  const problems = queueProblems(env, role)
+  for (const name of ['PANEL_CONCURRENCY', 'QUEUE_CONCURRENCY_IMAGE', 'QUEUE_USER_INFLIGHT', 'QUEUE_MAX_WAITING', 'QUEUE_RETRY_BACKOFF_MS'] as const) {
+    const problem = numberProblem(env, name)
+    if (problem) problems.push(problem)
+  }
+  if (problems.length > 0) throw new ConfigError([...new Set(problems)])
+  return {
+    mode: queueMode(env),
+    redisUrl: pick(env, REDIS_NAMES) ?? null,
+    imageConcurrency: imageConcurrency(env),
+    userInflight: readNumber(env, 'QUEUE_USER_INFLIGHT'),
+    maxWaiting: readNumber(env, 'QUEUE_MAX_WAITING'),
+    retryBackoffMs: readNumber(env, 'QUEUE_RETRY_BACKOFF_MS'),
+  }
+}
+
 // --- The whole configuration ----------------------------------------------------
 
 export type AppConfig = {
@@ -227,12 +308,13 @@ export type AppConfig = {
   panelConcurrency: number
   generationTimeoutMs: number
   generationEnabled: boolean
+  queue: QueueSettings
 }
 
-const READ = ['NODE_ENV', 'INKDESK_STORAGE', 'GENERATION_ENABLED', ...Object.keys(NUMBERS), ...CLOUD_VARIABLES]
+const READ = ['NODE_ENV', 'INKDESK_STORAGE', 'INKDESK_QUEUE', 'GENERATION_ENABLED', ...Object.keys(NUMBERS), ...CLOUD_VARIABLES, ...REDIS_NAMES]
 
 /** The configuration from `env`, or a `ConfigError` listing every problem. Pure. */
-export function parseConfig(env: Env = process.env): AppConfig {
+export function parseConfig(env: Env = process.env, role: 'web' | 'worker' = 'web'): AppConfig {
   const problems: string[] = []
   const storage = env.INKDESK_STORAGE?.trim() || 'local'
   if (storage !== 'local' && storage !== 'cloud') problems.push('INKDESK_STORAGE must be local (the default) or cloud')
@@ -243,6 +325,8 @@ export function parseConfig(env: Env = process.env): AppConfig {
     const problem = numberProblem(env, name)
     if (problem) problems.push(problem)
   }
+  // The queue's own numbers were just checked above; its mode and Redis here.
+  for (const problem of queueProblems(env, role)) problems.push(problem)
   if (problems.length > 0) throw new ConfigError(problems)
   return {
     storage: storage as StorageMode,
@@ -250,6 +334,7 @@ export function parseConfig(env: Env = process.env): AppConfig {
     panelConcurrency: panelConcurrency(env),
     generationTimeoutMs: generationTimeoutMs(env),
     generationEnabled: generationEnabled(env),
+    queue: queueSettings(env, role),
   }
 }
 

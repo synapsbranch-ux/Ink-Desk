@@ -3,10 +3,10 @@
 // queued in page order: page 1's, then page 2's, and so on, `PANEL_CONCURRENCY`
 // at a time across the queue. Idempotent. A static `all` segment, matched
 // before `pages/[n]`, whose own route only takes digits.
-import { read } from '@/lib/chapter'
 import { startAll } from '@/lib/director'
 import { errorResponse } from '@/lib/errors'
 import { assertGenerationEnabled } from '@/lib/generation'
+import { readWithActivity } from '@/lib/queue/status'
 
 export const runtime = 'nodejs'
 
@@ -19,7 +19,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     const { written, queued } = await startAll(id)
     if (written.length > 0) console.log(`[chapter] wrote page ${written.map((n) => n + 1).join(', ')} from the plan`)
     if (queued.length > 0) console.log(`[chapter] queued ${queued.join(', ')}`)
-    return Response.json(await read(id))
+    return Response.json(await readWithActivity(id))
   } catch (err) {
     return errorResponse(err, 'chapter', CALM)
   }

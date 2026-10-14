@@ -20,6 +20,17 @@
 // warning (CR-14), images stream (CR-17), and an S3 call on a socket that never
 // answers ends in time (CR-6).
 //
+// Slice 18, on the local desk always and on the cloud store in its half: the
+// job records (`JobStore`) — round trip, one active job per key (a finished
+// key can be used again), refused transitions answering null, a finished job
+// giving up its key, listing filters and order, pruning — and `deleteBlob`.
+// And the rule that makes web + worker safe (CR-3): TWO PROCESSES, each doing
+// 150 increments on one project, lose none (300 land, the file parses, no temp
+// file or lock is left); two processes racing `insertJob` for one key produce
+// exactly one job; two processes creating one project id, or migrating one v1
+// desk, produce exactly one. The children are this same file run with
+// `--child <role>`.
+//
 // Then, only when a Mongo URL is set (MONGODB_URI or DB_URL, with the database
 // and the `S3_*` variables) AND `INKDESK_CHECK_CLOUD=yes` — a shell can carry
 // another app's DB_URL, and this check writes — the same rules against a real
@@ -30,9 +41,22 @@
 // as they are.
 import './server-only.mts' // first: lets server modules load outside Next (SEC-15)
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { spawn, spawnSync } from 'node:child_process'
+import { mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from 'node:fs/promises'
+import { hostname, tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+import type { JobStore } from '../lib/store'
+import type { JobRecord } from '../lib/queue/jobs'
+
+// A child of the cross-process tests (see the bottom of this file): it does its
+// share against the shared data folder or database, prints one JSON line and
+// exits — it never reaches the check below.
+if (process.argv[2] === '--child') {
+  await runChild(process.argv.slice(3))
+  process.exit(0)
+}
 
 const dir = await mkdtemp(join(tmpdir(), 'inkdesk-store-'))
 process.env.INKDESK_DATA_DIR = dir
@@ -420,6 +444,222 @@ try {
   assert.match(again.headers.get('cache-control') ?? '', /immutable/, 'the 304 keeps the long cache')
   console.log('  ok  the image route streams with an ETag, answers If-None-Match with 304, serves png/jpeg/webp only, nosniff, private; a 404 is no-store')
 
+
+  // 12. Slice 18, the job records on the local desk: the shared rules (round
+  //     trip, one active job per key, refused transitions, finish gives up the
+  //     key, filters, order, prune) and what only files can get wrong — a
+  //     damaged record, a path trick, a leftover lock.
+  const { newJob } = await import('../lib/queue/jobs')
+  const jobsDir = join(dir, 'jobs')
+  await jobStoreChecks(localStore.jobs, `l${process.pid}`)
+  const left = await readdir(jobsDir)
+  assert.ok(left.length > 0 && left.every((name) => /^[0-9a-f-]{36}\.json$/.test(name)), `only <id>.json files remain in jobs/ — no temp file, no lock: ${left.join(', ')}`)
+  {
+    const quietJobs = console.warn
+    const jobWarnings: string[] = []
+    console.warn = (...args: unknown[]) => void jobWarnings.push(args.map(String).join(' '))
+    try {
+      const known = (await localStore.jobs.listJobs()).length
+      await writeFile(join(jobsDir, 'zzz-torn.json'), '{ not json')
+      await writeFile(join(jobsDir, 'zzz-shapeless.json'), JSON.stringify({ hello: 1 }))
+      await writeFile(join(jobsDir, '.stray.tmp'), 'x')
+      assert.equal((await localStore.jobs.listJobs()).length, known, 'a damaged job file is skipped, never thrown from listJobs')
+      assert.ok(['zzz-torn', 'zzz-shapeless'].every((id) => jobWarnings.some((line) => line.includes(id))), 'and each is named in the terminal')
+      assert.equal(await localStore.jobs.getJob('zzz-torn'), null)
+      assert.equal(await localStore.jobs.updateJob('zzz-torn', (j) => j), null, 'a record that can’t be read can’t be updated either')
+      await rm(join(jobsDir, 'zzz-torn.json'))
+      await rm(join(jobsDir, 'zzz-shapeless.json'))
+      await rm(join(jobsDir, '.stray.tmp'))
+    } finally {
+      console.warn = quietJobs
+    }
+  }
+  const payload = { kind: 'panel', chapterId: 'c', pageIndex: 0, index: 0 } as const
+  const escapee = { ...newJob({ key: 'k', ownerId: 'o', projectId: 'p', kind: 'panel', payload }, '../escape'), id: '../escape' }
+  await assert.rejects(localStore.jobs.insertJob(escapee), /Not a job id/, 'a job id is a filename: a path is refused')
+  let called = 0
+  assert.equal(await localStore.jobs.updateJob('../escape', (j) => (called++, j)), null)
+  assert.equal(await localStore.jobs.getJob('../escape'), null)
+  assert.equal(called, 0, 'fn is never run for an unsafe id')
+  assert.ok(!(await readdir(dir)).includes('escape.json'), 'nothing was written outside jobs/')
+  {
+    const racers = Array.from({ length: 12 }, () => newJob({ key: 'l:race', ownerId: 'o', projectId: 'race', kind: 'panel', payload }, crypto.randomUUID()))
+    const outcomes = await Promise.all(racers.map((job) => localStore.jobs.insertJob(job)))
+    assert.equal(outcomes.filter((o) => o.created).length, 1, 'twelve inserts for one key in one tick: one is created')
+    assert.equal(new Set(outcomes.map((o) => o.job.id)).size, 1, 'and all twelve are told the same holder')
+  }
+  // The lock itself (`lock.ts`): mutual exclusion, a calm failure when held, a
+  // stale lock — untouched too long, or left by a process that is gone — is
+  // taken over, and it is released when the work throws.
+  {
+    const { withFileLock } = await import('../lib/store/lock')
+    const lockPath = join(dir, 'locks-check', 'a.lock')
+    const holdLock = async (pid: number, ageMs = 0) => {
+      await mkdir(lockPath, { recursive: true })
+      await writeFile(join(lockPath, 'owner.json'), JSON.stringify({ pid, host: hostname(), token: 'someone-else', at: new Date().toISOString() }))
+      if (ageMs) await utimes(lockPath, new Date(Date.now() - ageMs), new Date(Date.now() - ageMs))
+    }
+    let inside = 0
+    let overlapped = false
+    await Promise.all(
+      Array.from({ length: 6 }, () =>
+        withFileLock(lockPath, async () => {
+          overlapped ||= ++inside > 1
+          await new Promise((resolve) => setTimeout(resolve, 5))
+          inside--
+        })
+      )
+    )
+    assert.equal(overlapped, false, 'two holders are never inside at once')
+    await holdLock(process.pid) // a live holder, fresh
+    const waited = Date.now()
+    await assert.rejects(withFileLock(lockPath, async () => 'never', { waitMs: 300, busy: 'busy sentence' }), (err: unknown) => err instanceof Error && err.message === 'busy sentence')
+    assert.ok(Date.now() - waited >= 280 && Date.now() - waited < 3000, 'it waited its time and then gave up calmly')
+    await rm(lockPath, { recursive: true, force: true })
+    const gone = spawnSync(process.execPath, ['-e', '']).pid // a process that has exited
+    const quietLock = console.warn
+    const lockWarnings: string[] = []
+    console.warn = (...args: unknown[]) => void lockWarnings.push(args.map(String).join(' '))
+    try {
+      await holdLock(gone)
+      assert.equal(await withFileLock(lockPath, async () => 'took over'), 'took over', 'a lock whose owner is gone is taken over at once')
+      await holdLock(process.pid, 60_000)
+      assert.equal(await withFileLock(lockPath, async () => 'took over'), 'took over', 'a lock nobody has touched for 30 s is taken over')
+    } finally {
+      console.warn = quietLock
+    }
+    assert.equal(lockWarnings.filter((line) => line.includes('stale lock')).length, 2, 'and each takeover is said')
+    await assert.rejects(withFileLock(lockPath, async () => Promise.reject(new Error('boom'))), /boom/)
+    assert.equal(await withFileLock(lockPath, async () => 'free again', { waitMs: 200 }), 'free again', 'released when the work throws')
+    assert.deepEqual(await readdir(join(dir, 'locks-check')), [], 'and nothing is left behind')
+  }
+  // deleteBlob: the image goes, a missing one is not an error, an unsafe id names nothing.
+  const doomed = await localStore.putBlob(pngBytes, 'image/png', 'panel')
+  const neighbour = await localStore.putBlob(pngBytes, 'image/png', 'panel')
+  await localStore.deleteBlob(doomed)
+  assert.equal(await localStore.getBlob(doomed), null, 'a deleted image is gone')
+  assert.ok(await localStore.getBlob(neighbour), 'and its neighbour is not')
+  await localStore.deleteBlob(doomed)
+  await localStore.deleteBlob(`panel-${crypto.randomUUID()}.png`)
+  await localStore.deleteBlob('../chapter.json')
+  assert.equal(await readFile(join(dir, 'chapter.json'), 'utf8'), '{ "version": 1, truncated', 'an unsafe id deletes nothing')
+  console.log('  ok  jobs (local): one file each; one active job per key, a finished key is free again; refused transitions are null; filters, order, prune; damaged files skipped; path tricks refused; locks hold, time out, are taken over when stale; deleteBlob')
+
+  // 13. jobUpdate without a server: a collection that loses races on purpose.
+  //     fn runs again on what the other writer left, the key leaves with the
+  //     ending write, a null fn writes nothing, and the loop is bounded.
+  const { jobUpdate } = await import('../lib/store/cloud')
+  const { claim: claimJob, finish: finishJob } = await import('../lib/queue/jobs')
+  const baseJob = newJob({ key: 'stub:key', ownerId: 'o', projectId: 'p', kind: 'panel', payload }, 'stub-job', new Date(at))
+  type StubDoc = { _id: string; rev: number; activeKey?: string } & Omit<JobRecord, 'id'>
+  const stubbed = (losses: number) => {
+    const { id, ...fields } = baseJob
+    const state = { doc: { _id: id, rev: 0, activeKey: baseJob.key, ...fields } as StubDoc, toLose: losses }
+    return {
+      state,
+      async findOne() {
+        return structuredClone(state.doc)
+      },
+      async findOneAndUpdate(filter: { rev: number }, update: { $set: Record<string, unknown>; $unset?: { activeKey: '' }; $inc: { rev: 1 } }) {
+        if (state.toLose > 0) {
+          state.toLose--
+          state.doc.costUsd += 1 // the other process writes between our read and our write
+          state.doc.rev++
+        }
+        if (filter.rev !== state.doc.rev) return null
+        Object.assign(state.doc, update.$set)
+        if (update.$unset) delete state.doc.activeKey
+        state.doc.rev += update.$inc.rev
+        return { _id: state.doc._id }
+      },
+    }
+  }
+  const lossy = stubbed(2)
+  let jobRuns = 0
+  const claimed = await jobUpdate(lossy, 'stub-job', (j) => (jobRuns++, claimJob(j, 'w1', new Date(at))), async () => {})
+  assert.equal(jobRuns, 3, 'fn ran once per attempt: two lost races, one win')
+  assert.equal(claimed?.status, 'running')
+  assert.equal(lossy.state.doc.costUsd, 2, 'the other writer’s two changes survived')
+  assert.equal(lossy.state.doc.activeKey, baseJob.key, 'a running job still holds its key')
+  assert.equal(lossy.state.doc.rev, 3)
+  const ended = await jobUpdate(lossy, 'stub-job', (j) => finishJob(j, { outcome: 'done' }, new Date(at)), async () => {})
+  assert.equal(ended?.status, 'done')
+  assert.equal('activeKey' in lossy.state.doc, false, 'the write that ends a job takes its key out in the same operation')
+  const revNow = lossy.state.doc.rev
+  assert.equal(await jobUpdate(lossy, 'stub-job', () => null, async () => {}), null, 'a null fn leaves the record')
+  assert.equal(await jobUpdate({ ...lossy, findOne: async () => null }, 'nope', () => assert.fail('no such job'), async () => {}), null, 'a missing job is null, fn never runs')
+  assert.equal(lossy.state.doc.rev, revNow, 'nothing was written')
+  const starvedJob = stubbed(Infinity)
+  let starvedJobRuns = 0
+  await assert.rejects(
+    jobUpdate(starvedJob, 'stub-job', (j) => (starvedJobRuns++, j), async () => {}),
+    (err: unknown) => err instanceof ProviderError && err.kind === 'provider' && /busy/i.test(err.message)
+  )
+  assert.equal(starvedJobRuns, MAX_UPDATE_ATTEMPTS, 'bounded: it gives up after MAX_UPDATE_ATTEMPTS')
+  assert.ok(MAX_UPDATE_ATTEMPTS >= 8, 'room for two writers and a polling GET')
+  console.log('  ok  jobUpdate: a lost race re-reads and re-runs fn, the ending write frees the key, a null fn or a missing job writes nothing, bounded')
+
+  // 14. Two processes, one local desk (CR-3). Each child does its share after a
+  //     common start time, so they really overlap: 150 increments each on one
+  //     project (300 must land), 25 inserts each for the same 25 keys (one
+  //     creator per key), a create of one project id (one wins) — and, on a
+  //     fresh desk with a v1 file, a migration (it runs once).
+  const { emptyProject } = await import('../lib/types')
+  const { CLOUD_VARIABLES: CLOUD_NAMES } = await import('../lib/config')
+  const localEnv = { ...process.env, INKDESK_DATA_DIR: dir, INKDESK_STORAGE: 'local' } as Record<string, string | undefined>
+  for (const name of [...CLOUD_NAMES, 'OPENROUTER_API_KEY', 'ANTHROPIC_API_KEY']) delete localEnv[name] // a local child never needs a secret
+  await localStore.createProject(emptyProject({ id: 'xproc', chapterId: 'c', title: 'two processes', stylePresetId: 'manga-bw', serverRunId: 'run' }))
+  const freshDir = await mkdtemp(join(tmpdir(), 'inkdesk-store-migrate-'))
+  try {
+    await writeFile(join(freshDir, 'chapter.json'), JSON.stringify(v1, null, 2))
+    const startAt = Date.now() + 7_000
+    const job = (role: string, ...args: (string | number)[]) => child([role, 'local', ...args.map(String), String(startAt)], localEnv)
+    const [inc1, inc2, ins1, ins2, mk1, mk2, mig1, mig2] = await Promise.all([
+      job('increments', 'xproc', 150, 3),
+      job('increments', 'xproc', 150, 3),
+      job('insert', 'x:key-', 25),
+      job('insert', 'x:key-', 25),
+      job('create', 'xproc-new'),
+      job('create', 'xproc-new'),
+      child(['migrate', 'local', String(startAt)], { ...localEnv, INKDESK_DATA_DIR: freshDir }),
+      child(['migrate', 'local', String(startAt)], { ...localEnv, INKDESK_DATA_DIR: freshDir }),
+    ])
+    for (const r of [inc1, inc2]) assert.deepEqual(r, { done: 150, errors: [] }, 'every increment of both processes succeeded — none failed to rename, none threw')
+    const xproc = await localStore.readProject('xproc')
+    assert.equal(xproc.usage.images, 300, `300 increments from two processes: ${xproc.usage.images} landed`)
+    const xdir = join(dir, 'projects', 'xproc')
+    assert.equal(JSON.parse(await readFile(join(xdir, 'project.json'), 'utf8')).usage.images, 300, 'project.json parses and holds all 300')
+    assert.equal(JSON.parse(await readFile(join(xdir, 'project.json.bak'), 'utf8')).version, 2, 'and so does the backup')
+    assert.deepEqual((await readdir(xdir)).sort(), ['project.json', 'project.json.bak'], 'no temp file left behind')
+    const around = await readdir(join(dir, 'projects'))
+    assert.deepEqual(around.filter((name) => name.startsWith('.')), [], 'no lock left behind')
+    console.log('  ok  two processes, 150 increments each on one local project: all 300 land, no error, the file parses, no temp file or lock left')
+
+    const byKey = new Map<string, { creators: number; ids: Set<string> }>()
+    for (const r of [...(ins1.results ?? []), ...(ins2.results ?? [])]) {
+      const entry = byKey.get(r.key) ?? { creators: 0, ids: new Set<string>() }
+      entry.creators += r.created ? 1 : 0
+      entry.ids.add(r.id)
+      byKey.set(r.key, entry)
+    }
+    assert.equal(byKey.size, 25)
+    for (const [key, entry] of byKey) {
+      assert.equal(entry.creators, 1, `${key}: exactly one process created it`)
+      assert.equal(entry.ids.size, 1, `${key}: both processes were told the same job`)
+    }
+    assert.equal((await localStore.jobs.listJobs({ ownerId: 'x-child', limit: 100 })).length, 25, 'and 25 job files exist, not 50')
+    console.log('  ok  two processes racing insertJob on 25 keys: exactly one job per key, both told the same one')
+
+    assert.deepEqual([mk1.outcome, mk2.outcome].sort(), ['created', 'exists'], 'two processes creating one project id: one wins, one is refused')
+    const migrated = [mig1.projectId, mig2.projectId].filter((id): id is string => typeof id === 'string')
+    assert.equal(migrated.length, 1, 'two processes migrating one v1 desk: one migrates')
+    const folders = (await readdir(join(freshDir, 'projects'))).filter((name) => !name.startsWith('.'))
+    assert.deepEqual(folders.sort(), [migrated[0], 'v1-migrated.json'].sort(), 'one project and the marker — not two projects')
+    console.log('  ok  two processes creating one id, or migrating one v1 desk: exactly one does')
+  } finally {
+    await rm(freshDir, { recursive: true, force: true })
+  }
+
   const mongoUrlSet = Boolean(process.env.MONGODB_URI?.trim() || process.env.DB_URL?.trim())
   if (!mongoUrlSet) {
     console.log('  --  the cloud half against a real MongoDB and bucket was skipped: neither MONGODB_URI nor DB_URL is set')
@@ -715,6 +955,95 @@ async function cloudHalf(): Promise<void> {
       assert.equal((await cs.readProject('cloud-a')).title, 'for A', 'back on the real address')
       console.log('  ok  cloud: a connection lost, or gone silent, after a good start is the calm sentence on reads and updates — in time')
     }
+
+    // c10. The job records (slice 18): the shared rules, and what only Mongo
+    //      can show — `activeKey` is there while the job is queued or running
+    //      and absent once it ends, the unique sparse index is what refuses a
+    //      second active job for a key, and racing inserts have one winner.
+    const rawJobs = db.collection<{ _id: string; rev: number; activeKey?: string; key: string }>('jobs')
+    await jobStoreChecks(cs.jobs, `c${process.pid}`, async (jobId) => (await rawJobs.findOne({ _id: jobId })) as Record<string, unknown> | null)
+    const indexes = await rawJobs.indexes()
+    const activeIndex = indexes.find((index) => 'activeKey' in index.key)
+    assert.ok(activeIndex?.unique && activeIndex.sparse, 'a unique, sparse index on activeKey')
+    for (const wanted of [{ ownerId: 1, status: 1 }, { projectId: 1, status: 1 }, { status: 1, updatedAt: 1 }]) {
+      assert.ok(indexes.some((index) => JSON.stringify(index.key) === JSON.stringify(wanted)), `an index on ${Object.keys(wanted).join(' + ')}`)
+    }
+    const { newJob } = await import('../lib/queue/jobs')
+    const payload = { kind: 'panel', chapterId: 'c', pageIndex: 0, index: 0 } as const
+    const held = newJob({ key: 'c:raw', ownerId: 'o', projectId: 'raw', kind: 'panel', payload }, crypto.randomUUID())
+    assert.equal((await cs.jobs.insertJob(held)).created, true)
+    await assert.rejects(
+      rawJobs.insertOne({ _id: crypto.randomUUID(), rev: 0, activeKey: 'c:raw', key: 'c:raw' }),
+      (err: unknown) => err instanceof MongoServerError && err.code === 11000,
+      'the database itself refuses a second active job for one key'
+    )
+    await assert.rejects(cs.jobs.insertJob({ ...held, key: 'c:other' }), /already exists/, 'an id that exists is not silently replaced')
+    {
+      const racers = Array.from({ length: 12 }, () => newJob({ key: 'c:race', ownerId: 'o', projectId: 'race', kind: 'panel', payload }, crypto.randomUUID()))
+      const outcomes = await Promise.all(racers.map((job) => cs.jobs.insertJob(job)))
+      assert.equal(outcomes.filter((o) => o.created).length, 1, 'twelve inserts for one key at once: the index lets one in')
+      assert.equal(new Set(outcomes.map((o) => o.job.id)).size, 1, 'and all twelve are told the same holder')
+    }
+    {
+      // Several updates to one job from "other processes" (the chain is cleared
+      // each time): rev alone keeps every one.
+      const counted = newJob({ key: 'c:count', ownerId: 'o', projectId: 'count', kind: 'panel', payload }, crypto.randomUUID())
+      await cs.jobs.insertJob(counted)
+      await Promise.all(
+        Array.from({ length: 4 }, () => {
+          singletons.locks.delete(`job:${counted.id}`)
+          return cs.jobs.updateJob(counted.id, (j) => ({ ...j, costUsd: j.costUsd + 1 }))
+        })
+      )
+      assert.equal((await cs.jobs.getJob(counted.id))?.costUsd, 4, 'four writers with no shared chain — every increment kept')
+      assert.equal(singletons.locks.has(`job:${counted.id}`), false, 'and a settled job leaves no chain entry behind')
+    }
+    // deleteBlob: gone from the bucket, a missing one is not an error, an unsafe id names nothing, the prefix holds.
+    const doomed = await cs.putBlob(png, 'image/png', 'panel')
+    const neighbour = await cs.putBlob(png, 'image/png', 'panel')
+    written.push(doomed, neighbour)
+    await cs.deleteBlob(doomed)
+    assert.equal(await cs.getBlob(doomed), null, 'a deleted image is gone from the bucket')
+    assert.equal(await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: settings.keyPrefix + doomed })).then(() => 'found', (err: { name?: string }) => err.name), 'NotFound')
+    assert.ok(await cs.getBlob(neighbour), 'its neighbour is not')
+    await cs.deleteBlob(doomed)
+    await cs.deleteBlob(`panel-${crypto.randomUUID()}.png`)
+    await cs.deleteBlob('../chapter.json')
+    await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: settings.keyPrefix + BUCKET_PROBE_KEY }))
+    console.log('  ok  cloud: jobs — one active job per key by index, activeKey leaves with the ending write, racing inserts have one winner, rev keeps every update; deleteBlob')
+
+    // c11. Two processes, one database: each child connects for itself. 150
+    //      increments each on one project must all land, and racing inserts and
+    //      creates have exactly one winner — rev and the indexes are the only guard.
+    await cs.createProject(migrateV1(v1, { projectId: 'cloud-x', chapterId: 'c' }, 'r', at))
+    const startAt = Date.now() + 9_000
+    const job = (role: string, ...args: (string | number)[]) => child([role, 'cloud', ...args.map(String), String(startAt)], process.env)
+    const [inc1, inc2, ins1, ins2, mk1, mk2] = await Promise.all([
+      job('increments', 'cloud-x', 150, 3),
+      job('increments', 'cloud-x', 150, 3),
+      job('insert', 'cx:key-', 25),
+      job('insert', 'cx:key-', 25),
+      job('create', 'cloud-new'),
+      job('create', 'cloud-new'),
+    ])
+    for (const r of [inc1, inc2]) assert.deepEqual(r, { done: 150, errors: [] }, 'every increment of both processes succeeded')
+    assert.equal((await cs.readProject('cloud-x')).usage.images, 6 + 300, 'two processes, 150 increments each on top of 6: all 300 land')
+    console.log('  ok  cloud: two processes, 150 increments each on one project: all 300 land, no error')
+    const byKey = new Map<string, { creators: number; ids: Set<string> }>()
+    for (const r of [...(ins1.results ?? []), ...(ins2.results ?? [])]) {
+      const entry = byKey.get(r.key) ?? { creators: 0, ids: new Set<string>() }
+      entry.creators += r.created ? 1 : 0
+      entry.ids.add(r.id)
+      byKey.set(r.key, entry)
+    }
+    assert.equal(byKey.size, 25)
+    for (const [key, entry] of byKey) {
+      assert.equal(entry.creators, 1, `${key}: exactly one process created it`)
+      assert.equal(entry.ids.size, 1, `${key}: both processes were told the same job`)
+    }
+    assert.equal((await cs.jobs.listJobs({ ownerId: 'x-child', limit: 100 })).length, 25, 'and 25 jobs exist, not 50')
+    assert.deepEqual([mk1.outcome, mk2.outcome].sort(), ['created', 'exists'], 'two processes creating one project id: one wins')
+    console.log('  ok  cloud: two processes racing insertJob on 25 keys: exactly one job per key; creating one id: exactly one wins')
   } finally {
     await closeCloud()
     const left: string[] = []
@@ -726,4 +1055,217 @@ async function cloudHalf(): Promise<void> {
     if (left.length > 0) console.warn(`  !!  cloud half left behind (delete by hand): ${left.join(', ')}`)
     process.env[DB_VAR] = realDb
   }
+}
+
+// --- Jobs: the rules every JobStore keeps -----------------------------------------
+
+/**
+ * The job-store rules, against whichever store is handed in. `tag` keeps one
+ * run's keys and projects apart from any other's. `peek`, where the store has a
+ * raw document to show (Mongo), also holds it to `activeKey`: present while the
+ * job is queued or running, absent once it ends.
+ */
+async function jobStoreChecks(js: JobStore, tag: string, peek?: (id: string) => Promise<Record<string, unknown> | null>): Promise<void> {
+  const { checkpoint, claim, finish, newJob, renew } = await import('../lib/queue/jobs')
+  const t0 = Date.parse('2026-10-14T10:00:00.000Z')
+  const when = (minute: number) => new Date(t0 + minute * 60_000)
+  const project = `proj-${tag}`
+  const owner = `owner-${tag}`
+  const payload = { kind: 'panel', chapterId: 'c', pageIndex: 0, index: 0 } as const
+  const make = (name: string, minute: number, over: { ownerId?: string; projectId?: string; key?: string } = {}) =>
+    newJob({ key: over.key ?? `${tag}:${name}`, ownerId: over.ownerId ?? owner, projectId: over.projectId ?? project, kind: 'panel', payload }, crypto.randomUUID(), when(minute))
+  const ids = (jobs: JobRecord[]) => jobs.map((j) => j.id)
+  const activeKeyOf = async (id: string) => (peek ? (await peek(id))?.activeKey : undefined)
+
+  // Round trip.
+  const a = make('a', 0)
+  const first = await js.insertJob(a)
+  assert.equal(first.created, true)
+  assert.deepEqual(first.job, a)
+  assert.deepEqual(await js.getJob(a.id), a, 'a job reads back exactly as written')
+  assert.equal(await js.getJob(crypto.randomUUID()), null, 'an unknown id is null')
+  assert.equal(await js.getJob('../nope'), null, 'and so is an unsafe one')
+  if (peek) assert.equal(await activeKeyOf(a.id), a.key, 'a queued job holds its key')
+
+  // One active job per key.
+  const again = make('a-again', 1, { key: a.key })
+  const duplicate = await js.insertJob(again)
+  assert.equal(duplicate.created, false, 'the key is taken')
+  assert.deepEqual(duplicate.job, a, 'and the holder is returned')
+  assert.equal(await js.getJob(again.id), null, 'the refused job was not written')
+  const b = make('b', 0)
+  assert.equal((await js.insertJob(b)).created, true, 'another key is free')
+
+  // A worker takes it: running still holds the key.
+  const running = await js.updateJob(a.id, (j) => claim(j, 'w1', when(2)))
+  assert.equal(running?.status, 'running')
+  assert.equal(running?.attempts, 1)
+  assert.equal((await js.insertJob(make('a-while-running', 2, { key: a.key }))).job.status, 'running', 'a running job holds its key too')
+
+  // Refused transitions and missing jobs are null, and nothing changes.
+  let ran = 0
+  assert.equal(await js.updateJob(a.id, (j) => renew(j, 'w2', when(3))), null, 'only the holder renews')
+  assert.equal(await js.updateJob(a.id, () => null), null, 'a null fn leaves it')
+  assert.equal(await js.updateJob(crypto.randomUUID(), (j) => (ran++, j)), null, 'a missing id is null')
+  assert.equal(ran, 0, 'and fn never runs for it')
+  assert.deepEqual(await js.getJob(a.id), running, 'the refusals changed nothing')
+  await assert.rejects(
+    js.updateJob(a.id, () => {
+      throw new Error('boom')
+    }),
+    /boom/
+  )
+  assert.deepEqual(await js.getJob(a.id), running, 'a throwing fn writes nothing')
+
+  // The holder saves facts as it goes; concurrent updates are all kept.
+  await js.updateJob(a.id, (j) => checkpoint(j, 'w1', { resultImageId: 'panel-x.png', costUsd: 1 }, when(3)))
+  await Promise.all(Array.from({ length: 20 }, () => js.updateJob(a.id, (j) => ({ ...j, costUsd: j.costUsd + 1 }))))
+  const counted = await js.getJob(a.id)
+  assert.equal(counted?.costUsd, 21, 'twenty concurrent updates and a checkpoint: none lost')
+  assert.equal(counted?.resultImageId, 'panel-x.png')
+
+  // The ending gives up the key, in the same write.
+  const done = await js.updateJob(a.id, (j) => finish(j, { outcome: 'done', costUsd: 5 }, when(4)))
+  assert.equal(done?.status, 'done')
+  assert.equal(done?.outcome, 'done')
+  assert.equal(done?.finishedAt, when(4).toISOString())
+  if (peek) assert.equal('activeKey' in ((await peek(a.id)) ?? {}), false, 'a finished job holds no key')
+  assert.equal(await js.updateJob(a.id, (j) => finish(j, { outcome: 'failed', error: 'late' }, when(5))), null, 'a job that ended keeps its first ending')
+  assert.equal((await js.getJob(a.id))?.costUsd, 5)
+  const d = make('a-again', 6, { key: a.key })
+  const reused = await js.insertJob(d)
+  assert.equal(reused.created, true, 'a finished key can be inserted again')
+  assert.deepEqual(reused.job, d)
+  assert.deepEqual(ids(await js.listJobs({ key: a.key })), [d.id, a.id], 'both are on record, the new one first')
+  assert.deepEqual(ids(await js.listJobs({ key: a.key, status: ['queued', 'running'] })), [d.id], 'one of them active')
+  if (peek) assert.equal(await activeKeyOf(d.id), a.key, 'and it holds the key now')
+
+  // A failed one, and another person's.
+  const e = make('e', 5)
+  await js.insertJob(e)
+  await js.updateJob(e.id, (j) => claim(j, 'w1', when(7)))
+  const failed = await js.updateJob(e.id, (j) => finish(j, { outcome: 'failed', error: 'It didn’t take.' }, when(8)))
+  assert.equal(failed?.status, 'failed')
+  assert.equal(failed?.error, 'It didn’t take.')
+  const f = make('f', 9, { ownerId: `other-${tag}`, projectId: `other-${tag}` })
+  await js.insertJob(f)
+
+  // Listing: filters, order, limit.
+  assert.deepEqual(ids(await js.listJobs({ projectId: project })), [e.id, d.id, a.id, b.id], 'newest change first')
+  assert.deepEqual(ids(await js.listJobs({ projectId: project, status: ['queued'] })), [d.id, b.id])
+  assert.deepEqual(ids(await js.listJobs({ projectId: project, status: ['done', 'failed'] })), [e.id, a.id])
+  assert.deepEqual(await js.listJobs({ projectId: project, status: [] }), [], 'no status wanted is no job')
+  assert.deepEqual(ids(await js.listJobs({ ownerId: `other-${tag}` })), [f.id])
+  assert.deepEqual(ids(await js.listJobs({ projectId: project, ownerId: `other-${tag}` })), [], 'every filter must match')
+  assert.deepEqual(ids(await js.listJobs({ key: a.key })), [d.id, a.id])
+  assert.deepEqual(ids(await js.listJobs({ projectId: project, updatedSince: d.updatedAt })), [e.id, d.id], 'updatedSince is inclusive')
+  assert.deepEqual(ids(await js.listJobs({ projectId: project, limit: 2 })), [e.id, d.id], 'limit takes the newest')
+  const everything = await js.listJobs()
+  assert.ok([a, b, d, e, f].every((job) => ids(everything).includes(job.id)), 'no filter: all of them')
+  assert.ok(everything.every((job, i) => i === 0 || everything[i - 1].updatedAt >= job.updatedAt), 'in order, newest first')
+
+  // Pruning: finished before the cutoff go; active ones never do.
+  assert.equal(await js.pruneJobs(when(5).toISOString()), 1, 'only the job finished before the cutoff')
+  assert.equal(await js.getJob(a.id), null)
+  assert.ok(await js.getJob(e.id), 'one finished after it stays')
+  assert.ok((await js.getJob(b.id)) && (await js.getJob(d.id)), 'and queued ones stay however old')
+  assert.equal(await js.pruneJobs(when(5).toISOString()), 0)
+  assert.equal(await js.pruneJobs(when(60).toISOString()), 1, 'the next cutoff takes the failed one')
+  assert.deepEqual(ids(await js.listJobs({ projectId: project })), [d.id, b.id], 'the queued two remain')
+}
+
+// --- Children of the cross-process tests -------------------------------------------
+
+type ChildOut = {
+  done?: number
+  errors?: string[]
+  results?: { key: string; id: string; created: boolean }[]
+  outcome?: string
+  projectId?: string | null
+}
+
+/** This file again, as a process of its own: `node --import tsx check.mts --child <role> …`. */
+function child(args: string[], env: Record<string, string | undefined>): Promise<ChildOut> {
+  const self = fileURLToPath(import.meta.url)
+  return new Promise((resolve, reject) => {
+    const proc = spawn(process.execPath, ['--import', 'tsx', self, '--child', ...args], {
+      cwd: dirname(dirname(self)),
+      env: env as NodeJS.ProcessEnv,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let out = ''
+    let err = ''
+    proc.stdout.on('data', (chunk) => void (out += chunk))
+    proc.stderr.on('data', (chunk) => void (err += chunk))
+    const timer = setTimeout(() => proc.kill('SIGKILL'), 120_000)
+    proc.on('error', reject)
+    proc.on('close', (code) => {
+      clearTimeout(timer)
+      const last = out.trim().split('\n').pop() ?? ''
+      if (code !== 0) return reject(new Error(`child ${args[0]} exited ${code}: ${err.trim().slice(-800) || out.trim().slice(-800)}`))
+      try {
+        resolve(JSON.parse(last) as ChildOut)
+      } catch {
+        reject(new Error(`child ${args[0]} printed no result: ${out.trim().slice(-400)} ${err.trim().slice(-400)}`))
+      }
+    })
+  })
+}
+
+/**
+ * One child's share of a cross-process test: `<role> <local|cloud> <args…>
+ * <startAt>`. It loads its store first, then waits for the common start time so
+ * both processes really overlap, does its work, and prints one JSON line.
+ */
+async function runChild([role, mode, ...rest]: string[]): Promise<void> {
+  const startAt = Number(rest.pop())
+  const cloudMode = mode === 'cloud'
+  const cloudModule = cloudMode ? await import('../lib/store/cloud') : null
+  const store = cloudModule ? cloudModule.cloudStore : (await import('../lib/store/local')).localStore
+  const { newJob } = await import('../lib/queue/jobs')
+  const { emptyProject } = await import('../lib/types')
+  const { Refused } = await import('../lib/errors')
+  const wait = startAt - Date.now()
+  if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait))
+  const message = (err: unknown) => (err instanceof Error ? err.message : String(err))
+  let result: ChildOut
+  if (role === 'increments') {
+    const [id, total, lanes] = [rest[0], Number(rest[1]), Number(rest[2])]
+    const errors: string[] = []
+    let done = 0
+    const lane = async (count: number) => {
+      for (let i = 0; i < count; i++) {
+        try {
+          await store.updateProject(id, (p) => ({ ...p, usage: { ...p.usage, images: p.usage.images + 1 } }))
+          done++
+        } catch (err) {
+          errors.push(message(err))
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: lanes }, () => lane(total / lanes)))
+    result = { done, errors }
+  } else if (role === 'insert') {
+    const results: NonNullable<ChildOut['results']> = []
+    for (let i = 0; i < Number(rest[1]); i++) {
+      const key = `${rest[0]}${i}`
+      const job = newJob({ key, ownerId: 'x-child', projectId: 'xproc', kind: 'panel', payload: { kind: 'panel', chapterId: 'c', pageIndex: 0, index: i } }, crypto.randomUUID())
+      const outcome = await store.jobs.insertJob(job)
+      results.push({ key, id: outcome.job.id, created: outcome.created })
+    }
+    result = { results }
+  } else if (role === 'create') {
+    try {
+      await store.createProject(emptyProject({ id: rest[0], chapterId: 'c', title: 'racing', stylePresetId: 'manga-bw', serverRunId: 'run' }))
+      result = { outcome: 'created' }
+    } catch (err) {
+      result = { outcome: err instanceof Refused ? 'exists' : message(err) }
+    }
+  } else if (role === 'migrate') {
+    result = { projectId: (await store.migrateLegacy()).projectId }
+  } else {
+    throw new Error(`unknown child role ${role}`)
+  }
+  await cloudModule?.closeCloud()
+  await new Promise<void>((resolve) => process.stdout.write(`${JSON.stringify(result)}\n`, () => resolve()))
 }

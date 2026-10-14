@@ -14,6 +14,10 @@ import { LOOK_MAX_CHARS, NAME_MAX_CHARS, ROLE_MAX_CHARS, TRAIT_MAX_CHARS, TRAITS
 import { SHEET_FRESH_STAGES, SHEET_STAGES, textStages } from '@/lib/stages'
 import type { Asset, Character } from '@/lib/types'
 
+// `busy` is the request in flight here (a reroll, an import) or the sheet job
+// the server holds for this character (slice 18: a draw is a queued job, so it
+// reads Drawing… after a reload too); `notice` is the last sentence for the
+// card — a refusal, or a failed sheet job's — until the next draw.
 export type CardState = { busy: 'rerolling' | 'drawing' | 'redrawing' | 'importing' | null; notice: string | null }
 export const IDLE_CARD: CardState = { busy: null, notice: null }
 

@@ -48,6 +48,9 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   // No `X-Powered-By: Next.js` advertising the stack.
   poweredByHeader: false,
+  // The queue's client libraries load native helpers and read their own files at
+  // run time; bundled, they break. Left to Node's own resolution (v3, slice 18).
+  serverExternalPackages: ['bullmq', 'ioredis'],
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }]
   },

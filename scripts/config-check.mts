@@ -23,7 +23,7 @@ import { join } from 'node:path'
 const dir = await mkdtemp(join(tmpdir(), 'inkdesk-config-'))
 process.env.INKDESK_DATA_DIR = dir
 process.env.INKDESK_STORAGE = 'local' // this check never opens a database or a bucket
-for (const name of ['GENERATION_ENABLED', 'PANEL_CONCURRENCY', 'GENERATION_TIMEOUT_MS']) delete process.env[name]
+for (const name of ['GENERATION_ENABLED', 'PANEL_CONCURRENCY', 'GENERATION_TIMEOUT_MS', 'INKDESK_QUEUE', 'REDIS_URL', 'QUEUE_CONCURRENCY_IMAGE', 'QUEUE_USER_INFLIGHT', 'QUEUE_MAX_WAITING', 'QUEUE_RETRY_BACKOFF_MS']) delete process.env[name]
 // Nothing here may reach the network; a call would fail the check loudly.
 globalThis.fetch = (async (input: unknown) => {
   throw new Error(`config-check: unexpected network call to ${String(input)}`)
@@ -196,6 +196,33 @@ try {
   assert.equal(numbers.generationTimeoutMs, 120_000)
   console.log('  ok  numbers: blank is the default; out of range, fractional or non-numeric is refused by name (PANEL_CONCURRENCY 1–8, GENERATION_TIMEOUT_MS 30000–900000)')
 
+  // 4b. The queue (slice 18): inline by default outside production, bullmq in it; Redis
+  //     is named when it is missing and never echoed; the numbers are checked like the others.
+  {
+    const { queueSettings, imageConcurrency } = config
+    assert.deepEqual(queueSettings({}), { mode: 'inline', redisUrl: null, imageConcurrency: 2, userInflight: 30, maxWaiting: 200, retryBackoffMs: 5000 })
+    assert.equal(queueSettings({ INKDESK_QUEUE: 'bullmq', REDIS_URL: 'redis://redis.railway.internal:6379' }).mode, 'bullmq')
+    assert.equal(queueSettings({ NODE_ENV: 'production', REDIS_URL: 'redis://h:6379', GENERATION_ENABLED: 'true' }).mode, 'bullmq', 'production defaults to the real queue')
+    assert.match(refusal(() => queueSettings({ INKDESK_QUEUE: 'bullmq' }, 'worker')).message, /REDIS_URL is not set/, 'a worker cannot start without Redis')
+    assert.match(refusal(() => queueSettings({ INKDESK_QUEUE: 'bullmq', GENERATION_ENABLED: 'true' })).message, /REDIS_URL is not set/, 'nor a web service that can generate')
+    assert.equal(queueSettings({ NODE_ENV: 'production' }).redisUrl, null, 'a production web service with generation closed may start before Redis exists')
+    assert.match(refusal(() => queueSettings({ NODE_ENV: 'production', INKDESK_QUEUE: 'inline', GENERATION_ENABLED: 'true', REDIS_URL: 'redis://h:6379' })).message, /INKDESK_QUEUE must be bullmq in production/)
+    assert.match(refusal(() => queueSettings({ INKDESK_QUEUE: 'redis' })).message, /INKDESK_QUEUE must be inline or bullmq/)
+    const leaky = refusal(() => queueSettings({ INKDESK_QUEUE: 'bullmq', REDIS_URL: 'http://:hunter2-the-password@h:6379' })).message
+    assert.match(leaky, /REDIS_URL must be a redis:\/\/ or rediss:\/\/ address/)
+    assert.ok(!leaky.includes('hunter2'), 'a malformed Redis address is named, never repeated')
+    assert.equal(imageConcurrency({}), 2)
+    assert.equal(imageConcurrency({ PANEL_CONCURRENCY: '3' }), 3, 'PANEL_CONCURRENCY is the fallback')
+    assert.equal(imageConcurrency({ PANEL_CONCURRENCY: '3', QUEUE_CONCURRENCY_IMAGE: '5' }), 5, 'QUEUE_CONCURRENCY_IMAGE wins when set')
+    for (const [name, bad] of [['QUEUE_CONCURRENCY_IMAGE', '9'], ['QUEUE_USER_INFLIGHT', '0'], ['QUEUE_MAX_WAITING', '5001'], ['QUEUE_RETRY_BACKOFF_MS', '-1']] as const) {
+      assert.match(refusal(() => queueSettings({ [name]: bad })).message, new RegExp(`${name} must be a whole number`), `${name}=${bad}`)
+    }
+    assert.equal(queueSettings({ QUEUE_USER_INFLIGHT: '', QUEUE_MAX_WAITING: ' 50 ' }).maxWaiting, 50)
+    assert.equal(parseConfig({ INKDESK_QUEUE: 'inline' }).queue.mode, 'inline')
+    refusal(() => parseConfig({ INKDESK_QUEUE: 'bullmq', GENERATION_ENABLED: 'true' }))
+    console.log('  ok  the queue: inline outside production, bullmq in it; Redis named when missing and never echoed; the queue numbers are validated')
+  }
+
   // 5. The generation flag.
   assert.equal(generationEnabled({}), true, 'development, unset: on')
   assert.equal(generationEnabled({ NODE_ENV: 'development' }), true)
@@ -249,14 +276,14 @@ try {
     assert.equal(okRes.status, 200)
     assert.equal(okRes.headers.get('cache-control'), 'no-store')
     const okBody = await okRes.json()
-    assert.deepEqual(okBody, { status: 'ok', storage: 'local', checks: { mongo: 'n/a', bucket: 'n/a' }, generation: 'on' })
+    assert.deepEqual(okBody, { status: 'ok', storage: 'local', checks: { mongo: 'n/a', bucket: 'n/a' }, queue: { mode: 'inline', redis: 'n/a', worker: 'n/a' }, generation: 'on' })
     process.env.GENERATION_ENABLED = 'false'
     assert.equal((await (await health.GET()).json()).generation, 'off', 'the flag is reported')
     process.env.GENERATION_ENABLED = 'sideways'
     const badRes = await health.GET()
     assert.equal(badRes.status, 503, 'a bad setting is not healthy')
     const badBody = await badRes.json()
-    assert.deepEqual(Object.keys(badBody).sort(), ['checks', 'generation', 'status', 'storage'], 'the same shape')
+    assert.deepEqual(Object.keys(badBody).sort(), ['checks', 'generation', 'queue', 'status', 'storage'], 'the same shape')
     assert.equal(badBody.status, 'down')
     assert.equal(badBody.generation, 'off')
     assert.ok(!JSON.stringify(badBody).includes('sideways') && !JSON.stringify(badBody).includes('GENERATION_ENABLED'), 'no internals in the answer')
@@ -264,15 +291,15 @@ try {
     console.error = quiet
     delete process.env.GENERATION_ENABLED
   }
-  console.log('  ok  /api/health: 200 { status, storage, checks, generation } with no internals, 503 in the same shape, no-store')
+  console.log('  ok  /api/health: 200 { status, storage, checks, queue, generation } with no internals, 503 in the same shape, no-store')
 
   // 9. .env.example documents every name of the mapping and the flag, and
   //    carries no value for any of them.
   const example = await readFile(new URL('../.env.example', import.meta.url), 'utf8')
-  for (const name of [...CLOUD_VARIABLES, 'GENERATION_ENABLED', 'INKDESK_STORAGE', 'PANEL_CONCURRENCY', 'GENERATION_TIMEOUT_MS']) {
+  for (const name of [...CLOUD_VARIABLES, 'GENERATION_ENABLED', 'INKDESK_STORAGE', 'PANEL_CONCURRENCY', 'GENERATION_TIMEOUT_MS', 'INKDESK_QUEUE', 'REDIS_URL', 'QUEUE_CONCURRENCY_IMAGE', 'QUEUE_USER_INFLIGHT', 'QUEUE_MAX_WAITING', 'QUEUE_RETRY_BACKOFF_MS', 'IMAGE_RETRY_DELAY_MS']) {
     assert.ok(new RegExp(`\\b${name}\\b`).test(example), `.env.example names ${name}`)
   }
-  for (const name of [...CLOUD_VARIABLES, 'GENERATION_ENABLED']) {
+  for (const name of [...CLOUD_VARIABLES, 'GENERATION_ENABLED', 'REDIS_URL']) {
     for (const line of example.split('\n').filter((row) => new RegExp(`^#?\\s*${name}=`).test(row))) {
       assert.match(line, new RegExp(`^#?\\s*${name}=$`), `.env.example gives ${name} no value`)
     }

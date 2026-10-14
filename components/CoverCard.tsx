@@ -7,13 +7,16 @@
 // like a speech bubble. The brief and the title are editable; Generate cover,
 // Redraw cover and Try again are the one request; up to three versions are
 // kept, stepped with ‹ v / N ›. While inking, the pencil placeholder carries
-// the panel stage lines on the server's clock.
+// the panel stage lines on the server's clock. Since slice 18 the cover is
+// inking when the desk says so OR a cover job is waiting or drawing.
 // Implements `devpost/prd.md > The Director — Chapter Plan and Cover`.
 import { useState } from 'react'
 import { GenerationStatus } from '@/components/GenerationStatus'
+import { inFlight } from '@/lib/activity'
 import { perImage, usd } from '@/lib/cost'
 import type { ChapterPatch } from '@/lib/patch'
 import { currentCoverImageId } from '@/lib/plan'
+import type { JobView } from '@/lib/queue/jobs'
 import { PANEL_STAGES } from '@/lib/stages'
 import type { CoverState } from '@/lib/types'
 
@@ -22,6 +25,8 @@ type Props = {
   panelQuality: string
   /** The cover request is on the wire. */
   busy: boolean
+  /** The active queue job drawing the cover, if any — waiting or running. */
+  job: JobView | null
   notice: string | null
   onEdit: (patch: ChapterPatch) => void
   onCommit: (patch: ChapterPatch) => void
@@ -33,12 +38,12 @@ const FAILED: Partial<Record<CoverState['status'], string>> = {
   refused: 'The cover couldn’t be drawn from this brief. Soften the brief and try again.',
 }
 
-export function CoverCard({ cover, panelQuality, busy, notice, onEdit, onCommit, onGenerate }: Props) {
+export function CoverCard({ cover, panelQuality, busy, job, notice, onEdit, onCommit, onGenerate }: Props) {
   const imageId = currentCoverImageId(cover)
   const versions = cover.versions
   const cv = cover.currentVersion
-  const inking = cover.status === 'inking'
-  const failed = FAILED[cover.status] ?? null
+  const inking = inFlight(cover.status, job)
+  const failed = inking ? null : (FAILED[cover.status] ?? null)
 
   // The art fades in once its bytes are here; the pencil stays under it until then.
   const [loaded, setLoaded] = useState<string | null>(null)

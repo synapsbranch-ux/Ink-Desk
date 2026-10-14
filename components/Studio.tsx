@@ -9,8 +9,15 @@
 // generate all, the cover — each with its own busy flag and sentence, the
 // page switcher (a patch), and a poll that runs while the Director or the
 // Page station has something to watch.
+//
+// Slice 18 makes every generation a job on the server's queue. The desk
+// replies that report it carry `activity` (what is queued or drawing, what
+// just failed, whether the queue is up); the studio keeps the latest in its
+// own state, derives "Drawing…", "Inking…" and a failed sheet's sentence from
+// it — never from a request being open — and polls only while something is
+// active. See `devpost/spec.md > Queue and Worker (v3)`.
 import { useRouter } from 'next/navigation'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CastStation } from '@/components/CastStation'
 import { IDLE_CARD, type CardState } from '@/components/CharacterCard'
 import { DirectorStation, type Starting } from '@/components/DirectorStation'
@@ -18,13 +25,19 @@ import { ReaderStation } from '@/components/ReaderStation'
 import { StationRail, type SaveState } from '@/components/StationRail'
 import { StoryStation, type SynopsisDraft } from '@/components/StoryStation'
 import { StoryboardStation } from '@/components/StoryboardStation'
+import { failedSheetJobs, failedSheetSentence, mergeActivity, pollWanted, queueNotice, sheetJob } from '@/lib/activity'
 import { gates } from '@/lib/gates'
 import { applyPatch, mergePatch, type ChapterPatch, type CharacterEdit, type PanelEdit } from '@/lib/patch'
+import type { Activity } from '@/lib/queue/jobs'
 import type { Chapter, Pitch, Station } from '@/lib/types'
 
 const SAVE_DELAY_MS = 600
-/** While any panel is in flight the studio re-reads the desk this often. */
+/** While a job is active (or a panel inks) the studio re-reads the desk this often. */
 const POLL_MS = 1500
+/** While the queue is down, how often an idle studio looks again. */
+const QUEUE_RECHECK_MS = 10_000
+/** A read that has not answered by now is given up on, so one hung request cannot stall the poll for good. */
+const POLL_TIMEOUT_MS = 10_000
 const UNREACHABLE = 'The studio couldn’t be reached. Is the dev server running?'
 
 type Reply = Chapter | { error: string } | { draft: SynopsisDraft }
@@ -52,6 +65,8 @@ export function Studio({ projectId }: { projectId: string }) {
   const [proposing, setProposing] = useState(false)
   const [proposeNotice, setProposeNotice] = useState<string | null>(null)
   const [cards, setCards] = useState<Record<string, CardState>>({})
+  /** Failed sheet jobs whose sentence the user has moved past by drawing again (by job id). */
+  const [dismissed, setDismissed] = useState<string[]>([])
 
   // Storyboard: the page script in flight, and the last sentence it sent back.
   const [scripting, setScripting] = useState(false)
@@ -65,25 +80,47 @@ export function Studio({ projectId }: { projectId: string }) {
   /** The server's sentence for a refused edit (a page that can't be dropped, a tick past the plan). */
   const [refusal, setRefusal] = useState<string | null>(null)
 
-  useEffect(() => {
-    fetch(api)
-      .then((r) => r.json())
-      .then((c: Chapter) => setChapter(c))
-      .catch(() => setNotice('The desk couldn’t be opened. Is the dev server running?'))
-  }, [api])
+  // What the queue is doing, as of the last reply that said (slice 18). Held
+  // beside the desk, not inside it: a reply without `activity` (an edit, the
+  // plan, the cast) says nothing new, so the last one stands.
+  const [activity, setActivity] = useState<Activity | undefined>(undefined)
+  /** Counts the replies taken in, so a poll that was on the wire when a newer
+   *  reply landed can tell its answer is the older one and drop it. */
+  const epoch = useRef(0)
+
+  /** Take `activity` off a desk reply; what is left is the chapter. */
+  const unwrap = useCallback((reply: Chapter): Chapter => {
+    const { activity: next, ...desk } = reply
+    setActivity((prev) => mergeActivity(prev, next))
+    epoch.current += 1
+    return desk
+  }, [])
 
   /** The desk's copy, with whatever is still being typed kept on top. */
-  const accept = useCallback((saved: Chapter) => {
-    setChapter(applyPatch(saved, queued.current))
-    setSaveState('saved')
-  }, [])
+  const accept = useCallback(
+    (saved: Chapter) => {
+      setChapter(applyPatch(unwrap(saved), queued.current))
+      setSaveState('saved')
+    },
+    [unwrap]
+  )
 
   /** A fresh read of the desk, with whatever is still being typed (or
    *  saved) kept on top — and without touching the save label, which
    *  belongs to saves. */
-  const absorb = useCallback((saved: Chapter) => {
-    setChapter(applyPatch(saved, mergePatch(sending.current, queued.current)))
-  }, [])
+  const absorb = useCallback(
+    (saved: Chapter) => {
+      setChapter(applyPatch(unwrap(saved), mergePatch(sending.current, queued.current)))
+    },
+    [unwrap]
+  )
+
+  useEffect(() => {
+    fetch(api)
+      .then((r) => r.json())
+      .then((c: Chapter) => absorb(c))
+      .catch(() => setNotice('The desk couldn’t be opened. Is the dev server running?'))
+  }, [api, absorb])
 
   /** After a refused save, the browser's optimistic copy is wrong: re-read. */
   const refresh = useCallback(async () => {
@@ -245,7 +282,8 @@ export function Studio({ projectId }: { projectId: string }) {
     setCards((prev) => ({ ...prev, [id]: { ...(prev[id] ?? IDLE_CARD), ...patch } }))
   }, [])
 
-  /** One generation request for one card: a reroll or a draw. */
+  /** One request for one card: a reroll or an import (held open), or the
+   *  start of a draw (answered at once — the sheet is a queued job). */
   const cardRequest = useCallback(
     async (id: string, busy: CardState['busy'], url: string, body: unknown, fallback: string) => {
       setCard(id, { busy, notice: null })
@@ -271,16 +309,35 @@ export function Studio({ projectId }: { projectId: string }) {
     [api, cardRequest]
   )
   const draw = useCallback(
-    (id: string, reuseDna: boolean) =>
-      cardRequest(
+    (id: string, reuseDna: boolean) => {
+      // Starting a new draw clears the last one's failure sentence for good.
+      const past = failedSheetJobs(activity, id, dismissed).map((j) => j.id)
+      if (past.length > 0) setDismissed((d) => [...d, ...past])
+      return cardRequest(
         id,
         reuseDna ? 'redrawing' : 'drawing',
         `${api}/sheet`,
         { id, reuseDna },
-        'The sheet didn’t come back, the studio is busy.'
-      ),
-    [api, cardRequest]
+        'The sheet couldn’t be started just now.'
+      )
+    },
+    [api, cardRequest, activity, dismissed]
   )
+  /** What each card shows: the request in flight here, else the sheet job the
+   *  server holds for it — so a reload, a second tab or a slow queue still
+   *  reads "Drawing…" — and the failed job's sentence until the next draw. */
+  const cast = chapter?.cast
+  const cardViews = useMemo(() => {
+    const views: Record<string, CardState> = {}
+    for (const c of cast ?? []) {
+      const local = cards[c.id] ?? IDLE_CARD
+      views[c.id] = {
+        busy: sheetJob(activity, c.id)?.busy ?? local.busy,
+        notice: local.notice ?? failedSheetSentence(activity, c.id, dismissed),
+      }
+    }
+    return views
+  }, [cast, cards, activity, dismissed])
   const editCard = useCallback((id: string, e: CharacterEdit) => edit({ cast: { [id]: e } }), [edit])
   const commitCard = useCallback((id: string, e: CharacterEdit) => commit({ cast: { [id]: e } }), [commit])
   const lock = useCallback((id: string) => commit({ cast: { [id]: { locked: true } } }), [commit])
@@ -353,6 +410,8 @@ export function Studio({ projectId }: { projectId: string }) {
   // Generate page n / Generate all: they respond at once; the poll watches the ink.
   const [starting, setStarting] = useState<Starting>(null)
   const [startNotice, setStartNotice] = useState<string | null>(null)
+  /** The server's sentence for a panel request it refused (you already have a lot inking, the studio is busy…). */
+  const [panelNotice, setPanelNotice] = useState<string | null>(null)
   const startPage = useCallback(
     async (n: number, watch: boolean) => {
       await flush()
@@ -397,6 +456,7 @@ export function Studio({ projectId }: { projectId: string }) {
   const pickPage = useCallback(
     (n: number) => {
       setStartNotice(null)
+      setPanelNotice(null)
       commit({ page: n })
     },
     [commit]
@@ -441,15 +501,18 @@ export function Studio({ projectId }: { projectId: string }) {
   const panelRequest = useCallback(
     async (index: number, kind: 'redraw' | 'rewrite', url: string) => {
       setPanelBusy((b) => ({ ...b, [index]: kind }))
+      setPanelNotice(null)
       try {
         const { ok, data } = await postJson(url, {})
         if (ok && 'version' in data) absorb(data)
         else {
           console.warn(`[panel] ${kind} refused:`, 'error' in data ? data.error : data)
+          if ('error' in data) setPanelNotice(data.error)
           await refresh()
         }
       } catch {
         console.warn(`[panel] ${kind}:`, UNREACHABLE)
+        setPanelNotice(UNREACHABLE)
       } finally {
         setPanelBusy((b) => ({ ...b, [index]: null }))
       }
@@ -466,47 +529,85 @@ export function Studio({ projectId }: { projectId: string }) {
   )
 
   /** Queue the blank panels; the server responds at once and the poll
-   *  watches them land. A refusal here is a sentence in the terminal — the
-   *  panel-level repair buttons are slice 6. */
+   *  watches them land. A refusal shows the server's sentence above the page,
+   *  and the blank panels keep a button to try again. */
+  const [panelsStarting, setPanelsStarting] = useState(false)
   const startPanels = useCallback(async () => {
+    setPanelsStarting(true)
+    setPanelNotice(null)
     try {
       const { ok, data } = await postJson(`${pageApi}/start`, {})
       if (ok && 'version' in data) absorb(data)
-      else console.warn('[panels] start refused:', 'error' in data ? data.error : data)
+      else {
+        console.warn('[panels] start refused:', 'error' in data ? data.error : data)
+        if ('error' in data) setPanelNotice(data.error)
+      }
     } catch {
       console.warn('[panels] start:', UNREACHABLE)
+      setPanelNotice(UNREACHABLE)
+    } finally {
+      setPanelsStarting(false)
     }
   }, [pageApi, absorb])
 
-  // While any panel is in flight — or the storyboard is open at all, since a
-  // redraw sits briefly in the queue before it reads `inking` — re-read the
-  // desk every ~1.5s so panels appear independently and out of order.
-  // Polling rather than a live connection, see `spec.md > What Was
-  // Simplified and Why`.
-  // Since slice 11 it also runs while the Director is open on a plan (pages
-  // started from there ink in on its cards), while any page of the chapter
-  // is inking, and while the cover is.
-  const watching =
-    (chapter?.station === 'storyboard' || chapter?.station === 'director') &&
-    (chapter.plan !== null || chapter.script !== null)
-  const inFlight =
-    (chapter?.script?.some((p) => p.status === 'inking' || p.status === 'empty') ?? false) ||
-    watching ||
-    (chapter?.pages.some((p) => p.inking > 0) ?? false) ||
-    chapter?.cover?.status === 'inking'
-  useEffect(() => {
-    if (!inFlight) return
-    const tick = () => {
-      fetch(api)
-        .then((r) => (r.ok ? (r.json() as Promise<Chapter>) : null))
-        .then((c) => {
-          if (c) absorb(c)
-        })
-        .catch(() => {})
+  // Poll the desk while anything is being drawn: an active job in `activity`,
+  // or a panel, page or cover the desk itself says is inking. Polling rather
+  // than a live connection, see `spec.md > What Was Simplified and Why`. An
+  // idle, finished project does not poll at all. It pauses while the tab is
+  // hidden (and reads at once when the tab comes back), never starts a read
+  // while the last is still out (CR-8), and takes one more read after the last
+  // job ends so the finished art is picked up. A failed read is silent.
+  const live = pollWanted(chapter, activity)
+  const reading = useRef(false)
+  const owed = useRef(false)
+  const poll = useCallback(async () => {
+    if (reading.current) return
+    reading.current = true
+    const seen = epoch.current
+    try {
+      const res = await fetch(api, { signal: AbortSignal.timeout(POLL_TIMEOUT_MS) })
+      if (!res.ok) return
+      const desk = (await res.json()) as Chapter
+      // A reply that landed while this read was on the wire is newer than it.
+      if (epoch.current === seen) absorb(desk)
+    } catch {
+      // silent: the next tick tries again
+    } finally {
+      reading.current = false
     }
-    const timer = setInterval(tick, POLL_MS)
+  }, [api, absorb])
+  useEffect(() => {
+    if (live) owed.current = true
+    else if (!owed.current) return
+    const tick = () => {
+      if (document.visibilityState !== 'visible') return
+      if (!live) {
+        // The one extra read after the last job ended.
+        if (!owed.current) return
+        owed.current = false
+      }
+      void poll()
+    }
+    const timer = live ? setInterval(tick, POLL_MS) : null
+    document.addEventListener('visibilitychange', tick)
+    if (!live) tick()
+    return () => {
+      if (timer) clearInterval(timer)
+      document.removeEventListener('visibilitychange', tick)
+    }
+  }, [live, poll])
+
+  // While the status line says the queue is down or has no worker, look again
+  // now and then so it clears itself when the queue is back — slowly, and only
+  // while the tab can be seen. (While something is drawing, the faster poll above already does it.)
+  const queueDown = queueNotice(activity) !== null
+  useEffect(() => {
+    if (!queueDown || live) return
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') void poll()
+    }, QUEUE_RECHECK_MS)
     return () => clearInterval(timer)
-  }, [api, inFlight, absorb])
+  }, [queueDown, live, poll])
 
   if (!chapter) {
     return (
@@ -517,10 +618,16 @@ export function Studio({ projectId }: { projectId: string }) {
   }
 
   const g = gates(chapter)
+  const queueLine = queueNotice(activity)
 
   return (
     <div className="studio">
       <StationRail chapter={chapter} gates={g} saveState={saveState} onGo={goTo} />
+      {queueLine && (
+        <p className="studio-queue notice" role="status">
+          {queueLine}
+        </p>
+      )}
       {refusal && (
         <div className="studio-refusal notice" role="alert">
           <span>{refusal}</span>
@@ -554,7 +661,7 @@ export function Studio({ projectId }: { projectId: string }) {
           gates={g}
           proposing={proposing}
           proposeNotice={proposeNotice}
-          cards={cards}
+          cards={cardViews}
           onPropose={propose}
           onEdit={editCard}
           onCommit={commitCard}
@@ -578,6 +685,7 @@ export function Studio({ projectId }: { projectId: string }) {
           startNotice={startNotice}
           coverBusy={coverBusy}
           coverNotice={coverNotice}
+          activity={activity}
           onEdit={edit}
           onCommit={commit}
           onWritePlan={(n, replace) => void writePlan(n, replace)}
@@ -593,8 +701,11 @@ export function Studio({ projectId }: { projectId: string }) {
           gates={g}
           scripting={scripting}
           scriptNotice={scriptNotice}
+          activity={activity}
           onWriteScript={writeScript}
           onStartPanels={startPanels}
+          panelsStarting={panelsStarting}
+          panelNotice={panelNotice}
           onPanelEdit={editPanel}
           panelBusy={panelBusy}
           onRedraw={redrawPanel}

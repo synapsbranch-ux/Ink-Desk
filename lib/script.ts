@@ -68,14 +68,16 @@ function replacePanel(chapter: Chapter, index: number, next: Panel): Chapter {
 }
 
 /**
- * A generation starts: the panel reads `inking`, stamped with when and by
- * which server process, for the slice 6 timeout and restart fallbacks. A
- * panel already inking, or whose character is not locked with a sheet, is
- * refused — the job then exits without drawing anything.
+ * A generation starts: the panel reads `inking`, stamped with when and with
+ * the claim — the id of the job that is drawing it (`startedByRun`; before
+ * slice 18 it named the server process). A panel already inking under a
+ * DIFFERENT claim, or whose character is not locked with a sheet, is refused
+ * — the job then exits without drawing anything. The same job claiming again
+ * is fine: that is a job delivered a second time after its worker stalled.
  */
 export function markInking(chapter: Chapter, index: number, runId: string, now = new Date()): Chapter {
   const panel = findPanel(chapter, index)
-  if (panel.status === 'inking') throw new Refused(`Panel ${index + 1} is already inking.`)
+  if (panel.status === 'inking' && panel.startedByRun !== runId) throw new Refused(`Panel ${index + 1} is already inking.`)
   const character = chapter.cast.find((c) => c.id === panel.characterId)
   if (!character?.locked || !character.dna || !character.sheetImageId) {
     throw new Refused(`Panel ${index + 1}’s character isn’t locked with a sheet.`)
@@ -95,8 +97,14 @@ export const MAX_PANEL_VERSIONS = 3
 /** The art landed: a new version, newest last and the one on the page; past
  *  three, the oldest is dropped. The bubble and dialogue live on the panel,
  *  not the version, so a redraw never touches the lettering. */
-export function attachPanelVersion(chapter: Chapter, index: number, imageId: string, now = new Date()): Chapter {
+export function attachPanelVersion(chapter: Chapter, index: number, imageId: string, now = new Date(), claim?: string): Chapter {
   const panel = findPanel(chapter, index)
+  // CR-1: the picture lands only on the claim it was drawn under. A panel that
+  // was reset meanwhile (let go as dead, or claimed by a newer job) is not
+  // written over by a late result.
+  if (claim !== undefined && (panel.status !== 'inking' || panel.startedByRun !== claim)) {
+    throw new Refused(`Panel ${index + 1} was reset while it was inking, so this picture was set aside.`)
+  }
   const versions = [...panel.versions, { imageId, createdAt: now.toISOString() }].slice(-MAX_PANEL_VERSIONS)
   return replacePanel(chapter, index, {
     ...panel,
@@ -108,9 +116,12 @@ export function attachPanelVersion(chapter: Chapter, index: number, imageId: str
   })
 }
 
-/** The art did not land. Recorded honestly; Try again and Rewrite repair it. */
-export function markFailed(chapter: Chapter, index: number, status: 'failed' | 'refused'): Chapter {
+/** The art did not land. Recorded honestly; Try again and Rewrite repair it.
+ *  With a `claim`, only the job that holds the panel may fail it: a late
+ *  failure from a job that was let go never overwrites a newer job's result. */
+export function markFailed(chapter: Chapter, index: number, status: 'failed' | 'refused', claim?: string): Chapter {
   const panel = findPanel(chapter, index)
+  if (claim !== undefined && (panel.status !== 'inking' || panel.startedByRun !== claim)) return chapter
   return replacePanel(chapter, index, { ...panel, status, startedAt: null, startedByRun: null })
 }
 
@@ -132,17 +143,46 @@ export function applyRewrite(
 }
 
 /**
- * The floor under "generation survives a reload" — `spec.md > Data Model >
- * Reload Mid-Generation`. A panel still `inking` whose request cannot be in
- * flight here — started by another server run (the dev server restarted), or
- * started longer ago than the generation timeout — is stale and comes back
- * as `failed` with Try again. Nothing spins forever.
+ * Is this claim real? `live` is the set of job ids that are alive right now
+ * (`lib/queue/status.ts`). A claim no live job holds — its job finished, was
+ * let go as dead, or never existed — is stale; so is one older than
+ * `maxAgeMs`, a ceiling past anything a job can take (two attempts of the
+ * image call plus margin), in case a heartbeat outlived its work.
  */
-export function staleInkingIndices(chapter: Chapter, runId: string, timeoutMs: number, now = new Date()): number[] {
+export function claimIsStale(
+  startedByRun: string | null,
+  startedAt: string | null,
+  live: ReadonlySet<string>,
+  maxAgeMs: number,
+  now = new Date()
+): boolean {
+  // A claim made in the last moments may belong to a job created after the live
+  // list was read; give it a few seconds before judging it.
+  if (startedAt && now.getTime() - Date.parse(startedAt) < CLAIM_SETTLE_MS) return false
+  if (!startedByRun || !live.has(startedByRun)) return true
+  return !startedAt || now.getTime() - Date.parse(startedAt) > maxAgeMs
+}
+
+/** How young a claim must be before the stale floor leaves it alone whatever the live list says. */
+export const CLAIM_SETTLE_MS = 10_000
+
+/**
+ * The floor under "generation survives a reload" — `spec.md > Data Model >
+ * Reload Mid-Generation`, now by jobs rather than by server process (CR-1,
+ * CR-13). A panel still `inking` that no live job holds comes back as
+ * `failed` with Try again. Nothing spins forever, and nothing alive is
+ * demoted because a different web instance answered the poll.
+ */
+export function staleInkingIndices(chapter: Chapter, live: ReadonlySet<string>, maxAgeMs: number, now = new Date()): number[] {
   return (chapter.script ?? [])
     .filter((p) => p.status === 'inking')
-    .filter((p) => p.startedByRun !== runId || !p.startedAt || now.getTime() - Date.parse(p.startedAt) > timeoutMs)
+    .filter((p) => claimIsStale(p.startedByRun, p.startedAt, live, maxAgeMs, now))
     .map((p) => p.index)
+}
+
+/** Does the panel already keep this picture? A re-run attaches a stored picture only if it did not land before. */
+export function hasVersion(chapter: Chapter, index: number, imageId: string): boolean {
+  return chapter.script?.[index]?.versions.some((v) => v.imageId === imageId) ?? false
 }
 
 export function currentImageId(panel: Panel): string | null {

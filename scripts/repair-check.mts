@@ -238,17 +238,23 @@ try {
     ...c,
     script: c.script!.map((x, i) => (i === 0 ? { ...x, status: 'inking' as const, startedAt, startedByRun: run } : x)),
   })
-  const timeout = 360000
-  const fresh = asInking(chapter, new Date().toISOString(), 'this-run')
-  assert.deepEqual(staleInkingIndices(fresh, 'this-run', timeout), [], 'a live generation is left alone')
-  const orphaned = asInking(chapter, new Date().toISOString(), 'a-previous-run')
-  assert.deepEqual(staleInkingIndices(orphaned, 'this-run', timeout), [0], 'a restart orphan is stale')
-  const late = asInking(chapter, new Date(Date.now() - timeout - 1000).toISOString(), 'this-run')
-  assert.deepEqual(staleInkingIndices(late, 'this-run', timeout), [0], 'past the timeout is stale')
-  console.log('  ok  stale inking — restart orphan or past the timeout — is demoted; live work is not')
+  // Slice 18: a claim belongs to a JOB, and is stale unless a live job holds it.
+  const maxAge = 360000
+  const live = new Set(['live-job'])
+  const minuteAgo = new Date(Date.now() - 60_000).toISOString()
+  const fresh = asInking(chapter, minuteAgo, 'live-job')
+  assert.deepEqual(staleInkingIndices(fresh, live, maxAge), [], 'a generation a live job holds is left alone')
+  const orphaned = asInking(chapter, minuteAgo, 'a-job-that-ended')
+  assert.deepEqual(staleInkingIndices(orphaned, live, maxAge), [0], 'a claim no live job holds is stale')
+  const late = asInking(chapter, new Date(Date.now() - maxAge - 1000).toISOString(), 'live-job')
+  assert.deepEqual(staleInkingIndices(late, live, maxAge), [0], 'past the ceiling is stale even for a live job')
+  const justNow = asInking(chapter, new Date().toISOString(), 'a-job-the-list-has-not-seen')
+  assert.deepEqual(staleInkingIndices(justNow, live, maxAge), [], 'a claim made a moment ago is given a few seconds before it is judged')
+  console.log('  ok  stale inking — a claim no live job holds, or past the ceiling — is demoted; live work is not')
 
-  // A panel already inking refuses a second start.
-  assert.throws(() => markInking(fresh, 0, 'this-run'), Refused)
+  // A panel inking under another claim refuses a second start; the same job claiming again is fine (a redelivery).
+  assert.throws(() => markInking(fresh, 0, 'another-job'), Refused)
+  assert.doesNotThrow(() => markInking(fresh, 0, 'live-job'))
 
   console.log('\n  Repair acceptance check passed.')
 } finally {

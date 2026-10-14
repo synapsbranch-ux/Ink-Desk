@@ -6,12 +6,11 @@ import { assertEditAllowed } from '@/lib/cast'
 import { demoteStale, openRef, read, toDesk, update } from '@/lib/chapter'
 import { errorResponse, Refused } from '@/lib/errors'
 import { gates } from '@/lib/gates'
-import { imageConfig } from '@/lib/image-provider'
+import { maxRunMs, projectActivity } from '@/lib/queue/status'
 import { applyPatch, assertPageExists, assertStoryEditable, type ChapterPatch } from '@/lib/patch'
 import { assertPlanEdit } from '@/lib/plan'
 import { ChapterPatchSchema, PATCH_LIMIT_BYTES } from '@/lib/schemas'
 import { findPanel } from '@/lib/script'
-import { singletons } from '@/lib/singleton'
 import { store } from '@/lib/store'
 
 export const runtime = 'nodejs'
@@ -22,21 +21,30 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params
   try {
     // The reader of the desk enforces the floor: a panel on any page — or the
-    // cover — still `inking` past the generation timeout, or orphaned by a
-    // server restart, comes back as `failed` with Try again; nothing spins
-    // forever, on the open page or off it. Checked cheaply on the plain read;
-    // demoted inside the lock against a fresh copy.
-    const timeoutMs = imageConfig().timeoutMs
+    // cover — still `inking` that no live job holds (its job ended, was let go
+    // as dead, or never existed) comes back as `failed` with Try again; nothing
+    // spins forever, on the open page or off it, and nothing alive is demoted
+    // because a different web instance answered the poll (CR-1, CR-13).
     const project = await store.readProject(id)
-    if (demoteStale(project, singletons.serverRunId, timeoutMs).demoted.length === 0) {
-      return Response.json(toDesk(project, openRef(project)))
+    const { activity, live } = await projectActivity(id)
+    const maxAge = maxRunMs()
+    const first = demoteStale(project, live, maxAge)
+    if (first.demoted.length === 0) return Response.json({ ...toDesk(project, openRef(project)), activity })
+    try {
+      // Demoted against a fresh copy: a job that finished meanwhile is not undone.
+      const next = await store.updateProject(id, (p) => {
+        const { project: demotedProject, demoted } = demoteStale(p, live, maxAge)
+        for (const what of demoted) console.warn(`[${what}] demoted to failed — no live job holds it`)
+        return demotedProject
+      })
+      return Response.json({ ...toDesk(next, openRef(next)), activity })
+    } catch (err) {
+      // CR-7: being able to read a project must not depend on being able to
+      // write it. A full disk or a refused write still shows the desk as it
+      // would read once the write lands.
+      console.error(`[project] could not record the demoted panels (${first.demoted.join(', ')}); showing them anyway:`, err instanceof Error ? err.message : err)
+      return Response.json({ ...toDesk(first.project, openRef(first.project)), activity })
     }
-    const next = await store.updateProject(id, (p) => {
-      const { project: demotedProject, demoted } = demoteStale(p, singletons.serverRunId, timeoutMs)
-      for (const what of demoted) console.warn(`[${what}] demoted to failed — stale inking (timeout or server restart)`)
-      return demotedProject
-    })
-    return Response.json(toDesk(next, openRef(next)))
   } catch (err) {
     return errorResponse(err, 'project', 'The desk couldn’t be opened.')
   }

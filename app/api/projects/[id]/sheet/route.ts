@@ -1,69 +1,28 @@
-// Draw sheet, in one handler so the two frozen artifacts cannot disagree:
-//   (a) the words  — Claude writes the DNA from the card's description, and it
-//                    is saved before the picture is attempted, so a failed
-//                    draw keeps the words and "Try again" reuses them;
-//   (b) the picture — the sheet is generated from exactly that DNA, with no
-//                    reference image (there is nothing to reference yet), in
-//                    the project's locked style;
-//   (c) the pair   — DNA and image land on the card together, counted once.
-// `reuseDna: true` is Redraw sheet: same words, new picture. Editing the look
-// retires the DNA (`lib/cast.ts`), so the next draw writes it fresh either way.
+// Draw sheet. Since slice 18 the route answers at once: the sheet is a job
+// (`lib/sheet.ts`) that a worker runs in two steps — Claude writes the DNA from
+// the card's description and it is saved before the picture is attempted, then
+// the sheet is drawn from exactly that DNA and the pair lands on the card
+// together. The card's "drawing" state is the job; the studio's poll watches
+// it. `reuseDna: true` is Redraw sheet: same words, new picture.
 // See `devpost/prd.md > Cast — Model Sheets` for why DNA-first is load-bearing.
 import { JSON_LIMIT_BYTES, parseJson } from '@/lib/body'
-import { assertUnlocked, attachSheet, findCharacter, setDna } from '@/lib/cast'
-import { read } from '@/lib/chapter'
-import { writeDna } from '@/lib/claude'
-import { errorResponse, Refused } from '@/lib/errors'
+import { errorResponse } from '@/lib/errors'
 import { assertGenerationEnabled } from '@/lib/generation'
-import { generateImage, imageConfig } from '@/lib/image-provider'
-import { updateCharging, saveImage } from '@/lib/images'
-import { textMeter } from '@/lib/llm'
-import { sheetPrompt } from '@/lib/prompts'
+import { readWithActivity } from '@/lib/queue/status'
 import { SheetRequestSchema } from '@/lib/schemas'
-import { storyBrief } from '@/lib/story'
-import { styleRules } from '@/lib/styles'
+import { queueSheet } from '@/lib/sheet'
 
 export const runtime = 'nodejs'
 
-const CALM = 'The sheet didn’t come back, the studio is busy. Try again in a moment.'
+const CALM = 'The sheet couldn’t start drawing just now. Try again in a moment.'
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id: projectId } = await params
   try {
     assertGenerationEnabled()
     const { id, reuseDna = false } = await parseJson(req, SheetRequestSchema, JSON_LIMIT_BYTES, 'That request couldn’t be read.')
-    const current = await read(projectId)
-    const synopsis = storyBrief(current)
-    if (!synopsis) throw new Refused('Settle the story first.')
-    const target = assertUnlocked(findCharacter(current, id))
-
-    // (a) the words
-    let dna = reuseDna ? target.dna : null
-    if (!dna) {
-      const meter = textMeter()
-      dna = await writeDna(target, synopsis, meter)
-      await updateCharging(projectId, meter, (c) => setDna(c, id, dna as string))
-    }
-
-    // (b) the picture, from exactly those words, in the project's style
-    const cfg = imageConfig()
-    const image = await generateImage({
-      prompt: sheetPrompt(dna, styleRules(current.stylePresetId)),
-      aspect: cfg.sheetAspect,
-      quality: cfg.sheetQuality,
-      label: `sheet · ${target.name}`,
-    })
-
-    // (c) the pair, onto the card, counted once
-    const { chapter } = await saveImage(
-      projectId,
-      'sheet',
-      image.b64,
-      image.mediaType,
-      (c, imageId) => attachSheet(c, id, dna as string, imageId),
-      image.costUsd
-    )
-    return Response.json(chapter)
+    await queueSheet(projectId, id, reuseDna)
+    return Response.json(await readWithActivity(projectId))
   } catch (err) {
     return errorResponse(err, 'sheet', CALM)
   }

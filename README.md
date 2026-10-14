@@ -80,8 +80,24 @@ What to expect, mirrored from `.env.example` and `devpost/spec.md > Storage Adap
 - A missing variable is refused by name at startup (`instrumentation.ts`), and the store refuses every call with the same sentence. The studio never falls back to the local desk on its own.
 - The bucket must already exist and stays private. Images reach the browser only through `/api/image/<id>`, which reads from the bucket.
 - A cloud desk starts empty. Local projects stay on disk, and the v1 `data/chapter.json` is not migrated into the cloud (its images are on this disk, not in the bucket).
-- Run one Ink Desk server per database. Generations in flight belong to the process that started them; a second server would demote the first one's inking panels to failed.
+- Several processes may share one database — the web service and the worker do. Project writes are compare-and-set, and the job records (collection `jobs`) say who is drawing what; see **The queue and the worker**.
 - Variables already exported in your shell win over `.env`. If your shell sets `S3_*` for another project, unset them first. The terminal names the database host and bucket host it connected to.
+
+## The queue and the worker
+
+Drawing is a **job**, not a request. Pressing Draw sheet, Generate page, Redraw or Generate cover writes a job record to the store (`data/jobs/` on a local desk, the `jobs` collection in Mongo) and hands it to a queue; something else draws it and writes the result into the project. A page can ink while the web server restarts, and a picture that was paid for is attached, never drawn twice.
+
+`INKDESK_QUEUE` picks who draws:
+
+- `inline` (the default outside production): the web process draws, two at a time. A clone with two API keys still works; jobs do not survive a restart of the server.
+- `bullmq` (the only mode in production): the web service puts the job on Redis (BullMQ) and a separate **worker** draws it. You need `REDIS_URL`, a running Redis, and a second terminal:
+
+```bash
+INKDESK_QUEUE=bullmq REDIS_URL=redis://localhost:6379 npm run dev
+INKDESK_QUEUE=bullmq REDIS_URL=redis://localhost:6379 npm run worker     # the same .env works for both
+```
+
+If Redis is down, a generate button says "The studio is busy — try again in a few minutes" and every project still opens; if Redis is up but no worker is running, jobs wait and the studio says so. `/api/health` reports `queue: { mode, redis, worker }` without ever failing the deploy check on them. Settings, caps and what each failure does are in `.env.example` and `devpost/spec.md > As built — slice 18`.
 
 ## The text fallback
 
@@ -106,6 +122,10 @@ The `check:*` scripts replace `fetch` with a stub wherever a provider would be c
 | `npm run check:assets` | Upload rules (PNG, JPEG or WebP by their own bytes, the size cap, the shelf cap); import makes the picture the sheet, retires the old DNA and refuses Lock until a new DNA is written from the picture by the text model; an imported character's panel reference is the uploaded bytes. |
 | `npm run check:llm` | Every output schema survives strict JSON-schema mode; the fallback fires on a missing key, a 402 or a 529 after the retry; a malformed fallback reply is refused and never written. |
 | `npm run check:plan` | The plan schema refuses fewer than 3 or more than 6 pages and a wrong character in a slot; the cost estimate arithmetic; Generate all is idempotent; one page's failure never touches another. |
+| `npm run check:config` | The settings: the learner's variable names mapped, every problem named and no value ever repeated, numbers validated, the queue's mode and Redis rules, `/api/health`'s shape. |
+| `npm run check:hardening` | Request bodies capped before parsing (chunked ones too), every schema bounded and strict, uploads re-encoded, generation closed with a 503 while the flag is off. |
+| `npm run check:queue` | Against a real Redis it starts itself: a page inks through BullMQ with each picture attached once; a killed worker's job is finished by another (claimed twice, paid once); a store outage after the payment is retried without a second provider call; a flushed Redis loses nothing; Redis down is a calm 503 while projects still open; dedupe, per-person caps, fairness and the 402 breaker; a panel is inking only while a live job holds it. Needs `redis-server` on the PATH. |
+| `npm run check:activity` | What the studio derives from the jobs it polls: drawing and failed cards, which panels are in flight, when to poll, the status line. |
 | `npm run check:demo-timeline` | The video's edit: marks become segments, the film stays under three minutes, every beat is captioned, the music ducks under the voice. |
 | `npm run kernel-test` | Live, needs the network and the keys. The only check that spends money (see above). |
 
@@ -120,9 +140,10 @@ The demo is a Remotion project in `video/`, with its own `package.json`: run `cd
 ```
 app/          Next.js routes: the dashboard (/), the studio (/p/<id>), the API under app/api/
 components/   The stations and their parts (dashboard, library, Director, page, reader, bubbles)
-lib/          The engine: prompts, schemas, the text provider and fallback, the image call, the queue,
+lib/          The engine: prompts, schemas, the text provider and fallback, the image call, the queue and its jobs (lib/queue/),
               the stores (lib/store/), the Director's plan and cost, export geometry
 scripts/      kernel-test.mjs and the check:* scripts
+worker/       The `worker` service: draws the jobs the web service queues (`npm run worker`)
 video/        The Remotion demo: capture, narration, music, the edit, fonts and licences
 data/         Projects and images (local mode), the kernel-test evidence and reference plates
 devpost/      The planning documents and the build record

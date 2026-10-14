@@ -16,10 +16,12 @@ import { CoverCard } from '@/components/CoverCard'
 import { GenerationStatus } from '@/components/GenerationStatus'
 import { PagePlanCard } from '@/components/PagePlanCard'
 import { StationFooter } from '@/components/StationFooter'
+import { coverJob } from '@/lib/activity'
 import { estimateLine } from '@/lib/cost'
 import type { Gates } from '@/lib/gates'
 import type { ChapterPatch } from '@/lib/patch'
 import { pagesComplete, type PlanLineEdit } from '@/lib/plan'
+import type { Activity } from '@/lib/queue/jobs'
 import { PAGE_COUNT_DEFAULT, PAGE_COUNT_MAX, PAGE_COUNT_MIN } from '@/lib/schemas'
 import { textStages } from '@/lib/stages'
 import { needsSummary } from '@/lib/story'
@@ -37,6 +39,8 @@ type Props = {
   startNotice: string | null
   coverBusy: boolean
   coverNotice: string | null
+  /** What the queue is doing (slice 18); undefined until a reply has said. */
+  activity: Activity | undefined
   onEdit: (patch: ChapterPatch) => void
   onCommit: (patch: ChapterPatch) => void
   onWritePlan: (pageCount: number, replace: boolean) => void
@@ -190,6 +194,7 @@ function PlanDesk({
   startNotice,
   coverBusy,
   coverNotice,
+  activity,
   onEdit,
   onCommit,
   onWritePlan,
@@ -268,6 +273,7 @@ function PlanDesk({
               summary={chapter.pages.find((s) => s.index === p)}
               cast={chapter.cast}
               panelQuality={chapter.panelQuality}
+              activity={activity}
               openPanels={p === chapter.address.pageIndex ? openPanels : null}
               starting={starting === p}
               locked={busy}
@@ -283,6 +289,7 @@ function PlanDesk({
               cover={chapter.cover}
               panelQuality={chapter.panelQuality}
               busy={coverBusy}
+              job={coverJob(activity)}
               notice={coverNotice}
               onEdit={onEdit}
               onCommit={onCommit}

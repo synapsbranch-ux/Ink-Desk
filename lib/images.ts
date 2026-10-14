@@ -18,6 +18,7 @@ import { update } from './chapter'
 import { store, type BlobKind } from './store'
 import { addAsset, checkUpload, MAX_UPLOAD_SIDE, NOT_A_PICTURE, TOO_MANY_PIXELS, UPLOAD_LIMIT_BYTES, type UPLOAD_TYPES } from './assets'
 import { Refused } from './errors'
+import type { JobRun } from './queue/run'
 import type { Asset, Desk, PageRef } from './types'
 
 export { isImageId, mediaTypeOf } from './store/local'
@@ -27,6 +28,11 @@ export { isImageId, mediaTypeOf } from './store/local'
  * receives the freshest desk and the new id and returns the desk that points
  * at it; the counter and the cost bump are added here so no caller can forget
  * them. `costUsd` is the provider's reported `usage.cost` for this call.
+ *
+ * With a `run` (a job), the order is what makes a re-run free: the picture is
+ * stored, its id and cost are saved on the job record, and only then is it
+ * attached — so a worker that dies after paying finds the picture waiting and
+ * attaches it (`landImage`) instead of drawing, and paying, again.
  */
 export async function saveImage(
   projectId: string,
@@ -35,18 +41,77 @@ export async function saveImage(
   mediaType: string,
   attach: (desk: Desk, imageId: string) => Desk,
   costUsd: number | null = null,
-  at?: PageRef
+  at?: PageRef,
+  run?: JobRun
 ): Promise<{ chapter: Desk; imageId: string }> {
   const imageId = await store.putBlob(Buffer.from(b64, 'base64'), mediaType, kind)
-  const chapter = await update(
-    projectId,
-    (d) => {
-      const next = attach(d, imageId)
-      return { ...next, imageCount: next.imageCount + 1, costUsd: round(next.costUsd + (costUsd ?? 0)) }
-    },
-    at
-  )
-  return { chapter, imageId }
+  await run?.checkpoint(imageId, costUsd)
+  return { chapter: await landImage(projectId, imageId, attach, costUsd, at), imageId }
+}
+
+/**
+ * Attach a picture that is already in the bucket and count it once.
+ *   • `alreadyThere` (a re-run after a crash): if the picture already landed
+ *     before the crash, nothing is written — the count was in that same write.
+ *   • A refusal (the card was locked meanwhile, the panel was reset and the
+ *     claim lost — CR-1) does not lose the money: the cost is still added to
+ *     the project's spend, and the orphaned picture is deleted (CR-16). Any
+ *     other failure leaves the picture where it is; the job record knows it.
+ *   • A redraw that pushes a fourth version out deletes the version it
+ *     dropped, which nothing can reach any more (CR-16).
+ */
+export async function landImage(
+  projectId: string,
+  imageId: string,
+  attach: (desk: Desk, imageId: string) => Desk,
+  costUsd: number | null,
+  at?: PageRef,
+  alreadyThere?: (desk: Desk, imageId: string) => boolean
+): Promise<Desk> {
+  let before = undefined as Desk | undefined
+  let after = undefined as Desk | undefined
+  try {
+    const chapter = await update(
+      projectId,
+      (d) => {
+        before = after = undefined
+        if (alreadyThere?.(d, imageId)) return d
+        before = d
+        const next = attach(d, imageId)
+        after = next
+        return { ...next, imageCount: next.imageCount + 1, costUsd: round(next.costUsd + (costUsd ?? 0)) }
+      },
+      at
+    )
+    if (before && after) {
+      for (const dropped of droppedPictures(before, after)) {
+        await store.deleteBlob(dropped).catch((e: unknown) => console.warn(`[images] could not delete ${dropped}:`, e))
+      }
+    }
+    return chapter
+  } catch (err) {
+    if (err instanceof Refused) {
+      if ((costUsd ?? 0) > 0) {
+        await update(projectId, (d) => ({ ...d, costUsd: round(d.costUsd + (costUsd ?? 0)) }), at).catch(() => {})
+      }
+      await store.deleteBlob(imageId).catch((e: unknown) => console.warn(`[images] could not delete ${imageId}:`, e))
+    }
+    throw err
+  }
+}
+
+/** Every panel and cover picture a desk's current page and cover keep. */
+function keptPictures(d: Desk): Set<string> {
+  const ids = new Set<string>()
+  for (const panel of d.script ?? []) for (const v of panel.versions) ids.add(v.imageId)
+  for (const v of d.cover?.versions ?? []) ids.add(v.imageId)
+  return ids
+}
+
+/** Pictures `before` kept that `after` does not — a redraw's dropped oldest version. Sheets and uploads are never in this set. */
+export function droppedPictures(before: Desk, after: Desk): string[] {
+  const kept = keptPictures(after)
+  return [...keptPictures(before)].filter((id) => !kept.has(id))
 }
 
 type UploadType = (typeof UPLOAD_TYPES)[number]

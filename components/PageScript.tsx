@@ -4,12 +4,17 @@
 // Since slice 11 a page not yet generated shows the chapter plan's lines for
 // it, read-only here (they are edited in the Director), with "Generate page
 // n", its estimate, and the sentence for a line that still needs words.
+// Since slice 18 a panel's status word follows the queue: Pencilling while its
+// job waits, Inking… while it draws, and Not drawn yet for a blank panel
+// nothing is drawing.
 // Implements `devpost/prd.md > Page Script` and `> Pages — Generation,
 // Lettering, Repair`.
 import { GenerationStatus } from '@/components/GenerationStatus'
+import { inFlight, isIdleBlank, panelJob } from '@/lib/activity'
 import { estimatePageUsd, usd } from '@/lib/cost'
 import { assertPageDrawable } from '@/lib/plan'
 import { PANEL_LAYOUT } from '@/lib/prompts'
+import type { Activity } from '@/lib/queue/jobs'
 import { textStages } from '@/lib/stages'
 import type { Chapter, PanelStatus } from '@/lib/types'
 
@@ -23,6 +28,7 @@ const STATUS: Record<PanelStatus, string> = {
 
 type Props = {
   chapter: Chapter
+  activity: Activity | undefined
   writing: boolean
   notice: string | null
   onRetry: () => void
@@ -32,7 +38,7 @@ type Props = {
   onGeneratePage: () => void
 }
 
-export function PageScript({ chapter, writing, notice, onRetry, starting, startNotice, onGeneratePage }: Props) {
+export function PageScript({ chapter, activity, writing, notice, onRetry, starting, startNotice, onGeneratePage }: Props) {
   const script = chapter.script
   const n = chapter.address.pageIndex + 1
   const planned = !script ? chapter.plan?.pages[chapter.address.pageIndex] : undefined
@@ -104,13 +110,22 @@ export function PageScript({ chapter, writing, notice, onRetry, starting, startN
         script.map((p) => {
           const who = chapter.cast.find((c) => c.id === p.characterId)
           const slot = PANEL_LAYOUT[p.index]
+          const job = panelJob(activity, chapter.address.pageIndex, p.index)
+          // What the panel is doing now: a job (or `inking`) puts it in flight, a waiting one still reads Pencilling.
+          const shown: PanelStatus = !inFlight(p.status, job)
+            ? p.status
+            : p.status === 'empty' && job?.status !== 'running'
+              ? 'empty'
+              : 'inking'
           return (
-            <article key={p.index} className={`script-panel is-${p.status}`} data-script-panel={p.index}>
+            <article key={p.index} className={`script-panel is-${shown}`} data-script-panel={p.index}>
               <div className="script-panel-head">
                 <span className="eyebrow eyebrow-sm">
                   Panel {p.index + 1} · {who?.name ?? 'Unknown'} · {slot.shot}
                 </span>
-                <span className={`script-status is-${p.status}`}>{STATUS[p.status]}</span>
+                <span className={`script-status is-${shown}`}>
+                  {isIdleBlank(p.status, job) ? 'Not drawn yet' : STATUS[shown]}
+                </span>
               </div>
               <p className="script-action">{p.action}</p>
               <p className="script-line">Camera: {p.camera}</p>

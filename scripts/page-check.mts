@@ -28,7 +28,8 @@ process.env.OPENROUTER_API_KEY = 'check-only-never-sent' // fetch is stubbed bel
 // Imported after the env is set, because the store and the queue read it at load.
 const { createProject, read: readDesk, update: updateDesk } = await import('../lib/chapter')
 const { singletons } = await import('../lib/singleton')
-const { createQueue } = await import('../lib/queue')
+const { store } = await import('../lib/store')
+const { createQueue } = await import('../lib/queue/memory')
 const { saveImage } = await import('../lib/images')
 const { assertEditAllowed, attachSheet, proposeCast, setDna } = await import('../lib/cast')
 const { applyPatch } = await import('../lib/patch')
@@ -286,9 +287,11 @@ try {
   await until('two panels inking', async () => (await status()).filter((s) => s === 'inking').length === 2)
   assert.deepEqual(await status(), ['inking', 'inking', 'empty', 'empty'])
   chapter = await desk()
+  const running = await store.jobs.listJobs({ projectId: pid, status: ['running'] })
+  assert.equal(running.length, 2, 'two panels, two running job records')
   for (const p of chapter.script?.slice(0, 2) ?? []) {
-    assert.equal(p.startedByRun, singletons.serverRunId, 'stamped with the server run, for the restart fallback')
-    assert.ok(p.startedAt, 'stamped with a start time, for the timeout fallback')
+    assert.ok(running.some((j) => j.id === p.startedByRun), 'stamped with the claim of the job that is drawing it (slice 18)')
+    assert.ok(p.startedAt, 'stamped with a start time, for the ceiling')
   }
 
   // Which held request belongs to which panel is identified by the panel's
@@ -393,7 +396,8 @@ try {
   assert.equal(chapter.script?.[1].status, 'refused')
   assert.deepEqual(chapter.script?.[0].versions, [])
   assert.equal(chapter.imageCount, 6, 'a failure never counts an image')
-  assert.throws(() => markInking(markInking(chapter, 2, 'run'), 2, 'run'), /already inking/)
+  assert.throws(() => markInking(markInking(chapter, 2, 'run'), 2, 'another-run'), /already inking/)
+  assert.doesNotThrow(() => markInking(markInking(chapter, 2, 'run'), 2, 'run'), 'the same job claiming again (a redelivery) is not refused')
   assert.throws(
     () => markInking({ ...chapter, cast: chapter.cast.map((c) => ({ ...c, locked: false })) }, 2, 'run'),
     /isn’t locked/
@@ -413,9 +417,9 @@ try {
   assert.equal(bubbleCorner({ index: 0, camera: 'High angle, looking down from the water tower' }), 'bottom-right')
   console.log('  ok  placeholder labels and bubble corners derive from the panel')
 
-  // 8. Nothing left behind but the projects and the images folder (v2 layout).
+  // 8. Nothing left behind but the projects, the images folder (v2 layout) and the job records (slice 18).
   const files = (await readdir(dir)).sort()
-  assert.deepEqual(files, ['images', 'projects'], `unexpected files left behind: ${files.join(', ')}`)
+  assert.deepEqual(files, ['images', 'jobs', 'projects'], `unexpected files left behind: ${files.join(', ')}`)
   assert.deepEqual((await readdir(join(dir, 'projects', pid))).sort(), ['project.json', 'project.json.bak'], 'the project and its backup, no stray temp file')
   console.log('  ok  only projects/ and images/ on disk, no temp file')
 

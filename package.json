@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "worker": "tsx --import ./scripts/server-only.mts worker/index.ts",
     "kernel-test": "node scripts/kernel-test.mjs",
     "check:store": "tsx scripts/chapter-store-check.mts",
     "check:cast": "tsx scripts/cast-check.mts",
@@ -23,6 +24,8 @@
     "check:demo-timeline": "tsx scripts/demo-timeline-check.mts",
     "check:config": "tsx scripts/config-check.mts",
     "check:hardening": "tsx scripts/hardening-check.mts",
+    "check:queue": "tsx scripts/queue-check.mts",
+    "check:activity": "tsx scripts/activity-check.mts",
     "video:capture": "npm --prefix video run capture --",
     "video:narrate": "npm --prefix video run narrate --",
     "video:render": "npm --prefix video run render",
@@ -33,6 +36,8 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",
     "@aws-sdk/client-s3": "3.1151.0",
+    "bullmq": "6.3.12",
+    "ioredis": "5.11.1",
     "mongodb": "7.7.0",
     "next": "16.4.0",
     "pdf-lib": "1.17.1",
@@ -41,6 +46,7 @@
     "react-rnd": "^10.5.3",
     "server-only": "0.0.1",
     "sharp": "0.35.5",
+    "tsx": "^4",
     "zod": "^4.6.7"
   },
   "devDependencies": {
@@ -49,7 +55,6 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.4.0",
-    "tsx": "^4",
     "typescript": "^5"
   }
 }

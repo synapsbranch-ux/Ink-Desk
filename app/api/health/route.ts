@@ -1,10 +1,11 @@
 // The deploy's health check (v3, slice 16): Railway deploys on a 200 here and
 // holds the old deploy on anything else. 200 when everything this storage
 // mode needs answers within two seconds each, 503 with the same shape
-// otherwise. No internals, no versions, no hostnames — a check that fails
+// otherwise (the queue's own state rides along but never fails the check). No internals, no versions, no hostnames — a check that fails
 // says only which one; the terminal has the cause. See `devpost/spec.md >
 // Health, Status and Logs (v3)`.
-import { appConfig, generationEnabled } from '@/lib/config'
+import { appConfig, generationEnabled, queueSettings } from '@/lib/config'
+import { queueHealth } from '@/lib/queue/status'
 import { store, type StoreHealth } from '@/lib/store'
 import { storageMode } from '@/lib/store/env'
 
@@ -30,9 +31,15 @@ export async function GET() {
   } else {
     checks = await store.health(CHECK_MS)
   }
+  // The queue is reported, not required: with Redis or the worker down the studio
+  // still reads every existing project, so the deploy check does not fail on them
+  // (`spec.md > Failure Modes (v3)`). `n/a` where there is no queue to ask.
+  const queue = configured
+    ? { mode: queueSettings().mode, ...(await queueHealth(CHECK_MS)) }
+    : { mode: 'inline' as const, redis: 'n/a' as const, worker: 'n/a' as const }
   const ok = configured && checks.mongo !== 'down' && checks.bucket !== 'down'
   return Response.json(
-    { status: ok ? 'ok' : 'down', storage, checks, generation: generationEnabled() ? 'on' : 'off' },
+    { status: ok ? 'ok' : 'down', storage, checks, queue, generation: generationEnabled() ? 'on' : 'off' },
     { status: ok ? 200 : 503, headers: { 'Cache-Control': 'no-store' } }
   )
 }

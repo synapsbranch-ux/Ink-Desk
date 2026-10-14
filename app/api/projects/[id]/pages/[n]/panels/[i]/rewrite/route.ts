@@ -10,6 +10,7 @@ import { assertGenerationEnabled } from '@/lib/generation'
 import { updateCharging } from '@/lib/images'
 import { textMeter } from '@/lib/llm'
 import { isQueued, queuePanel } from '@/lib/panels'
+import { readWithActivity } from '@/lib/queue/status'
 import { PANEL_LAYOUT } from '@/lib/prompts'
 import { applyRewrite, findPanel } from '@/lib/script'
 
@@ -29,7 +30,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     if (panel.status !== 'refused') {
       throw new Refused(`Panel ${index + 1} wasn’t refused — Rewrite is for a panel the image model declined.`)
     }
-    if (isQueued(addr, index)) throw new Refused(`Panel ${index + 1} is already waiting to ink.`)
+    if (await isQueued(addr, index)) throw new Refused(`Panel ${index + 1} is already waiting to ink.`)
     const character = desk.cast.find((c) => c.id === panel.characterId)
     if (!character) throw new Refused('That panel’s character isn’t on the desk any more. Reload the page.', 404)
 
@@ -37,8 +38,8 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     const visuals = await rewritePanelVisuals(panel, PANEL_LAYOUT[index], character, meter)
     await updateCharging(id, meter, (c) => applyRewrite(c, index, visuals), addr)
     console.log(`[p${addr.pageIndex + 1} panel ${index + 1}] rewritten — action, camera and background rephrased; dialogue untouched`)
-    queuePanel(addr, index)
-    return Response.json(await read(id))
+    await queuePanel(addr, index)
+    return Response.json(await readWithActivity(id))
   } catch (err) {
     return errorResponse(err, 'rewrite', CALM)
   }

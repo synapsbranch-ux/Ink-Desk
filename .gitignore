@@ -34,3 +34,9 @@ next-env.d.ts
 # Local-store backups written before every save (slice 16, CR-14): a recovery
 # copy for the desk, never part of the record.
 /data/**/project.json.bak
+
+# The local desk's job records and cross-process lock files (slice 18): working
+# state of a running studio, never part of the record.
+/data/jobs/
+/data/**/*.lock
+/data/**/*.lock.d/

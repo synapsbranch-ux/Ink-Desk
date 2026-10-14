@@ -1,12 +1,13 @@
 // The cover (slice 11): Generate cover, Redraw cover and Try again — one
 // image of the lead character against their locked sheet, from the
-// Director's brief, in the project's style. Queued and answered at once; the
-// poll watches it land. The title is lettered by the app over the art and is
+// Director's brief, in the project's style. A job (slice 18): queued and
+// answered at once; the poll watches it land. The title is lettered by the app over the art and is
 // never part of the request. See `lib/director.ts > inkCover`.
 import { read } from '@/lib/chapter'
 import { isCoverQueued, queueCover } from '@/lib/director'
 import { errorResponse, Refused } from '@/lib/errors'
 import { assertGenerationEnabled } from '@/lib/generation'
+import { readWithActivity } from '@/lib/queue/status'
 import { lockedPair } from '@/lib/script'
 
 export const runtime = 'nodejs'
@@ -24,9 +25,9 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     if (desk.cover.status === 'inking') throw new Refused('The cover is already inking.')
     if (desk.cover.brief.trim() === '') throw new Refused('Write the cover brief first.')
     lockedPair(desk)
-    if (isCoverQueued(id, desk.address.chapterId)) throw new Refused('The cover is already waiting to ink.')
-    queueCover(id, desk.address.chapterId)
-    return Response.json(await read(id))
+    if (await isCoverQueued(id, desk.address.chapterId)) throw new Refused('The cover is already waiting to ink.')
+    await queueCover(id, desk.address.chapterId)
+    return Response.json(await readWithActivity(id))
   } catch (err) {
     return errorResponse(err, 'cover', CALM)
   }

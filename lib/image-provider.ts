@@ -55,6 +55,14 @@ export function imageConfig() {
 
 const BUSY = 'The image model didn’t answer just now.'
 
+/** The pause before the one retry of a 429: Retry-After in seconds (at most 20), else 1–3 s; IMAGE_RETRY_DELAY_MS overrides both, 0 for the checks. */
+export function retryDelayMs(retryAfter: string | null, env: Record<string, string | undefined> = process.env): number {
+  const forced = env.IMAGE_RETRY_DELAY_MS?.trim()
+  if (forced && /^\d+$/.test(forced)) return Number(forced)
+  const seconds = retryAfter && /^\d+$/.test(retryAfter.trim()) ? Number(retryAfter.trim()) : null
+  return seconds !== null ? Math.min(seconds, 20) * 1000 : 1000 + Math.floor(Math.random() * 2000)
+}
+
 type ImagesResponse = {
   data?: { b64_json?: string; media_type?: string }[]
   usage?: { cost?: number }
@@ -107,7 +115,11 @@ export async function generateImage(req: ImageRequest): Promise<GeneratedImage> 
       throw new ProviderError(BUSY, 'provider', err)
     }
     if (res.status === 429 && attempt === 1) {
-      console.warn(`[image] ${req.label} — rate-limited (429), retrying once`)
+      // CR-10: wait as long as the provider asks (capped), or a short jittered
+      // pause, so a queue of rate-limited jobs does not retry in one burst.
+      const waitMs = retryDelayMs(res.headers.get('retry-after'))
+      console.warn(`[image] ${req.label} — rate-limited (429), retrying once in ${(waitMs / 1000).toFixed(1)}s`)
+      await new Promise((resolve) => setTimeout(resolve, waitMs))
       continue
     }
     break
@@ -146,7 +158,8 @@ async function failure(res: Response, label: string): Promise<ProviderError> {
         '  A full filming run needs about $2.50 of headroom.',
       ].join('\n')
     )
-    return new ProviderError(BUSY, 'provider', `402 ${text.slice(0, 300)}`)
+    // `credits`: the account is out, so every job waiting would fail the same way — the queue's breaker trips on this.
+    return new ProviderError(BUSY, 'provider', `402 ${text.slice(0, 300)}`, 'credits')
   }
 
   if (res.status === 400 && /moderation|safety|content[_ ]policy|refus|not allowed/i.test(text)) {

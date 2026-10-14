@@ -5,17 +5,22 @@
 //   data/projects/<id>/project.json.bak  the version before the last write
 //   data/projects/v1-migrated.json       the marker: the v1 desk was migrated once
 //   data/images/<kind>-<uuid>.<ext>      every image, sheets and panels alike
+//   data/jobs/<id>.json                  one job record each (v3, slice 18)
 //   data/chapter.json                    the v1 desk, read once, never modified
 //
 // Two guarantees, for two different problems (see `devpost/spec.md >
 // Components > Chapter Store`):
-//   1. No torn files   — write to a temp file, then rename() over the real one.
+//   1. No torn files   — write to a temp file nobody else shares, fsync it,
+//      then rename() over the real one.
 //   2. No lost updates — every mutation of a project goes through
-//      `updateProject()`, serialized on that project's own promise chain, so
+//      `updateProject()`: first serialized on that project's own promise chain
+//      (so writers in this process queue instead of polling the disk), then
+//      under a lock between processes (`lock.ts`, CR-3) — the web service, the
+//      worker and a check script may all write one `data/` folder. The
 //      read-modify-write never interleaves. Two projects never wait on each
 //      other; two panels of one page finishing together never erase each
 //      other.
-//
+
 // A project file that can't be read (CR-14) — a torn write, a crash before the
 // disk caught up — opens from its backup, with a warning. With no good backup
 // either, the dashboard shows it as a "can't be read" card, and opening it
@@ -27,21 +32,24 @@
 // package the way Next's server does.
 import 'server-only'
 import { createReadStream } from 'node:fs'
-import { mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
+import { mkdir, open, readdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { ProviderError, Refused } from '../errors'
 import { isChapterV1, migrateV1 } from '../migrate'
+import { BUSY, isActive, type JobRecord } from '../queue/jobs'
 import { singletons } from '../singleton'
 import { DEFAULT_STYLE_PRESET_ID } from '../styles'
 import type { Project, ProjectSummary } from '../types'
-import type { BlobKind, BlobStream, Store, StoreHealth } from './index'
+import type { BlobKind, BlobStream, JobFilter, JobStore, Store, StoreHealth } from './index'
+import { withFileLock } from './lock'
 
 // Overridable so the acceptance checks can run against a scratch folder.
 // Read at module load, like v1: set the env before the first import.
 export const DATA_DIR = process.env.INKDESK_DATA_DIR ?? 'data'
 export const PROJECTS_DIR = join(DATA_DIR, 'projects')
 export const IMAGES_DIR = join(DATA_DIR, 'images')
+export const JOBS_DIR = join(DATA_DIR, 'jobs')
 const V1_FILE = join(DATA_DIR, 'chapter.json')
 const V1_MARKER = join(PROJECTS_DIR, 'v1-migrated.json')
 
@@ -95,12 +103,29 @@ async function readJson(path: string): Promise<unknown | null> {
   }
 }
 
+/**
+ * Write `value` so a reader sees the old file or the new one, never half of
+ * either (CR-3): a temp file of this write's own — a name two processes can
+ * never share, or one renames the other's file away — flushed to disk before
+ * the rename, so a crash cannot leave a renamed file with nothing in it.
+ */
 async function writeAtomic(dir: string, file: string, value: unknown): Promise<void> {
   await mkdir(dir, { recursive: true })
   const real = join(dir, file)
-  const tmp = join(dir, `${file}.tmp`)
-  await writeFile(tmp, JSON.stringify(value, null, 2))
-  await rename(tmp, real)
+  const tmp = join(dir, `${file}.${process.pid}.${crypto.randomUUID()}.tmp`)
+  try {
+    const handle = await open(tmp, 'wx')
+    try {
+      await handle.writeFile(JSON.stringify(value, null, 2))
+      await handle.sync()
+    } finally {
+      await handle.close()
+    }
+    await rename(tmp, real)
+  } catch (err) {
+    await unlink(tmp).catch(() => {}) // a failed write leaves no stray temp file behind
+    throw err
+  }
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -205,10 +230,20 @@ async function writeProject(project: Project, previous?: Project): Promise<void>
   openedFromBackup.delete(project.id)
 }
 
+/** The cross-process lock for one project: beside the project folders, which it may precede. The dot keeps it out of the listing. */
+function projectLock(id: string): string {
+  return join(PROJECTS_DIR, `.project-${id}.lock`)
+}
+/** One migration at a time, on every process that shares this folder. (An underscore cannot be in a project id.) */
+const MIGRATE_LOCK = join(PROJECTS_DIR, '.migrate_v1.lock')
+
 async function createProject(project: Project): Promise<void> {
   const dir = projectDir(project.id)
-  if (await exists(join(dir, 'project.json'))) throw new Refused('That project already exists.')
-  await writeProject({ ...project, serverRunId: singletons.serverRunId })
+  // Under the lock, so two processes creating one id cannot both pass the check.
+  await withFileLock(projectLock(project.id), async () => {
+    if (await exists(join(dir, PROJECT_FILE))) throw new Refused('That project already exists.')
+    await writeProject({ ...project, serverRunId: singletons.serverRunId })
+  })
 }
 
 /**
@@ -221,17 +256,18 @@ function updateProject(id: string, fn: (project: Project) => Project): Promise<P
   // Validated before the lock map is touched, so a garbage id is a 404 and
   // never a lock entry.
   if (!isProjectId(id)) return Promise.reject(new Refused('There is no such project.', 404))
-  const run = async (): Promise<Project> => {
-    const current = await readProject(id) // fresh read, inside the lock
-    const next: Project = {
-      ...fn(current),
-      id, // the id is the folder; a change here would be a different project
-      serverRunId: singletons.serverRunId,
-      updatedAt: new Date().toISOString(),
-    }
-    await writeProject(next, current) // backup, then tmp + rename
-    return next
-  }
+  const run = (): Promise<Project> =>
+    withFileLock(projectLock(id), async () => {
+      const current = await readProject(id) // fresh read, inside both locks
+      const next: Project = {
+        ...fn(current),
+        id, // the id is the folder; a change here would be a different project
+        serverRunId: singletons.serverRunId,
+        updatedAt: new Date().toISOString(),
+      }
+      await writeProject(next, current) // backup, then tmp + fsync + rename
+      return next
+    })
   const previous = singletons.locks.get(id) ?? Promise.resolve()
   // `.then(run, run)` so one failed update doesn't block the next.
   const result = previous.then(run, run)
@@ -287,12 +323,17 @@ export async function migrateLegacy(): Promise<{ projectId: string | null; probl
     console.warn(`[store] ${V1_FILE} is not a version-1 desk; left as it is, nothing migrated.`)
     return { projectId: null, problem: 'The old chapter.json is not a version-1 desk. It was left as it is, nothing migrated.' }
   }
-  const ids = { projectId: `v1-${crypto.randomUUID().slice(0, 8)}`, chapterId: crypto.randomUUID() }
-  const project = migrateV1(raw, ids, singletons.serverRunId, new Date().toISOString(), 'chapter.json')
-  await createProject(project)
-  await writeAtomic(PROJECTS_DIR, 'v1-migrated.json', { projectId: ids.projectId, at: project.updatedAt })
-  console.log(`[store] migrated the v1 desk into project ${ids.projectId} (“${project.title}”); ${V1_FILE} untouched`)
-  return { projectId: ids.projectId, problem: null }
+  // Two processes listing a fresh desk together must not both migrate it: the
+  // marker is checked again under the lock, and only the first one writes.
+  return withFileLock(MIGRATE_LOCK, async () => {
+    if (await exists(V1_MARKER)) return { projectId: null, problem: null }
+    const ids = { projectId: `v1-${crypto.randomUUID().slice(0, 8)}`, chapterId: crypto.randomUUID() }
+    const project = migrateV1(raw, ids, singletons.serverRunId, new Date().toISOString(), 'chapter.json')
+    await createProject(project)
+    await writeAtomic(PROJECTS_DIR, 'v1-migrated.json', { projectId: ids.projectId, at: project.updatedAt })
+    console.log(`[store] migrated the v1 desk into project ${ids.projectId} (“${project.title}”); ${V1_FILE} untouched`)
+    return { projectId: ids.projectId, problem: null }
+  })
 }
 
 async function listProjects(): Promise<ProjectSummary[]> {
@@ -329,6 +370,155 @@ async function listProjects(): Promise<ProjectSummary[]> {
     summaries.push(unreadableSummary(id, changed.toISOString()))
   }
   return summaries.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0))
+}
+
+// --- Jobs -----------------------------------------------------------------------
+//
+// One file per job, `data/jobs/<id>.json`, written whole like a project. A job
+// is changed by the worker as well as the web service, so every change is a
+// read → function → write under that job's cross-process lock, and a new job
+// is checked against the others' keys under a lock on the whole folder.
+
+/** A job id is a filename: the same strictness as a project id (uuids pass). */
+const JOB_ID = /^[a-z0-9][a-z0-9-]{0,63}$/
+
+export function isJobId(id: string): boolean {
+  return typeof id === 'string' && JOB_ID.test(id)
+}
+
+/** How many jobs one listing returns unless the caller asks for a number. */
+export const JOB_LIST_LIMIT = 500
+
+// The dot keeps both out of the listing; an underscore cannot be in a job id, so
+// the folder's lock never collides with one job's.
+const JOBS_LOCK = join(JOBS_DIR, '.jobs_dir.lock')
+const jobLock = (id: string) => join(JOBS_DIR, `.${id}.lock`)
+
+function jobFile(id: string): string {
+  if (!isJobId(id)) throw new Error(`Not a job id: ${id}`)
+  return `${id}.json`
+}
+
+// Named once per file per process: the studio polls, and a damaged record
+// shouldn’t scroll the terminal every 1.5 s.
+const warnedJobs = new Set<string>()
+
+/** One job record, or null when there is none — or it can't be read, which is named once and never thrown. */
+async function readJobFile(file: string): Promise<JobRecord | null> {
+  const path = join(JOBS_DIR, file)
+  let raw: unknown
+  try {
+    raw = await readJson(path)
+  } catch (err) {
+    if (err instanceof SyntaxError) raw = undefined
+    else throw err
+  }
+  if (raw === null) return null
+  const job = raw as Partial<JobRecord> | undefined
+  if (typeof job !== 'object' || job === null || `${job.id}.json` !== file || typeof job.key !== 'string' || typeof job.status !== 'string') {
+    if (!warnedJobs.has(file)) {
+      warnedJobs.add(file)
+      console.warn(`[store] jobs/${file} couldn’t be read as a job; skipped`)
+    }
+    return null
+  }
+  return job as JobRecord
+}
+
+/** Every readable job record in the folder (no limit, no order). */
+async function readJobs(): Promise<JobRecord[]> {
+  let names: string[]
+  try {
+    names = await readdir(JOBS_DIR)
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return []
+    throw err
+  }
+  const jobs: JobRecord[] = []
+  for (const name of names) {
+    if (!name.endsWith('.json') || !isJobId(name.slice(0, -'.json'.length))) continue // a lock, a temp file, anything else
+    const job = await readJobFile(name)
+    if (job) jobs.push(job)
+  }
+  return jobs
+}
+
+const newestFirst = (a: JobRecord, b: JobRecord) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : a.id < b.id ? 1 : a.id > b.id ? -1 : 0)
+
+const jobs: JobStore = {
+  async insertJob(job) {
+    const file = jobFile(job.id) // refuses a path trick before anything is touched
+    return withFileLock(
+      JOBS_LOCK,
+      async () => {
+        if (isActive(job)) {
+          const holder = (await readJobs()).find((other) => isActive(other) && other.key === job.key)
+          if (holder) return { job: holder, created: false }
+        }
+        if (await exists(join(JOBS_DIR, file))) throw new Error(`jobs/${file} already exists`)
+        await writeAtomic(JOBS_DIR, file, job)
+        return { job, created: true }
+      },
+      { busy: BUSY }
+    )
+  },
+
+  async getJob(id) {
+    if (!isJobId(id)) return null
+    return readJobFile(jobFile(id))
+  },
+
+  async updateJob(id, fn) {
+    if (!isJobId(id)) return null
+    const file = jobFile(id)
+    return withFileLock(
+      jobLock(id),
+      async () => {
+        const current = await readJobFile(file) // fresh read, inside both locks
+        if (!current) return null
+        const next = fn(current)
+        if (next === null) return null
+        const written: JobRecord = { ...next, id } // the id is the file; a change here would be a different job
+        await writeAtomic(JOBS_DIR, file, written)
+        return written
+      },
+      { busy: BUSY }
+    )
+  },
+
+  async listJobs(filter: JobFilter = {}) {
+    const { projectId, ownerId, status, key, updatedSince, limit } = filter
+    return (await readJobs())
+      .filter(
+        (job) =>
+          (projectId === undefined || job.projectId === projectId) &&
+          (ownerId === undefined || job.ownerId === ownerId) &&
+          (status === undefined || status.includes(job.status)) &&
+          (key === undefined || job.key === key) &&
+          (updatedSince === undefined || job.updatedAt >= updatedSince)
+      )
+      .sort(newestFirst)
+      .slice(0, limit ?? JOB_LIST_LIMIT)
+  },
+
+  async pruneJobs(finishedBefore) {
+    const over = (job: JobRecord) => !isActive(job) && (job.finishedAt ?? job.updatedAt) < finishedBefore
+    let removed = 0
+    for (const candidate of (await readJobs()).filter(over)) {
+      // Looked at again under its lock: a record changed since the listing stays.
+      removed += await withFileLock(
+        jobLock(candidate.id),
+        async () => {
+          const current = await readJobFile(jobFile(candidate.id))
+          if (!current || !over(current)) return 0
+          await unlink(join(JOBS_DIR, jobFile(candidate.id)))
+          return 1
+        },
+        { busy: BUSY }
+      )
+    }
+    return removed
+  },
 }
 
 // --- Blobs ----------------------------------------------------------------------
@@ -371,9 +561,19 @@ async function openBlob(id: string): Promise<BlobStream | null> {
   }
 }
 
+/** Remove one image; one that isn't there is already gone (CR-16). An unsafe id names nothing. */
+async function deleteBlob(id: string): Promise<void> {
+  if (!isImageId(id)) return
+  try {
+    await unlink(imagePath(id))
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+  }
+}
+
 /** A local desk needs no database and no bucket. */
 async function health(): Promise<StoreHealth> {
   return { mongo: 'n/a', bucket: 'n/a' }
 }
 
-export const localStore: Store = { listProjects, migrateLegacy, readProject, createProject, updateProject, putBlob, getBlob, openBlob, health }
+export const localStore: Store = { listProjects, migrateLegacy, readProject, createProject, updateProject, putBlob, getBlob, openBlob, deleteBlob, jobs, health }

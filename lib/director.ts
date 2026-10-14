@@ -6,8 +6,8 @@
 //
 // Every page job still goes through `lib/panels.ts` — the v1 engine,
 // addressed per page — so a page's failure can never touch another page, and
-// the queue's key (project : chapter : page : panel) keeps two pages from
-// ever deduping against each other. The cover is one more queued job, keyed
+// the job's key (project : chapter : page : panel) keeps two pages from ever
+// deduping against each other. The cover is one more job, keyed
 // project : chapter : cover.
 
 // Server only (SEC-15): importing this from a client component is a build
@@ -19,13 +19,16 @@ import { summarizeScenario, writeChapterPlan } from './claude'
 import { ProviderError, Refused } from './errors'
 import { generateImage, imageConfig } from './image-provider'
 import { fitsVision } from './assets'
-import { chargeText, mediaTypeOf, readImage, saveImage } from './images'
+import { chargeText, landImage, mediaTypeOf, readImage, saveImage } from './images'
 import { textMeter, type AskImage } from './llm'
 import { queueBlankPanels } from './panels'
-import { assertPageDrawable, assertPlanWritable, attachCoverVersion, markCoverFailed, markCoverInking, newPlan, pageFromPlan } from './plan'
+import { assertPageDrawable, assertPlanWritable, attachCoverVersion, coverHasVersion, markCoverFailed, markCoverInking, newPlan, pageFromPlan } from './plan'
 import { coverPrompt, type LockedCharacter, type PlanSource } from './prompts'
 import { lockedPair } from './script'
-import { singletons } from './singleton'
+import { tripCredits } from './queue/breaker'
+import { enqueueJob, isQueued as keyIsQueued } from './queue/enqueue'
+import { LOCAL_OWNER, PAUSED, coverKey } from './queue/jobs'
+import { adhocRun, type JobRun, type Outcome } from './queue/run'
 import { MAX_PLAN_REFERENCES, needsSummary, storyBrief } from './story'
 import { stylePreset, styleRules } from './styles'
 import type { Character, Desk, PageAddress } from './types'
@@ -158,35 +161,59 @@ export async function startAll(projectId: string): Promise<{ written: number[]; 
 
 // --- The cover ----------------------------------------------------------------------
 
-const coverKey = (projectId: string, chapterId: string) => `${projectId}:${chapterId}:cover`
+const keyOfCover = (projectId: string, chapterId: string) => coverKey(projectId, chapterId)
 
-export function isCoverQueued(projectId: string, chapterId: string): boolean {
-  return singletons.queue.has(coverKey(projectId, chapterId))
+export function isCoverQueued(projectId: string, chapterId: string): Promise<boolean> {
+  return keyIsQueued(keyOfCover(projectId, chapterId))
 }
 
 /** Queue the cover — Generate, Redraw and Try again are the same request. False if it is already waiting or running. */
-export function queueCover(projectId: string, chapterId: string): boolean {
-  return singletons.queue.enqueue(coverKey(projectId, chapterId), () => inkCover(projectId))
+export async function queueCover(projectId: string, chapterId: string): Promise<boolean> {
+  const { created } = await enqueueJob({
+    key: keyOfCover(projectId, chapterId),
+    ownerId: LOCAL_OWNER,
+    projectId,
+    kind: 'cover',
+    payload: { kind: 'cover', chapterId },
+  })
+  return created
 }
 
 /**
- * One cover generation, start to finish. Never throws: the outcome is written
- * to the chapter. Drawn like a panel — the lead's locked sheet as the single
- * reference, the DNA verbatim, the project's rules — from the Director's
- * brief. The title is the app's lettering and never enters the prompt. Two
- * sheets as references would need the two-character kernel test, which v2
- * does not run, so the lead alone is the honest default.
+ * One cover generation, start to finish. Never throws (past a store outage
+ * after the picture is paid for, which the job retries): the outcome is
+ * written to the chapter and returned. Drawn like a panel — the lead's locked
+ * sheet as the single reference, the DNA verbatim, the project's rules — from
+ * the Director's brief. The title is the app's lettering and never enters the
+ * prompt. Two sheets as references would need the two-character kernel test,
+ * which v2 does not run, so the lead alone is the honest default.
  */
-export async function inkCover(projectId: string): Promise<void> {
+export async function inkCover(projectId: string, run: JobRun = adhocRun()): Promise<Outcome> {
   let desk: Desk
   try {
-    desk = await update(projectId, (d) => markCoverInking(d, singletons.serverRunId))
+    desk = await update(projectId, (d) => markCoverInking(d, run.jobId))
   } catch (err) {
-    console.warn(`[cover] not started: ${err instanceof Error ? err.message : String(err)}`)
-    return
+    if (!(err instanceof Refused)) throw err
+    console.warn(`[cover] not started: ${err.message}`)
+    return { outcome: 'skipped', error: err.message }
+  }
+
+  let stored = run.resultImageId !== null
+  const tracked: JobRun = {
+    ...run,
+    checkpoint: async (imageId, cost) => {
+      await run.checkpoint(imageId, cost)
+      stored = true
+    },
   }
 
   try {
+    if (run.resultImageId && (await readImage(run.resultImageId))) {
+      console.log(`[cover] picking up the picture a previous run stored (${run.resultImageId}); not drawing again`)
+      await landImage(projectId, run.resultImageId, (d, id) => attachCoverVersion(d, id, new Date(), run.jobId), run.costUsd, undefined, coverHasVersion)
+      return { outcome: 'done', costUsd: run.costUsd }
+    }
+
     const [lead] = lockedPair(desk)
     const brief = desk.cover?.brief ?? ''
     const sheet = lead.sheetImageId ? await readImage(lead.sheetImageId) : null
@@ -206,11 +233,16 @@ export async function inkCover(projectId: string): Promise<void> {
       references: [{ bytes: sheet, mediaType: mediaTypeOf(lead.sheetImageId) }],
       label: `cover · ${lead.name}`,
     })
-    await saveImage(projectId, 'cover', image.b64, image.mediaType, (d, imageId) => attachCoverVersion(d, imageId), image.costUsd)
+    await saveImage(projectId, 'cover', image.b64, image.mediaType, (d, imageId) => attachCoverVersion(d, imageId, new Date(), run.jobId), image.costUsd, undefined, tracked)
+    return { outcome: 'done', costUsd: image.costUsd ?? 0 }
   } catch (err) {
+    if (stored && !(err instanceof Refused)) throw err
+    const credits = err instanceof ProviderError && err.code === 'credits'
+    if (credits) await tripCredits()
     const status = err instanceof ProviderError && err.kind === 'refused' ? 'refused' : 'failed'
     if (err instanceof ProviderError) console.error(`[cover] ${status}: ${err.message}`, err.cause ?? '')
     else console.error(`[cover] ${status}:`, err)
-    await update(projectId, (d) => markCoverFailed(d, status)).catch((e: unknown) => console.error('[cover] could not record the failure:', e))
+    await update(projectId, (d) => markCoverFailed(d, status, run.jobId)).catch((e: unknown) => console.error('[cover] could not record the failure:', e))
+    return { outcome: status, error: credits ? PAUSED : err instanceof ProviderError && err.kind !== 'provider' ? err.message : undefined }
   }
 }

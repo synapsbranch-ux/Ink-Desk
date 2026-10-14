@@ -118,7 +118,9 @@ let client: Anthropic | null = null
 function anthropic(): Anthropic {
   if (!process.env.ANTHROPIC_API_KEY) throw new ProviderError(NO_CLAUDE_KEY, 'config')
   // One retry, not the SDK's default two: past it, the fallback is the faster answer.
-  return (client ??= new Anthropic({ maxRetries: 1 }))
+  // And a ceiling per attempt (CR-11): the SDK's default is ten minutes, which a
+  // proxy's idle timeout or a platform's request limit would cut off long before.
+  return (client ??= new Anthropic({ maxRetries: 1, timeout: 150_000 }))
 }
 
 type ClaudeImage = { type: 'image'; source: { type: 'base64'; media_type: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'; data: string } }

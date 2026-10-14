@@ -13,7 +13,7 @@
 import { Refused } from './errors'
 import { PANEL_LAYOUT } from './prompts'
 import { PAGE_COUNT_MAX, PAGE_COUNT_MIN, planPages, type ChapterPlanOutput, type PageScriptOutput, type PanelLine } from './schemas'
-import { lockedPair, MAX_PANEL_VERSIONS, newScript } from './script'
+import { claimIsStale, lockedPair, MAX_PANEL_VERSIONS, newScript } from './script'
 import { defaultCoverTitle } from './story'
 import type { ChapterPlan, CoverState, Desk, PageSummary, PanelStatus, PlanPage, ProjectPage } from './types'
 
@@ -273,23 +273,26 @@ export function applyCoverEdit(desk: Desk, edit: CoverEdit): Desk {
 }
 
 /**
- * The cover starts drawing: stamped for the timeout and restart floor like a
- * panel. Refused while it is already inking, without a brief, or unless both
+ * The cover starts drawing: stamped with the job's claim, like a panel.
+ * Refused while another claim holds it, without a brief, or unless both
  * characters are locked — the lead's sheet is the cover's one reference.
  */
 export function markCoverInking(desk: Desk, runId: string, now = new Date()): Desk {
   const cover = desk.cover
   if (!cover) throw new Refused('Write the chapter plan first — the cover brief comes with it.')
-  if (cover.status === 'inking') throw new Refused('The cover is already inking.')
+  if (cover.status === 'inking' && cover.startedByRun !== runId) throw new Refused('The cover is already inking.')
   if (cover.brief.trim() === '') throw new Refused('Write the cover brief first.')
   lockedPair(desk)
   return { ...desk, cover: { ...cover, status: 'inking', startedAt: now.toISOString(), startedByRun: runId } }
 }
 
 /** The cover's art landed: a new version, newest last, three kept — the panels' rule. */
-export function attachCoverVersion(desk: Desk, imageId: string, now = new Date()): Desk {
+export function attachCoverVersion(desk: Desk, imageId: string, now = new Date(), claim?: string): Desk {
   const cover = desk.cover
   if (!cover) throw new Error('attachCoverVersion without a cover')
+  if (claim !== undefined && (cover.status !== 'inking' || cover.startedByRun !== claim)) {
+    throw new Refused('The cover was reset while it was inking, so this picture was set aside.')
+  }
   const versions = [...cover.versions, { imageId, createdAt: now.toISOString() }].slice(-MAX_PANEL_VERSIONS)
   return {
     ...desk,
@@ -297,16 +300,22 @@ export function attachCoverVersion(desk: Desk, imageId: string, now = new Date()
   }
 }
 
-export function markCoverFailed(desk: Desk, status: Extract<PanelStatus, 'failed' | 'refused'>): Desk {
+/** Does the cover already keep this picture? */
+export function coverHasVersion(desk: Desk, imageId: string): boolean {
+  return desk.cover?.versions.some((v) => v.imageId === imageId) ?? false
+}
+
+export function markCoverFailed(desk: Desk, status: Extract<PanelStatus, 'failed' | 'refused'>, claim?: string): Desk {
   const cover = desk.cover
   if (!cover) return desk
+  if (claim !== undefined && (cover.status !== 'inking' || cover.startedByRun !== claim)) return desk
   return { ...desk, cover: { ...cover, status, startedAt: null, startedByRun: null } }
 }
 
-/** The panels' floor, for the cover: inking that cannot be in flight in this process is stale. */
-export function coverIsStale(cover: CoverState | null, runId: string, timeoutMs: number, now = new Date()): boolean {
+/** The panels' floor, for the cover: inking that no live job holds is stale. */
+export function coverIsStale(cover: CoverState | null, live: ReadonlySet<string>, maxAgeMs: number, now = new Date()): boolean {
   if (cover?.status !== 'inking') return false
-  return cover.startedByRun !== runId || !cover.startedAt || now.getTime() - Date.parse(cover.startedAt) > timeoutMs
+  return claimIsStale(cover.startedByRun, cover.startedAt, live, maxAgeMs, now)
 }
 
 /** The cover's stepper: the displayed version, clamped to what is kept. */

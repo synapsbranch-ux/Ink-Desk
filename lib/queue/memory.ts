@@ -6,7 +6,9 @@
 // running past `ceilingMs` gives its slot and its key back (CR-6): whatever it
 // is stuck on can hold that one job, never the queue. By then the desk's
 // stale-inking floor has shown the panel as failed, so Try again works.
-// See `devpost/spec.md > Components > Panel Queue (lib/queue.ts)`.
+// This is the INLINE queue (`INKDESK_QUEUE=inline`, slice 18): the in-process
+// runner for a bare dev desk and the checks. Under `bullmq` a worker service
+// runs the jobs. See `devpost/spec.md > Queue and Worker (v3)`.
 //
 // No Node imports: the one instance is pinned to `globalThis` in
 // `lib/singleton.ts`, and the acceptance check builds its own.

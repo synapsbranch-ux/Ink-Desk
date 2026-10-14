@@ -7,6 +7,7 @@ import { pageAt, read } from '@/lib/chapter'
 import { errorResponse, Refused } from '@/lib/errors'
 import { assertGenerationEnabled } from '@/lib/generation'
 import { isQueued, queuePanel } from '@/lib/panels'
+import { readWithActivity } from '@/lib/queue/status'
 import { findPanel } from '@/lib/script'
 
 export const runtime = 'nodejs'
@@ -22,10 +23,10 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     const addr = await pageAt(id, /^\d+$/.test(n) ? Number(n) : -1)
     const panel = findPanel(await read(id, addr), index)
     if (panel.status === 'inking') throw new Refused(`Panel ${index + 1} is already inking.`)
-    if (isQueued(addr, index)) throw new Refused(`Panel ${index + 1} is already waiting to ink.`)
-    queuePanel(addr, index)
+    if (await isQueued(addr, index)) throw new Refused(`Panel ${index + 1} is already waiting to ink.`)
+    await queuePanel(addr, index)
     // The open page, as every reply is — the studio renders whatever it gets.
-    return Response.json(await read(id))
+    return Response.json(await readWithActivity(id))
   } catch (err) {
     return errorResponse(err, 'panel', CALM)
   }

@@ -21,7 +21,10 @@ export class ProviderError extends Error {
   constructor(
     message: string,
     readonly kind: 'config' | 'provider' | 'refused',
-    readonly cause?: unknown
+    readonly cause?: unknown,
+    /** A provider failure that means more than "try again": `credits` is a 402 —
+     *  the account is out, so every waiting job would fail the same way. */
+    readonly code?: 'credits'
   ) {
     super(message)
     this.name = 'ProviderError'

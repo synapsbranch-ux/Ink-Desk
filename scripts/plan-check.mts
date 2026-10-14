@@ -34,7 +34,6 @@ delete process.env.IMAGE_COVER_ASPECT
 // Imported after the env is set, because the store and the queue read it at load.
 const { createProject, read: readDesk, update: updateDesk, demoteStale } = await import('../lib/chapter')
 const { store } = await import('../lib/store')
-const { singletons } = await import('../lib/singleton')
 const { saveAsset, saveImage } = await import('../lib/images')
 const { attachSheet, proposeCast, setDna } = await import('../lib/cast')
 const { applyPatch, assertStoryEditable } = await import('../lib/patch')
@@ -56,6 +55,13 @@ const route = await import('../app/api/projects/[id]/route')
 import type { Desk, Project } from '../lib/types'
 
 const ok = (msg: string) => console.log(`  ok  ${msg}`)
+// The job records are what the queue is made of (slice 18): what is running, and what waits, in order.
+const runningKeys = async () => (await store.jobs.listJobs({ status: ['running'] })).map((j) => j.key).sort()
+const waitingKeys = async () =>
+  (await store.jobs.listJobs({ status: ['queued'] }))
+    .sort((a, b) => (a.createdAt === b.createdAt ? (a.key < b.key ? -1 : 1) : a.createdAt < b.createdAt ? -1 : 1))
+    .map((j) => j.key)
+
 const tick = () => new Promise<void>((r) => setTimeout(r, 0))
 async function until(what: string, pred: () => boolean | Promise<boolean>, ms = 5000): Promise<void> {
   const t0 = Date.now()
@@ -334,9 +340,9 @@ try {
   {
     const queued = await startPage(at(1))
     assert.deepEqual(queued, [0, 1, 2, 3])
-    await tick()
+    await until('two panels running', async () => (await runningKeys()).length === 2)
     assert.deepEqual(
-      singletons.queue.running().sort(),
+      await runningKeys(),
       [`${pid}:${chapterId}:1:0`, `${pid}:${chapterId}:1:1`].sort(),
       'two at a time, keyed project : chapter : page : panel'
     )
@@ -359,8 +365,8 @@ try {
     )
     await assert.rejects(writePlan(pid, 3, true), /already being inked/, 'no replan once a page is written')
     // Page 1's panel 1 and page 2's panel 1 never dedupe against each other.
-    assert.equal(isQueued(at(1), 0), true)
-    assert.equal(isQueued(at(0), 0), false)
+    assert.equal(await isQueued(at(1), 0), true)
+    assert.equal(await isQueued(at(0), 0), false)
     ok('Generate page writes one page from the plan and queues it; again is a no-op; keys carry the page')
   }
 
@@ -378,7 +384,7 @@ try {
     const again = await startAll(pid)
     assert.deepEqual(again, { written: [], queued: [] }, 'Generate all is idempotent')
     assert.deepEqual(
-      singletons.queue.waiting().slice(-8),
+      (await waitingKeys()).slice(-8),
       [0, 2].flatMap((p) => [0, 1, 2, 3].map((i) => `${pid}:${chapterId}:${p}:${i}`)),
       'waiting in page order behind page 2'
     )
@@ -392,14 +398,14 @@ try {
     let released = 0
     while (released < 12) {
       await until('an image request', () => images.length > 0)
-      maxInking = Math.max(maxInking, await inkingNow(), singletons.queue.running().length)
+      maxInking = Math.max(maxInking, await inkingNow(), (await runningKeys()).length)
       const next = images.shift()!
       // The fifth request is page 1's first panel: it fails with a 500.
       next.release(released === 4 ? 500 : 'ok')
       released++
       await tick()
     }
-    await until('the queue to drain', () => singletons.queue.running().length === 0 && singletons.queue.waiting().length === 0)
+    await until('the queue to drain', async () => (await store.jobs.listJobs({ status: ['queued', 'running'] })).length === 0)
     assert.ok(maxInking <= 2, `never more than PANEL_CONCURRENCY inking (saw ${maxInking})`)
 
     desk = await read()
@@ -419,10 +425,10 @@ try {
   {
     desk = await updateDesk(pid, (d) => applyPatch(d, { cover: { title: COVER_TITLE } }))
     assert.equal(desk.cover?.title, COVER_TITLE)
-    assert.equal(queueCover(pid, chapterId), true)
-    assert.equal(queueCover(pid, chapterId), false, 'the cover is never queued twice')
-    assert.equal(isCoverQueued(pid, chapterId), true)
-    assert.ok(singletons.queue.has(`${pid}:${chapterId}:cover`), 'keyed project : chapter : cover')
+    assert.equal(await queueCover(pid, chapterId), true)
+    assert.equal(await queueCover(pid, chapterId), false, 'the cover is never queued twice')
+    assert.equal(await isCoverQueued(pid, chapterId), true)
+    assert.equal((await store.jobs.listJobs({ key: `${pid}:${chapterId}:cover`, status: ['queued', 'running'] })).length, 1, 'keyed project : chapter : cover')
     await until('the cover request', () => images.length > 0)
     const req = images[0].body
     assert.equal((await read()).cover?.status, 'inking')
@@ -445,7 +451,8 @@ try {
     assert.equal(summary?.thumbnailImageId, desk.cover?.versions[0].imageId, 'the dashboard card shows the cover')
 
     // Redraw that fails: recorded as failed, the art and the title kept.
-    queueCover(pid, chapterId)
+    await until('the first cover job to end', async () => !(await isCoverQueued(pid, chapterId)))
+    await queueCover(pid, chapterId)
     await until('the redraw request', () => images.length > 0)
     images.shift()!.release(400)
     await until('the redraw to fail', async () => (await read()).cover?.status === 'failed')
@@ -458,21 +465,23 @@ try {
   // 9. The floor, chapter-wide: stale inking on any page, and on the cover, is demoted. ------------
   {
     const p: Project = await store.readProject(pid)
+    const minuteAgo = new Date(Date.now() - 60_000).toISOString()
     const stale: Project = {
       ...p,
       chapters: p.chapters.map((c) => ({
         ...c,
         pages: c.pages.map((pg) =>
-          pg.index === 2 ? { ...pg, panels: pg.panels.map((x) => (x.index === 1 ? { ...x, status: 'inking' as const, startedAt: new Date().toISOString(), startedByRun: 'a-dead-run' } : x)) } : pg
+          pg.index === 2 ? { ...pg, panels: pg.panels.map((x) => (x.index === 1 ? { ...x, status: 'inking' as const, startedAt: minuteAgo, startedByRun: 'a-dead-run' } : x)) } : pg
         ),
-        cover: c.cover && { ...c.cover, status: 'inking' as const, startedAt: new Date().toISOString(), startedByRun: 'a-dead-run' },
+        cover: c.cover && { ...c.cover, status: 'inking' as const, startedAt: minuteAgo, startedByRun: 'a-dead-run' },
       })),
     }
-    const { project: fixed, demoted } = demoteStale(stale, singletons.serverRunId, 360000)
+    const { project: fixed, demoted } = demoteStale(stale, new Set(['some-live-job']), 360000)
     assert.deepEqual(demoted, ['p3 panel 2', 'cover'])
     assert.equal(fixed.chapters[0].pages[2].panels[1].status, 'failed')
     assert.equal(fixed.chapters[0].cover?.status, 'failed')
-    assert.equal(demoteStale(p, singletons.serverRunId, 360000).demoted.length, 0, 'live work is left alone')
+    assert.equal(demoteStale(p, new Set(), 360000).demoted.length, 0, 'a project with nothing inking is left alone')
+    assert.equal(demoteStale(stale, new Set(['a-dead-run']), 360000).demoted.length, 0, 'work a live job holds is left alone, on any page and on the cover')
     ok('stale inking anywhere in the chapter — any page, or the cover — is demoted to failed')
   }
 

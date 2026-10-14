@@ -2152,6 +2152,17 @@ input.cast-role:disabled,
   margin: var(--space-3) var(--space-6) 0;
 }
 
+/* The queue's calm status line (slice 18), shown only while Redis or the
+   worker is down: a notice in neutral, not the brand red — nothing is broken
+   in the user's work, drawing is just slow to start. Absent otherwise, so it
+   reserves no space. */
+.studio-queue {
+  margin: var(--space-3) var(--space-6) 0;
+  border-left-color: var(--neutral-500);
+  color: var(--neutral-800);
+  font-size: 14px;
+}
+
 /* Story — Pitch | Scenario */
 .mode-row {
   display: flex;
@@ -2788,7 +2799,8 @@ input.cast-role:disabled,
     min-width: 0;
     font-size: 12px;
   }
-  .studio-refusal {
+  .studio-refusal,
+  .studio-queue {
     margin-inline: var(--space-4);
   }
   .scenario-box {

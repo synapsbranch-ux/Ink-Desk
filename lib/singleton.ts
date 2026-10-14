@@ -5,8 +5,8 @@
 // four generations instead of two. `globalThis` survives both.
 // See `devpost/spec.md > Components > Singletons and the Dev Server`.
 import { randomUUID } from 'node:crypto'
-import { generationTimeoutMs, panelConcurrency } from './config'
-import { createQueue, type Queue } from './queue'
+import { generationTimeoutMs, imageConcurrency } from './config'
+import { createQueue, type Queue } from './queue/memory'
 
 type InkDeskGlobals = {
   /** Stamped once per real process; changes on restart, not on hot reload. */
@@ -15,7 +15,8 @@ type InkDeskGlobals = {
    *  lock per project, so two projects never wait on each other). Reassigned
    *  by the store's `updateProject()`. */
   locks: Map<string, Promise<unknown>>
-  /** The panel queue, `PANEL_CONCURRENCY` wide, shared by every project. */
+  /** The inline queue (`INKDESK_QUEUE=inline`): this process runs the jobs, `QUEUE_CONCURRENCY_IMAGE` wide
+   *  (else `PANEL_CONCURRENCY`). Under `bullmq` nothing is queued here; a worker service runs them. */
   queue: Queue
 }
 
@@ -27,5 +28,5 @@ export const singletons: InkDeskGlobals = (g.__inkdesk ??= {
   // Validated in `lib/config.ts` (CR-15): a blank value is the default, not 0.
   // The ceiling (CR-6) is past a job's own retried image call, so it only
   // ever frees a slot that something stuck is holding.
-  queue: createQueue(panelConcurrency(), 2 * generationTimeoutMs() + 60_000),
+  queue: createQueue(imageConcurrency(), 2 * generationTimeoutMs() + 60_000),
 })

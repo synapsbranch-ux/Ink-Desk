@@ -4,6 +4,7 @@
 // then, so a local desk never pulls in either driver.
 //
 //   MongoDB  <database>.projects   { _id: <project id>, rev: n, project: Project }
+//   MongoDB  <database>.jobs       { _id: <job id>, rev: n, activeKey?: <key>, ...the job's fields } (v3, slice 18)
 //   bucket   <project-files bucket>/<prefix><kind>-<uuid>.<ext>   the same ids the local store writes,
 //            under S3_KEY_PREFIX (default `inkdesk/`), never at the bucket's root (SEC-13)
 //
@@ -21,37 +22,41 @@
 //   2. No lost updates — `updateProject()` is read → `fn` → write only if
 //      `rev` is still the one read, with `rev` bumped in the same operation.
 //      A mismatch means another writer got there first: re-read and run `fn`
-//      again on the fresh project, a bounded number of times, then a calm
-//      failure. Inside one process the per-project promise chain still
-//      serializes updates first, so a retry only happens when something
-//      else writes the database — a check, a script, a second server
-//      started by mistake. Run one Ink Desk server per database: a second
-//      one's stale-inking floor would demote this one's panels in flight.
+//      again on the fresh project, a bounded number of times with a jittered
+//      pause, then a calm failure. Since slice 18 the web service and the
+//      worker both write the database, so this compare-and-set IS the guard;
+//      the per-project promise chain in a process only keeps its own writers
+//      from racing each other — a contention reducer, and nothing depends on
+//      it. The job records (`jobs`) follow the same rule, plus a unique sparse
+//      index on `activeKey` so two racing inserts for one key cannot both win.
 //
 // The browser still only ever sees `/api/image/<id>`; the bucket is never
-// public. The panel queue stays in this process in both modes, and the
-// stale-inking floor (`startedByRun`, `startedAt`) is unchanged — cloud mode
-// makes the data durable and shareable, not the app multi-instance.
+// public.
 
 // Server only (SEC-15): importing this from a client component is a build
 // error. The checks run under tsx, where `scripts/server-only.mts` resolves the
 // package the way Next's server does.
 import 'server-only'
-import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
-import { MongoClient, MongoNetworkError, MongoServerError, MongoServerSelectionError, type Collection, type MongoClientOptions } from 'mongodb'
+import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import { MongoClient, MongoNetworkError, MongoServerError, MongoServerSelectionError, type Collection, type Db, type Filter, type MongoClientOptions } from 'mongodb'
 import { ConfigError, cloudSettings, type CloudSettings } from '../config'
 import { ProviderError, Refused } from '../errors'
+import { BUSY, isActive, type JobRecord } from '../queue/jobs'
 import { singletons } from '../singleton'
 import type { Project, ProjectSummary } from '../types'
 import { missingCloudEnv, missingCloudSentence } from './env'
-import { isImageId, isProjectId, mediaTypeOf, projectProblem, summarize, unreadableProject, unreadableSummary } from './local'
-import type { BlobKind, BlobStream, Check, Store, StoreHealth } from './index'
+import { JOB_LIST_LIMIT, isImageId, isProjectId, mediaTypeOf, projectProblem, summarize, unreadableProject, unreadableSummary } from './local'
+import type { BlobKind, BlobStream, Check, JobFilter, JobStore, Store, StoreHealth } from './index'
 
 export type ProjectDoc = { _id: string; rev: number; project: Project }
+
+/** A job as stored: its record without `id` (that is `_id`), a `rev`, and `activeKey` — the job's key while it is queued or running, ABSENT once it ends. */
+export type JobDoc = { _id: string; rev: number; activeKey?: string } & Omit<JobRecord, 'id'>
 
 type Cloud = {
   client: MongoClient
   projects: Collection<ProjectDoc>
+  jobs: Collection<JobDoc>
   s3: S3Client
   /** Images and uploads. */
   bucket: string
@@ -61,8 +66,8 @@ type Cloud = {
   prefix: string
 }
 
-/** How many times one update re-reads after losing a race to another writer. */
-export const MAX_UPDATE_ATTEMPTS = 5
+/** How many times one update re-reads after losing a race to another writer. Two writers (web, worker) plus a polling GET must not exhaust it. */
+export const MAX_UPDATE_ATTEMPTS = 8
 
 const EXT_BY_MEDIA_TYPE: Record<string, string> = {
   'image/png': 'png',
@@ -231,6 +236,28 @@ function describe(settings: CloudSettings): string {
 /** The listing's sort, indexed so the dashboard never scans the collection. */
 const UPDATED_INDEX = { 'project.updatedAt': -1 } as const
 
+/**
+ * The `jobs` indexes, made once per connection and idempotent. The unique
+ * sparse `activeKey` is what lets two racing inserts for one key have exactly
+ * one winner; the rest serve the listings. A failure is logged, not fatal: a
+ * user without createIndex still gets a working desk (but see the warning —
+ * without the unique index, a double click can queue twice).
+ */
+async function ensureJobIndexes(db: Db): Promise<void> {
+  const jobs = db.collection<JobDoc>('jobs')
+  const indexes = [
+    { key: { activeKey: 1 }, options: { unique: true, sparse: true, name: 'activeKey_unique_sparse' } },
+    { key: { ownerId: 1, status: 1 }, options: { name: 'ownerId_status' } },
+    { key: { projectId: 1, status: 1 }, options: { name: 'projectId_status' } },
+    { key: { status: 1, updatedAt: 1 }, options: { name: 'status_updatedAt' } },
+  ] as const
+  await Promise.all(
+    indexes.map(({ key, options }) =>
+      jobs.createIndex({ ...key }, { ...options }).catch((err: unknown) => console.warn(`[store] the jobs index ${options.name} couldn’t be created:`, err instanceof Error ? err.message : err))
+    )
+  )
+}
+
 async function connect(settings: CloudSettings): Promise<Cloud> {
   let client: MongoClient | undefined
   try {
@@ -260,6 +287,7 @@ async function connect(settings: CloudSettings): Promise<Cloud> {
     .collection<ProjectDoc>('projects')
     .createIndex(UPDATED_INDEX)
     .catch((err: unknown) => console.warn('[store] the listing index couldn’t be created:', err instanceof Error ? err.message : err))
+  await ensureJobIndexes(client.db(settings.mongoDb))
   const s3 = s3Client(settings)
   const bucket = settings.projectFilesBucket
   const probeKey = settings.keyPrefix + BUCKET_PROBE_KEY
@@ -283,6 +311,7 @@ async function connect(settings: CloudSettings): Promise<Cloud> {
   return {
     client,
     projects: client.db(settings.mongoDb).collection<ProjectDoc>('projects'),
+    jobs: client.db(settings.mongoDb).collection<JobDoc>('jobs'),
     s3,
     bucket,
     outputsBucket: settings.outputsBucket,
@@ -319,10 +348,10 @@ export function isRefusal(err: unknown): boolean {
   return err instanceof MongoServerError && (err.code === 13 || err.code === 8000)
 }
 
-async function mongo<T>(op: (projects: Collection<ProjectDoc>) => Promise<T>): Promise<T> {
-  const { projects } = await cloud()
+async function mongoCall<T>(op: (c: Cloud) => Promise<T>): Promise<T> {
+  const c = await cloud()
   try {
-    return await op(projects)
+    return await op(c)
   } catch (err) {
     if (err instanceof MongoNetworkError || err instanceof MongoServerSelectionError) {
       throw new ProviderError(MONGO_UNREACHABLE, 'config', err)
@@ -332,15 +361,23 @@ async function mongo<T>(op: (projects: Collection<ProjectDoc>) => Promise<T>): P
   }
 }
 
+function mongo<T>(op: (projects: Collection<ProjectDoc>) => Promise<T>): Promise<T> {
+  return mongoCall((c) => op(c.projects))
+}
+
+function mongoJobs<T>(op: (jobs: Collection<JobDoc>) => Promise<T>): Promise<T> {
+  return mongoCall((c) => op(c.jobs))
+}
+
 // --- Projects -------------------------------------------------------------------
 
 function noSuchProject(): Refused {
   return new Refused('There is no such project.', 404)
 }
 
-/** What lands in MongoDB is exactly what the local store would write to disk. */
-function plain(project: Project): Project {
-  return JSON.parse(JSON.stringify(project)) as Project
+/** What lands in MongoDB is exactly what the local store would write to disk (no `undefined`, no class instances). */
+function plain<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T
 }
 
 /** The document's project, or the calm 500 for one that can't be read (CR-14). */
@@ -377,6 +414,32 @@ export type RevCollection = {
   ): Promise<unknown>
 }
 
+/** A jittered pause that grows with each lost race: step aside, then start again from what the winner wrote. */
+const jitteredPause = (attempt: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, 20 * attempt + Math.floor(Math.random() * 30 * attempt)))
+
+/**
+ * Optimistic concurrency, whatever the document: `once` reads, computes and
+ * tries the compare-and-set, answering `{ won: false }` when `rev` had moved.
+ * A lost race pauses (jittered, growing) and starts again from what the other
+ * writer left, up to `MAX_UPDATE_ATTEMPTS` times, then a calm failure. This is
+ * the guard between the web service and the worker — nothing else is.
+ */
+async function casLoop<R>(
+  once: () => Promise<{ won: true; value: R } | { won: false }>,
+  busy: { sentence: string; what: string; whom: string },
+  pause: (attempt: number) => Promise<void>
+): Promise<R> {
+  for (let attempt = 1; ; attempt++) {
+    const outcome = await once()
+    if (outcome.won) return outcome.value
+    if (attempt >= MAX_UPDATE_ATTEMPTS) {
+      throw new ProviderError(busy.sentence, 'provider', `${busy.what}: rev moved under ${MAX_UPDATE_ATTEMPTS} attempts in a row — another process is writing this ${busy.whom}`)
+    }
+    await pause(attempt)
+  }
+}
+
 /**
  * One update with optimistic concurrency: read → `fn` → write only if `rev`
  * hasn't moved. A lost race re-reads and runs `fn` again on what the other
@@ -386,35 +449,48 @@ export async function revUpdate(
   projects: RevCollection,
   id: string,
   fn: (project: Project) => Project,
-  pause: (attempt: number) => Promise<void> = (attempt) =>
-    new Promise((resolve) => setTimeout(resolve, 20 * attempt + Math.floor(Math.random() * 30)))
+  pause: (attempt: number) => Promise<void> = jitteredPause
 ): Promise<Project> {
-  for (let attempt = 1; ; attempt++) {
-    const doc = await projects.findOne({ _id: id }) // fresh read, inside the lock
-    if (!doc) throw noSuchProject()
-    const next = plain({
-      ...fn(checked(doc)),
-      id, // the id is the document's key; a change here would be a different project
-      serverRunId: singletons.serverRunId,
-      updatedAt: new Date().toISOString(),
-    })
-    const won = await projects.findOneAndUpdate(
-      { _id: id, rev: doc.rev },
-      { $set: { project: next }, $inc: { rev: 1 } },
-      { projection: { _id: 1 } }
-    )
-    if (won) return next
-    if (attempt >= MAX_UPDATE_ATTEMPTS) {
-      throw new ProviderError(
-        'The desk is busy with another change to this project.',
-        'provider',
-        `projects/${id}: rev moved under ${MAX_UPDATE_ATTEMPTS} attempts in a row — another process is writing this project`
+  return casLoop<Project>(
+    async () => {
+      const doc = await projects.findOne({ _id: id }) // fresh read, inside the lock
+      if (!doc) throw noSuchProject()
+      const next = plain({
+        ...fn(checked(doc)),
+        id, // the id is the document's key; a change here would be a different project
+        serverRunId: singletons.serverRunId,
+        updatedAt: new Date().toISOString(),
+      })
+      const won = await projects.findOneAndUpdate(
+        { _id: id, rev: doc.rev },
+        { $set: { project: next }, $inc: { rev: 1 } },
+        { projection: { _id: 1 } }
       )
-    }
-    // Another writer got in between the read and the write. Step aside for a
-    // moment (jittered, growing) and start again from what it wrote.
-    await pause(attempt)
-  }
+      return won ? { won: true, value: next } : { won: false }
+    },
+    { sentence: 'The desk is busy with another change to this project.', what: `projects/${id}`, whom: 'project' },
+    pause
+  )
+}
+
+/**
+ * Run `run` after whatever this process is already doing for `key`. Only a
+ * contention reducer — the `rev` compare-and-set is the guard, so a writer in
+ * another process, or a cleared chain, is still correct. With `keep` false the
+ * entry is dropped once it is the tail and settled, so a long-lived process
+ * does not collect one per job (projects are few; their entries stay).
+ */
+function inProcess<T>(key: string, run: () => Promise<T>, keep = true): Promise<T> {
+  const previous = singletons.locks.get(key) ?? Promise.resolve()
+  // `.then(run, run)` so one failed update doesn't block the next.
+  const result = previous.then(run, run)
+  const tail = result.catch(() => {})
+  singletons.locks.set(key, tail)
+  if (!keep)
+    void tail.then(() => {
+      if (singletons.locks.get(key) === tail) singletons.locks.delete(key)
+    })
+  return result
 }
 
 /**
@@ -427,12 +503,7 @@ function updateProject(id: string, fn: (project: Project) => Project): Promise<P
   // Validated before the lock map is touched, so a garbage id is a 404 and
   // never a lock entry.
   if (!isProjectId(id)) return Promise.reject(noSuchProject())
-  const run = (): Promise<Project> => mongo((projects) => revUpdate(projects, id, fn))
-  const previous = singletons.locks.get(id) ?? Promise.resolve()
-  // `.then(run, run)` so one failed update doesn't block the next.
-  const result = previous.then(run, run)
-  singletons.locks.set(id, result.catch(() => {}))
-  return result
+  return inProcess(id, () => mongo((projects) => revUpdate(projects, id, fn)))
 }
 
 /**
@@ -497,6 +568,138 @@ async function migrateLegacy(): Promise<{ projectId: string | null; problem: str
   return { projectId: null, problem: null }
 }
 
+// --- Jobs -------------------------------------------------------------------------
+
+const without = (value: object, drop: readonly string[]) => Object.fromEntries(Object.entries(value).filter(([name]) => !drop.includes(name)))
+
+/** A job's fields as stored — plain data, and not its `id` (that is `_id`). */
+function fieldsOf(job: JobRecord): Omit<JobRecord, 'id'> {
+  return without(plain(job), ['id']) as Omit<JobRecord, 'id'>
+}
+
+/** The stored document for a job. `activeKey` is there only while the job is queued or running. */
+function toDoc(job: JobRecord, rev: number): JobDoc {
+  return { _id: job.id, rev, ...(isActive(job) ? { activeKey: job.key } : {}), ...fieldsOf(job) }
+}
+
+function fromDoc(doc: JobDoc): JobRecord {
+  return { id: doc._id, ...without(doc, ['_id', 'rev', 'activeKey']) } as JobRecord
+}
+
+/** A duplicate-key error on the index named by `field` (`_id` or `activeKey`). */
+function duplicateOn(err: unknown, field: '_id' | 'activeKey'): boolean {
+  if (!(err instanceof MongoServerError) || err.code !== 11000) return false
+  const pattern = (err as MongoServerError & { keyPattern?: Record<string, unknown> }).keyPattern
+  if (pattern) return field in pattern
+  return field === '_id' ? /\b_id_\b/.test(err.message) : /activeKey/.test(err.message)
+}
+
+/** How many times an insert looks again for the holder of its key, when the holder ended between the refusal and the look. */
+const MAX_INSERT_ATTEMPTS = 5
+
+/** The two collection calls a job update needs — narrow, so `check:store` can drive a lost race on purpose. */
+export type JobRevCollection = {
+  findOne(filter: { _id: string }): Promise<JobDoc | null>
+  findOneAndUpdate(
+    filter: { _id: string; rev: number },
+    update: { $set: Record<string, unknown>; $unset?: { activeKey: '' }; $inc: { rev: 1 } },
+    options: { projection: { _id: 1 } }
+  ): Promise<unknown>
+}
+
+/**
+ * One job update with optimistic concurrency, the same loop as `revUpdate`:
+ * read → `fn` → write only if `rev` hasn't moved. `fn` returning null leaves
+ * the record as it is and resolves null — so does a record that isn't there.
+ * The write that ends a job (it leaves queued/running) removes `activeKey` in
+ * the same operation, so the key is free the moment the job is over.
+ */
+export async function jobUpdate(
+  jobs: JobRevCollection,
+  id: string,
+  fn: (job: JobRecord) => JobRecord | null,
+  pause: (attempt: number) => Promise<void> = jitteredPause
+): Promise<JobRecord | null> {
+  return casLoop<JobRecord | null>(
+    async () => {
+      const doc = await jobs.findOne({ _id: id })
+      if (!doc) return { won: true, value: null }
+      const next = fn(fromDoc(doc))
+      if (next === null) return { won: true, value: null }
+      const fields = fieldsOf({ ...next, id })
+      const won = await jobs.findOneAndUpdate(
+        { _id: id, rev: doc.rev },
+        isActive(next) ? { $set: { ...fields, activeKey: next.key }, $inc: { rev: 1 } } : { $set: fields, $unset: { activeKey: '' }, $inc: { rev: 1 } },
+        { projection: { _id: 1 } }
+      )
+      return won ? { won: true, value: { ...next, id } } : { won: false }
+    },
+    { sentence: BUSY, what: `jobs/${id}`, whom: 'job' },
+    pause
+  )
+}
+
+/** The query for a listing: every field present must match. */
+function jobQuery(filter: JobFilter): Filter<JobDoc> {
+  const query: Filter<JobDoc> = {}
+  if (filter.projectId !== undefined) query.projectId = filter.projectId
+  if (filter.ownerId !== undefined) query.ownerId = filter.ownerId
+  if (filter.status !== undefined) query.status = { $in: [...filter.status] }
+  if (filter.key !== undefined) query.key = filter.key
+  if (filter.updatedSince !== undefined) query.updatedAt = { $gte: filter.updatedSince }
+  return query
+}
+
+const jobs: JobStore = {
+  async insertJob(job) {
+    const doc = toDoc(job, 0)
+    for (let attempt = 1; attempt <= MAX_INSERT_ATTEMPTS; attempt++) {
+      try {
+        await mongoJobs((collection) => collection.insertOne(doc))
+        return { job, created: true }
+      } catch (err) {
+        if (duplicateOn(err, '_id')) throw new Error(`jobs/${job.id} already exists`)
+        if (!duplicateOn(err, 'activeKey')) throw err
+      }
+      // Another active job has the key — the unique index decided, not a read.
+      const holder = await mongoJobs((collection) => collection.findOne({ activeKey: job.key }))
+      if (holder) return { job: fromDoc(holder), created: false }
+      // It ended between the refusal and the look; the key is free now, so try again.
+    }
+    throw new ProviderError(BUSY, 'provider', `jobs/${job.id}: key ${job.key} kept changing hands under ${MAX_INSERT_ATTEMPTS} attempts`)
+  },
+
+  async getJob(id) {
+    const doc = await mongoJobs((collection) => collection.findOne({ _id: id }))
+    return doc ? fromDoc(doc) : null
+  },
+
+  async updateJob(id, fn) {
+    return inProcess(`job:${id}`, () => mongoJobs((collection) => jobUpdate(collection, id, fn)), false)
+  },
+
+  async listJobs(filter: JobFilter = {}) {
+    const docs = await mongoJobs((collection) =>
+      collection
+        .find(jobQuery(filter))
+        .sort({ updatedAt: -1, _id: -1 })
+        .limit(filter.limit ?? JOB_LIST_LIMIT)
+        .toArray()
+    )
+    return docs.map(fromDoc)
+  },
+
+  async pruneJobs(finishedBefore) {
+    const result = await mongoJobs((collection) =>
+      collection.deleteMany({
+        status: { $in: ['done', 'failed'] },
+        $or: [{ finishedAt: { $lt: finishedBefore } }, { finishedAt: null, updatedAt: { $lt: finishedBefore } }],
+      })
+    )
+    return result.deletedCount
+  },
+}
+
 // --- Blobs ------------------------------------------------------------------------
 
 async function putBlob(bytes: Buffer, mediaType: string, kind: BlobKind): Promise<string> {
@@ -547,6 +750,17 @@ async function openBlob(id: string): Promise<BlobStream | null> {
   }
 }
 
+/** Remove one image from the bucket; one that isn't there is already gone (CR-16). An unsafe id names nothing. */
+async function deleteBlob(id: string): Promise<void> {
+  if (!isImageId(id)) return
+  const { s3, bucket, prefix } = await cloud()
+  try {
+    await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: prefix + id }))
+  } catch (err) {
+    if (!isMissingObject(err)) throw err // S3 answers 204 for a missing key; a store that says otherwise still means "gone"
+  }
+}
+
 /** One answer within `ms`, or 'down'. */
 function within(ms: number, probe: (signal: AbortSignal) => Promise<unknown>): Promise<Check> {
   const signal = AbortSignal.timeout(ms)
@@ -582,7 +796,7 @@ async function health(timeoutMs: number): Promise<StoreHealth> {
   return { mongo, bucket }
 }
 
-export const cloudStore: Store = { listProjects, migrateLegacy, readProject, createProject, updateProject, putBlob, getBlob, openBlob, health }
+export const cloudStore: Store = { listProjects, migrateLegacy, readProject, createProject, updateProject, putBlob, getBlob, openBlob, deleteBlob, jobs, health }
 
 /** Only a missing *object* is "no such image" — exported so `check:store` can
  *  hold it to real errors from a real bucket. */

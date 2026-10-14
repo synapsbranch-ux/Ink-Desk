@@ -5,10 +5,11 @@
 // `GET /api/projects/[id]` to watch them arrive. Safe to call again after a
 // reload — a written page is not rewritten and a queued panel is skipped.
 // See `lib/director.ts` and `lib/panels.ts`.
-import { pageAt, read } from '@/lib/chapter'
+import { pageAt } from '@/lib/chapter'
 import { startPage } from '@/lib/director'
 import { errorResponse } from '@/lib/errors'
 import { assertGenerationEnabled } from '@/lib/generation'
+import { readWithActivity } from '@/lib/queue/status'
 
 export const runtime = 'nodejs'
 
@@ -22,7 +23,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     const queued = await startPage(addr)
     if (queued.length > 0) console.log(`[p${addr.pageIndex + 1}] queued panel ${queued.map((i) => i + 1).join(', ')}`)
     // The open page, as every reply is — the studio renders whatever it gets.
-    return Response.json(await read(id))
+    return Response.json(await readWithActivity(id))
   } catch (err) {
     return errorResponse(err, 'panels', CALM)
   }

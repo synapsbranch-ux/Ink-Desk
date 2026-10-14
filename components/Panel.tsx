@@ -6,14 +6,19 @@
 // under an "Inking…" indicator), Try again on a failure, the ‹ 2 / 2 ›
 // version stepper once a panel has two versions. Each panel owns its own
 // status, so one landing or failing never touches another.
+// Since slice 18 a panel is waiting or inking when it says `inking` OR a job
+// on the queue targets it; a blank panel nothing is drawing shows as blank,
+// with a Draw panel button, instead of "Pencilling…" for ever (CR-9).
 // Implements `devpost/prd.md > Storyboard — The Main Studio`; see
 // `devpost/spec.md > Components > Storyboard Station and Panel`.
 import { useState } from 'react'
 import { GenerationStatus } from '@/components/GenerationStatus'
 import { PencilPlaceholder } from '@/components/PencilPlaceholder'
 import { SpeechBubble } from '@/components/SpeechBubble'
+import { inFlight, isIdleBlank } from '@/lib/activity'
 import type { PanelEdit } from '@/lib/patch'
 import type { PanelSlot } from '@/lib/prompts'
+import type { JobView } from '@/lib/queue/jobs'
 import { currentImageId, panelLabel } from '@/lib/script'
 import { PANEL_STAGES } from '@/lib/stages'
 import type { Character, Panel as PanelData } from '@/lib/types'
@@ -27,6 +32,12 @@ type Props = {
   emptyLabel?: string
   /** A repair request for this panel is on the wire. */
   busy: 'redraw' | 'rewrite' | null
+  /** The active queue job drawing this panel, if any — waiting or running. */
+  job: JobView | null
+  /** The blank panels are being queued right now: not idle, not yet a job. */
+  starting?: boolean
+  /** For a blank panel whose job failed before the desk could say so: the server's sentence. */
+  lostNote?: string | null
   /** A bubble placed or a line retyped — saved to the desk at once. */
   onPanelEdit: (index: number, edit: PanelEdit) => void
   /** Redraw panel and Try again: the same request, the same locked sheet. */
@@ -35,7 +46,19 @@ type Props = {
   onRewrite: (index: number) => void
 }
 
-export function Panel({ slot, panel, character, emptyLabel, busy, onPanelEdit, onRedraw, onRewrite }: Props) {
+export function Panel({
+  slot,
+  panel,
+  character,
+  emptyLabel,
+  busy,
+  job,
+  starting = false,
+  lostNote = null,
+  onPanelEdit,
+  onRedraw,
+  onRewrite,
+}: Props) {
   const imageId = panel ? currentImageId(panel) : null
 
   // Ids whose art has been on screen before — present at mount, stepped back
@@ -53,10 +76,15 @@ export function Panel({ slot, panel, character, emptyLabel, busy, onPanelEdit, o
   const pencilUnder = !showArt || revealing
 
   const hasArt = (panel?.versions.length ?? 0) > 0
-  const failed = panel?.status === 'failed' || panel?.status === 'refused'
-  const inking = panel?.status === 'inking'
+  // In flight: the desk says inking, or a job targets the panel (a redraw
+  // sits in the queue, over finished art, before the worker marks it inking).
+  const inking = panel !== null && inFlight(panel.status, job)
+  const idle = panel ? isIdleBlank(panel.status, job) && !starting : false
+  const failed = (panel?.status === 'failed' || panel?.status === 'refused') && !inking
+  // Speed lines and stage line only once the worker has it.
+  const drawing = inking && (panel?.status === 'inking' || job?.status === 'running')
   const redrawing = inking && hasArt
-  const still = !panel || (failed && !hasArt)
+  const still = !panel || idle || (failed && !hasArt)
 
   const onLoad = () => setLoaded(imageId)
   // A cached image can be complete before `load` fires.
@@ -65,7 +93,13 @@ export function Panel({ slot, panel, character, emptyLabel, busy, onPanelEdit, o
   }
 
   const n = slot.index + 1
-  const label = panel ? panelLabel(panel) : (emptyLabel ?? 'Waiting for the page script…')
+  const label = !panel
+    ? (emptyLabel ?? 'Waiting for the page script…')
+    : idle
+      ? (lostNote ?? `Panel ${n} isn’t drawn yet.`)
+      : inking && panel.status !== 'inking' && panel.status !== 'empty' && !hasArt
+        ? `Pencilling panel ${n}…` // a Try again waiting its turn
+        : panelLabel(panel)
   const versions = panel?.versions ?? []
   const cv = panel?.currentVersion ?? 0
 
@@ -82,8 +116,8 @@ export function Panel({ slot, panel, character, emptyLabel, busy, onPanelEdit, o
           slot={slot}
           label={label}
           still={still}
-          failed={failed}
-          generating={inking && !hasArt}
+          failed={failed || (idle && lostNote !== null)}
+          generating={drawing && !hasArt}
           startedAt={panel?.startedAt}
         />
       )}
@@ -114,13 +148,13 @@ export function Panel({ slot, panel, character, emptyLabel, busy, onPanelEdit, o
       {/* A redraw in progress: the current art stays, the indicator says so. */}
       {redrawing && (
         <div className="redraw-indicator" aria-hidden="true">
-          <GenerationStatus stages={PANEL_STAGES} startedAt={panel.startedAt} />
+          <GenerationStatus stages={PANEL_STAGES} startedAt={panel?.startedAt} />
         </div>
       )}
 
       {/* The repair bar: failure sentence, version stepper, repair actions —
           visible and labelled, never hover-only (the 5b rule). */}
-      {panel && (hasArt || failed) && (
+      {panel && (hasArt || failed || idle) && (
         <div className="panel-bar">
           {failed && hasArt && <span className="panel-bar-note">{label}</span>}
           <div className="panel-bar-actions">
@@ -149,7 +183,17 @@ export function Panel({ slot, panel, character, emptyLabel, busy, onPanelEdit, o
                 </button>
               </div>
             )}
-            {panel.status === 'refused' ? (
+            {idle ? (
+              <button
+                type="button"
+                className="btn btn-panel"
+                disabled={busy !== null}
+                title="Draw this panel from the same locked sheet."
+                onClick={() => onRedraw(panel.index)}
+              >
+                {busy === 'redraw' ? 'Queuing…' : 'Draw panel'}
+              </button>
+            ) : panel.status === 'refused' && !inking ? (
               <button
                 type="button"
                 className="btn btn-panel"

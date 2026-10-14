@@ -132,11 +132,13 @@ export function updatePages(projectId: string, pageIndices: number[], fn: (desk:
 
 /**
  * The floor under "generation survives a reload", for the whole chapter: a
- * panel on any page — or the cover — still `inking` that cannot be in flight
- * in this process is demoted to `failed` with Try again. Pure; the GET route
- * runs it cheaply, then inside the lock against a fresh copy.
+ * panel on any page — or the cover — still `inking` that no live job holds is
+ * demoted to `failed` with Try again. `live` is the set of live job ids
+ * (`lib/queue/status.ts`); `maxAgeMs` is the ceiling past any real job. Pure;
+ * the GET route runs it cheaply, then against a fresh copy when it has
+ * something to write.
  */
-export function demoteStale(p: Project, runId: string, timeoutMs: number, now = new Date()): { project: Project; demoted: string[] } {
+export function demoteStale(p: Project, live: ReadonlySet<string>, maxAgeMs: number, now = new Date()): { project: Project; demoted: string[] } {
   const demoted: string[] = []
   let next = p
   const chapter = p.chapters[0]
@@ -144,7 +146,7 @@ export function demoteStale(p: Project, runId: string, timeoutMs: number, now = 
   for (const pg of chapter.pages) {
     const ref: PageRef = { chapterId: chapter.id, pageIndex: pg.index }
     const desk = toDesk(next, ref)
-    const stale = staleInkingIndices(desk, runId, timeoutMs, now)
+    const stale = staleInkingIndices(desk, live, maxAgeMs, now)
     if (stale.length === 0) continue
     let d = desk
     for (const index of stale) {
@@ -153,7 +155,7 @@ export function demoteStale(p: Project, runId: string, timeoutMs: number, now = 
     }
     next = applyDesk(next, ref, d)
   }
-  if (coverIsStale(chapter.cover, runId, timeoutMs, now)) {
+  if (coverIsStale(chapter.cover, live, maxAgeMs, now)) {
     demoted.push('cover')
     const ref = openRef(next)
     next = applyDesk(next, ref, markCoverFailed(toDesk(next, ref), 'failed'))

@@ -9,9 +9,11 @@
 // n"; an unwritten one offers "Generate page n" with its own estimate.
 // Implements `devpost/prd.md > The Director — Chapter Plan and Cover`.
 import { pageStatus } from '@/components/PageSwitcher'
+import { pageJobCount } from '@/lib/activity'
 import { estimatePageUsd, usd } from '@/lib/cost'
 import { assertPageDrawable, type PlanLineEdit } from '@/lib/plan'
 import { PANEL_LAYOUT, type PanelSlot } from '@/lib/prompts'
+import type { Activity } from '@/lib/queue/jobs'
 import { currentImageId } from '@/lib/script'
 import type { Character, PageSummary, Panel, PlanPage } from '@/lib/types'
 
@@ -30,6 +32,8 @@ type Props = {
   summary: PageSummary | undefined
   cast: Character[]
   panelQuality: string
+  /** What the queue is doing, for the page's status (slice 18). */
+  activity: Activity | undefined
   /** This page's panels, when it is the open page — the real art for the mini-page. */
   openPanels: Panel[] | null
   /** Generate page n is on the wire for this page. */
@@ -47,6 +51,7 @@ export function PagePlanCard({
   summary,
   cast,
   panelQuality,
+  activity,
   openPanels,
   starting,
   locked,
@@ -56,7 +61,7 @@ export function PagePlanCard({
 }: Props) {
   const n = index + 1
   const written = summary?.written === true
-  const status = pageStatus(summary)
+  const status = pageStatus(summary, pageJobCount(activity, index))
   const blank = written ? null : assertPageDrawable(page, index)
   // Once written, the panels are the truth; the open page shows them, the others the plan's lines.
   const lines = written && openPanels ? openPanels : page.panels
