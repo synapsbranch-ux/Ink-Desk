@@ -1,11 +1,12 @@
 node_modules/
 out/
 # Sizes: the captured footage, the stills copied from the desk, the narration
-# mp3s and the rendered mp4 are rebuilt by the three commands, never committed.
+# mp3s and the rendered mp4 are rebuilt by the four commands, never committed.
 public/capture/
 public/narration/
 public/placeholder/
-# Music is royalty-free but still someone else's work: the track stays local,
-# its licence is committed so the credit travels with the repo.
+# The music is generated — by a music model (music/generate.mts, kept under
+# out/music/ with its provenance) or composed by music/compose.mts: the track
+# in use is not committed; its licence is, so the note travels with the repo.
 public/music/*
 !public/music/LICENSE.txt

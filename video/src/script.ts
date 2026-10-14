@@ -120,8 +120,14 @@ export function captionCues(
   return cues
 }
 
-/** Words that fit a segment at a comfortable pace — the writer's budget. */
-export const wordBudget = (seconds: number) => Math.max(0, Math.floor((seconds - NARRATION_LEAD_SECONDS - 0.6) * WORDS_PER_SECOND * 0.92))
+/**
+ * Words that fit a segment at a comfortable pace — the writer's budget. The
+ * voice starts NARRATION_LEAD_SECONDS in and must end before the beat does
+ * (the next beat's voice follows at once), so the budget keeps a breath at
+ * the end and takes the voice at 85 % of the estimate's pace: a line that
+ * fits the budget never runs into the ink wipe.
+ */
+export const wordBudget = (seconds: number) => Math.max(0, Math.floor((seconds - NARRATION_LEAD_SECONDS - 0.6) * WORDS_PER_SECOND * 0.85))
 
 /**
  * What `npm run narrate` writes to public/narration/manifest.json. A clip is

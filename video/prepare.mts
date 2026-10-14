@@ -7,10 +7,13 @@
 // would make the video wrong rather than unfinished — an unknown or
 // out-of-order mark, a segment with no section in narration.md, music without
 // its licence, an edit over three minutes — stops the render with a sentence.
+// Music is composed by video/music/compose.mts; until it is, that is a draft
+// line too.
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { CUT, MOTION_PREVIEW } from './src/cut.ts'
+import { MUSIC_BASE } from './src/mix.ts'
 import type { DemoProps, NarrationClip } from './src/props.ts'
 import {
   captionCues,
@@ -165,11 +168,15 @@ export function prepare(): Prepared {
     draft.push('The money shot uses the v1 desk ("Return to Sender") until a capture brings its own stills.')
   }
 
-  // Music: royalty-free with its licence, or none. Never a track without one.
+  // Music: the repository's own composition (video/music/compose.mts), with
+  // its licence file, or none. Never a track without one. The volume here is
+  // the base level; Demo.tsx shapes it under the voice (src/mix.ts).
   let music: DemoProps['music'] = null
   if (existsSync(pub('music/track.mp3'))) {
     if (!existsSync(pub('music/LICENSE.txt'))) fail('public/music/track.mp3 has no LICENSE.txt beside it — only royalty-free music with its licence goes in the video.')
-    music = { src: 'music/track.mp3', volume: 0.12 }
+    music = { src: 'music/track.mp3', volume: MUSIC_BASE }
+  } else {
+    draft.push('No music yet — run `npm run video:music` (the track is composed by video/music/compose.mts).')
   }
 
   const motionPlan = resolvePlan(MOTION_PREVIEW, [], false)

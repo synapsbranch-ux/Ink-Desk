@@ -1,10 +1,13 @@
 // The demo video's edit is pure data (video/src/timeline.ts, cut.ts,
-// script.ts), so it is checked directly: marks become segments, the film stays
-// under three minutes, and every beat of the edit is captioned from the
-// script. Run with `npm run check:demo-timeline`. Spends nothing.
+// script.ts, mix.ts), so it is checked directly: marks become segments, the
+// film stays under three minutes, every beat of the edit is captioned from
+// the script, and the music ducks under the voice. Run with
+// `npm run check:demo-timeline`. Spends nothing.
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { CUT, MOTION_PREVIEW } from '../video/src/cut'
+import { beat, CUT, MOTION_PREVIEW } from '../video/src/cut'
+import { DUCK_IN_FRAMES, DUCK_OUT_FRAMES, MUSIC_BASE, MUSIC_DUCKED, MUSIC_FADE_IN_FRAMES, MUSIC_FADE_OUT_FRAMES, musicVolumeAt } from '../video/src/mix'
+import type { NarrationClip } from '../video/src/props'
 import {
   captionCues,
   chunkCaption,
@@ -33,7 +36,20 @@ const near = (a: number, b: number, msg: string) => assert.ok(Math.abs(a - b) <=
 // Under three minutes at its budget, which is the longest it can ever be:
 // footage is only ever sped up to fit, never slowed down past it.
 assert.ok(budgetSeconds(CUT) < MAX_SECONDS, `the edit is budgeted at ${budgetSeconds(CUT)} s`)
+// The nine beats of scope.md > The Demo Video (v2), at their budgets: 177 s.
+assert.equal(budgetSeconds(CUT), 177, `the edit is budgeted at ${budgetSeconds(CUT)} s, not 177`)
+assert.equal(CUT.length, 9, 'nine beats')
+assert.deepEqual(
+  CUT.map((s) => s.id),
+  ['intro', 'dashboard', 'library', 'director', 'pages', 'moneyshot', 'reader', 'method', 'outro'],
+  'the beats, in order',
+)
+// The method beat — how it was made — sits before the outro.
+assert.ok(CUT.findIndex((s) => s.id === 'method') === CUT.findIndex((s) => s.id === 'outro') - 1, 'method comes right before outro')
+assert.deepEqual(beat('method').shots, [{ kind: 'method', seconds: 14 }])
+assert.throws(() => beat('nope'), /no beat/)
 assert.ok(budgetSeconds(MOTION_PREVIEW) < budgetSeconds(CUT))
+assert.ok(MOTION_PREVIEW.some((s) => s.shots.some((shot) => shot.kind === 'method')), 'the motion preview shows the method piece')
 const names = new Set<string>(MARKS.map((m) => m.name))
 for (const seg of CUT) {
   for (const shot of seg.shots) {
@@ -61,7 +77,7 @@ const t: Record<MarkName, number> = {
   'scenario-ready': 30,
   'library-open': 33,
   'import-done': 60,
-  'cast-locked': 105, // 72 s real → time-lapsed into 21.5 s
+  'cast-locked': 105, // 72 s real → time-lapsed into 19.5 s
   'director-open': 108,
   'plan-ready': 150,
   'pages-queued': 160,
@@ -70,7 +86,7 @@ const t: Record<MarkName, number> = {
   'redraw-done': 420,
   'chapter-inked': 900,
   'reader-open': 905,
-  'pdf-exported': 915, // 10 s real < 12.5 s → real speed
+  'pdf-exported': 915, // 10 s real < 11.5 s → real speed
   end: 918,
 }
 const marks: Mark[] = MARKS.map((m) => ({ name: m.name, t: t[m.name] }))
@@ -130,7 +146,7 @@ const short = marks.filter((m) => m.name !== 'chapter-inked')
 const partial = resolvePlan(CUT, short, true)
 const rest = partial.segments.flatMap((s) => s.shots).find((s) => s.kind === 'footage' && s.label === 'The rest of the chapter')
 assert.ok(rest?.missing, 'a shot whose mark was never reached is a slate')
-near(sec(rest.durationInFrames), 6.5, 'a slate holds its budget')
+near(sec(rest.durationInFrames), 6, 'a slate holds its budget')
 // No capture at all: every footage shot is a slate, the film is its budget.
 const empty = resolvePlan(CUT, [], false)
 assert.ok(empty.segments.flatMap((s) => s.shots).every((s) => s.kind !== 'footage' || s.missing))
@@ -199,6 +215,36 @@ assert.ok(!cues.some((c) => c.segmentId === 'library'))
 // The real script, placeholder or not, captions every beat.
 const real = captionCues(cuesPlan, script, {})
 for (const seg of CUT) assert.ok(real.some((c) => c.segmentId === seg.id), `beat "${seg.id}" has a caption`)
+
+// --- The music under the voice ------------------------------------------------
+// A pure function of the frame: silent at the first frame, the base level
+// away from the voice, ducked under a clip, silent again at the last frame.
+const film = 177 * FPS
+const clipA: NarrationClip = { segmentId: 'intro', src: 'narration/intro.mp3', startFrame: 12, seconds: 10 }
+const clipB: NarrationClip = { segmentId: 'dashboard', src: 'narration/dashboard.mp3', startFrame: 600, seconds: 6 }
+const clips = [clipA, clipB]
+const vol = (frame: number) => musicVolumeAt(frame, clips, film)
+const close = (a: number, b: number, msg: string) => assert.ok(Math.abs(a - b) < 1e-9, `${msg}: ${a} vs ${b}`)
+assert.equal(vol(0), 0, 'silent at the first frame')
+assert.ok(vol(MUSIC_FADE_IN_FRAMES / 2) > 0 && vol(MUSIC_FADE_IN_FRAMES / 2) < MUSIC_BASE, 'fading in')
+const endA = clipA.startFrame + clipA.seconds * FPS
+const endB = clipB.startFrame + clipB.seconds * FPS
+close(vol(endA + DUCK_OUT_FRAMES + 20), MUSIC_BASE, 'base level away from any clip')
+close(vol(endB + DUCK_OUT_FRAMES), MUSIC_BASE, 'back to base once the ramp out is done')
+close(vol(150), MUSIC_DUCKED, 'ducked inside a clip')
+close(vol(clipB.startFrame), MUSIC_DUCKED, 'already down when the voice starts')
+close(vol(clipB.startFrame + 90), MUSIC_DUCKED, 'ducked inside the second clip')
+assert.ok(vol(clipB.startFrame - DUCK_IN_FRAMES / 2) > MUSIC_DUCKED && vol(clipB.startFrame - DUCK_IN_FRAMES / 2) < MUSIC_BASE, 'ramping down before a clip')
+assert.ok(vol(endB + DUCK_OUT_FRAMES / 2) > MUSIC_DUCKED && vol(endB + DUCK_OUT_FRAMES / 2) < MUSIC_BASE, 'ramping up after a clip')
+close(vol(film - MUSIC_FADE_OUT_FRAMES), MUSIC_BASE, 'the fade-out starts from the base level')
+assert.ok(vol(film - 45) > 0 && vol(film - 45) < MUSIC_BASE, 'fading out')
+assert.equal(vol(film - 1), 0, 'silent at the last frame')
+for (let frame = 0; frame < film; frame += 7) {
+  const v = vol(frame)
+  assert.ok(v >= 0 && v <= MUSIC_BASE, `volume in range at frame ${frame}`)
+}
+close(musicVolumeAt(400, [], film), MUSIC_BASE, 'no clips: the base level')
+close(musicVolumeAt(400, clips, film, 0.5), 0.5, 'the base level comes from the props')
 
 // --- The narration cache key ---------------------------------------------------
 const k = narrationKey('Hello.', 'george', 'elevenlabs/eleven-v4')

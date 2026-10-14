@@ -1,0 +1,10 @@
+Ink Desk demo music — track.mp3
+
+Generated on 2026-10-14 by google/lyria-3-pro-preview through OpenRouter, from the prompt in video/music/prompt.txt; 175.0 s; $0.08 (the generation id was not recorded for this first piece).
+
+Generated for this project and used as its background music under the
+generating service's terms for generated content; it is not a recording or a
+composition by any third party. The render fades it in, ducks it under the
+voice and fades it out (video/src/mix.ts). Generate another with
+`npm run video:music:generate`, or compose one in code with
+`npm run video:music`.

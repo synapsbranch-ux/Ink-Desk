@@ -74,6 +74,7 @@ export type Shot =
   | { kind: 'section'; title: string; kicker: string; seconds: number }
   | { kind: 'footage'; from: MarkName; to: MarkName; seconds: number; label: string }
   | { kind: 'moneyshot'; seconds: number }
+  | { kind: 'method'; seconds: number }
   | { kind: 'outro'; seconds: number }
 
 /** One segment of the edit = one section of narration.md (same id). */

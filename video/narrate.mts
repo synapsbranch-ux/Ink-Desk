@@ -17,12 +17,13 @@
 // again and only the sections whose words changed are sent, so an edit costs
 // cents, not the whole script. Placeholder sections are never sent. The key
 // comes from OPENROUTER_API_KEY in the environment or the repo's .env, and is
-// never printed.
+// never printed (openrouter.ts, shared with the generated music).
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
+import { actualCost, apiKey, MISSING_KEY, providerMessage, setting } from './openrouter.ts'
 import { CUT } from './src/cut.ts'
 import { narrationKey, parseNarration, type NarrationManifest, type NarrationSegment } from './src/script.ts'
 import { FPS, NARRATION_LEAD_SECONDS, resolvePlan } from './src/timeline.ts'
@@ -72,47 +73,16 @@ function fail(sentence: string): never {
 
 // --- the key ---------------------------------------------------------------
 
-/** KEY=value lines only: enough for a .env, and nothing in it is ever echoed. */
-function readDotEnv(path: string, name: string): string | undefined {
-  if (!existsSync(path)) return undefined
-  for (const raw of readFileSync(path, 'utf8').split(/\r?\n/)) {
-    const line = raw.trim()
-    if (!line || line.startsWith('#')) continue
-    const m = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line)
-    if (!m || m[1] !== name) continue
-    // A quoted value may still carry a comment after its closing quote, as dotenv allows.
-    const value = m[2].trim()
-    const quoted = /^(["'])(.*)\1\s*(?:#.*)?$/.exec(value)
-    return (quoted ? quoted[2] : value.replace(/\s+#.*$/, '')) || undefined
-  }
-  return undefined
-}
-
-function apiKey(): string {
-  const key = process.env.OPENROUTER_API_KEY?.trim() || readDotEnv(join(ROOT, '.env'), 'OPENROUTER_API_KEY')
-  if (!key) fail('There is no OpenRouter key: set OPENROUTER_API_KEY in the environment or in the .env at the repository root.')
+/** The key, or the sentence that says where to put it (openrouter.ts). */
+function requireKey(): string {
+  const key = apiKey()
+  if (!key) fail(MISSING_KEY)
   return key
 }
 
 // --- one request -------------------------------------------------------------
 
 type Spoken = { audio: Buffer; generationId: string | null }
-
-/** The provider's message, on one line and short enough to read. */
-async function providerMessage(res: Response): Promise<string> {
-  const body = await res.text().catch(() => '')
-  let message = body
-  try {
-    const j = JSON.parse(body) as { error?: { message?: string; metadata?: { raw?: unknown } } }
-    message = j.error?.message ?? body
-    const raw = j.error?.metadata?.raw
-    if (typeof raw === 'string' && raw && !message.includes(raw)) message = `${message} (${raw})`
-  } catch {
-    // Not JSON: the text itself is the best summary there is.
-  }
-  message = message.replace(/\s+/g, ' ').trim()
-  return message.length > 240 ? `${message.slice(0, 237)}...` : message || 'no reason given'
-}
 
 async function speak(key: string, model: string, voice: string, text: string, what: string): Promise<Spoken> {
   let res: Response
@@ -167,36 +137,6 @@ function measureSeconds(path: string): number {
     // Falls through to the sentence below.
   }
   throw new NarrateError(`${relative(VIDEO, path)} is not playable audio; delete it and run again.`)
-}
-
-/**
- * Best effort: OpenRouter's own figure for what the run cost. The stats for a
- * generation appear some seconds after its audio does, so every id is asked
- * for together until all have answered or about twenty seconds have passed.
- */
-async function actualCost(key: string, ids: string[]): Promise<number | null> {
-  const costs = new Map<string, number>()
-  for (let attempt = 0; attempt < 10 && costs.size < ids.length; attempt++) {
-    await new Promise((r) => setTimeout(r, 2000))
-    await Promise.all(
-      ids
-        .filter((id) => !costs.has(id))
-        .map(async (id) => {
-          try {
-            const res = await fetch(`https://openrouter.ai/api/v1/generation?id=${encodeURIComponent(id)}`, {
-              headers: { Authorization: `Bearer ${key}` },
-              signal: AbortSignal.timeout(15_000),
-            })
-            if (!res.ok) return
-            const j = (await res.json()) as { data?: { total_cost?: number } }
-            if (typeof j.data?.total_cost === 'number') costs.set(id, j.data.total_cost)
-          } catch {
-            // Not reported yet, or the network blinked; the estimate stands.
-          }
-        }),
-    )
-  }
-  return costs.size === ids.length ? [...costs.values()].reduce((a, b) => a + b, 0) : null
 }
 
 // --- small helpers -------------------------------------------------------------
@@ -331,7 +271,7 @@ async function narrate(opts: { model: string; voice: string; only: string[]; dry
     }
   }
 
-  const key = opts.dryRun ? '' : apiKey()
+  const key = opts.dryRun ? '' : requireKey()
   if (!opts.dryRun) mkdirSync(NARRATION_DIR, { recursive: true })
   const previous = readManifest()
   const manifest: NarrationManifest = { model, voice, segments: { ...(previous?.segments ?? {}) } }
@@ -453,11 +393,11 @@ async function main() {
   if (values.samples !== undefined) {
     const voices = values.samples === 'all' ? PREMADE_VOICES : list(values.samples)
     // A dry run needs no key, so it cannot send anything even by mistake.
-    await samples(dryRun ? '' : apiKey(), model, voices, dryRun)
+    await samples(dryRun ? '' : requireKey(), model, voices, dryRun)
     return
   }
 
-  const voice = values.voice?.trim() || process.env.NARRATION_VOICE?.trim() || readDotEnv(join(ROOT, '.env'), 'NARRATION_VOICE')
+  const voice = values.voice?.trim() || setting('NARRATION_VOICE')
   // The voice is the learner's choice, so there is no default to fall back on.
   if (!voice) {
     fail(`Pick a voice first — pass --voice <name> or set NARRATION_VOICE (in .env or the shell); the premade voices are ${PREMADE_VOICES.join(', ')} (hear them with --samples).`)

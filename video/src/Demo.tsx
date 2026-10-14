@@ -7,6 +7,8 @@ import { Captions } from './Captions'
 import { Footage } from './Footage'
 import { InkWipe } from './InkWipe'
 import { Intro } from './Intro'
+import { Method } from './Method'
+import { musicVolumeAt } from './mix'
 import { MoneyShot } from './MoneyShot'
 import { Outro } from './Outro'
 import type { DemoProps } from './props'
@@ -31,6 +33,8 @@ const ShotView: React.FC<{ shot: ResolvedShot; props: FullProps }> = ({ shot, pr
       return <Footage shot={shot} src={props.footage} />
     case 'moneyshot':
       return <MoneyShot stills={props.stills} placeholder={props.stillsArePlaceholder} durationInFrames={shot.durationInFrames} />
+    case 'method':
+      return <Method durationInFrames={shot.durationInFrames} />
     case 'outro':
       return <Outro durationInFrames={shot.durationInFrames} />
   }
@@ -69,7 +73,16 @@ export const Demo: React.FC<FullProps> = (props) => {
               </Sequence>
             )
           })}
-      {props.music ? <Audio src={staticFile(props.music.src)} volume={props.music.volume} loop /> : null}
+      {props.music ? (
+        // The track is composed to the film's length, so it is not looped. Its
+        // level is a function of the frame: in over a second, ducked under
+        // every narration clip, out over the last three seconds.
+        <Audio
+          src={staticFile(props.music.src)}
+          volume={(frame) => musicVolumeAt(frame, props.preview ? [] : props.narration, plan.durationInFrames, props.music!.volume)}
+          loop={false}
+        />
+      ) : null}
       <Captions cues={captions} />
       {props.draft.length ? <DraftStamp /> : null}
     </AbsoluteFill>

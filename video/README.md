@@ -10,7 +10,8 @@ not faked.
 video/
   narration.md         the script — the narration and the captions, one section per beat (drafted for you; rewrite any line)
   src/cut.ts           the edit: the beats, their shots and their budgets (≈ 2:57)
-  music/compose.mts    composes the background music — an original track, synthesized by this code
+  music/generate.mts   generates the background music with a music model through OpenRouter (prompt.txt beside it)
+  music/compose.mts    composes the background music in code — an original track, the same bytes every run
   timeline.json        written by the capture: when each moment happened in the footage
   capture/record.mts   drives the real app with Playwright and records it
   narrate.mts          narration.md → one mp3 per beat (ElevenLabs through OpenRouter)
@@ -77,19 +78,26 @@ placeholders are never sent. `--only intro,pages` narrates just those;
 a "Runs long" line names any beat whose audio is longer than its slot in
 `src/cut.ts`.
 
-**3. Music** — the track is composed by code, so it is yours and royalty-free:
+**3. Music** — two ways to a royalty-free track, both generated, both yours to
+pick by ear:
 
 ```bash
-npm run video:music              # → video/public/music/track.mp3 (+ LICENSE.txt), the same bytes every run
+npm run video:music:generate     # a music model through OpenRouter (Lyria 3 Pro, $0.08 a piece) → track.mp3 + LICENSE.txt
+npm run video:music              # composed by code, $0, the same bytes every run → track.mp3 + LICENSE.txt
 ```
 
-An original ambient future-wave instrumental that follows the beats of the
-edit — pads alone under the intro, the pulse from the second beat, fullest on
-the pages and the money shot, resolved in the outro — and sits under the
-voice: the render fades it in, ducks it while a narration clip plays, and
-fades it out over the last three seconds (`src/mix.ts`). To change its
-character, edit `music/compose.mts` (tempo, key, the chord cycle, the parts)
-and run it again.
+The generated piece follows `music/prompt.txt` (edit the mood there; the
+default asks for a calm ambient future-wave instrumental of about three
+minutes, pads-only opening, fullest in the middle); every generation is kept
+under `video/out/music/` with a note of where it came from, and the one in use
+is installed as `public/music/track.mp3` — reinstall an earlier one with
+`npx tsx music/generate.mts --install out/music/<file>.mp3` from `video/`.
+`--dry-run` sends nothing. The composed piece (`music/compose.mts`) follows the
+beats of the edit — pads alone under the intro, the pulse from the second beat,
+fullest on the pages and the money shot, resolved in the outro — and needs no
+account; change its tempo, key, chord cycle or parts in the file and run it
+again. Either way the render fades the music in, ducks it while a narration
+clip plays, and fades it out over the last three seconds (`src/mix.ts`).
 
 **4. Render**
 
@@ -118,11 +126,12 @@ from `video/`, on a new machine).
 
 ## Music
 
-Composed by `music/compose.mts` (command 3) and written with its `LICENSE.txt`
-(CC0 — the repository's own work, no samples). The render refuses any
-`public/music/track.mp3` without a licence file beside it, and plays none
-when there is no track. Never a copyrighted track; if you swap in a
-royalty-free one, put its licence in the same `LICENSE.txt`.
+Generated (command 3): by a music model through OpenRouter, with a
+`LICENSE.txt` that records the model, the date and the prompt, or composed by
+`music/compose.mts` with a CC0 note (the repository's own work, no samples).
+The render refuses any `public/music/track.mp3` without a licence file beside
+it, and plays none when there is no track. Never a copyrighted track; if you
+swap in a royalty-free one, put its licence in the same `LICENSE.txt`.
 
 ## Not committed
 
