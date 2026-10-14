@@ -1,0 +1,7 @@
+node_modules/
+out/
+# Sizes: the captured footage, the stills copied from the desk, the narration
+# mp3s and the rendered mp4 are rebuilt by the three commands, never committed.
+public/capture/
+public/narration/
+public/placeholder/

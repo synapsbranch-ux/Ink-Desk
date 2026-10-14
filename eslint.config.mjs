@@ -17,6 +17,9 @@ const eslintConfig = defineConfig([
     'devpost/**',
     '.agents/**',
     'agent/**',
+    // The demo video is its own package with its own tsconfig and
+    // dependencies (video/package.json).
+    'video/**',
   ]),
 ])
 

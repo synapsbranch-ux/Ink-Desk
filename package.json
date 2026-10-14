@@ -19,7 +19,12 @@
     "check:models": "tsx scripts/models-check.mts",
     "check:assets": "tsx scripts/assets-check.mts",
     "check:llm": "tsx scripts/llm-check.mts",
-    "check:plan": "tsx scripts/plan-check.mts"
+    "check:plan": "tsx scripts/plan-check.mts",
+    "check:demo-timeline": "tsx scripts/demo-timeline-check.mts",
+    "video:capture": "npm --prefix video run capture --",
+    "video:narrate": "npm --prefix video run narrate --",
+    "video:render": "npm --prefix video run render",
+    "video:render:motion": "npm --prefix video run render:motion"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",
