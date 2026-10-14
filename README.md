@@ -94,7 +94,7 @@ Drawing is a **job**, not a request. Pressing Draw sheet, Generate page, Redraw 
 
 ```bash
 INKDESK_QUEUE=bullmq REDIS_URL=redis://localhost:6379 npm run dev
-INKDESK_QUEUE=bullmq REDIS_URL=redis://localhost:6379 npm run worker     # the same .env works for both
+INKDESK_QUEUE=bullmq REDIS_URL=redis://localhost:6379 npm run worker     # both read .env (a variable set in the shell wins over the file)
 ```
 
 If Redis is down, a generate button says "The studio is busy — try again in a few minutes" and every project still opens; if Redis is up but no worker is running, jobs wait and the studio says so. `/api/health` reports `queue: { mode, redis, worker }` without ever failing the deploy check on them. Settings, caps and what each failure does are in `.env.example` and `devpost/spec.md > As built — slice 18`.

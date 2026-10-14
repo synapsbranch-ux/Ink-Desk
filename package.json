@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "worker": "tsx --import ./scripts/server-only.mts worker/index.ts",
+    "worker": "tsx --env-file-if-exists=.env --import ./scripts/server-only.mts worker/index.ts",
     "kernel-test": "node scripts/kernel-test.mjs",
     "check:store": "tsx scripts/chapter-store-check.mts",
     "check:cast": "tsx scripts/cast-check.mts",

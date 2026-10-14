@@ -1,4 +1,4 @@
-// A worker in a process of its own, for `check:queue` to kill. It claims the
+// A worker in a process of its own (its claim's lease is short, so the rescuer waits seconds, not the production lease), for `check:queue` to kill. It claims the
 // first job it is given exactly as a real worker does, tells the parent which
 // one, then hangs — the way a worker that is killed mid-job looks to Redis:
 // its lock stops being renewed and nothing finishes the record. Not a script
@@ -18,7 +18,7 @@ await startWorker({
   heartbeatMs: 500,
   reconcileDelayMs: 600_000, // this worker never reconciles; the check does that itself
   process: async (jobId, ctx) => {
-    await store.jobs.updateJob(jobId, (j) => claim(j, ctx.workerId, new Date()))
+    await store.jobs.updateJob(jobId, (j) => claim(j, ctx.workerId, new Date(), 3_000))
     process.stdout.write(`CLAIMED ${jobId}\n`)
     await new Promise(() => {}) // the work that never ends
   },

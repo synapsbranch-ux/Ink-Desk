@@ -83,7 +83,9 @@ export function Panel({
   const failed = (panel?.status === 'failed' || panel?.status === 'refused') && !inking
   // Speed lines and stage line only once the worker has it.
   const drawing = inking && (panel?.status === 'inking' || job?.status === 'running')
-  const redrawing = inking && hasArt
+  const redrawing = drawing && hasArt
+  // A redraw over finished art whose job is only waiting for a free worker: say so, with no stage line or clock.
+  const waitingRedraw = inking && hasArt && !drawing
   const still = !panel || idle || (failed && !hasArt)
 
   const onLoad = () => setLoaded(imageId)
@@ -149,6 +151,13 @@ export function Panel({
       {redrawing && (
         <div className="redraw-indicator" aria-hidden="true">
           <GenerationStatus stages={PANEL_STAGES} startedAt={panel?.startedAt} />
+        </div>
+      )}
+      {waitingRedraw && (
+        <div className="redraw-indicator" role="status">
+          <div className="gen-status">
+            <span className="gen-stage">Waiting its turn…</span>
+          </div>
         </div>
       )}
 

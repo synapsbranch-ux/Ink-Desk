@@ -49,7 +49,7 @@ export async function reconcileOnce(ownerTag: string, now = new Date()): Promise
         if (now.getTime() - Date.parse(job.updatedAt) < REQUEUE_AFTER_MS) continue // just written; the web is about to queue it
         if (await putBack(job, entry, perOwner, report, now)) report.requeued++
       } else if (leaseExpired(job, now)) {
-        const queued = await store.jobs.updateJob(job.id, (j) => requeue(j, now))
+        const queued = await store.jobs.updateJob(job.id, (j) => (leaseExpired(j, now) ? requeue(j, now) : null))
         if (queued && (await putBack(queued, entry, perOwner, report, now))) report.requeued++
       }
     } catch (err) {

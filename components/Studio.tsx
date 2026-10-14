@@ -291,6 +291,7 @@ export function Studio({ projectId }: { projectId: string }) {
         const { ok, data } = await postJson(url, body)
         if (!ok || !('version' in data)) {
           setCard(id, { notice: 'error' in data ? data.error : fallback })
+          void refresh().catch(() => {}) // what the server did before it refused is worth a look
           return
         }
         accept(data)
@@ -300,7 +301,7 @@ export function Studio({ projectId }: { projectId: string }) {
         setCard(id, { busy: null })
       }
     },
-    [accept, setCard]
+    [accept, setCard, refresh]
   )
 
   const reroll = useCallback(
@@ -383,12 +384,15 @@ export function Studio({ projectId }: { projectId: string }) {
       try {
         const { ok, data } = await postJson(url, body)
         if (ok && 'version' in data) return { desk: data }
+        // A refused request can still have started part of its work (Generate all queued some panels
+        // before the cap said no): read the desk again so the poll picks up whatever is drawing.
+        void refresh().catch(() => {})
         return { error: 'error' in data ? data.error : fallback }
       } catch {
         return { error: UNREACHABLE }
       }
     },
-    []
+    [refresh]
   )
 
   // Write the chapter plan / Ask the Director again: one text call, held open.
@@ -541,6 +545,7 @@ export function Studio({ projectId }: { projectId: string }) {
       else {
         console.warn('[panels] start refused:', 'error' in data ? data.error : data)
         if ('error' in data) setPanelNotice(data.error)
+        void refresh().catch(() => {})
       }
     } catch {
       console.warn('[panels] start:', UNREACHABLE)
@@ -548,7 +553,7 @@ export function Studio({ projectId }: { projectId: string }) {
     } finally {
       setPanelsStarting(false)
     }
-  }, [pageApi, absorb])
+  }, [pageApi, absorb, refresh])
 
   // Poll the desk while anything is being drawn: an active job in `activity`,
   // or a panel, page or cover the desk itself says is inking. Polling rather

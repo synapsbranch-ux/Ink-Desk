@@ -41,7 +41,8 @@ export type JobOutcome = 'done' | 'failed' | 'refused' | 'skipped' | 'abandoned'
 export type JobPayload =
   | { kind: 'panel'; chapterId: string; pageIndex: number; index: number }
   | { kind: 'cover'; chapterId: string }
-  | { kind: 'sheet'; characterId: string; reuseDna: boolean }
+  /** `redraw` is what the person asked for (Redraw sheet = same words); `reuseDna` is what the job will do, and turns true once a fresh draw has saved its words. */
+  | { kind: 'sheet'; characterId: string; reuseDna: boolean; redraw: boolean }
 
 export type JobRecord = {
   id: string
@@ -85,9 +86,9 @@ export const LOCAL_OWNER = 'local'
 // --- Time -----------------------------------------------------------------------
 
 /** A running job's claim lasts this long past each renewal. */
-export const LEASE_MS = 120_000
+export const LEASE_MS = 45_000
 /** The worker renews this often — well inside the lease, well outside a tick. */
-export const LEASE_RENEW_MS = 20_000
+export const LEASE_RENEW_MS = 15_000
 /** On the real queue a lapsed lease is BullMQ's to recover (it re-delivers a
  *  stalled job); the web only calls a job dead after this much longer. */
 export const ABANDON_GRACE_MS = 10 * 60_000
@@ -120,7 +121,8 @@ const iso = (d: Date) => d.toISOString()
 
 export const isActive = (job: Pick<JobRecord, 'status'>): boolean => job.status === 'queued' || job.status === 'running'
 
-export type NewJob = Pick<JobRecord, 'key' | 'ownerId' | 'projectId' | 'kind' | 'payload'> & Partial<Pick<JobRecord, 'reservedUsd'>>
+export type NewJob = Pick<JobRecord, 'key' | 'ownerId' | 'projectId' | 'kind' | 'payload'> &
+  Partial<Pick<JobRecord, 'reservedUsd' | 'resultImageId' | 'costUsd'>>
 
 /** A job as it is written, before it is put on any queue. */
 export function newJob(input: NewJob, id: string, now = new Date()): JobRecord {
@@ -136,9 +138,10 @@ export function newJob(input: NewJob, id: string, now = new Date()): JobRecord {
     outcome: null,
     attempts: 0,
     reservedUsd: input.reservedUsd ?? 0,
-    costUsd: 0,
+    // A picture an earlier job of this key paid for and never landed: this one attaches it.
+    costUsd: input.costUsd ?? 0,
     error: null,
-    resultImageId: null,
+    resultImageId: input.resultImageId ?? null,
     providerJobId: null,
     workerId: null,
     leaseUntil: null,
@@ -255,7 +258,7 @@ export function toView(job: JobRecord): JobView {
       ? { chapterId: p.chapterId, pageIndex: p.pageIndex, index: p.index }
       : p.kind === 'cover'
         ? { chapterId: p.chapterId }
-        : { characterId: p.characterId, reuseDna: p.reuseDna }
+        : { characterId: p.characterId, reuseDna: p.redraw }
   return { id: job.id, kind: job.kind, status: job.status, outcome: job.outcome, error: job.error, target, updatedAt: job.updatedAt }
 }
 

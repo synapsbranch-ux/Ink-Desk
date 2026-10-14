@@ -23,13 +23,54 @@ import { drawSheet } from '../sheet'
 import { store } from '../store'
 import { creditsBreakerOpen } from './breaker'
 import { maxRunMs } from './status'
-import { LEASE_RENEW_MS, PAUSED, checkpoint, claim, finish, renew, type JobPayload, type JobRecord } from './jobs'
+import { LEASE_MS, LEASE_RENEW_MS, PAUSED, checkpoint, claim, finish, isActive, renew, type JobPayload, type JobRecord } from './jobs'
 import type { JobRun, Outcome } from './run'
 
 export type Handled = 'done' | 'failed' | 'skipped'
 
+type Pinned = { __inkdeskRunning?: Set<string> }
+const g = globalThis as typeof globalThis & Pinned
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
+/**
+ * Take one job and run it. Two guards come before the claim, because a job can
+ * be delivered while it is still being worked on — BullMQ re-delivers when a
+ * worker's lock lapses (a Redis blip longer than the lock, a long pause), and
+ * a worker that lost its lock keeps working:
+ *   • the same process already has it → this delivery is dropped;
+ *   • another worker holds it under a live lease → wait for it to finish or for
+ *     its lease to lapse (a dead worker's does), rather than drawing a second,
+ *     paid, picture beside it.
+ */
 export async function processJob(jobId: string, ctx: { workerId: string; maxRunMs?: number }): Promise<Handled> {
+  const running = (g.__inkdeskRunning ??= new Set())
+  if (running.has(jobId)) {
+    console.warn(`[worker] job ${jobId} was delivered again while this process is still working on it; leaving it`)
+    return 'skipped'
+  }
+  running.add(jobId)
+  try {
+    return await run(jobId, ctx)
+  } finally {
+    running.delete(jobId)
+  }
+}
+
+async function run(jobId: string, ctx: { workerId: string; maxRunMs?: number }): Promise<Handled> {
   const { workerId } = ctx
+
+  const waitedFrom = Date.now()
+  for (;;) {
+    const current = await store.jobs.getJob(jobId)
+    if (!current || !isActive(current)) {
+      console.log(`[worker] job ${jobId} is already finished or gone; leaving it`)
+      return 'skipped'
+    }
+    const heldByAnother = current.status === 'running' && current.workerId !== workerId && current.leaseUntil !== null && Date.parse(current.leaseUntil) > Date.now()
+    if (!heldByAnother || Date.now() - waitedFrom > LEASE_MS + 15_000) break
+    await sleep(2_000)
+  }
+
   const job = await store.jobs.updateJob(jobId, (j) => claim(j, workerId, new Date()))
   if (!job) {
     console.log(`[worker] job ${jobId} is already finished or gone; leaving it`)
@@ -37,7 +78,8 @@ export async function processJob(jobId: string, ctx: { workerId: string; maxRunM
   }
   const tag = `${job.kind} ${job.id.slice(0, 8)}`
 
-  if (await creditsBreakerOpen()) {
+  // A job that only has to attach a picture it already paid for calls nobody, so the breaker does not stop it.
+  if (!job.resultImageId && (await creditsBreakerOpen())) {
     // Fail it without calling anyone: the account is out of credit (CR-10).
     console.warn(`[worker] ${tag} — credit breaker open; not calling the provider`)
     await end(job, { outcome: 'failed', error: PAUSED })
@@ -45,7 +87,7 @@ export async function processJob(jobId: string, ctx: { workerId: string; maxRunM
   }
 
   // The heartbeat: renew the lease while the work runs.
-  const deadline = Date.now() + (ctx.maxRunMs ?? maxRunMs())
+  const deadline = Date.now() + (ctx.maxRunMs ?? maxRunMs(job.kind === 'panel' || job.kind === 'cover' ? job.kind : 'sheet'))
   const beat = setInterval(() => {
     if (Date.now() > deadline) return
     store.jobs.updateJob(job.id, (j) => renew(j, workerId, new Date())).catch((err: unknown) => {
@@ -54,7 +96,7 @@ export async function processJob(jobId: string, ctx: { workerId: string; maxRunM
   }, LEASE_RENEW_MS)
   beat.unref?.()
 
-  const run: JobRun = {
+  const jobRun: JobRun = {
     jobId: job.id,
     resultImageId: job.resultImageId,
     costUsd: job.costUsd,
@@ -68,7 +110,7 @@ export async function processJob(jobId: string, ctx: { workerId: string; maxRunM
 
   let outcome: Outcome
   try {
-    outcome = await work(job, run)
+    outcome = await work(job, jobRun)
   } finally {
     clearInterval(beat)
   }

@@ -636,7 +636,193 @@ try {
     ok('plans in flight are bounded: one per project, a few across the process (CR-18)')
   }
 
-  // 13. Redis down: generate says busy at once, reading keeps working, the status line says why.
+  // 13. What the adversarial review found, each one reproduced first and held here (slice 18 review).
+  {
+    const { processJob } = await import('../lib/queue/processors')
+    const { tripCredits } = await import('../lib/queue/breaker')
+    const { assertCanEnqueue, activeJob } = await import('../lib/queue/enqueue')
+    const { demoteStale } = await import('../lib/chapter')
+    const { jobSentence, ProviderError, UNAVAILABLE } = await import('../lib/errors')
+    const { maxRunMs } = await import('../lib/queue/status')
+    const panelPayload = (p: { addr: { chapterId: string } }, index: number) => ({ kind: 'panel' as const, chapterId: p.addr.chapterId, pageIndex: 0, index })
+    const insertRunning = async (p: { pid: string; addr: { chapterId: string } }, index: number, extra: Partial<import('../lib/queue/jobs').JobRecord> = {}) => {
+      const { job } = await store.jobs.insertJob({
+        ...J.newJob({ key: `review:${crypto.randomUUID()}`, ownerId: J.LOCAL_OWNER, projectId: p.pid, kind: 'panel', payload: panelPayload(p, index) }, crypto.randomUUID(), new Date()),
+        ...extra,
+      })
+      return job
+    }
+
+    // (a) A re-run whose picture already landed must not flip the finished panel back to "inking" (high).
+    {
+      const p = await lockedPage('Review a')
+      await queuePanel(p.addr, 0)
+      await until('the panel to land', async () => (await p.read()).script![0].status === 'done')
+      await until('its record to end', async () => !(await isActiveKey(`${p.pid}:${p.addr.chapterId}:0:0`)))
+      const landed = (await p.read()).script![0].versions[0].imageId
+      const calls: number = provider.images
+      const redelivered = await insertRunning(p, 0, { status: 'running', workerId: 'dead', leaseUntil: new Date(Date.now() - 1000).toISOString(), resultImageId: landed })
+      assert.equal(await processJob(redelivered.id, { workerId: 'redelivery' }), 'done')
+      const panel = (await p.read()).script![0]
+      assert.equal(panel.status, 'done', 'still done')
+      assert.equal(panel.startedByRun, null, 'no claim left behind')
+      assert.equal(panel.versions.length, 1)
+      assert.equal(provider.images, calls, 'and nothing was drawn')
+      const project = await store.readProject(p.pid)
+      assert.deepEqual(demoteStale(project, new Set(), 360_000, new Date(Date.now() + 120_000)).demoted, [], 'so the floor has nothing to demote')
+    }
+
+    // (b) A job that already paid attaches its picture even with the credit breaker open (the retry calls nobody).
+    {
+      const p = await lockedPage('Review b')
+      const blob = await store.putBlob(tinyPng, 'image/png', 'panel')
+      const job = await insertRunning(p, 0, { status: 'running', workerId: 'dead', leaseUntil: new Date(Date.now() - 1000).toISOString(), resultImageId: blob, costUsd: 0.01 })
+      await p.update((c) => ({ ...c, script: c.script!.map((x) => (x.index === 0 ? { ...x, status: 'inking' as const, startedAt: new Date().toISOString(), startedByRun: job.id } : x)) }))
+      await tripCredits()
+      const calls = provider.images
+      assert.equal(await processJob(job.id, { workerId: 'retry' }), 'done', 'not PAUSED')
+      resetBreaker()
+      await redis().del(redisKey('breaker', 'credits'))
+      const panel = (await p.read()).script![0]
+      assert.deepEqual([panel.status, panel.versions.map((v) => v.imageId)], ['done', [blob]])
+      assert.equal(provider.images, calls)
+    }
+
+    // (c) A store that blips while the job saves the picture's id does not lose the picture or its cost.
+    {
+      const realUpdate = store.jobs.updateJob.bind(store.jobs)
+      const blip = (times: number) => {
+        let left = times
+        store.jobs.updateJob = async (id, fn) => {
+          const before = await store.jobs.getJob(id)
+          const probe = before && fn(before)
+          if (left > 0 && probe && probe.resultImageId && probe.resultImageId !== before.resultImageId) {
+            left--
+            throw new Error('the store blipped')
+          }
+          return realUpdate(id, fn)
+        }
+      }
+      for (const failures of [1, 3]) {
+        const p = await lockedPage(`Review c${failures}`)
+        const before = await p.read()
+        const job = await insertRunning(p, 0)
+        blip(failures)
+        const calls: number = provider.images
+        await quiet(async () => {
+          assert.equal(await processJob(job.id, { workerId: 'blippy' }), 'done')
+        })()
+        store.jobs.updateJob = realUpdate
+        const after = await p.read()
+        assert.equal(after.script![0].status, 'done', `${failures} failed checkpoint(s): the picture still lands`)
+        assert.equal(provider.images, calls + 1, 'drawn once')
+        assert.equal(after.imageCount, before.imageCount + 1)
+        assert.ok(Math.abs(after.costUsd - (before.costUsd + 0.01)) < 1e-9, 'and its cost is counted')
+      }
+    }
+
+    // (d) Delivered twice: the same process drops the second; another worker waits for the first.
+    {
+      const p = await lockedPage('Review d')
+      const job = await insertRunning(p, 0)
+      const calls = provider.images
+      const [a, b] = await Promise.all([processJob(job.id, { workerId: 'one' }), processJob(job.id, { workerId: 'one' })])
+      assert.deepEqual([a, b].sort(), ['done', 'skipped'])
+      assert.equal(provider.images, calls + 1, 'one picture bought, not two')
+      const q = await lockedPage('Review d2')
+      const job2 = await insertRunning(q, 0)
+      const calls2 = provider.images
+      const first = processJob(job2.id, { workerId: 'holder' })
+      await sleep(15)
+      const second = processJob(job2.id, { workerId: 'intruder' }) // the holder's lease is live
+      assert.deepEqual([await first, await second], ['done', 'skipped'], 'the other worker waited, then found it finished')
+      assert.equal(provider.images, calls2 + 1)
+      assert.equal((await store.jobs.getJob(job2.id))!.workerId, 'holder', 'the record names the worker that drew it')
+    }
+
+    // (e) A picture a failed job paid for and never landed is picked up by the next job for the key.
+    {
+      const p = await lockedPage('Review e')
+      const blob = await store.putBlob(tinyPng, 'image/png', 'panel')
+      const key = `${p.pid}:${p.addr.chapterId}:0:0`
+      const old = await insertRunning(p, 0)
+      await store.jobs.updateJob(old.id, (j) => ({ ...j, key, resultImageId: blob, costUsd: 0.01 }))
+      await store.jobs.updateJob(old.id, (j) => J.finish(j, { outcome: 'failed', error: J.TOO_MANY_RESTARTS }, new Date()))
+      const calls = provider.images
+      assert.equal(await queuePanel(p.addr, 0), true)
+      await until('the panel to land', async () => (await p.read()).script![0].status === 'done')
+      assert.equal(provider.images, calls, 'attached, not drawn and paid for again')
+      assert.equal((await p.read()).script![0].versions[0].imageId, blob)
+    }
+
+    // (f) Liveness is judged on the fresh record, so a worker that renewed in time is not let go.
+    {
+      const p = await lockedPage('Review f')
+      const alive = await insertRunning(p, 0, { status: 'running', workerId: 'w', leaseUntil: new Date(Date.now() + 60_000).toISOString() })
+      await store.jobs.updateJob(alive.id, (j) => ({ ...j, key: 'review:alive' }))
+      assert.equal((await activeJob('review:alive'))?.id, alive.id)
+      const lapsed = await insertRunning(p, 1, { status: 'running', workerId: 'w', leaseUntil: new Date(Date.now() - (J.ABANDON_GRACE_MS + 1000)).toISOString() })
+      await store.jobs.updateJob(lapsed.id, (j) => ({ ...j, key: 'review:lapsed' }))
+      assert.equal(await activeJob('review:lapsed'), null, 'a dead one is let go')
+      assert.equal((await store.jobs.getJob(lapsed.id))!.outcome, 'abandoned')
+    }
+
+    // (g) The sentences a poller can read carry no internals; a sheet's label is what was asked for; a sheet gets a longer ceiling.
+    {
+      const was = env.NODE_ENV
+      env.NODE_ENV = 'production'
+      assert.equal(jobSentence(new ProviderError('Add OPENROUTER_API_KEY to .env and restart', 'config'), 'calm'), UNAVAILABLE, 'production says only that the studio is unavailable')
+      if (was === undefined) delete env.NODE_ENV
+      else env.NODE_ENV = was
+      assert.equal(jobSentence(new ProviderError('x', 'provider', 'HTTP 500 secret detail'), 'calm'), 'calm')
+      assert.equal(jobSentence(new ProviderError('Edit the look and draw again.', 'refused'), 'calm'), 'Edit the look and draw again.')
+      const sheet = J.newJob({ key: 'k', ownerId: 'o', projectId: 'p', kind: 'sheet', payload: { kind: 'sheet', characterId: 'c', reuseDna: false, redraw: false } }, 'id', new Date())
+      const midway = { ...sheet, payload: { ...sheet.payload, reuseDna: true } as import('../lib/queue/jobs').JobPayload }
+      assert.equal(J.toView(midway).target.reuseDna, false, 'a Draw sheet stays "Drawing…" after its words are saved')
+      assert.ok(maxRunMs('sheet') > maxRunMs('panel') + 300_000, 'a sheet may take longer than a panel')
+    }
+
+    // (h) The caps hold against requests that race each other, and a route can ask before it pays.
+    {
+      for (const h of handles.splice(0)) await h.close(1_000)
+      await reset()
+      const p = await lockedPage('Review h')
+      env.QUEUE_USER_INFLIGHT = '3'
+      const attempts = await Promise.allSettled(
+        Array.from({ length: 10 }, (_, i) => enqueueJob({ key: `burst:${i}`, ownerId: 'burster', projectId: p.pid, kind: 'panel', payload: panelPayload(p, 0) }))
+      )
+      const active = (await store.jobs.listJobs({ ownerId: 'burster', status: ['queued', 'running'] })).length
+      assert.ok(active >= 1 && active <= 3, `ten racing requests, cap 3: ${active} active`)
+      for (const a of attempts) if (a.status === 'rejected') assert.ok(a.reason instanceof Refused && a.reason.status === 429)
+      await assert.rejects(assertCanEnqueue('burster'), (e: unknown) => e instanceof Refused && e.status === 429, 'the Rewrite route asks before it pays Claude')
+      await assertCanEnqueue('someone-else')
+      delete env.QUEUE_USER_INFLIGHT
+      await reset()
+    }
+
+    // (i) A job that hangs past the ceiling is failed and its slot freed; a stop does not wait for ever.
+    {
+      const p = await lockedPage('Review i')
+      const hang = await startWorker({ workerId: 'hang', concurrency: 1, lockDurationMs: 5_000, stalledIntervalMs: 1_000, heartbeatMs: 300, reconcileMs: 600_000, reconcileDelayMs: 600_000, jobCeilingMs: 400, process: async () => new Promise(() => {}) })
+      assert.equal(await queuePanel(p.addr, 0), true)
+      await quiet(async () => {
+        await until('the hung job to be failed', async () => (await store.jobs.listJobs({ projectId: p.pid }))[0]?.status === 'failed', 10_000)
+      })()
+      assert.equal((await store.jobs.listJobs({ projectId: p.pid }))[0].error, J.TOO_MANY_RESTARTS)
+      const stuck = await startWorker({ workerId: 'stuck', concurrency: 1, lockDurationMs: 5_000, heartbeatMs: 300, reconcileMs: 600_000, reconcileDelayMs: 600_000, jobCeilingMs: 600_000, process: async () => new Promise(() => {}) })
+      const q = await lockedPage('Review i2')
+      await queuePanel(q.addr, 0)
+      await sleep(600)
+      const t0 = Date.now()
+      await stuck.close(300)
+      assert.ok(Date.now() - t0 < 4_000, `stopped after ${Date.now() - t0} ms, not after the job`)
+      await hang.close(300)
+      await reset()
+    }
+    ok('the review’s fixes: a finished panel stays done; a paid retry attaches even with the breaker open; a failed checkpoint loses nothing; a double delivery draws once; a stranded picture is picked up; caps hold under a burst; a hung job is freed; sentences carry no internals')
+  }
+
+  // 14. Redis down: generate says busy at once, reading keeps working, the status line says why.
   {
     const p = await lockedPage('Down')
     await redis().flushall()

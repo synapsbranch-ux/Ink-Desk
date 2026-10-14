@@ -16,7 +16,7 @@
 import 'server-only'
 import { read, update, updatePages } from './chapter'
 import { summarizeScenario, writeChapterPlan } from './claude'
-import { ProviderError, Refused } from './errors'
+import { ProviderError, Refused, jobSentence } from './errors'
 import { generateImage, imageConfig } from './image-provider'
 import { fitsVision } from './assets'
 import { chargeText, landImage, mediaTypeOf, readImage, saveImage } from './images'
@@ -189,6 +189,11 @@ export async function queueCover(projectId: string, chapterId: string): Promise<
  * which v2 does not run, so the lead alone is the honest default.
  */
 export async function inkCover(projectId: string, run: JobRun = adhocRun()): Promise<Outcome> {
+  // A re-run whose picture already landed has nothing left to do, and must not claim the cover again.
+  if (run.resultImageId && coverHasVersion(await read(projectId), run.resultImageId)) {
+    console.log('[cover] its picture is already on the cover; nothing to do')
+    return { outcome: 'done', costUsd: run.costUsd }
+  }
   let desk: Desk
   try {
     desk = await update(projectId, (d) => markCoverInking(d, run.jobId))
@@ -202,8 +207,8 @@ export async function inkCover(projectId: string, run: JobRun = adhocRun()): Pro
   const tracked: JobRun = {
     ...run,
     checkpoint: async (imageId, cost) => {
+      stored = true // the picture is in the bucket the moment this is called, whether or not the job can say so
       await run.checkpoint(imageId, cost)
-      stored = true
     },
   }
 
@@ -243,6 +248,6 @@ export async function inkCover(projectId: string, run: JobRun = adhocRun()): Pro
     if (err instanceof ProviderError) console.error(`[cover] ${status}: ${err.message}`, err.cause ?? '')
     else console.error(`[cover] ${status}:`, err)
     await update(projectId, (d) => markCoverFailed(d, status, run.jobId)).catch((e: unknown) => console.error('[cover] could not record the failure:', e))
-    return { outcome: status, error: credits ? PAUSED : err instanceof ProviderError && err.kind !== 'provider' ? err.message : undefined }
+    return { outcome: status, error: credits ? PAUSED : err instanceof ProviderError && err.kind !== 'provider' ? jobSentence(err, '') : undefined }
   }
 }

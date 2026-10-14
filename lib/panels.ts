@@ -20,7 +20,7 @@
 // package the way Next's server does.
 import 'server-only'
 import { read, update } from './chapter'
-import { ProviderError, Refused } from './errors'
+import { ProviderError, Refused, jobSentence } from './errors'
 import { generateImage, imageConfig } from './image-provider'
 import { landImage, mediaTypeOf, readImage, saveImage } from './images'
 import { tripCredits } from './queue/breaker'
@@ -73,6 +73,13 @@ export async function queueBlankPanels(addr: PageAddress): Promise<number[]> {
 export async function inkPanel(addr: PageAddress, index: number, run: JobRun = adhocRun()): Promise<Outcome> {
   const tag = `p${addr.pageIndex + 1} panel ${index + 1}`
 
+  // A re-run whose picture already landed (the worker died after the attach, before it could say so) has nothing
+  // left to do — and must not claim the panel again, or a finished panel would read "inking" with no job behind it.
+  if (run.resultImageId && hasVersion(await read(addr.projectId, addr), index, run.resultImageId)) {
+    console.log(`[${tag}] its picture is already on the panel; nothing to do`)
+    return { outcome: 'done', costUsd: run.costUsd }
+  }
+
   // Claim it inside the store's atomic update. A panel already inking under
   // another claim, or one whose character is not locked with a sheet, is
   // refused here and nothing is drawn.
@@ -93,8 +100,8 @@ export async function inkPanel(addr: PageAddress, index: number, run: JobRun = a
   const tracked: JobRun = {
     ...run,
     checkpoint: async (imageId, cost) => {
+      stored = true // the picture is in the bucket the moment this is called, whether or not the job can say so
       await run.checkpoint(imageId, cost)
-      stored = true
     },
   }
 
@@ -156,6 +163,6 @@ export async function inkPanel(addr: PageAddress, index: number, run: JobRun = a
     await update(addr.projectId, (d) => markFailed(d, index, status, run.jobId), addr).catch((e: unknown) =>
       console.error(`[${tag}] could not record the failure:`, e)
     )
-    return { outcome: status, error: credits ? PAUSED : err instanceof ProviderError && err.kind !== 'provider' ? err.message : undefined }
+    return { outcome: status, error: credits ? PAUSED : err instanceof ProviderError && err.kind !== 'provider' ? jobSentence(err, '') : undefined }
   }
 }

@@ -45,8 +45,30 @@ export async function saveImage(
   run?: JobRun
 ): Promise<{ chapter: Desk; imageId: string }> {
   const imageId = await store.putBlob(Buffer.from(b64, 'base64'), mediaType, kind)
-  await run?.checkpoint(imageId, costUsd)
+  if (run) await checkpointDurably(run, imageId, costUsd)
   return { chapter: await landImage(projectId, imageId, attach, costUsd, at), imageId }
+}
+
+/**
+ * Save the picture's id on the job. A store that blips here must not lose a
+ * picture that is already paid for and in the bucket: try a few times, and if
+ * it still will not take it, carry on and attach the picture now — the cost is
+ * counted by the same write, and only a second failure right after would leave
+ * a re-run without the id.
+ */
+async function checkpointDurably(run: JobRun, imageId: string, costUsd: number | null): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await run.checkpoint(imageId, costUsd)
+      return
+    } catch (err) {
+      if (attempt >= 3) {
+        console.error(`[images] could not save ${imageId} on its job after ${attempt} tries; attaching it anyway:`, err instanceof Error ? err.message : err)
+        return
+      }
+      await new Promise((resolve) => setTimeout(resolve, 150 * attempt))
+    }
+  }
 }
 
 /**

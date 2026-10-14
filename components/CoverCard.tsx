@@ -43,6 +43,8 @@ export function CoverCard({ cover, panelQuality, busy, job, notice, onEdit, onCo
   const versions = cover.versions
   const cv = cover.currentVersion
   const inking = inFlight(cover.status, job)
+  // Stage line and clock only once the worker has it; a job still waiting for a free worker says so.
+  const drawing = inking && (cover.status === 'inking' || job?.status === 'running')
   const failed = inking ? null : (FAILED[cover.status] ?? null)
 
   // The art fades in once its bytes are here; the pencil stays under it until then.
@@ -62,9 +64,11 @@ export function CoverCard({ cover, panelQuality, busy, job, notice, onEdit, onCo
       <div className={`cover-frame${showArt ? ' is-inked' : ''}`} aria-busy={inking || undefined}>
         {!showArt && (
           <div className={`cover-pencil sketch${inking ? ' is-drawing' : ' is-still'}${failed ? ' is-failed' : ''}`}>
-            {inking && !imageId && <div className="speedlines" />}
-            {inking && !imageId ? (
+            {drawing && !imageId && <div className="speedlines" />}
+            {drawing && !imageId ? (
               <GenerationStatus stages={PANEL_STAGES} startedAt={cover.startedAt} />
+            ) : inking && !imageId ? (
+              <span className="pencil-label">Waiting its turn…</span>
             ) : (
               <span className="pencil-label">{failed ?? (imageId ? 'Loading the cover…' : 'No cover yet')}</span>
             )}
@@ -82,9 +86,16 @@ export function CoverCard({ cover, panelQuality, busy, job, notice, onEdit, onCo
           />
         )}
         {cover.title.trim() && <h2 className="cover-title">{cover.title}</h2>}
-        {inking && imageId && (
+        {drawing && imageId && (
           <div className="redraw-indicator" aria-hidden="true">
             <GenerationStatus stages={PANEL_STAGES} startedAt={cover.startedAt} />
+          </div>
+        )}
+        {inking && !drawing && imageId && (
+          <div className="redraw-indicator" role="status">
+            <div className="gen-status">
+            <span className="gen-stage">Waiting its turn…</span>
+          </div>
           </div>
         )}
         {versions.length >= 2 && (

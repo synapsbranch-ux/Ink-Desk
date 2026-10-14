@@ -10,6 +10,8 @@ import { assertGenerationEnabled } from '@/lib/generation'
 import { updateCharging } from '@/lib/images'
 import { textMeter } from '@/lib/llm'
 import { isQueued, queuePanel } from '@/lib/panels'
+import { assertCanEnqueue } from '@/lib/queue/enqueue'
+import { LOCAL_OWNER } from '@/lib/queue/jobs'
 import { readWithActivity } from '@/lib/queue/status'
 import { PANEL_LAYOUT } from '@/lib/prompts'
 import { applyRewrite, findPanel } from '@/lib/script'
@@ -33,6 +35,10 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     if (await isQueued(addr, index)) throw new Refused(`Panel ${index + 1} is already waiting to ink.`)
     const character = desk.cast.find((c) => c.id === panel.characterId)
     if (!character) throw new Refused('That panel’s character isn’t on the desk any more. Reload the page.', 404)
+
+    // Ask whether the queue will take the panel BEFORE paying Claude to rephrase it: a refusal after the
+    // rewrite would leave a rephrased panel that can only be drawn by paying again.
+    await assertCanEnqueue(LOCAL_OWNER)
 
     const meter = textMeter()
     const visuals = await rewritePanelVisuals(panel, PANEL_LAYOUT[index], character, meter)

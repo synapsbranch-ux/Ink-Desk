@@ -56,6 +56,16 @@ export function configSentence(err: ProviderError): string {
   return process.env.NODE_ENV === 'production' ? UNAVAILABLE : err.message
 }
 
+/**
+ * The sentence a failed JOB may carry to the browser (its record is polled by
+ * anyone who can open the project): a provider problem gets the surface's calm
+ * sentence, a config problem the production-safe one (SEC-11), a refusal its
+ * own words. Never the cause.
+ */
+export function jobSentence(err: ProviderError, calm: string): string {
+  return err.kind === 'provider' ? calm : err.kind === 'config' ? configSentence(err) : err.message
+}
+
 /** A short id that ties a sentence on screen to its line in the log. */
 function reference(): string {
   return globalThis.crypto.randomUUID().slice(0, 8)

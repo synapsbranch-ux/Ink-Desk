@@ -18,9 +18,14 @@ import { producerRedis, redisKey, within } from './redis'
 
 const ACTIVE = ['queued', 'running'] as const
 
-/** The longest a job may legitimately hold a claim: two attempts of the image call, the text call before a sheet, and margin. Past it nothing renews the lease and the stale floor lets the claim go (CR-13). */
-export function maxRunMs(): number {
-  return 2 * generationTimeoutMs() + 180_000
+/**
+ * The longest a job may legitimately hold a claim: two attempts of the image
+ * call and margin — and, for a sheet, the Claude call before it (two attempts
+ * of 150 s, then the fallback's two of 120 s). Past it nothing renews the lease
+ * and the stale floor lets the claim go (CR-13). With no kind: the longest.
+ */
+export function maxRunMs(kind: 'panel' | 'cover' | 'sheet' = 'sheet'): number {
+  return 2 * generationTimeoutMs() + 180_000 + (kind === 'sheet' ? 2 * 150_000 + 2 * 120_000 : 0)
 }
 
 /** How long past a lapsed lease the web keeps believing in a job. */
@@ -40,7 +45,8 @@ export async function liveJobs(projectId: string, now = new Date()): Promise<Job
     if (isJobLive(job, now)) live.push(job)
     else {
       console.warn(`[queue] ${job.kind} job ${job.id} has no live worker (its lease lapsed); letting it go`)
-      await store.jobs.updateJob(job.id, (j) => abandon(j, ABANDONED, now)).catch(() => {})
+      // Judged again on the fresh record: a worker that renewed since the listing is not let go.
+      await store.jobs.updateJob(job.id, (j) => (isJobLive(j, now) ? null : abandon(j, ABANDONED, now))).catch(() => {})
     }
   }
   return live

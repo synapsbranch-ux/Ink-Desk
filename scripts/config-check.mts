@@ -23,7 +23,7 @@ import { join } from 'node:path'
 const dir = await mkdtemp(join(tmpdir(), 'inkdesk-config-'))
 process.env.INKDESK_DATA_DIR = dir
 process.env.INKDESK_STORAGE = 'local' // this check never opens a database or a bucket
-for (const name of ['GENERATION_ENABLED', 'PANEL_CONCURRENCY', 'GENERATION_TIMEOUT_MS', 'INKDESK_QUEUE', 'REDIS_URL', 'QUEUE_CONCURRENCY_IMAGE', 'QUEUE_USER_INFLIGHT', 'QUEUE_MAX_WAITING', 'QUEUE_RETRY_BACKOFF_MS']) delete process.env[name]
+for (const name of ['GENERATION_ENABLED', 'PANEL_CONCURRENCY', 'GENERATION_TIMEOUT_MS', 'INKDESK_QUEUE', 'REDIS_URL', 'QUEUE_CONCURRENCY_IMAGE', 'QUEUE_USER_INFLIGHT', 'QUEUE_MAX_WAITING', 'QUEUE_RETRY_BACKOFF_MS', 'WORKER_GRACE_MS']) delete process.env[name]
 // Nothing here may reach the network; a call would fail the check loudly.
 globalThis.fetch = (async (input: unknown) => {
   throw new Error(`config-check: unexpected network call to ${String(input)}`)
@@ -200,7 +200,7 @@ try {
   //     is named when it is missing and never echoed; the numbers are checked like the others.
   {
     const { queueSettings, imageConcurrency } = config
-    assert.deepEqual(queueSettings({}), { mode: 'inline', redisUrl: null, imageConcurrency: 2, userInflight: 30, maxWaiting: 200, retryBackoffMs: 5000 })
+    assert.deepEqual(queueSettings({}), { mode: 'inline', redisUrl: null, imageConcurrency: 2, userInflight: 30, maxWaiting: 200, retryBackoffMs: 5000, graceMs: 90_000 })
     assert.equal(queueSettings({ INKDESK_QUEUE: 'bullmq', REDIS_URL: 'redis://redis.railway.internal:6379' }).mode, 'bullmq')
     assert.equal(queueSettings({ NODE_ENV: 'production', REDIS_URL: 'redis://h:6379', GENERATION_ENABLED: 'true' }).mode, 'bullmq', 'production defaults to the real queue')
     assert.match(refusal(() => queueSettings({ INKDESK_QUEUE: 'bullmq' }, 'worker')).message, /REDIS_URL is not set/, 'a worker cannot start without Redis')
@@ -214,7 +214,7 @@ try {
     assert.equal(imageConcurrency({}), 2)
     assert.equal(imageConcurrency({ PANEL_CONCURRENCY: '3' }), 3, 'PANEL_CONCURRENCY is the fallback')
     assert.equal(imageConcurrency({ PANEL_CONCURRENCY: '3', QUEUE_CONCURRENCY_IMAGE: '5' }), 5, 'QUEUE_CONCURRENCY_IMAGE wins when set')
-    for (const [name, bad] of [['QUEUE_CONCURRENCY_IMAGE', '9'], ['QUEUE_USER_INFLIGHT', '0'], ['QUEUE_MAX_WAITING', '5001'], ['QUEUE_RETRY_BACKOFF_MS', '-1']] as const) {
+    for (const [name, bad] of [['QUEUE_CONCURRENCY_IMAGE', '9'], ['QUEUE_USER_INFLIGHT', '0'], ['QUEUE_MAX_WAITING', '5001'], ['QUEUE_RETRY_BACKOFF_MS', '-1'], ['WORKER_GRACE_MS', '600001']] as const) {
       assert.match(refusal(() => queueSettings({ [name]: bad })).message, new RegExp(`${name} must be a whole number`), `${name}=${bad}`)
     }
     assert.equal(queueSettings({ QUEUE_USER_INFLIGHT: '', QUEUE_MAX_WAITING: ' 50 ' }).maxWaiting, 50)
@@ -296,7 +296,7 @@ try {
   // 9. .env.example documents every name of the mapping and the flag, and
   //    carries no value for any of them.
   const example = await readFile(new URL('../.env.example', import.meta.url), 'utf8')
-  for (const name of [...CLOUD_VARIABLES, 'GENERATION_ENABLED', 'INKDESK_STORAGE', 'PANEL_CONCURRENCY', 'GENERATION_TIMEOUT_MS', 'INKDESK_QUEUE', 'REDIS_URL', 'QUEUE_CONCURRENCY_IMAGE', 'QUEUE_USER_INFLIGHT', 'QUEUE_MAX_WAITING', 'QUEUE_RETRY_BACKOFF_MS', 'IMAGE_RETRY_DELAY_MS']) {
+  for (const name of [...CLOUD_VARIABLES, 'GENERATION_ENABLED', 'INKDESK_STORAGE', 'PANEL_CONCURRENCY', 'GENERATION_TIMEOUT_MS', 'INKDESK_QUEUE', 'REDIS_URL', 'QUEUE_CONCURRENCY_IMAGE', 'QUEUE_USER_INFLIGHT', 'QUEUE_MAX_WAITING', 'QUEUE_RETRY_BACKOFF_MS', 'WORKER_GRACE_MS', 'IMAGE_RETRY_DELAY_MS']) {
     assert.ok(new RegExp(`\\b${name}\\b`).test(example), `.env.example names ${name}`)
   }
   for (const name of [...CLOUD_VARIABLES, 'GENERATION_ENABLED', 'REDIS_URL']) {

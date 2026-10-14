@@ -23,7 +23,7 @@ import { Refused } from '../errors'
 import { singletons } from '../singleton'
 import { store } from '../store'
 import { creditsBreakerOpen } from './breaker'
-import { ABANDONED, BUSY, PAUSED, TOO_MANY, abandon, finish, newJob, priorityFor, type JobRecord, type NewJob } from './jobs'
+import { ABANDONED, BUSY, KEEP_FINISHED_MS, PAUSED, TOO_MANY, abandon, finish, newJob, priorityFor, type JobRecord, type NewJob } from './jobs'
 import { within } from './redis'
 import { addToQueue } from './queues'
 import { isJobLive } from './status'
@@ -32,13 +32,14 @@ const ACTIVE = ['queued', 'running'] as const
 
 export type Enqueued = { job: JobRecord; created: boolean }
 
-/** The job that holds this key right now, if there is a live one. A dead one (lease lapsed, nothing to renew it) is let go on the way. */
+/** The job that holds this key right now, if there is a live one. A dead one (lease lapsed, nothing to renew it) is let go on the way — judged again on the fresh record, so a worker that renewed in between is not abandoned. */
 export async function activeJob(key: string): Promise<JobRecord | null> {
   const [job] = await store.jobs.listJobs({ key, status: ACTIVE, limit: 1 })
   if (!job) return null
   if (isJobLive(job)) return job
-  await store.jobs.updateJob(job.id, (j) => abandon(j, ABANDONED, new Date()))
-  return null
+  const now = new Date()
+  const ended = await store.jobs.updateJob(job.id, (j) => (isJobLive(j, now) ? null : abandon(j, ABANDONED, now)))
+  return ended ? null : ((await store.jobs.getJob(job.id)) ?? null)
 }
 
 /** Is work with this key waiting or running? */
@@ -46,27 +47,64 @@ export async function isQueued(key: string): Promise<boolean> {
   return (await activeJob(key)) !== null
 }
 
-export async function enqueueJob(input: NewJob): Promise<Enqueued> {
+/**
+ * Everything that would refuse new work, without writing anything — so a
+ * route that is about to pay for something first (Rewrite's text call) can
+ * ask before it spends. Throws `Refused`; the caps are checked again, after
+ * the insert, by `enqueueJob` itself.
+ */
+export async function assertCanEnqueue(ownerId: string): Promise<void> {
   const settings = queueSettings()
-
   if (await creditsBreakerOpen()) throw new Refused(PAUSED, 503)
   if (settings.mode === 'bullmq' && !settings.redisUrl) throw new Refused(BUSY, 503)
-
-  const existing = await activeJob(input.key)
-  if (existing) return { job: existing, created: false }
-
-  const mine = await store.jobs.listJobs({ ownerId: input.ownerId, status: ACTIVE, limit: settings.userInflight + 1 })
+  const mine = await store.jobs.listJobs({ ownerId, status: ACTIVE, limit: settings.userInflight + 1 })
   if (mine.length >= settings.userInflight) throw new Refused(TOO_MANY, 429)
   const everyone = await store.jobs.listJobs({ status: ACTIVE, limit: settings.maxWaiting + 1 })
   if (everyone.length >= settings.maxWaiting) throw new Refused(BUSY, 503)
+}
+
+/** The newest ended job for this key that paid for a picture and never landed it: its picture is what a new job should attach (CR-16). */
+async function strandedPicture(key: string): Promise<Pick<NewJob, 'resultImageId' | 'costUsd'>> {
+  const [last] = await store.jobs.listJobs({ key, status: ['failed'], limit: 1 })
+  return last?.resultImageId ? { resultImageId: last.resultImageId, costUsd: last.costUsd } : {}
+}
+
+let lastPrune = 0
+/** Old finished records are let go from the web side too (the inline queue has no worker to do it), at most every ten minutes. */
+function prune(): void {
+  if (Date.now() - lastPrune < 10 * 60_000) return
+  lastPrune = Date.now()
+  store.jobs.pruneJobs(new Date(Date.now() - KEEP_FINISHED_MS).toISOString()).catch((err: unknown) => {
+    console.warn('[queue] could not prune finished job records:', err instanceof Error ? err.message : err)
+  })
+}
+
+export async function enqueueJob(input: NewJob): Promise<Enqueued> {
+  const settings = queueSettings()
+
+  const existing = await activeJob(input.key)
+  if (existing) return { job: existing, created: false }
+  await assertCanEnqueue(input.ownerId)
+  prune()
 
   // Written before it is queued, so there is never a queued job without a record.
-  const inserted = await store.jobs.insertJob(newJob(input, randomUUID(), new Date()))
+  const inserted = await store.jobs.insertJob(newJob({ ...input, ...(await strandedPicture(input.key)) }, randomUUID(), new Date()))
   if (!inserted.created) return inserted
   const job = inserted.job
 
+  // The caps were checked before the insert, and requests racing each other all
+  // saw room. Count again now that this one is in; a request that put the count
+  // over backs out (two racers may both back out, which is the safe direction).
+  const mine = await store.jobs.listJobs({ ownerId: input.ownerId, status: ACTIVE, limit: settings.userInflight + 2 })
+  const everyone = mine.length > settings.userInflight ? mine : await store.jobs.listJobs({ status: ACTIVE, limit: settings.maxWaiting + 2 })
+  const overOwner = mine.length > settings.userInflight
+  if (overOwner || everyone.length > settings.maxWaiting) {
+    await store.jobs.updateJob(job.id, (j) => finish(j, { outcome: 'cancelled', error: overOwner ? TOO_MANY : BUSY }, new Date())).catch(() => {})
+    throw new Refused(overOwner ? TOO_MANY : BUSY, overOwner ? 429 : 503)
+  }
+
   try {
-    await dispatch(job, priorityFor(mine.length))
+    await dispatch(job, priorityFor(Math.max(0, mine.length - 1)))
   } catch (err) {
     // Not queued, so not coming: end the record, or the reconciler would put it
     // on the queue later and the person would be charged for a click that said "busy".

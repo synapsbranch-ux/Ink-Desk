@@ -11,7 +11,7 @@
 // (CR-1). What keeps the second run from paying again is in `processors.ts`.
 import 'server-only'
 import { randomUUID } from 'node:crypto'
-import { Worker, type Job } from 'bullmq'
+import { UnrecoverableError, Worker, type Job } from 'bullmq'
 import IORedis from 'ioredis'
 import { queueSettings } from '../config'
 import { store } from '../store'
@@ -19,7 +19,7 @@ import { TOO_MANY_RESTARTS, finish } from './jobs'
 import { processJob } from './processors'
 import { reconcileOnce } from './reconcile'
 import { PREFIX, baseOptions, producerRedis } from './redis'
-import { HEARTBEAT_KEY, HEARTBEAT_TTL_S } from './status'
+import { HEARTBEAT_KEY, HEARTBEAT_TTL_S, maxRunMs } from './status'
 
 export type WorkerOptions = {
   concurrency?: number
@@ -31,6 +31,8 @@ export type WorkerOptions = {
   maxStalledCount?: number
   heartbeatMs?: number
   reconcileMs?: number
+  /** A job still running after this long is failed and its slot freed (default: the longest a job may take, plus two minutes). */
+  jobCeilingMs?: number
   /** First reconcile after this long; the worker is up by then. */
   reconcileDelayMs?: number
 }
@@ -46,6 +48,7 @@ export async function startWorker(opts: WorkerOptions = {}): Promise<WorkerHandl
   if (settings.mode !== 'bullmq' || !settings.redisUrl) throw new Error('the worker needs INKDESK_QUEUE=bullmq and REDIS_URL')
   const workerId = opts.workerId ?? `worker-${randomUUID().slice(0, 8)}`
   const run = opts.process ?? ((jobId, ctx) => processJob(jobId, ctx))
+  const ceilingMs = opts.jobCeilingMs ?? maxRunMs() + 120_000
 
   // BullMQ requires `maxRetriesPerRequest: null` on a worker's connection.
   const connection = new IORedis(settings.redisUrl, { ...baseOptions(), maxRetriesPerRequest: null })
@@ -54,7 +57,17 @@ export async function startWorker(opts: WorkerOptions = {}): Promise<WorkerHandl
   const worker = new Worker(
     'image',
     async (job: Job<{ jobId: string }>) => {
-      await run(job.data.jobId, { workerId })
+      // A per-job ceiling: a call that hangs past anything a job can take must not hold a slot for ever
+      // (the lock would be renewed for as long as the promise is pending). The record is ended by the 'failed' handler below.
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const hung = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new UnrecoverableError(`job ${job.id} ran past ${Math.round(ceilingMs / 1000)} s`)), ceilingMs)
+      })
+      try {
+        await Promise.race([run(job.data.jobId, { workerId }), hung])
+      } finally {
+        clearTimeout(timer)
+      }
     },
     {
       connection,
@@ -71,7 +84,7 @@ export async function startWorker(opts: WorkerOptions = {}): Promise<WorkerHandl
     if (!job) return
     // BullMQ retries a job whose processor threw until `attempts` run out; a job
     // that stalled too often fails at once. Only the end of the road ends the record.
-    const exhausted = !job.opts.attempts || job.attemptsMade >= job.opts.attempts || /stalled/i.test(err.message)
+    const exhausted = !job.opts.attempts || job.attemptsMade >= job.opts.attempts || err.name === 'UnrecoverableError' || /stalled/i.test(err.message)
     console.error(`[${workerId}] job ${job.id} ${exhausted ? 'failed for good' : 'will be retried'}: ${err.message}`)
     if (!exhausted || !job.data?.jobId) return
     store.jobs
@@ -104,7 +117,7 @@ export async function startWorker(opts: WorkerOptions = {}): Promise<WorkerHandl
 
   return {
     workerId,
-    async close(graceMs = 20_000) {
+    async close(graceMs = settings.graceMs) {
       clearInterval(heart)
       clearInterval(again)
       clearTimeout(first)
@@ -112,8 +125,7 @@ export async function startWorker(opts: WorkerOptions = {}): Promise<WorkerHandl
       // is left to lapse and another worker takes the job (it stalls, by design).
       const within = (work: Promise<unknown>, ms: number) => Promise.race([work.catch(() => {}), new Promise<void>((resolve) => setTimeout(resolve, ms))])
       await within(worker.close(), graceMs)
-      // With Redis unreachable neither close can finish; cut the connection rather than wait for it.
-      await within(worker.close(true), 2_000)
+      // With Redis unreachable the close cannot finish; cut the connection rather than wait for it.
       connection.disconnect()
       // The shared producer connection and queue handles belong to the process,
       // not to this worker: whoever ends the process closes them.

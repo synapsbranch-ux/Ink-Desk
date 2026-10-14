@@ -23,7 +23,7 @@ import 'server-only'
 import { assertUnlocked, attachSheet, findCharacter, setDna } from './cast'
 import { read } from './chapter'
 import { writeDna } from './claude'
-import { ProviderError, Refused, configSentence } from './errors'
+import { ProviderError, Refused, jobSentence } from './errors'
 import { generateImage, imageConfig } from './image-provider'
 import { landImage, readImage, saveImage, updateCharging } from './images'
 import { textMeter } from './llm'
@@ -51,7 +51,7 @@ export async function queueSheet(projectId: string, characterId: string, reuseDn
     ownerId: LOCAL_OWNER,
     projectId,
     kind: 'sheet',
-    payload: { kind: 'sheet', characterId, reuseDna },
+    payload: { kind: 'sheet', characterId, reuseDna, redraw: reuseDna },
   })
   if (!created) throw new Refused('That sheet is already being drawn.')
 }
@@ -104,8 +104,8 @@ export async function drawSheet(projectId: string, characterId: string, reuseDna
       {
         ...run,
         checkpoint: async (imageId, cost) => {
+          stored = true // the picture is in the bucket the moment this is called, whether or not the job can say so
           await run.checkpoint(imageId, cost)
-          stored = true
         },
       }
     )
@@ -122,7 +122,7 @@ export async function drawSheet(projectId: string, characterId: string, reuseDna
       console.error(`[sheet] ${err.kind === 'refused' ? 'refused' : 'failed'}: ${err.message}`, err.cause ?? '')
       return {
         outcome: err.kind === 'refused' ? 'refused' : 'failed',
-        error: credits ? PAUSED : err.kind === 'provider' ? CALM : err.kind === 'config' ? configSentence(err) : err.message,
+        error: credits ? PAUSED : jobSentence(err, CALM),
       }
     }
     // Not a provider problem: the store, or a bug. Retried if it was the store and the words are not lost either way.

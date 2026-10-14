@@ -31,9 +31,11 @@ export function boot() {
 async function sweepInlineJobs(): Promise<void> {
   try {
     const { store } = await import('./store')
-    const { RESTARTED, abandon } = await import('./queue/jobs')
+    const { KEEP_FINISHED_MS, RESTARTED, abandon } = await import('./queue/jobs')
     const left = await store.jobs.listJobs({ status: ['queued', 'running'], limit: 2_000 })
     for (const job of left) await store.jobs.updateJob(job.id, (j) => abandon(j, RESTARTED, new Date()))
+    // The inline queue has no worker to prune finished records, so the start of the server does.
+    await store.jobs.pruneJobs(new Date(Date.now() - KEEP_FINISHED_MS).toISOString())
     if (left.length > 0) console.warn(`[queue] ${left.length} job${left.length === 1 ? '' : 's'} from before this start were let go (inline queue)`)
   } catch (err) {
     console.warn('[queue] could not sweep the jobs left by the last run:', err instanceof Error ? err.message : err)

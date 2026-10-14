@@ -191,6 +191,7 @@ const NUMBERS = {
   QUEUE_USER_INFLIGHT: { schema: wholeNumber(1, 200), fallback: 30, rule: 'a whole number from 1 to 200' },
   QUEUE_MAX_WAITING: { schema: wholeNumber(1, 5000), fallback: 200, rule: 'a whole number from 1 to 5000' },
   QUEUE_RETRY_BACKOFF_MS: { schema: wholeNumber(0, 60_000), fallback: 5_000, rule: 'a whole number of milliseconds from 0 to 60000' },
+  WORKER_GRACE_MS: { schema: wholeNumber(0, 600_000), fallback: 90_000, rule: 'a whole number of milliseconds from 0 to 600000' },
   GENERATION_TIMEOUT_MS: { schema: wholeNumber(30_000, 900_000), fallback: 360_000, rule: 'a whole number of milliseconds from 30000 to 900000' },
 } as const
 
@@ -251,6 +252,8 @@ export type QueueSettings = {
   maxWaiting: number
   /** The first pause before BullMQ re-runs a job whose worker hit a store outage; it doubles each time. */
   retryBackoffMs: number
+  /** How long a worker told to stop lets what it is drawing finish before it gives up on it. */
+  graceMs: number
 }
 
 const REDIS_URL = z.string().regex(/^rediss?:\/\/\S+$/i)
@@ -284,7 +287,7 @@ function queueProblems(env: Env, role: 'web' | 'worker'): string[] {
 /** The queue's settings from `env`; throws `ConfigError`. `role: 'worker'` refuses a missing Redis outright. */
 export function queueSettings(env: Env = process.env, role: 'web' | 'worker' = 'web'): QueueSettings {
   const problems = queueProblems(env, role)
-  for (const name of ['PANEL_CONCURRENCY', 'QUEUE_CONCURRENCY_IMAGE', 'QUEUE_USER_INFLIGHT', 'QUEUE_MAX_WAITING', 'QUEUE_RETRY_BACKOFF_MS'] as const) {
+  for (const name of ['PANEL_CONCURRENCY', 'QUEUE_CONCURRENCY_IMAGE', 'QUEUE_USER_INFLIGHT', 'QUEUE_MAX_WAITING', 'QUEUE_RETRY_BACKOFF_MS', 'WORKER_GRACE_MS'] as const) {
     const problem = numberProblem(env, name)
     if (problem) problems.push(problem)
   }
@@ -296,6 +299,7 @@ export function queueSettings(env: Env = process.env, role: 'web' | 'worker' = '
     userInflight: readNumber(env, 'QUEUE_USER_INFLIGHT'),
     maxWaiting: readNumber(env, 'QUEUE_MAX_WAITING'),
     retryBackoffMs: readNumber(env, 'QUEUE_RETRY_BACKOFF_MS'),
+    graceMs: readNumber(env, 'WORKER_GRACE_MS'),
   }
 }
 
