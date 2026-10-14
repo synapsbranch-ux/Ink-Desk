@@ -134,7 +134,7 @@ const Panel: React.FC<{ index: number; f: number }> = ({ index, f }) => {
       >
         Panel {index + 1}
       </div>
-      {index === 0 ? <Hanko label="Locked" local={f - T.stamp} size={40} rotate={-8} style={{ top: PANEL_H - 62, left: -44 }} /> : null}
+      {index === 0 ? <Hanko label="Locked" local={f - T.stamp} size={40} rotate={-8} solid style={{ top: PANEL_H - 62, left: -44 }} /> : null}
     </div>
   )
 }

@@ -5,10 +5,10 @@
   "description": "The Ink Desk demo video: Remotion motion design, a Playwright capture of the real app, ElevenLabs narration through OpenRouter.",
   "type": "module",
   "scripts": {
-    "studio": "remotion studio src/index.ts",
+    "studio": "tsx prepare.mts && remotion studio src/index.ts --props=out/props.json",
     "prepare-props": "tsx prepare.mts",
-    "render": "tsx prepare.mts && remotion render src/index.ts Demo out/inkdesk-demo.mp4 --props=out/props.json --codec=h264 --audio-codec=aac",
-    "render:motion": "tsx prepare.mts && remotion render src/index.ts Motion out/motion-draft.mp4 --props=out/props.json --codec=h264 --audio-codec=aac",
+    "render": "tsx prepare.mts && remotion render src/index.ts Demo out/inkdesk-demo.mp4 --props=out/props.json --codec=h264 --audio-codec=aac --enforce-audio-track",
+    "render:motion": "tsx prepare.mts && remotion render src/index.ts Motion out/motion-draft.mp4 --props=out/props.json --codec=h264 --audio-codec=aac --enforce-audio-track",
     "capture": "tsx capture/record.mts",
     "narrate": "tsx narrate.mts",
     "typecheck": "tsc --noEmit"

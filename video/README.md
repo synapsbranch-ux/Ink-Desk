@@ -42,8 +42,17 @@ npm run video:capture            # in another: drives the app, writes video/time
 **2. Narrate** — write your words in `video/narration.md`, pick a premade voice, then:
 
 ```bash
-npm run video:narrate -- --voice george
+npm run video:narrate -- --samples              # hear all twelve voices first → video/out/voices/ (≈ $0.02)
+npm run video:narrate -- --voice george --dry-run   # what would be sent, and the estimate; sends nothing
+npm run video:narrate -- --voice george         # or set NARRATION_VOICE in .env
 ```
+
+Only sections whose words, voice or model changed are sent again; bracketed
+placeholders are never sent. `--only intro,pages` narrates just those;
+`--model elevenlabs/eleven-flash-v2.5` is half the price of the default
+`elevenlabs/eleven-v4` (≈ $0.08 for a 2 000-character script). After a run,
+a "Runs long" line names any beat whose audio is longer than its slot in
+`src/cut.ts`.
 
 **3. Render**
 
