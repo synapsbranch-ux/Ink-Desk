@@ -88,12 +88,43 @@
  *   comes from those bytes, never from the extension), and it must be at or
  *   under the app's 3.75 MB upload cap (`lib/assets.ts`).
  *
+ * Slice 17 — the motion kernel test (v3):
+ *   Does the face hold in MOTION? One locked character (the day-one sheet and
+ *   panels, same Kaito), three shots — close-up 1:1, medium 1:1, wide 16:9 —
+ *   5 s each at 720p on bytedance/seedance-2.0, animated two ways:
+ *     A. the panel as the FIRST FRAME            (frame_images)
+ *     B. the panel AND the sheet as REFERENCES   (input_references), the
+ *        prompt naming the first as the opening frame
+ *   A first frame and references cannot ride in one call (OpenRouter drops the
+ *   references when both are sent; spec.md > Verified for v3), so the
+ *   learner's first design is not on offer: these two are.
+ *     0e.  FREE capability probe, GET /videos/models: the model is listed, 720p,
+ *          1:1, 16:9, 5 s, first_frame and seed are supported, and the token
+ *          price is read for the cost check below.
+ *     1.   the medium panel is drawn from the day-one sheet (the only input not
+ *          already on disk: ~$0.04). The sheet and the close-up are reused; the
+ *          wide 3:2 panel is centre-cropped to Seedance's 16:9.
+ *     2.   six jobs: submit, poll, download. Every job id is written to
+ *          jobs.json the moment it exists, so a crash or a Ctrl+C never pays
+ *          for a clip twice: re-run into the same folder and it resumes.
+ *     3.   ffprobe each clip, pull its first / middle / last frame, and check
+ *          the billed usage.cost against tokens = W x H x s x 24 / 1024 at the
+ *          model's per-token price (within 5%). Spend is about $3.2 in all.
+ *   index.html lays the opening panel and the sheet beside each shot's two
+ *   strips; manifest.json carries "verdict": null until a person who has
+ *   looked fills it in. The script never judges a face.
+ *   Resolution and model are fixed at the claim's values; MOTION_VIDEO_MODEL
+ *   and MOTION_VIDEO_RESOLUTION exist only to rehearse the pipeline cheaply,
+ *   and a run that uses them says on the page that it is not evidence.
+ *
  * Usage:
  *   node scripts/kernel-test.mjs                          # probes, then the kernel test
  *   node scripts/kernel-test.mjs --probe-only             # just prove the setup
  *   node scripts/kernel-test.mjs --out <dir>              # any mode: write results to <dir>
  *   node scripts/kernel-test.mjs --style-ref <image>      # candidate-lock test, data/kernel-test/style-ref/
  *   node scripts/kernel-test.mjs --setting-ref <image>    # candidate-lock test, data/kernel-test/setting-ref/
+ *   node scripts/kernel-test.mjs --motion                 # the motion test, data/kernel-test/motion/ (~$3.2)
+ *   node scripts/kernel-test.mjs --motion --probe-only    # just the free probes
  *
  * --out exists so a re-run keeps its own folder. The spec asks for the default
  * test to run again before filming as the style-drift canary (the model is an
@@ -102,6 +133,8 @@
  */
 
 import { writeFile, mkdir, readFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
 
 const DEFAULT_OUT_DIR = 'data/kernel-test'
@@ -460,10 +493,17 @@ function parseArgs(argv) {
       opts.probeOnly = true
       continue
     }
+    if (arg === '--motion') {
+      if (opts.mode !== 'default') {
+        refuse('--motion is its own test; run it without --style-ref, --setting-ref, and only once.')
+      }
+      opts.mode = 'motion'
+      continue
+    }
     // Object.hasOwn, not `in`: `in` would accept every Object.prototype name
     // (toString, constructor, ...) as a mode flag and run a paid test on a typo.
     if (arg !== '--out' && !Object.hasOwn(modeOf, arg)) {
-      refuse(`Unknown argument "${arg}". This script takes --probe-only, --out <dir>, --style-ref <image> or --setting-ref <image>.`)
+      refuse(`Unknown argument "${arg}". This script takes --probe-only, --out <dir>, --motion, --style-ref <image> or --setting-ref <image>.`)
     }
     const value = argv[i + 1]
     if (!value || value.startsWith('--')) {
@@ -479,7 +519,7 @@ function parseArgs(argv) {
       refuse(`${arg} was given twice; pass one reference.`)
     }
     if (opts.mode !== 'default') {
-      refuse('--style-ref and --setting-ref are two separate tests; run one at a time, with one reference each.')
+      refuse('--style-ref, --setting-ref and --motion are separate tests; run one at a time, with one reference each.')
     }
     opts.mode = modeOf[arg]
     opts.refPath = value
@@ -512,8 +552,10 @@ async function loadReference(path, flag) {
 
 const ARGS = parseArgs(process.argv.slice(2))
 const MODE = ARGS.mode
-const REF = MODE === 'default' ? null : await loadReference(ARGS.refPath, `--${MODE}-ref`)
-const OUT_DIR = ARGS.out ?? (MODE === 'default' ? DEFAULT_OUT_DIR : join(DEFAULT_OUT_DIR, `${MODE}-ref`))
+const REF = MODE === 'style' || MODE === 'setting' ? await loadReference(ARGS.refPath, `--${MODE}-ref`) : null
+const OUT_DIR =
+  ARGS.out ??
+  (MODE === 'default' ? DEFAULT_OUT_DIR : MODE === 'motion' ? join(DEFAULT_OUT_DIR, 'motion') : join(DEFAULT_OUT_DIR, `${MODE}-ref`))
 
 // ---------------------------------------------------------------------------
 // API calls
@@ -810,6 +852,602 @@ async function generateImage({ prompt, quality, aspect, label, references = [] }
 }
 
 // ---------------------------------------------------------------------------
+// Slice 17: the motion kernel test. See the header for what it asks.
+//
+// Declared above the run section on purpose: the dispatch below calls
+// runMotion() before the end of the file, and a `const` that appears later in
+// the file would still be in its temporal dead zone at that point.
+// ---------------------------------------------------------------------------
+
+const MOTION_MODEL = process.env.MOTION_VIDEO_MODEL ?? 'bytedance/seedance-2.0'
+const MOTION_RESOLUTION = process.env.MOTION_VIDEO_RESOLUTION ?? '720p'
+const MOTION_SECONDS = 5
+const MOTION_SEED = 1717
+const MOTION_COST_TOLERANCE = 0.05
+const MOTION_POLL_MS = 10_000
+const MOTION_TIMEOUT_MS = 20 * 60_000
+/** Only this configuration is evidence for the claim; anything else is a rehearsal. */
+const MOTION_IS_CLAIM = MOTION_MODEL === 'bytedance/seedance-2.0' && MOTION_RESOLUTION === '720p'
+
+// What may differ between the two methods is the framing words and how the
+// images travel; everything else in a shot's prompt is the same string.
+const MOTION_STYLE =
+  'Keep the exact black-and-white manga ink style of the opening image for the whole shot: screentone shading, confident inked linework, no colour, no 3D or photoreal rendering, no change of style.'
+const MOTION_NO_TEXT = 'No text, no speech bubbles, no captions, no sound-effect lettering and no watermark anywhere in the shot.'
+
+// The medium panel is the one input that does not exist from day one. It is
+// drawn exactly the way slice 2 draws a panel: the sheet as input_references,
+// production's panel prompt. The close-up and the wide are slice 2's own panels.
+const MOTION_MEDIUM_PANEL = {
+  id: 'medium',
+  aspect: ASPECT_SQUARE,
+  framing: 'Square panel. Frame the character from the waist up, centred, with headroom above and nothing important near the edges.',
+  camera: 'Medium shot, eye level, facing the camera.',
+  action: 'He is tugging the scarf tighter with both hands, a small tired smile, eyes on something just past the camera.',
+  background: 'A rooftop at night, water towers and tangled cables behind him, the city lights soft and out of focus.',
+}
+
+const MOTION_SHOTS = [
+  {
+    id: 'close',
+    label: 'Close-up',
+    aspect: '1:1',
+    camera: 'Slow push-in on his face, the camera otherwise steady.',
+    action:
+      'He breathes hard, a puff of steam leaving his mouth; his jaw stays set and his eyes narrow against the wind; a strand of hair stirs across the scar and the end of the scarf flutters.',
+  },
+  {
+    id: 'medium',
+    label: 'Medium shot',
+    aspect: '1:1',
+    camera: 'Static medium shot with a very slight handheld drift.',
+    action: 'He tugs the scarf tighter with both hands, a small tired smile comes and goes, and his eyes move to something just past the camera.',
+  },
+  {
+    id: 'wide',
+    label: 'Wide shot',
+    aspect: '16:9',
+    camera: 'Slow tracking shot to the right, following him; the city stays behind him.',
+    action: 'He sails through the air across the rooftop gap, scarf streaming behind him, and comes down on the far rooftop in a low running crouch.',
+  },
+]
+
+const MOTION_METHODS = [
+  { id: 'A', label: 'Method A — the panel as the first frame', how: '<code>frame_images</code> = [panel as <code>first_frame</code>]' },
+  { id: 'B', label: 'Method B — the panel and the sheet as references', how: '<code>input_references</code> = [panel, sheet]' },
+]
+
+function motionPrompt(shot, method) {
+  const lead =
+    method === 'A'
+      ? [
+          `Animate this manga panel into one continuous ${MOTION_SECONDS}-second shot.`,
+          'The attached image is the first frame: begin exactly on it, then let it move.',
+        ]
+      : [
+          `One continuous ${MOTION_SECONDS}-second animated shot of a single character.`,
+          'The first reference image is the opening frame of the shot: begin exactly on that composition, with the character, framing and background as drawn.',
+          'The second reference image is the character model sheet: his face, hair, eyes, scar, scarf and outfit match it in every frame, from the first frame to the last.',
+        ]
+  return [
+    ...lead,
+    '',
+    `Camera: ${shot.camera}`,
+    `Action: ${shot.action}`,
+    '',
+    'His fixed appearance, which does not change at any point in the shot:',
+    KAITO_DNA,
+    '',
+    MOTION_STYLE,
+    MOTION_NO_TEXT,
+  ].join('\n')
+}
+
+/** Pixel size Seedance renders a ratio at, for the estimate made before any money is spent. */
+function expectedVideoDims(aspect, resolution) {
+  const h = parseInt(resolution, 10)
+  if (!Number.isFinite(h)) return null
+  if (aspect === '1:1') return { w: h, h }
+  if (aspect === '16:9') return { w: Math.round((h * 16) / 9), h }
+  return null
+}
+
+/** OpenRouter's formula for Seedance: tokens = W x H x seconds x 24 / 1024. */
+const videoTokens = (d, seconds) => (d.w * d.h * seconds * 24) / 1024
+
+function run(cmd, args) {
+  const r = spawnSync(cmd, args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+  if (r.error) throw new Error(`${cmd}: ${r.error.message}`)
+  if (r.status !== 0) throw new Error(`${cmd} exited ${r.status}: ${(r.stderr ?? '').slice(-500)}`)
+  return r.stdout
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+const esc = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
+/** FREE. The video counterpart of capabilityProbe(): every assumption this test makes, before any spend. */
+async function videoCapabilityProbe() {
+  const started = Date.now()
+  const res = await fetch(`${API}/videos/models`, { headers: { Authorization: `Bearer ${KEY}` } })
+  if (!res.ok) await fail('Video capability probe', res)
+  const json = await res.json()
+  const list = json.data ?? json
+  const model = list.find((m) => m.id === MOTION_MODEL)
+  if (!model) {
+    console.error(`\n  ✗ "${MOTION_MODEL}" is not in OpenRouter's video model list (${list.length} models). Nothing was spent.\n`)
+    process.exit(1)
+  }
+
+  const problems = []
+  const has = (field, value) => (model[field] ?? []).includes(value)
+  if (!has('supported_resolutions', MOTION_RESOLUTION)) {
+    problems.push(`resolution ${MOTION_RESOLUTION} is not offered. Offered: ${(model.supported_resolutions ?? []).join(', ')}`)
+  }
+  for (const ratio of new Set(MOTION_SHOTS.map((s) => s.aspect))) {
+    if (!has('supported_aspect_ratios', ratio)) {
+      problems.push(`aspect ratio ${ratio} is not offered. Offered: ${(model.supported_aspect_ratios ?? []).join(', ')}`)
+    }
+  }
+  if (!has('supported_durations', MOTION_SECONDS)) {
+    problems.push(`a ${MOTION_SECONDS} s duration is not offered. Offered: ${(model.supported_durations ?? []).join(', ')}`)
+  }
+  if (!has('supported_frame_images', 'first_frame')) problems.push('first_frame is not a supported frame image — method A cannot be sent.')
+  if (model.seed !== true) problems.push('seed is not supported; the two methods could not be compared on one seed.')
+
+  // generate_audio is sent as false, so the no-audio price applies.
+  const skus = model.pricing_skus ?? {}
+  const rate = Number(skus.video_tokens_without_audio ?? skus.video_tokens)
+  if (!Number.isFinite(rate) || rate <= 0) problems.push('no per-token price in pricing_skus; the cost check has nothing to compare with.')
+
+  if (problems.length) {
+    console.error(`\n  ✗ Video capability probe failed for "${MOTION_MODEL}":\n`)
+    for (const p of problems) console.error(`    • ${p}`)
+    console.error('\n  Nothing was generated, so this cost nothing.\n')
+    process.exit(1)
+  }
+  return { ms: Date.now() - started, rate, resolutions: model.supported_resolutions, ratios: model.supported_aspect_ratios, durations: model.supported_durations }
+}
+
+/** Remaining OpenRouter credit in dollars, or null when the endpoint will not say. */
+async function creditsLeft() {
+  try {
+    const res = await fetch(`${API}/credits`, { headers: { Authorization: `Bearer ${KEY}` } })
+    if (!res.ok) return null
+    const { data } = await res.json()
+    return typeof data?.total_credits === 'number' ? data.total_credits - (data.total_usage ?? 0) : null
+  } catch {
+    return null
+  }
+}
+
+/** A job id worth resuming: one that has not ended in failure, cancellation or expiry. */
+const isLiveJob = (job) => Boolean(job?.id) && !['failed', 'cancelled', 'expired'].includes(job.status)
+
+const jpegDataUri = (buf) => `data:image/jpeg;base64,${buf.toString('base64')}`
+
+/** The test's own state, written after every step that costs money so nothing is paid for twice. */
+async function saveMotionState(state) {
+  await writeFile(join(OUT_DIR, 'jobs.json'), JSON.stringify(state, null, 2))
+}
+
+async function submitMotionJob(state, shot, method, inputs) {
+  const key = `${method.id}-${shot.id}`
+  if (isLiveJob(state.jobs[key])) {
+    console.log(`  ↻ ${key}: job ${state.jobs[key].id} already submitted — resuming it, not paying twice`)
+    return
+  }
+  const panel = { type: 'image_url', image_url: { url: jpegDataUri(inputs[shot.id]) } }
+  const body = {
+    model: MOTION_MODEL,
+    prompt: motionPrompt(shot, method.id),
+    duration: MOTION_SECONDS,
+    resolution: MOTION_RESOLUTION,
+    aspect_ratio: shot.aspect,
+    generate_audio: false,
+    seed: MOTION_SEED,
+    session_id: 'ink-desk-kernel-motion',
+  }
+  if (method.id === 'A') {
+    body.frame_images = [{ ...panel, frame_type: 'first_frame' }]
+  } else {
+    body.input_references = [panel, { type: 'image_url', image_url: { url: jpegDataUri(inputs.sheet) } }]
+  }
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const res = await fetch(`${API}/videos`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (res.status === 429 && attempt < 3) {
+      await sleep(attempt * 5000)
+      continue
+    }
+    if (res.status === 402) await fail(`Submit ${key}`, res)
+    const text = await res.text()
+    if (!res.ok) {
+      state.jobs[key] = { error: `submit HTTP ${res.status}: ${text.slice(0, 500)}` }
+      await saveMotionState(state)
+      console.log(`  ✗ ${key}: submit refused — HTTP ${res.status} ${text.slice(0, 200)}`)
+      return
+    }
+    const json = JSON.parse(text)
+    state.jobs[key] = {
+      id: json.id,
+      pollingUrl: json.polling_url ?? `${API}/videos/${json.id}`,
+      submittedAt: new Date().toISOString(),
+      prompt: body.prompt,
+      inputReferences: method.id === 'A' ? [`inputs/${shot.id}.jpg (first_frame)`] : [`inputs/${shot.id}.jpg`, 'inputs/sheet.jpg'],
+    }
+    await saveMotionState(state)
+    console.log(`  → ${key}: submitted, job ${json.id}`)
+    return
+  }
+}
+
+/** Polls one job to a terminal state. Writes the outcome onto state.jobs[key]; never throws on a provider failure. */
+async function waitMotionJob(state, key) {
+  const job = state.jobs[key]
+  const started = Date.now()
+  let last = ''
+  let flaky = 0
+  while (Date.now() - started < MOTION_TIMEOUT_MS) {
+    let json
+    try {
+      const res = await fetch(job.pollingUrl, { headers: { Authorization: `Bearer ${KEY}` } })
+      if (res.status === 402) await fail(`Poll ${key}`, res)
+      if (!res.ok) {
+        if (res.status < 500 && res.status !== 429) {
+          job.error = `poll HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`
+          return
+        }
+        throw new Error(`HTTP ${res.status}`)
+      }
+      json = await res.json()
+      flaky = 0
+    } catch (err) {
+      if (++flaky >= 6) {
+        job.error = `poll kept failing: ${err.message}`
+        return
+      }
+      await sleep(MOTION_POLL_MS)
+      continue
+    }
+    if (json.status !== last) {
+      last = json.status
+      console.log(`    ${key}: ${json.status} (${Math.round((Date.now() - started) / 1000)}s)`)
+    }
+    if (json.status === 'completed') {
+      job.status = 'completed'
+      job.costUsd = json.usage?.cost ?? null
+      job.generationMs = Date.now() - Date.parse(job.submittedAt)
+      job.unsignedUrls = json.unsigned_urls ?? []
+      await saveMotionState(state)
+      return
+    }
+    if (['failed', 'cancelled', 'expired'].includes(json.status)) {
+      job.status = json.status
+      job.error = typeof json.error === 'string' ? json.error : JSON.stringify(json.error ?? json.status)
+      job.costUsd = json.usage?.cost ?? null
+      await saveMotionState(state)
+      return
+    }
+    await sleep(MOTION_POLL_MS)
+  }
+  job.error = `no result after ${Math.round(MOTION_TIMEOUT_MS / 60000)} minutes — the job may still finish; re-run into this folder to resume it`
+}
+
+async function downloadMotionJob(state, key) {
+  const job = state.jobs[key]
+  const file = join(OUT_DIR, `${key}.mp4`)
+  let res = await fetch(`${API}/videos/${job.id}/content?index=0`, { headers: { Authorization: `Bearer ${KEY}` } })
+  if (!res.ok && job.unsignedUrls?.[0]) res = await fetch(job.unsignedUrls[0], { headers: { Authorization: `Bearer ${KEY}` } })
+  if (!res.ok) {
+    job.error = `download HTTP ${res.status}`
+    await saveMotionState(state)
+    return null
+  }
+  await writeFile(file, Buffer.from(await res.arrayBuffer()))
+  return file
+}
+
+/** ffprobe + frames + the cost check for one downloaded clip. */
+function analyseClip(key, shot, rate, billed) {
+  const file = join(OUT_DIR, `${key}.mp4`)
+  const info = JSON.parse(
+    run('ffprobe', [
+      '-v', 'error', '-count_frames', '-select_streams', 'v:0',
+      '-show_entries', 'stream=codec_name,width,height,avg_frame_rate,nb_read_frames:format=duration',
+      '-of', 'json', file,
+    ])
+  )
+  const st = info.streams?.[0] ?? {}
+  const duration = Number(info.format?.duration)
+  const [num, den] = String(st.avg_frame_rate ?? '0/1').split('/').map(Number)
+  const clip = { w: st.width, h: st.height, codec: st.codec_name, durationS: duration, frames: Number(st.nb_read_frames), fps: den ? num / den : null }
+
+  const frames = {}
+  for (const [name, args] of [
+    ['first', ['-ss', '0']],
+    ['middle', ['-ss', String(duration / 2)]],
+    ['last', ['-sseof', '-0.2']],
+  ]) {
+    const out = `frames/${key}-${name}.jpg`
+    run('ffmpeg', ['-v', 'error', '-y', ...args, '-i', file, ...(name === 'last' ? ['-update', '1'] : ['-frames:v', '1']), '-q:v', '2', join(OUT_DIR, out)])
+    frames[name] = out
+  }
+
+  const [rw, rh] = shot.aspect.split(':').map(Number)
+  const formulaUsd = clip.w && clip.h ? videoTokens({ w: clip.w, h: clip.h }, MOTION_SECONDS) * rate : null
+  const deviation = billed != null && formulaUsd ? (billed - formulaUsd) / formulaUsd : null
+  const checks = {
+    playable: Boolean(clip.codec) && clip.frames > 0,
+    ratio: Boolean(clip.w && clip.h) && Math.abs(clip.w / clip.h - rw / rh) < 0.02,
+    duration: Math.abs(duration - MOTION_SECONDS) <= 0.5,
+    costWithinTolerance: deviation != null && Math.abs(deviation) <= MOTION_COST_TOLERANCE,
+  }
+  return { clip, frames, formulaUsd, deviation, checks }
+}
+
+function motionPage({ results, state, inputsMeta, totalCost, claim }) {
+  const money4 = (n) => (n == null ? 'cost not reported' : `$${n.toFixed(4)}`)
+  const sections = MOTION_SHOTS.map((shot) => {
+    const methods = MOTION_METHODS.map((m) => {
+      const key = `${m.id}-${shot.id}`
+      const r = results[key]
+      if (!r?.ok) {
+        return `<div class="method"><h3>${esc(m.label)}</h3><p class="bad">No clip — ${esc(r?.error ?? state.jobs[key]?.error ?? 'not run')}</p></div>`
+      }
+      const cell = (name, caption) =>
+        `<figure><a href="${r.frames[name]}"><img src="${r.frames[name]}" loading="lazy"></a><figcaption>${caption}</figcaption></figure>`
+      return `<div class="method"><h3>${esc(m.label)} <span class="how">${m.how}</span></h3>
+  <div class="strip">
+    ${cell('first', 'first frame')}${cell('middle', `middle · ${(r.clip.durationS / 2).toFixed(1)} s`)}${cell('last', `<b>last frame</b> · ${r.clip.durationS.toFixed(1)} s`)}
+    <figure class="vid"><video src="${key}.mp4" controls loop muted playsinline preload="metadata"></video><figcaption>${esc(key)}.mp4 · ${r.clip.w}×${r.clip.h} · ${r.clip.fps ? r.clip.fps.toFixed(0) : '?'} fps · ${money4(r.costUsd)}</figcaption></figure>
+  </div>
+  <details><summary>the prompt</summary><pre>${esc(state.jobs[key].prompt)}</pre></details></div>`
+    }).join('\n')
+    return `<section>
+<h2>${esc(shot.label)} <span class="how">${shot.aspect}</span></h2>
+<div class="src">
+  <figure><img src="inputs/${shot.id}.jpg"><figcaption><b>The opening panel</b> — ${esc(inputsMeta[shot.id])}</figcaption></figure>
+  <figure><img src="inputs/sheet.jpg"><figcaption><b>The model sheet</b> — what the face must still match at the last frame.</figcaption></figure>
+</div>
+${methods}
+</section>`
+  }).join('\n')
+
+  return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ink Desk — motion kernel test</title>
+<style>
+  body{margin:0;padding:40px;background:#f3f2f2;color:#201f1d;font:16px/1.6 Lora,Georgia,serif}
+  h1{font:600 30px/1.2 "Cormorant Garamond",Georgia,serif;margin:0 0 6px}
+  h2{font:600 24px/1.2 "Cormorant Garamond",Georgia,serif;margin:44px 0 12px;border-top:1px solid #d6d4d1;padding-top:24px}
+  h3{font-size:16px;margin:20px 0 8px}
+  .how{font:400 13px/1 system-ui,sans-serif;color:#6b6762;margin-left:8px}
+  p.sub{margin:0 0 24px;color:#6b6762}
+  .warn{padding:12px 18px;background:#f5e2de;border-left:3px solid #b5382e;margin:0 0 24px}
+  .bad{color:#b5382e}
+  .src,.strip{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+  figure{margin:0;flex:1 1 220px;min-width:200px;max-width:420px}
+  .src figure{max-width:340px}
+  img,video{width:100%;display:block;border:1px solid #d6d4d1;background:#fff}
+  figcaption{margin-top:6px;font-size:13px;color:#6b6762}
+  b{color:#b5382e}
+  .q{margin-top:44px;padding:20px 24px;border-left:3px solid #b5382e;background:#eae9e9}
+  .nums{margin-top:24px;padding:16px 20px;background:#eae9e9;font-size:14px}
+  code{background:#f3f2f2;padding:1px 5px;font-size:13px}
+  pre{white-space:pre-wrap;font-size:12px;background:#eae9e9;padding:12px;margin:8px 0 0}
+  details{margin-top:8px;font-size:13px;color:#6b6762}
+</style>
+<h1>The motion kernel test — does the face hold in motion?</h1>
+<p class="sub">${esc(MOTION_MODEL)} via OpenRouter · ${MOTION_RESOLUTION} · ${MOTION_SECONDS} s per shot · seed ${MOTION_SEED} · audio off · total <b>${money4(totalCost)}</b></p>
+${claim ? '' : `<p class="warn"><strong>Not evidence.</strong> This run used ${esc(MOTION_MODEL)} at ${MOTION_RESOLUTION}, not the claim's bytedance/seedance-2.0 at 720p. It rehearses the pipeline; it cannot pass or fail the kernel.</p>`}
+${sections}
+<div class="q"><strong>The question:</strong> In each shot, <em>to the last frame</em>, is it still the same person — face, the scar through the right eyebrow, the hair, the red scarf, the jacket — as the model sheet and the opening panel? And is it still the same ink drawing, not a smoothed or recoloured one?
+Judge A and B separately, shot by shot. Then record it as <code>"verdict"</code> in <code>manifest.json</code> and in <code>spec.md &gt; Decisions and Open Issues (v3)</code>: the method that holds, or neither.
+If neither holds, the Animate slice and the film change shape. If one does, only that method is called a lock in the docs.</div>
+<div class="nums">Each clip's billed <code>usage.cost</code> against OpenRouter's formula (tokens = W × H × seconds × 24 / 1024 at ${state.rate ? '$' + (state.rate * 1e6).toFixed(2) + ' per million' : 'the listed price'}):
+${MOTION_SHOTS.flatMap((s) => MOTION_METHODS.map((m) => results[`${m.id}-${s.id}`])).filter((r) => r?.ok).map((r) => `${esc(r.key)} ${money4(r.costUsd)} vs ${money4(r.formulaUsd)} (${r.deviation == null ? 'n/a' : (r.deviation * 100).toFixed(1) + '%'})`).join(' · ')}</div>`
+}
+
+/**
+ * The motion test. Resumable by construction: every job id is written to
+ * jobs.json the moment it exists, and a clip that is already on disk is never
+ * fetched or paid for again. Returns true when every mechanical check passed
+ * (never a verdict on the faces).
+ */
+async function runMotion(imageCaps, videoCaps) {
+  await mkdir(join(OUT_DIR, 'inputs'), { recursive: true })
+  await mkdir(join(OUT_DIR, 'frames'), { recursive: true })
+
+  let state = { medium: null, jobs: {} }
+  try {
+    state = JSON.parse(await readFile(join(OUT_DIR, 'jobs.json'), 'utf8'))
+  } catch {
+    // A fresh folder.
+  }
+  state.rate = videoCaps.rate
+  state.jobs ??= {}
+
+  // Estimate the money still to be spent, and refuse before spending it if the balance cannot cover it.
+  const pending = MOTION_SHOTS.flatMap((s) => MOTION_METHODS.map((m) => ({ s, key: `${m.id}-${s.id}` }))).filter(({ key }) => !isLiveJob(state.jobs[key]))
+  const estimate =
+    pending.reduce((sum, { s }) => sum + videoTokens(expectedVideoDims(s.aspect, MOTION_RESOLUTION) ?? { w: 0, h: 0 }, MOTION_SECONDS) * videoCaps.rate, 0) +
+    (state.medium ? 0 : 0.05)
+  const credits = await creditsLeft()
+  console.log(`  jobs    ${pending.length} to submit, ${MOTION_SHOTS.length * MOTION_METHODS.length - pending.length} already in ${OUT_DIR}/jobs.json`)
+  console.log(`  spend   about $${estimate.toFixed(2)} by the formula · balance ${credits == null ? 'not readable' : '$' + credits.toFixed(2)}`)
+  if (credits != null && credits < estimate + 1) {
+    refuse(`The balance ($${credits.toFixed(2)}) cannot cover about $${estimate.toFixed(2)} and still stay above the $1 floor where OpenRouter stops serving. Top up at https://openrouter.ai/settings/credits. Nothing was spent.`)
+  }
+
+  // ---- the inputs -----------------------------------------------------------
+  // JPEG transport copies: a 3.7 MB PNG as base64 would make a 7 MB body for
+  // method B. What is sent is exactly what is kept in inputs/ and shown on the page.
+  const sourceDir = DEFAULT_OUT_DIR
+  const sheetSrc = join(sourceDir, '0-sheet.png')
+  const closeSrc = join(sourceDir, '1-close.png')
+  const wideSrc = join(sourceDir, '2-wide.png')
+  for (const f of [sheetSrc, closeSrc, wideSrc]) {
+    if (!existsSync(f)) refuse(`${f} is missing. The motion test animates the day-one kernel test's sheet and panels; run "node scripts/kernel-test.mjs" first. Nothing was spent.`)
+  }
+  const toJpeg = (src, dest, vf) =>
+    run('ffmpeg', ['-v', 'error', '-y', '-i', src, ...(vf ? ['-vf', vf] : []), '-q:v', '2', join(OUT_DIR, dest)])
+  toJpeg(sheetSrc, 'inputs/sheet.jpg')
+  toJpeg(closeSrc, 'inputs/close.jpg')
+  // 3:2 -> 16:9, the crop the spec's Animate a Page step 1 prescribes: Seedance has no 3:2.
+  toJpeg(wideSrc, 'inputs/wide.jpg', 'crop=iw:trunc(iw*9/16/2)*2')
+
+  const inputsMeta = {
+    close: 'slice 2’s close-up (1:1), as drawn on day one.',
+    wide: 'slice 2’s wide panel (3:2), centre-cropped to 16:9.',
+    medium: 'drawn for this test from the same sheet, production’s panel prompt (1:1).',
+  }
+  if (!existsSync(join(OUT_DIR, 'inputs/medium.png'))) {
+    process.stdout.write(`  [1] medium panel from the sheet (${ASPECT_SQUARE}, ${QUALITY}) ... `)
+    const sheetPng = await readFile(sheetSrc)
+    const prompt = panelPrompt(MOTION_MEDIUM_PANEL)
+    const img = await generateImage({ prompt, quality: QUALITY, aspect: ASPECT_SQUARE, label: 'Medium panel', references: [sheetPng] })
+    await writeFile(join(OUT_DIR, `inputs/medium.${img.ext}`), img.buf)
+    if (img.ext !== 'png') refuse(`The medium panel came back as ${img.mediaType}; this script stores it as a .png. Add the case rather than guessing.`)
+    state.medium = { prompt, costUsd: img.cost, ms: img.ms, dimensions: img.dims }
+    await saveMotionState(state)
+    console.log(`ok (${(img.ms / 1000).toFixed(1)}s) · ${money(img.cost)} · ${shape(img.dims)}`)
+  } else {
+    console.log('  [1] medium panel already in inputs/ — reused')
+  }
+  toJpeg(join(OUT_DIR, 'inputs/medium.png'), 'inputs/medium.jpg')
+
+  const inputs = {}
+  for (const name of ['sheet', 'close', 'medium', 'wide']) inputs[name] = await readFile(join(OUT_DIR, `inputs/${name}.jpg`))
+
+  // ---- submit: A and B of the first shot first, so a wrong request shape costs nothing ----
+  console.log(`  [2] submitting ${pending.length} jobs`)
+  const order = MOTION_SHOTS.flatMap((s) => MOTION_METHODS.map((m) => ({ s, m })))
+  for (const { s, m } of order) await submitMotionJob(state, s, m, inputs)
+
+  // ---- wait, download, analyse — every job on its own, so one refusal stops nobody ----
+  console.log('  [3] waiting for the clips (Seedance takes minutes, not seconds)')
+  const results = {}
+  await Promise.all(
+    order.map(async ({ s, m }) => {
+      const key = `${m.id}-${s.id}`
+      const job = state.jobs[key]
+      if (!isLiveJob(job)) {
+        results[key] = { key, ok: false, error: job?.error ?? 'never submitted' }
+        return
+      }
+      const mp4 = join(OUT_DIR, `${key}.mp4`)
+      if (!existsSync(mp4)) {
+        await waitMotionJob(state, key)
+        if (job.status !== 'completed') {
+          results[key] = { key, ok: false, error: job.error ?? job.status }
+          return
+        }
+        if (!(await downloadMotionJob(state, key))) {
+          results[key] = { key, ok: false, error: job.error }
+          return
+        }
+      }
+      try {
+        const a = analyseClip(key, s, videoCaps.rate, job.costUsd ?? null)
+        results[key] = { key, ok: true, method: m.id, shot: s.id, costUsd: job.costUsd ?? null, generationMs: job.generationMs ?? null, ...a }
+        console.log(`    ${key}: ${a.clip.w}x${a.clip.h} ${a.clip.durationS.toFixed(1)}s · ${money(job.costUsd)}${a.deviation == null ? '' : ` (${(a.deviation * 100).toFixed(1)}% off the formula)`}`)
+      } catch (err) {
+        results[key] = { key, ok: false, error: `unreadable clip: ${err.message}` }
+      }
+    })
+  )
+
+  // ---- report ---------------------------------------------------------------
+  const clipCosts = Object.values(state.jobs).map((j) => j.costUsd).filter((c) => typeof c === 'number')
+  const totalCost = clipCosts.reduce((a, b) => a + b, 0) + (state.medium?.costUsd ?? 0)
+  const claim = MOTION_IS_CLAIM
+
+  await writeFile(join(OUT_DIR, 'index.html'), motionPage({ results, state, inputsMeta, totalCost, claim }))
+
+  const ok = Object.values(results).filter((r) => r.ok)
+  const manifest = {
+    test: 'motion-kernel',
+    provider: 'openrouter',
+    endpoint: `${API}/videos`,
+    videoModel: MOTION_MODEL,
+    videoModelPinned: false,
+    resolution: MOTION_RESOLUTION,
+    seconds: MOTION_SECONDS,
+    seed: MOTION_SEED,
+    generateAudio: false,
+    isClaimConfiguration: claim,
+    capabilities: { resolutions: videoCaps.resolutions, aspectRatios: videoCaps.ratios, durations: videoCaps.durations, tokenPriceUsd: videoCaps.rate },
+    inputs: {
+      sheet: { file: 'inputs/sheet.jpg', from: sheetSrc },
+      close: { file: 'inputs/close.jpg', from: closeSrc },
+      medium: { file: 'inputs/medium.jpg', from: 'inputs/medium.png', image: state.medium },
+      wide: { file: 'inputs/wide.jpg', from: wideSrc, crop: '3:2 -> 16:9, centred' },
+    },
+    clips: Object.fromEntries(
+      order.map(({ s, m }) => {
+        const key = `${m.id}-${s.id}`
+        const r = results[key]
+        const j = state.jobs[key] ?? {}
+        return [
+          key,
+          {
+            method: m.id,
+            shot: s.id,
+            aspect: s.aspect,
+            jobId: j.id ?? null,
+            prompt: j.prompt ?? null,
+            inputReferences: j.inputReferences ?? null,
+            file: r?.ok ? `${key}.mp4` : null,
+            error: r?.ok ? null : r?.error ?? null,
+            costUsd: r?.costUsd ?? j.costUsd ?? null,
+            formulaUsd: r?.formulaUsd ?? null,
+            costDeviation: r?.deviation ?? null,
+            generationMs: r?.generationMs ?? null,
+            clip: r?.clip ?? null,
+            frames: r?.frames ?? null,
+            checks: r?.checks ?? null,
+          },
+        ]
+      })
+    ),
+    totalCostUsd: totalCost,
+    dna: KAITO_DNA,
+    generatedAt: new Date().toISOString(),
+    verdict: null,
+    verdictNote:
+      'A person records the verdict here after looking at index.html; the script never fills this in, and null means nobody has looked yet. Suggested shape: {"method": "A" | "B" | "neither", "A": {"close": "pass|fail", "medium": "pass|fail", "wide": "pass|fail"}, "B": {...}, "note": "..."}. Judge to the last frame: face, scar, hair, scarf, outfit, ink style.',
+  }
+  await writeFile(join(OUT_DIR, 'manifest.json'), JSON.stringify(manifest, null, 2))
+
+  // ---- the mechanical verify line (slice 17's Verify) -------------------------
+  const total = MOTION_SHOTS.length * MOTION_METHODS.length
+  const all = (field) => ok.length === total && ok.every((r) => r.checks[field])
+  const pageHtml = await readFile(join(OUT_DIR, 'index.html'), 'utf8')
+  const stripsRendered = (pageHtml.match(/frames\/[A-B]-[a-z]+-(first|middle|last)\.jpg"><img/g) ?? []).length === total * 3
+  const stripsOnDisk = ok.every((r) => Object.values(r.frames).every((f) => existsSync(join(OUT_DIR, f))))
+  const verify = [
+    ['probe passed for ' + MOTION_MODEL, true],
+    [`${ok.length}/${total} clips downloaded`, ok.length === total],
+    ['every clip playable (ffprobe)', all('playable')],
+    ['every clip the right shape and about 5 s', all('ratio') && all('duration')],
+    [`billed cost within ${MOTION_COST_TOLERANCE * 100}% of the formula, every clip`, all('costWithinTolerance')],
+    [`the page renders all ${total * 3} frames`, stripsRendered && stripsOnDisk],
+  ]
+  console.log('\n  Mechanical checks (not a verdict on the faces):')
+  for (const [label, pass] of verify) console.log(`    ${pass ? '✓' : '✗'} ${label}`)
+  for (const r of Object.values(results).filter((x) => !x.ok)) console.log(`    ✗ ${r.key}: ${r.error}`)
+
+  console.log(`\n  Done. Look at them:`)
+  console.log(`    ${OUT_DIR}/index.html`)
+  console.log(`  Then record "verdict" in ${OUT_DIR}/manifest.json. Until it says a method holds, motion is a candidate lock, not a lock.`)
+  if (!claim) console.log(`  This run used ${MOTION_MODEL} at ${MOTION_RESOLUTION}: a rehearsal, not evidence.`)
+  console.log(`\n  Output ${OUT_DIR}/ · total ${money(totalCost)}\n`)
+  return verify.every(([, pass]) => pass)
+}
+
+// ---------------------------------------------------------------------------
 // Run
 // ---------------------------------------------------------------------------
 
@@ -830,6 +1468,11 @@ if (MODE === 'default') {
   console.log(`  quality ${QUALITY} (image probe at low)`)
   console.log(`  ratios  sheet ${ASPECT_SHEET} · wide ${ASPECT_WIDE} · square ${ASPECT_SQUARE}`)
   console.log(`  output  ${OUT_DIR}/\n`)
+} else if (MODE === 'motion') {
+  console.log(`\n  Ink Desk kernel test — motion (candidate lock)`)
+  console.log(`  video   ${MOTION_MODEL}  (OpenRouter) · ${MOTION_RESOLUTION} · ${MOTION_SECONDS} s · seed ${MOTION_SEED}${MOTION_IS_CLAIM ? '' : '  — NOT the claim configuration: a rehearsal'}`)
+  console.log(`  image   ${MODEL}  (OpenRouter) · medium panel only, at ${QUALITY}`)
+  console.log(`  output  ${OUT_DIR}/\n`)
 } else {
   console.log(`\n  Ink Desk kernel test — ${MODE} reference (candidate lock)`)
   console.log(`  ref     ${REF.path}  (${REF.mediaType}, ${(REF.bytes / (1024 * 1024)).toFixed(2)} MB)`)
@@ -848,6 +1491,25 @@ console.log(`ok (${(caps.ms / 1000).toFixed(1)}s) — free`)
 console.log(`        input_references supported, up to ${caps.refMax} — the kernel is buildable`)
 console.log(`        aspect_ratio ${caps.aspects.join(' ')}`)
 console.log(`        quality      ${caps.qualities.join(' ')}`)
+
+if (MODE === 'motion') {
+  console.log('  [0b-0d] skipped — proven on day one; this test pays only for one panel and six clips')
+  process.stdout.write('  [0e]  probing video model capabilities ... ')
+  const vcaps = await videoCapabilityProbe()
+  console.log(`ok (${(vcaps.ms / 1000).toFixed(1)}s) — free`)
+  console.log(`        ${MOTION_MODEL}: ${MOTION_RESOLUTION}, 1:1 and 16:9, ${MOTION_SECONDS} s, first_frame and seed supported`)
+  console.log(`        token price $${(vcaps.rate * 1e6).toFixed(2)} per million (no audio); input_references on video is not in the listing — method B's first submit proves it`)
+  if (caps.refMax < 1) {
+    console.error(`\n  ✗ input_references max is ${caps.refMax}; the medium panel needs the sheet as a reference.\n`)
+    process.exit(1)
+  }
+  if (ARGS.probeOnly) {
+    console.log('\n  --probe-only: stopping here. Spent $0.0000.\n')
+    process.exit(0)
+  }
+  const passed = await runMotion(caps, vcaps)
+  process.exit(passed ? 0 : 1)
+}
 
 if (MODE !== 'default') {
   // A candidate-lock test pays for its four images and nothing else. The
