@@ -46,7 +46,7 @@ assert.deepEqual(
 )
 // The method beat — how it was made — sits before the outro.
 assert.ok(CUT.findIndex((s) => s.id === 'method') === CUT.findIndex((s) => s.id === 'outro') - 1, 'method comes right before outro')
-assert.deepEqual(beat('method').shots, [{ kind: 'method', seconds: 14 }])
+assert.deepEqual(beat('method').shots, [{ kind: 'method', seconds: 15 }])
 assert.throws(() => beat('nope'), /no beat/)
 assert.ok(budgetSeconds(MOTION_PREVIEW) < budgetSeconds(CUT))
 assert.ok(MOTION_PREVIEW.some((s) => s.shots.some((shot) => shot.kind === 'method')), 'the motion preview shows the method piece')
@@ -146,7 +146,7 @@ const short = marks.filter((m) => m.name !== 'chapter-inked')
 const partial = resolvePlan(CUT, short, true)
 const rest = partial.segments.flatMap((s) => s.shots).find((s) => s.kind === 'footage' && s.label === 'The rest of the chapter')
 assert.ok(rest?.missing, 'a shot whose mark was never reached is a slate')
-near(sec(rest.durationInFrames), 6, 'a slate holds its budget')
+near(sec(rest.durationInFrames), 5, 'a slate holds its budget')
 // No capture at all: every footage shot is a slate, the film is its budget.
 const empty = resolvePlan(CUT, [], false)
 assert.ok(empty.segments.flatMap((s) => s.shots).every((s) => s.kind !== 'footage' || s.missing))

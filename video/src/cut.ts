@@ -47,7 +47,7 @@ export const CUT: Segment[] = [
       { kind: 'section', title: 'Every panel, the same face', kicker: 'Four', seconds: 2.5 },
       { kind: 'footage', from: 'pages-queued', to: 'page1-inked', seconds: 12, label: 'Page 1 inks in' },
       { kind: 'footage', from: 'page1-inked', to: 'redraw-done', seconds: 12.5, label: 'Bubble and redraw' },
-      { kind: 'footage', from: 'redraw-done', to: 'chapter-inked', seconds: 6, label: 'The rest of the chapter' },
+      { kind: 'footage', from: 'redraw-done', to: 'chapter-inked', seconds: 5, label: 'The rest of the chapter' },
     ],
   },
   {
@@ -66,7 +66,7 @@ export const CUT: Segment[] = [
   {
     id: 'method',
     label: 'How it was made: planned before built',
-    shots: [{ kind: 'method', seconds: 14 }],
+    shots: [{ kind: 'method', seconds: 15 }],
   },
   {
     id: 'outro',

@@ -176,7 +176,7 @@ export function prepare(): Prepared {
     if (!existsSync(pub('music/LICENSE.txt'))) fail('public/music/track.mp3 has no LICENSE.txt beside it — only royalty-free music with its licence goes in the video.')
     music = { src: 'music/track.mp3', volume: MUSIC_BASE }
   } else {
-    draft.push('No music yet — run `npm run video:music` (the track is composed by video/music/compose.mts).')
+    draft.push('No music yet — run `npm run video:music:generate` (a music model) or `npm run video:music` (composed by video/music/compose.mts).')
   }
 
   const motionPlan = resolvePlan(MOTION_PREVIEW, [], false)

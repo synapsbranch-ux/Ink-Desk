@@ -74,7 +74,7 @@ export const Root: React.FC = () => (
         durationInFrames={seconds(15)}
         {...base}
       />
-      <Composition id="Method" component={Method} defaultProps={{ durationInFrames: seconds(14) }} durationInFrames={seconds(14)} {...base} />
+      <Composition id="Method" component={Method} defaultProps={{ durationInFrames: seconds(15) }} durationInFrames={seconds(15)} {...base} />
       <Composition id="Outro" component={Outro} defaultProps={{ durationInFrames: seconds(10) }} durationInFrames={seconds(10)} {...base} />
       <Composition id="InkWipe" component={InkWipe} defaultProps={{ durationInFrames: 18 }} durationInFrames={18} {...base} />
     </Folder>

@@ -159,7 +159,7 @@ export const Method: React.FC<{ durationInFrames: number }> = ({ durationInFrame
         <div style={{ position: 'absolute', top: LINE_TOP, left: 0, right: 0, display: 'flex', justifyContent: 'center' }}>
           <div style={{ position: 'relative' }}>
             <Words
-              text="Fifteen slices, each verified and committed"
+              text="Slice by slice, each verified and committed"
               frame={f}
               enterAt={T.line}
               stagger={4}
@@ -172,7 +172,7 @@ export const Method: React.FC<{ durationInFrames: number }> = ({ durationInFrame
                 color: color.ink,
               }}
             />
-            <Hanko label="Verified" local={f - T.stamp} size={30} rotate={-9} style={{ top: -38, right: -178 }} />
+            <Hanko label="Verified" local={f - T.stamp} size={30} rotate={-9} style={{ top: -48, right: -196 }} />
           </div>
         </div>
 

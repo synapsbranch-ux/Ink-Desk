@@ -37,7 +37,7 @@ I paste the whole scenario. The Library proposes the cast from it. For the lead,
 The Director opens. It reads the scenario, the cast and the style, and plans the chapter: pages and a cover, one locked character per panel, with action, camera, background and dialogue. Every line is mine to edit. The estimate shows before anything is drawn. I press Generate all.
 
 ## pages
-<!-- Pages ink in, bubble edit, redraw · 33 s · about 70 words -->
+<!-- Pages ink in, bubble edit, redraw · 32 s · about 68 words -->
 Page one inks in, panel by panel. Every panel request carries the locked sheet and the DNA word for word; the AI writes only the action, the angle, the expression. Locked appearance, free action. Bubbles are app lettering: a line is retyped, never regenerated. A panel that misses gets Redraw: the same request again, the earlier version kept. Then the rest, and the cover.
 
 ## moneyshot
@@ -49,8 +49,8 @@ My imported reference, and beside it what came back: pages one, two and three, a
 Ink and Publish opens on the cover, then every page in the style's reading order. Export binds the whole chapter into one PDF, lettering included.
 
 ## method
-<!-- How it was made: planned before built · 14 s · about 28 words -->
-Planned with the hackathon's Learn Skill Pack: scope, PRD and spec before code, then fifteen slices, each verified and committed. Version two revised the same documents.
+<!-- How it was made: planned before built · 15 s · about 30 words -->
+Planned with the hackathon's Learn Skill Pack: scope, PRD and spec before code, then built slice by slice, each verified and committed. Version two revised the same documents.
 
 ## outro
 <!-- What I learned, and the outro · 10 s · about 19 words -->

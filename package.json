@@ -25,8 +25,8 @@
     "video:narrate": "npm --prefix video run narrate --",
     "video:render": "npm --prefix video run render",
     "video:render:motion": "npm --prefix video run render:motion",
-    "video:music": "npm --prefix video run music",
-    "video:music:generate": "npm --prefix video run music:generate"
+    "video:music": "npm --prefix video run music --",
+    "video:music:generate": "npm --prefix video run music:generate --"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",

@@ -93,7 +93,9 @@ minutes, pads-only opening, fullest in the middle); every generation is kept
 under `video/out/music/` with a note of where it came from, and the one in use
 is installed as `public/music/track.mp3` — reinstall an earlier one with
 `npx tsx music/generate.mts --install out/music/<file>.mp3` from `video/`.
-`--dry-run` sends nothing. The composed piece (`music/compose.mts`) follows the
+`--dry-run` sends nothing (from the repo root, flags go after `--`, as above). A
+generated piece may carry its own ending; the install step says so when its last
+seconds sit far under its body. The composed piece (`music/compose.mts`) follows the
 beats of the edit — pads alone under the intro, the pulse from the second beat,
 fullest on the pages and the money shot, resolved in the outro — and needs no
 account; change its tempo, key, chord cycle or parts in the file and run it
@@ -137,8 +139,10 @@ swap in a royalty-free one, put its licence in the same `LICENSE.txt`.
 ## Not committed
 
 The captured footage, the stills copied from the desk, the narration mp3s, the
-music track (its licence is committed; the command rebuilds the same bytes)
-and the rendered mp4. The edit, the script, `timeline.json`, the capture,
+music track and the rendered mp4. The track's `LICENSE.txt` is committed and
+describes the piece in the published video: a composed track rebuilds byte for
+byte with `npm run video:music`; a generated one cannot be rebuilt — regenerate
+(a new piece) or reinstall it from `video/out/music/`. The edit, the script, `timeline.json`, the capture,
 narration and music scripts and the licence notes are. The mp4 is uploaded to YouTube, public, and linked from the
 submission.
 

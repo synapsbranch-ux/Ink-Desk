@@ -90,7 +90,7 @@ const N = Math.round((END + TAIL) * SR)
 const BLOCKS = Math.ceil(N / BLOCK)
 const outro = beats.find((b) => b.id === 'outro')
 
-// Two bars a chord; from the outro on (anticipated by a beat), HOME.
+// Two bars a chord; from the outro on (from the first bar line after the outro begins), HOME.
 type Event = { chord: Chord; start: number; end: number }
 const events: Event[] = []
 {

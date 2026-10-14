@@ -17,7 +17,7 @@
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { basename, dirname, join, relative } from 'node:path'
+import { basename, dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { apiKey, MISSING_KEY, providerMessage } from '../openrouter.ts'
@@ -116,9 +116,17 @@ async function generate(key: string, model: string, prompt: string): Promise<Gen
       }
     }
   }
-  const audio = Buffer.from(chunks.join(''), 'base64')
+  // Each chunk decoded on its own: a padded chunk in the middle would end a single joined decode early.
+  const audio = Buffer.concat(chunks.map((c) => Buffer.from(c, 'base64')))
   if (audio.length === 0) fail(`OpenRouter answered without audio${text ? `: ${text.replace(/\s+/g, ' ').slice(0, 240)}` : ''}.`)
   return { audio, id, cost, text }
+}
+
+/** Mean level in dB over a window of the file, or null when ffmpeg cannot say. */
+function meanDb(path: string, from: number, length: number): number | null {
+  const r = spawnSync('ffmpeg', ['-hide_banner', '-nostats', '-ss', String(from), '-t', String(length), '-i', path, '-vn', '-af', 'volumedetect', '-f', 'null', '-'], { encoding: 'utf8' })
+  const m = /mean_volume:\s+(-?[\d.]+) dB/.exec(r.stderr ?? '')
+  return m ? Number(m[1]) : null
 }
 
 // --- install -----------------------------------------------------------------------
@@ -144,6 +152,13 @@ voice and fades it out (video/src/mix.ts). Generate another with
 `,
   )
   console.log(`Installed ${shown(file)} as ${shown(join(PUBLIC_MUSIC, 'track.mp3'))} (${seconds.toFixed(1)} s) with its LICENSE.txt`)
+  // A generated piece may carry its own ending: if its last ten seconds sit far
+  // under its body, the music is gone before the film's own fade-out starts.
+  const body = meanDb(file, Math.max(0, film / 2 - 5), 10)
+  const tail = meanDb(file, Math.max(0, Math.min(seconds, film) - 10), 10)
+  if (body !== null && tail !== null && body - tail > 10) {
+    console.log(`Note: the piece ends on its own fade — its last ten seconds average ${tail.toFixed(0)} dB against ${body.toFixed(0)} dB in the middle — so the music is already quiet under the outro and the render's fade-out has little left to shape. Fine if that is the ending you want; otherwise ask the prompt for a steady level to the end and generate again.`)
+  }
   if (seconds < film - 3) {
     console.log(`Note: the track is ${seconds.toFixed(1)} s and the film is ${film.toFixed(1)} s — the music ends ${(film - seconds).toFixed(1)} s before the picture does. Ask for a longer piece in the prompt, or let the outro end in silence.`)
   }
@@ -168,7 +183,7 @@ async function main() {
   }
 
   if (values.install) {
-    const file = join(process.cwd(), values.install)
+    const file = resolve(values.install)
     if (!existsSync(file)) fail(`There is no file at ${shown(file)}.`)
     const note = join(dirname(file), `${basename(file, '.mp3')}.txt`)
     install(file, existsSync(note) ? readFileSync(note, 'utf8').trim() : `Installed from ${basename(file)} on ${new Date().toISOString().slice(0, 10)}; its origin was not recorded.`)
@@ -176,7 +191,7 @@ async function main() {
   }
 
   const model = values.model?.trim() || DEFAULT_MODEL
-  const promptPath = values.prompt ? join(process.cwd(), values.prompt) : DEFAULT_PROMPT
+  const promptPath = values.prompt ? resolve(values.prompt) : DEFAULT_PROMPT
   if (!existsSync(promptPath)) fail(`There is no prompt at ${shown(promptPath)}.`)
   const prompt = readFileSync(promptPath, 'utf8').trim()
   if (!prompt) fail(`${shown(promptPath)} is empty — describe the music's mood in it.`)
@@ -186,15 +201,21 @@ async function main() {
 
   const key = apiKey()
   if (!key) fail(MISSING_KEY)
+  // Asked before paying: a piece that cannot be measured would lose its note.
+  if (spawnSync('ffprobe', ['-version']).error) fail('ffprobe is not installed, and the piece cannot be measured without it; install ffmpeg and run again.')
   const started = Date.now()
   const { audio, id, cost, text } = await generate(key, model, prompt)
   mkdirSync(OUT, { recursive: true })
   const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
   const file = join(OUT, `${model.split('/').pop()}-${stamp}.mp3`)
   writeFileSync(file, audio)
+  // The note is written before the measure, so a piece that is paid for always keeps its origin.
+  const origin = `Generated on ${stamp.slice(0, 10)} by ${model} through OpenRouter (generation ${id ?? 'not reported'}), from the prompt in video/music/prompt.txt (sha256 ${createHash('sha256').update(prompt).digest('hex').slice(0, 16)})`
+  const note = join(OUT, `${basename(file, '.mp3')}.txt`)
+  writeFileSync(note, `${origin}.\n`)
   const seconds = measureSeconds(file)
-  const provenance = `Generated on ${stamp.slice(0, 10)} by ${model} through OpenRouter (generation ${id ?? 'not reported'}), from the prompt in video/music/prompt.txt (sha256 ${createHash('sha256').update(prompt).digest('hex').slice(0, 16)}); ${seconds.toFixed(1)} s.`
-  writeFileSync(join(OUT, `${basename(file, '.mp3')}.txt`), `${provenance}\n`)
+  const provenance = `${origin}; ${seconds.toFixed(1)} s.`
+  writeFileSync(note, `${provenance}\n`)
   console.log(`  ${shown(file)}   ${seconds.toFixed(1)} s   ${cost === null ? 'cost not reported' : `$${cost.toFixed(2)}`}   ${((Date.now() - started) / 1000).toFixed(0)} s${text.trim() ? `   (${text.replace(/\s+/g, ' ').trim().slice(0, 80)})` : ''}`)
   install(file, provenance)
 }
