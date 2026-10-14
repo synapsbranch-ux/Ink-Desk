@@ -54,11 +54,21 @@ export const Demo: React.FC<FullProps> = (props) => {
       ))}
       {props.preview
         ? null
-        : props.narration.map((clip) => (
-            <Sequence key={`voice-${clip.segmentId}`} from={clip.startFrame} name={`Voice: ${clip.segmentId}`}>
-              <Audio src={staticFile(clip.src)} />
-            </Sequence>
-          ))}
+        : props.narration.map((clip) => {
+            // A voice never runs into the next beat's: it stops at its own beat's end.
+            const seg = plan.segments.find((g) => g.id === clip.segmentId)
+            const end = seg ? seg.startFrame + seg.durationInFrames : plan.durationInFrames
+            return (
+              <Sequence
+                key={`voice-${clip.segmentId}`}
+                from={clip.startFrame}
+                durationInFrames={Math.max(1, end - clip.startFrame)}
+                name={`Voice: ${clip.segmentId}`}
+              >
+                <Audio src={staticFile(clip.src)} />
+              </Sequence>
+            )
+          })}
       {props.music ? <Audio src={staticFile(props.music.src)} volume={props.music.volume} loop /> : null}
       <Captions cues={captions} />
       {props.draft.length ? <DraftStamp /> : null}

@@ -151,7 +151,9 @@ export const MoneyShot: React.FC<{ stills: MoneyShotStills; placeholder: boolean
   const layout = stage({ ...stills, panels }, aspects)
 
   // Panels share a fixed window, so eight ink in briskly and two take their time.
-  const stagger = panels.length > 1 ? Math.min(30, (PANEL_WINDOW - INK_FRAMES) / (panels.length - (stills.cover ? 0 : 1))) : 0
+  // Panels, then the cover, one after another — the cover always inks last.
+  const items = panels.length + (stills.cover ? 1 : 0)
+  const stagger = items > 1 ? Math.min(30, (PANEL_WINDOW - INK_FRAMES) / (items - 1)) : 0
   const placed: Placed[] = panels.map((p, i) => ({
     src: p.src,
     box: layout.panels[i],

@@ -5,3 +5,7 @@ out/
 public/capture/
 public/narration/
 public/placeholder/
+# Music is royalty-free but still someone else's work: the track stays local,
+# its licence is committed so the credit travels with the repo.
+public/music/*
+!public/music/LICENSE.txt

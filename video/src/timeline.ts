@@ -6,11 +6,12 @@
 //   cut.ts         the edit: segments of shots, each footage shot a pair of marks
 //   narration.md   the learner's script, one section per segment (captions)
 //
-// resolvePlan(cut, marks) → frames for every shot. A footage shot between two
-// marks plays at real speed when it fits its budget and is time-lapsed (sped
-// up, never slowed, never faked) when it does not. A shot whose marks are not
-// in the capture yet becomes a labelled slate of its budgeted length, so the
-// draft always has the final timing.
+// resolvePlan(cut, marks) → frames for every shot. Every shot lasts exactly
+// its budget, so the beats, the narration's word budgets and the captions all
+// agree whatever the capture did. A footage shot between two marks plays at
+// real speed when it fits its budget — then holds its last frame for the rest
+// — and is time-lapsed (sped up, never slowed, never faked) when it does not.
+// A shot whose marks are not in the capture yet is a labelled slate.
 
 export const FPS = 30
 export const WIDTH = 1920
@@ -85,6 +86,8 @@ export type ResolvedShot = Shot & {
   trimBefore?: number
   trimAfter?: number
   playbackRate?: number
+  /** Footage only: frames of moving footage; the rest of the shot holds the last one. */
+  playFrames?: number
   /** Footage only: seconds of real time this shot covers. */
   realSeconds?: number
   /** Footage only: true when the marks are not in the capture — render a slate. */
@@ -155,17 +158,20 @@ export function resolvePlan(cut: readonly Segment[], marks: readonly Mark[], has
       if (!(real > 0)) throw new TimelineError(`Footage "${shot.label}" runs from ${shot.from} to ${shot.to}, which is not forward.`)
       // Time-lapse only when the real span does not fit; never slow motion.
       const playbackRate = Math.max(1, real / shot.seconds)
-      const durationInFrames = Math.max(1, Math.round((real / playbackRate) * FPS))
+      const playFrames = Math.min(budget, Math.max(1, Math.round((real / playbackRate) * FPS)))
       const r: ResolvedShot = {
         ...shot,
         startFrame: cursor,
-        durationInFrames,
+        durationInFrames: budget,
+        playFrames,
         trimBefore: frames(from),
-        trimAfter: frames(to),
+        // Rounded up: the closing frame is never before its mark, so a hold
+        // shows the moment itself, not the frame before it.
+        trimAfter: Math.ceil(to * FPS - 1e-9),
         playbackRate,
         realSeconds: real,
       }
-      cursor += durationInFrames
+      cursor += budget
       return r
     })
     return { id: seg.id, label: seg.label, startFrame: start, durationInFrames: cursor - start, shots }

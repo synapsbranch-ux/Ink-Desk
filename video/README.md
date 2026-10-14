@@ -52,8 +52,8 @@ port. Ctrl+C once stops and keeps the footage so far; twice leaves at once.
 The recorder is a Chromium screencast piped into ffmpeg (h264, 30 fps) on its
 own clock, so a mark is the exact moment in the footage. Waits are real and
 long at `high` — the edit time-lapses them and says so on screen.
-`npx tsx capture/clock-check.mts --out /tmp/clock` re-proves the clock at any
-time, for free.
+`cd video && npx tsx capture/clock-check.mts --out /tmp/clock` re-proves the
+clock at any time, for free.
 
 **2. Narrate** — write your words in `video/narration.md`, pick a premade voice, then:
 
@@ -104,10 +104,11 @@ Never a copyrighted track.
 
 ## Not committed
 
-The captured footage, the stills copied from the desk, the narration mp3s and
-the rendered mp4 (sizes). The edit, the script, `timeline.json`, the capture
-and narration scripts and the licence notes are. The mp4 is uploaded to
-YouTube, public, and linked from the submission.
+The captured footage, the stills copied from the desk, the narration mp3s, the
+music track (its licence is committed) and the rendered mp4. The edit, the
+script, `timeline.json`, the capture and narration scripts and the licence
+notes are. The mp4 is uploaded to YouTube, public, and linked from the
+submission.
 
 ## Licences
 

@@ -192,7 +192,7 @@ export const Intro: React.FC<{ durationInFrames: number }> = ({ durationInFrames
             ) : null}
             {f >= T.lineB1 - 2 ? (
               <AbsoluteFill style={{ justifyContent: 'center' }}>
-                <Words text="Ink Desk keeps *one face*" frame={f} enterAt={T.lineB1} style={headline} />
+                <Words text="Ink Desk keeps *one* *face*" frame={f} enterAt={T.lineB1} style={headline} />
                 <Words text="in every panel." frame={f} enterAt={T.lineB2} style={headline} />
               </AbsoluteFill>
             ) : null}

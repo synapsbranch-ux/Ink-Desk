@@ -8,6 +8,13 @@
 // as written so the timing can be judged, and never sent to the voice.
 import { FPS, NARRATION_LEAD_SECONDS, type ResolvedPlan } from './timeline'
 
+/**
+ * Still the writer's to fill: empty, one bracketed placeholder, or any line
+ * that keeps the template's "[Your words" marker — a half-written section is
+ * never sent to the voice and never passes for final.
+ */
+export const isPlaceholder = (text: string) => text === '' || /^\[.*\]$/.test(text) || /\[Your words\b/i.test(text)
+
 export type NarrationSegment = { id: string; text: string; placeholder: boolean }
 
 export type CaptionCue = { segmentId: string; startFrame: number; endFrame: number; text: string }
@@ -25,7 +32,7 @@ export function parseNarration(markdown: string): NarrationSegment[] {
   const flush = () => {
     if (!current) return
     const text = current.lines.join(' ').replace(/\s+/g, ' ').trim()
-    out.push({ id: current.id, text, placeholder: text === '' || /^\[.*\]$/.test(text) })
+    out.push({ id: current.id, text, placeholder: isPlaceholder(text) })
   }
   for (const line of withoutComments.split(/\r?\n/)) {
     const heading = /^##\s+([a-z0-9-]+)\b/i.exec(line)

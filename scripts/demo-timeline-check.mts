@@ -77,7 +77,13 @@ const marks: Mark[] = MARKS.map((m) => ({ name: m.name, t: t[m.name] }))
 checkMarks(marks, 920)
 const plan = resolvePlan(CUT, marks, true)
 assert.ok(plan.seconds < MAX_SECONDS, `resolved film is ${plan.seconds} s`)
-assert.ok(plan.seconds <= budgetSeconds(CUT) + 1e-9)
+// Every shot keeps its budget, whatever the capture did: the film is exactly
+// as long as the edit says.
+near(plan.seconds, budgetSeconds(CUT), 'the resolved film is its budget')
+for (const [i, seg] of plan.segments.entries()) {
+  const budget = CUT[i].shots.reduce((s, shot) => s + shot.seconds, 0)
+  near(sec(seg.durationInFrames), budget, `beat "${seg.id}" keeps its budget`)
+}
 
 const footage = plan.segments.flatMap((s) => s.shots).filter((s) => s.kind === 'footage')
 const byLabel = (label: string) => {
@@ -85,10 +91,12 @@ const byLabel = (label: string) => {
   assert.ok(shot, label)
   return shot
 }
-// Fits → real speed, its real length, no slate.
+// Fits → real speed for its real length, then holds its last frame: the shot
+// keeps its budget, so the beat, the word budget and the captions agree.
 const newProject = byLabel('New project and its style')
 assert.equal(newProject.playbackRate, 1)
-near(sec(newProject.durationInFrames), 12, 'a short span plays at its real length')
+near(sec(newProject.playFrames!), 12, 'a short span plays at its real length')
+near(sec(newProject.durationInFrames), 17.5, 'and holds to its budget')
 assert.equal(newProject.trimBefore, 2 * FPS)
 assert.equal(newProject.trimAfter, 14 * FPS)
 assert.ok(!newProject.missing)
@@ -96,11 +104,13 @@ assert.ok(!newProject.missing)
 const inking = byLabel('Page 1 inks in')
 assert.equal(inking.playbackRate, 15)
 near(sec(inking.durationInFrames), 12, 'a long wait is time-lapsed into its budget')
+assert.equal(inking.playFrames, inking.durationInFrames, 'a time-lapse fills its shot, no hold')
 assert.equal(inking.realSeconds, 180)
 // Played source frames ≈ shown frames × rate: nothing is invented.
 for (const s of footage) {
   const source = s.trimAfter! - s.trimBefore!
-  assert.ok(Math.abs(s.durationInFrames * s.playbackRate! - source) <= s.playbackRate! + 1, `${s.kind === 'footage' ? s.label : ''} covers its source span`)
+  assert.ok(Math.abs(s.playFrames! * s.playbackRate! - source) <= s.playbackRate! + 1, `${s.kind === 'footage' ? s.label : ''} covers its source span`)
+  assert.ok(s.playFrames! <= s.durationInFrames)
   assert.ok(s.playbackRate! >= 1, 'never slow motion')
 }
 // Shots tile the film: no gap, no overlap.
@@ -154,6 +164,10 @@ const parsed = parseNarration(doc)
 assert.deepEqual(parsed.map((s) => [s.id, s.placeholder]), [['intro', false], ['dashboard', true], ['library', true]])
 assert.ok(!parsed[0].text.includes('note'), 'comments are never spoken')
 assert.throws(() => parseNarration('## a\nx\n## a\ny'), /two sections/)
+// A half-written section that keeps the template's marker is still a draft —
+// never sent to the voice, never final.
+assert.ok(parseNarration('## a\nInk Desk keeps faces steady. [Your words: the lock.]')[0].placeholder)
+assert.ok(!parseNarration('## a\nThe sheet [front, side, back] is locked.')[0].placeholder, 'brackets of your own are fine')
 
 const chunks = chunkCaption(parsed[0].text)
 assert.equal(chunks.join(' '), parsed[0].text, 'captions are the words, in order, nothing lost')
@@ -195,4 +209,4 @@ assert.notEqual(k, narrationKey('Hello.', 'sarah', 'elevenlabs/eleven-v4'), 'a c
 assert.notEqual(k, narrationKey('Hello.', 'george', 'elevenlabs/eleven-flash-v2.5'), 'a changed model is new audio')
 assert.equal(wordCount('  one two\nthree '), 3)
 
-console.log(`  Demo timeline check passed — the edit is ${budgetSeconds(CUT)} s at most, ${CUT.length} beats, every one captioned.`)
+console.log(`  Demo timeline check passed — the edit is ${budgetSeconds(CUT)} s, ${CUT.length} beats, every one captioned.`)

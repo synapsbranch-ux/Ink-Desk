@@ -127,7 +127,12 @@ export function prepare(): Prepared {
   else if (!footage) draft.push(`timeline.json names ${timeline.footage}, which is not on this machine (captures are not committed) — footage shots are slates.`)
   if (footage && timeline.quality !== 'high') draft.push(`The capture ran at \`${timeline.quality ?? 'unknown'}\` quality; the film is captured at \`high\`.`)
 
-  const plan = resolvePlan(CUT, footage ? timeline.marks : [], footage !== null)
+  let plan: ResolvedPlan
+  try {
+    plan = resolvePlan(CUT, footage ? timeline.marks : [], footage !== null)
+  } catch (err) {
+    fail(`timeline.json — ${(err as Error).message}`)
+  }
   if (plan.seconds >= MAX_SECONDS) fail(`the edit runs ${plan.seconds.toFixed(1)} s; the rule is under ${MAX_SECONDS} s.`)
   const slates = plan.segments.flatMap((s) => s.shots).filter((s) => s.missing)
   if (footage && slates.length) {
@@ -152,7 +157,9 @@ export function prepare(): Prepared {
   // The money shot.
   let stills = timeline.stills
   let stillsArePlaceholder = false
-  if (!stills || !stillsExist(stills)) {
+  // A capture that stopped before page 1 inked has a reference but no panels —
+  // nothing to show beside it yet.
+  if (!stills || stills.panels.length === 0 || !stillsExist(stills)) {
     stills = placeholderStills()
     stillsArePlaceholder = true
     draft.push('The money shot uses the v1 desk ("Return to Sender") until a capture brings its own stills.')

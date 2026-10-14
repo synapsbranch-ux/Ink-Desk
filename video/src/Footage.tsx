@@ -2,11 +2,14 @@
 // its budget is time-lapsed — and says so on screen, with the real time it
 // covers, because every generation in the film is real and the waits are
 // shortened, not faked. Before a capture exists, the same length is a slate.
-import { AbsoluteFill, interpolate, OffthreadVideo, staticFile, useCurrentFrame } from 'remotion'
+import { AbsoluteFill, Freeze, interpolate, OffthreadVideo, staticFile, useCurrentFrame } from 'remotion'
 import { color, font, halftone, shadow } from './theme'
 import { FPS, type ResolvedShot } from './timeline'
 
-const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`
+const clock = (s: number) => {
+  const r = Math.round(s)
+  return `${Math.floor(r / 60)}:${String(r % 60).padStart(2, '0')}`
+}
 
 export const Footage: React.FC<{ shot: ResolvedShot; src: string | null }> = ({ shot, src }) => {
   const frame = useCurrentFrame()
@@ -17,17 +20,36 @@ export const Footage: React.FC<{ shot: ResolvedShot; src: string | null }> = ({ 
   if (shot.kind !== 'footage') return null
   if (!src || shot.missing) return <Slate label={shot.label} seconds={shot.durationInFrames / FPS} />
   const rate = shot.playbackRate ?? 1
-  const lapse = rate >= 1.5
+  // Every speed-up is labelled, however small: the film never speeds up real
+  // footage without saying so.
+  const lapse = rate > 1.01
+  // A span shorter than its budget plays at real speed, then holds its last
+  // frame so the beat keeps its length.
+  const play = shot.playFrames ?? shot.durationInFrames
   return (
     <AbsoluteFill style={{ background: color.paper }}>
-      <OffthreadVideo
-        src={staticFile(src)}
-        trimBefore={shot.trimBefore}
-        trimAfter={shot.trimAfter}
-        playbackRate={rate}
-        muted
-        style={{ width: '100%', height: '100%', opacity: fade }}
-      />
+      {frame < play ? (
+        <OffthreadVideo
+          src={staticFile(src)}
+          trimBefore={shot.trimBefore}
+          trimAfter={shot.trimAfter}
+          playbackRate={rate}
+          muted
+          style={{ width: '100%', height: '100%', opacity: fade }}
+        />
+      ) : (
+        // The hold shows the closing mark's own frame — the first one where
+        // its moment is on screen (the export done, the studio open).
+        <Freeze frame={0}>
+          <OffthreadVideo
+            src={staticFile(src)}
+            trimBefore={shot.trimAfter}
+            trimAfter={(shot.trimAfter ?? 0) + 1}
+            muted
+            style={{ width: '100%', height: '100%', opacity: fade }}
+          />
+        </Freeze>
+      )}
       {lapse ? (
         <div
           style={{
@@ -49,7 +71,7 @@ export const Footage: React.FC<{ shot: ResolvedShot; src: string | null }> = ({ 
             alignItems: 'baseline',
           }}
         >
-          <span style={{ fontWeight: 700 }}>{rate >= 10 ? Math.round(rate) : rate.toFixed(1)}×</span>
+          <span style={{ fontWeight: 700 }}>{rate >= 10 ? Math.round(rate) : rate.toFixed(rate < 2 ? 2 : 1)}×</span>
           <span style={{ opacity: 0.8 }}>{clock(shot.realSeconds ?? 0)} of real time, sped up</span>
         </div>
       ) : null}

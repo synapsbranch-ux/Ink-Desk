@@ -13,10 +13,15 @@ export const Captions: React.FC<{ cues: readonly CaptionCue[] }> = ({ cues }) =>
   if (!cue) return null
   const local = frame - cue.startFrame
   const length = cue.endFrame - cue.startFrame
-  const opacity = interpolate(local, [0, 4, length - 4, length], [0, 1, 1, 0], {
-    extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp',
-  })
+  // A very short cue gets a shorter fade (interpolate needs a rising range).
+  const ramp = Math.min(4, Math.floor((length - 1) / 2))
+  const opacity =
+    ramp < 1
+      ? 1
+      : interpolate(local, [0, ramp, length - ramp, length], [0, 1, 1, 0], {
+          extrapolateLeft: 'clamp',
+          extrapolateRight: 'clamp',
+        })
   return (
     <AbsoluteFill style={{ justifyContent: 'flex-end', alignItems: 'center', paddingBottom: 56, pointerEvents: 'none' }}>
       <div
