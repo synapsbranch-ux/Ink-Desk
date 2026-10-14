@@ -1,0 +1,150 @@
+<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ink Desk — motion kernel test</title>
+<style>
+  body{margin:0;padding:40px;background:#f3f2f2;color:#201f1d;font:16px/1.6 Lora,Georgia,serif}
+  h1{font:600 30px/1.2 "Cormorant Garamond",Georgia,serif;margin:0 0 6px}
+  h2{font:600 24px/1.2 "Cormorant Garamond",Georgia,serif;margin:44px 0 12px;border-top:1px solid #d6d4d1;padding-top:24px}
+  h3{font-size:16px;margin:20px 0 8px}
+  .how{font:400 13px/1 system-ui,sans-serif;color:#6b6762;margin-left:8px}
+  p.sub{margin:0 0 24px;color:#6b6762}
+  .warn{padding:12px 18px;background:#f5e2de;border-left:3px solid #b5382e;margin:0 0 24px}
+  .bad{color:#b5382e}
+  .src,.strip{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+  figure{margin:0;flex:1 1 220px;min-width:200px;max-width:420px}
+  .src figure{max-width:340px}
+  img,video{width:100%;display:block;border:1px solid #d6d4d1;background:#fff}
+  figcaption{margin-top:6px;font-size:13px;color:#6b6762}
+  b{color:#b5382e}
+  .q{margin-top:44px;padding:20px 24px;border-left:3px solid #b5382e;background:#eae9e9}
+  .nums{margin-top:24px;padding:16px 20px;background:#eae9e9;font-size:14px}
+  code{background:#f3f2f2;padding:1px 5px;font-size:13px}
+  pre{white-space:pre-wrap;font-size:12px;background:#eae9e9;padding:12px;margin:8px 0 0}
+  details{margin-top:8px;font-size:13px;color:#6b6762}
+</style>
+<h1>The motion kernel test — does the face hold in motion?</h1>
+<p class="sub">bytedance/seedance-2.0 via OpenRouter · 720p · 5 s per shot · seed 1717 · audio off · total <b>$4.6009</b></p>
+
+<section>
+<h2>Close-up <span class="how">1:1</span></h2>
+<div class="src">
+  <figure><img src="inputs/close.jpg"><figcaption><b>The opening panel</b> — slice 2’s close-up (1:1), as drawn on day one.</figcaption></figure>
+  <figure><img src="inputs/sheet.jpg"><figcaption><b>The model sheet</b> — what the face must still match at the last frame.</figcaption></figure>
+</div>
+<div class="method"><h3>Method A — the panel as the first frame <span class="how"><code>frame_images</code> = [panel as <code>first_frame</code>]</span></h3>
+  <div class="strip">
+    <figure><a href="frames/A-close-first.jpg"><img src="frames/A-close-first.jpg" loading="lazy"></a><figcaption>first frame</figcaption></figure><figure><a href="frames/A-close-middle.jpg"><img src="frames/A-close-middle.jpg" loading="lazy"></a><figcaption>middle · 2.5 s</figcaption></figure><figure><a href="frames/A-close-last.jpg"><img src="frames/A-close-last.jpg" loading="lazy"></a><figcaption><b>last frame</b> · 5.0 s</figcaption></figure>
+    <figure class="vid"><video src="A-close.mp4" controls loop muted playsinline preload="metadata"></video><figcaption>A-close.mp4 · 960×960 · 24 fps · $0.7623</figcaption></figure>
+  </div>
+  <details><summary>the prompt</summary><pre>Animate this manga panel into one continuous 5-second shot.
+The attached image is the first frame: begin exactly on it, then let it move.
+
+Camera: Slow push-in on his face, the camera otherwise steady.
+Action: He breathes hard, a puff of steam leaving his mouth; his jaw stays set and his eyes narrow against the wind; a strand of hair stirs across the scar and the end of the scarf flutters.
+
+His fixed appearance, which does not change at any point in the shot:
+Kaito Ren, an 18-year-old male rooftop courier. Short messy black hair with a blunt fringe falling over the left eyebrow. Sharp amber eyes, thin angular face, light olive skin. Wears a dark grey high-collared courier jacket over a white shirt, cargo trousers and worn lace-up boots. Distinguishing marks: a long pale scar through the right eyebrow, and a frayed deep-red scarf always wound twice around his neck, one end hanging to his waist.
+
+Keep the exact black-and-white manga ink style of the opening image for the whole shot: screentone shading, confident inked linework, no colour, no 3D or photoreal rendering, no change of style.
+No text, no speech bubbles, no captions, no sound-effect lettering and no watermark anywhere in the shot.</pre></details></div>
+<div class="method"><h3>Method B — the panel and the sheet as references <span class="how"><code>input_references</code> = [panel, sheet]</span></h3>
+  <div class="strip">
+    <figure><a href="frames/B-close-first.jpg"><img src="frames/B-close-first.jpg" loading="lazy"></a><figcaption>first frame</figcaption></figure><figure><a href="frames/B-close-middle.jpg"><img src="frames/B-close-middle.jpg" loading="lazy"></a><figcaption>middle · 2.5 s</figcaption></figure><figure><a href="frames/B-close-last.jpg"><img src="frames/B-close-last.jpg" loading="lazy"></a><figcaption><b>last frame</b> · 5.0 s</figcaption></figure>
+    <figure class="vid"><video src="B-close.mp4" controls loop muted playsinline preload="metadata"></video><figcaption>B-close.mp4 · 960×960 · 24 fps · $0.7623</figcaption></figure>
+  </div>
+  <details><summary>the prompt</summary><pre>One continuous 5-second animated shot of a single character.
+The first reference image is the opening frame of the shot: begin exactly on that composition, with the character, framing and background as drawn.
+The second reference image is the character model sheet: his face, hair, eyes, scar, scarf and outfit match it in every frame, from the first frame to the last.
+
+Camera: Slow push-in on his face, the camera otherwise steady.
+Action: He breathes hard, a puff of steam leaving his mouth; his jaw stays set and his eyes narrow against the wind; a strand of hair stirs across the scar and the end of the scarf flutters.
+
+His fixed appearance, which does not change at any point in the shot:
+Kaito Ren, an 18-year-old male rooftop courier. Short messy black hair with a blunt fringe falling over the left eyebrow. Sharp amber eyes, thin angular face, light olive skin. Wears a dark grey high-collared courier jacket over a white shirt, cargo trousers and worn lace-up boots. Distinguishing marks: a long pale scar through the right eyebrow, and a frayed deep-red scarf always wound twice around his neck, one end hanging to his waist.
+
+Keep the exact black-and-white manga ink style of the opening image for the whole shot: screentone shading, confident inked linework, no colour, no 3D or photoreal rendering, no change of style.
+No text, no speech bubbles, no captions, no sound-effect lettering and no watermark anywhere in the shot.</pre></details></div>
+</section>
+<section>
+<h2>Medium shot <span class="how">1:1</span></h2>
+<div class="src">
+  <figure><img src="inputs/medium.jpg"><figcaption><b>The opening panel</b> — drawn for this test from the same sheet, production’s panel prompt (1:1).</figcaption></figure>
+  <figure><img src="inputs/sheet.jpg"><figcaption><b>The model sheet</b> — what the face must still match at the last frame.</figcaption></figure>
+</div>
+<div class="method"><h3>Method A — the panel as the first frame <span class="how"><code>frame_images</code> = [panel as <code>first_frame</code>]</span></h3>
+  <div class="strip">
+    <figure><a href="frames/A-medium-first.jpg"><img src="frames/A-medium-first.jpg" loading="lazy"></a><figcaption>first frame</figcaption></figure><figure><a href="frames/A-medium-middle.jpg"><img src="frames/A-medium-middle.jpg" loading="lazy"></a><figcaption>middle · 2.5 s</figcaption></figure><figure><a href="frames/A-medium-last.jpg"><img src="frames/A-medium-last.jpg" loading="lazy"></a><figcaption><b>last frame</b> · 5.0 s</figcaption></figure>
+    <figure class="vid"><video src="A-medium.mp4" controls loop muted playsinline preload="metadata"></video><figcaption>A-medium.mp4 · 960×960 · 24 fps · $0.7623</figcaption></figure>
+  </div>
+  <details><summary>the prompt</summary><pre>Animate this manga panel into one continuous 5-second shot.
+The attached image is the first frame: begin exactly on it, then let it move.
+
+Camera: Static medium shot with a very slight handheld drift.
+Action: He tugs the scarf tighter with both hands, a small tired smile comes and goes, and his eyes move to something just past the camera.
+
+His fixed appearance, which does not change at any point in the shot:
+Kaito Ren, an 18-year-old male rooftop courier. Short messy black hair with a blunt fringe falling over the left eyebrow. Sharp amber eyes, thin angular face, light olive skin. Wears a dark grey high-collared courier jacket over a white shirt, cargo trousers and worn lace-up boots. Distinguishing marks: a long pale scar through the right eyebrow, and a frayed deep-red scarf always wound twice around his neck, one end hanging to his waist.
+
+Keep the exact black-and-white manga ink style of the opening image for the whole shot: screentone shading, confident inked linework, no colour, no 3D or photoreal rendering, no change of style.
+No text, no speech bubbles, no captions, no sound-effect lettering and no watermark anywhere in the shot.</pre></details></div>
+<div class="method"><h3>Method B — the panel and the sheet as references <span class="how"><code>input_references</code> = [panel, sheet]</span></h3>
+  <div class="strip">
+    <figure><a href="frames/B-medium-first.jpg"><img src="frames/B-medium-first.jpg" loading="lazy"></a><figcaption>first frame</figcaption></figure><figure><a href="frames/B-medium-middle.jpg"><img src="frames/B-medium-middle.jpg" loading="lazy"></a><figcaption>middle · 2.5 s</figcaption></figure><figure><a href="frames/B-medium-last.jpg"><img src="frames/B-medium-last.jpg" loading="lazy"></a><figcaption><b>last frame</b> · 5.0 s</figcaption></figure>
+    <figure class="vid"><video src="B-medium.mp4" controls loop muted playsinline preload="metadata"></video><figcaption>B-medium.mp4 · 960×960 · 24 fps · $0.7623</figcaption></figure>
+  </div>
+  <details><summary>the prompt</summary><pre>One continuous 5-second animated shot of a single character.
+The first reference image is the opening frame of the shot: begin exactly on that composition, with the character, framing and background as drawn.
+The second reference image is the character model sheet: his face, hair, eyes, scar, scarf and outfit match it in every frame, from the first frame to the last.
+
+Camera: Static medium shot with a very slight handheld drift.
+Action: He tugs the scarf tighter with both hands, a small tired smile comes and goes, and his eyes move to something just past the camera.
+
+His fixed appearance, which does not change at any point in the shot:
+Kaito Ren, an 18-year-old male rooftop courier. Short messy black hair with a blunt fringe falling over the left eyebrow. Sharp amber eyes, thin angular face, light olive skin. Wears a dark grey high-collared courier jacket over a white shirt, cargo trousers and worn lace-up boots. Distinguishing marks: a long pale scar through the right eyebrow, and a frayed deep-red scarf always wound twice around his neck, one end hanging to his waist.
+
+Keep the exact black-and-white manga ink style of the opening image for the whole shot: screentone shading, confident inked linework, no colour, no 3D or photoreal rendering, no change of style.
+No text, no speech bubbles, no captions, no sound-effect lettering and no watermark anywhere in the shot.</pre></details></div>
+</section>
+<section>
+<h2>Wide shot <span class="how">16:9</span></h2>
+<div class="src">
+  <figure><img src="inputs/wide.jpg"><figcaption><b>The opening panel</b> — slice 2’s wide panel (3:2), centre-cropped to 16:9.</figcaption></figure>
+  <figure><img src="inputs/sheet.jpg"><figcaption><b>The model sheet</b> — what the face must still match at the last frame.</figcaption></figure>
+</div>
+<div class="method"><h3>Method A — the panel as the first frame <span class="how"><code>frame_images</code> = [panel as <code>first_frame</code>]</span></h3>
+  <div class="strip">
+    <figure><a href="frames/A-wide-first.jpg"><img src="frames/A-wide-first.jpg" loading="lazy"></a><figcaption>first frame</figcaption></figure><figure><a href="frames/A-wide-middle.jpg"><img src="frames/A-wide-middle.jpg" loading="lazy"></a><figcaption>middle · 2.5 s</figcaption></figure><figure><a href="frames/A-wide-last.jpg"><img src="frames/A-wide-last.jpg" loading="lazy"></a><figcaption><b>last frame</b> · 5.0 s</figcaption></figure>
+    <figure class="vid"><video src="A-wide.mp4" controls loop muted playsinline preload="metadata"></video><figcaption>A-wide.mp4 · 1280×720 · 24 fps · $0.7623</figcaption></figure>
+  </div>
+  <details><summary>the prompt</summary><pre>Animate this manga panel into one continuous 5-second shot.
+The attached image is the first frame: begin exactly on it, then let it move.
+
+Camera: Slow tracking shot to the right, following him; the city stays behind him.
+Action: He sails through the air across the rooftop gap, scarf streaming behind him, and comes down on the far rooftop in a low running crouch.
+
+His fixed appearance, which does not change at any point in the shot:
+Kaito Ren, an 18-year-old male rooftop courier. Short messy black hair with a blunt fringe falling over the left eyebrow. Sharp amber eyes, thin angular face, light olive skin. Wears a dark grey high-collared courier jacket over a white shirt, cargo trousers and worn lace-up boots. Distinguishing marks: a long pale scar through the right eyebrow, and a frayed deep-red scarf always wound twice around his neck, one end hanging to his waist.
+
+Keep the exact black-and-white manga ink style of the opening image for the whole shot: screentone shading, confident inked linework, no colour, no 3D or photoreal rendering, no change of style.
+No text, no speech bubbles, no captions, no sound-effect lettering and no watermark anywhere in the shot.</pre></details></div>
+<div class="method"><h3>Method B — the panel and the sheet as references <span class="how"><code>input_references</code> = [panel, sheet]</span></h3>
+  <div class="strip">
+    <figure><a href="frames/B-wide-first.jpg"><img src="frames/B-wide-first.jpg" loading="lazy"></a><figcaption>first frame</figcaption></figure><figure><a href="frames/B-wide-middle.jpg"><img src="frames/B-wide-middle.jpg" loading="lazy"></a><figcaption>middle · 2.5 s</figcaption></figure><figure><a href="frames/B-wide-last.jpg"><img src="frames/B-wide-last.jpg" loading="lazy"></a><figcaption><b>last frame</b> · 5.0 s</figcaption></figure>
+    <figure class="vid"><video src="B-wide.mp4" controls loop muted playsinline preload="metadata"></video><figcaption>B-wide.mp4 · 1280×720 · 24 fps · $0.7623</figcaption></figure>
+  </div>
+  <details><summary>the prompt</summary><pre>One continuous 5-second animated shot of a single character.
+The first reference image is the opening frame of the shot: begin exactly on that composition, with the character, framing and background as drawn.
+The second reference image is the character model sheet: his face, hair, eyes, scar, scarf and outfit match it in every frame, from the first frame to the last.
+
+Camera: Slow tracking shot to the right, following him; the city stays behind him.
+Action: He sails through the air across the rooftop gap, scarf streaming behind him, and comes down on the far rooftop in a low running crouch.
+
+His fixed appearance, which does not change at any point in the shot:
+Kaito Ren, an 18-year-old male rooftop courier. Short messy black hair with a blunt fringe falling over the left eyebrow. Sharp amber eyes, thin angular face, light olive skin. Wears a dark grey high-collared courier jacket over a white shirt, cargo trousers and worn lace-up boots. Distinguishing marks: a long pale scar through the right eyebrow, and a frayed deep-red scarf always wound twice around his neck, one end hanging to his waist.
+
+Keep the exact black-and-white manga ink style of the opening image for the whole shot: screentone shading, confident inked linework, no colour, no 3D or photoreal rendering, no change of style.
+No text, no speech bubbles, no captions, no sound-effect lettering and no watermark anywhere in the shot.</pre></details></div>
+</section>
+<div class="q"><strong>The question:</strong> In each shot, <em>to the last frame</em>, is it still the same person — face, the scar through the right eyebrow, the hair, the red scarf, the jacket — as the model sheet and the opening panel? And is it still the same ink drawing, not a smoothed or recoloured one?
+Judge A and B separately, shot by shot. Then record it as <code>"verdict"</code> in <code>manifest.json</code> and in <code>spec.md &gt; Decisions and Open Issues (v3)</code>: the method that holds, or neither.
+If neither holds, the Animate slice and the film change shape. If one does, only that method is called a lock in the docs.</div>
+<div class="nums">Each clip's billed <code>usage.cost</code> against OpenRouter's formula (tokens = W × H × seconds × 24 / 1024 at $7.00 per million):
+A-close $0.7623 vs $0.7560 (0.8%) · B-close $0.7623 vs $0.7560 (0.8%) · A-medium $0.7623 vs $0.7560 (0.8%) · B-medium $0.7623 vs $0.7560 (0.8%) · A-wide $0.7623 vs $0.7560 (0.8%) · B-wide $0.7623 vs $0.7560 (0.8%)</div>

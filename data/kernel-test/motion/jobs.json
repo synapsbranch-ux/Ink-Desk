@@ -32,6 +32,12 @@
       "inputReferences": [
         "inputs/close.jpg",
         "inputs/sheet.jpg"
+      ],
+      "status": "completed",
+      "costUsd": 0.7623,
+      "generationMs": 269998,
+      "unsignedUrls": [
+        "https://openrouter.ai/api/v1/videos/gen-vid-1792001968-tUJQAXWPcVDhIUFPtz7e/content?index=0"
       ]
     },
     "A-medium": {
@@ -57,6 +63,12 @@
       "inputReferences": [
         "inputs/medium.jpg",
         "inputs/sheet.jpg"
+      ],
+      "status": "completed",
+      "costUsd": 0.7623,
+      "generationMs": 254377,
+      "unsignedUrls": [
+        "https://openrouter.ai/api/v1/videos/gen-vid-1792001983-MPkUBPXAKVZEIp0WnjHd/content?index=0"
       ]
     },
     "A-wide": {

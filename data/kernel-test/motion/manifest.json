@@ -1,0 +1,292 @@
+{
+  "test": "motion-kernel",
+  "provider": "openrouter",
+  "endpoint": "https://openrouter.ai/api/v1/videos",
+  "videoModel": "bytedance/seedance-2.0",
+  "videoModelPinned": false,
+  "resolution": "720p",
+  "seconds": 5,
+  "seed": 1717,
+  "generateAudio": false,
+  "isClaimConfiguration": true,
+  "capabilities": {
+    "resolutions": [
+      "480p",
+      "720p",
+      "1080p",
+      "4K"
+    ],
+    "aspectRatios": [
+      "1:1",
+      "3:4",
+      "9:16",
+      "4:3",
+      "16:9",
+      "21:9",
+      "9:21"
+    ],
+    "durations": [
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+    ],
+    "tokenPriceUsd": 0.000007
+  },
+  "inputs": {
+    "sheet": {
+      "file": "inputs/sheet.jpg",
+      "from": "data/kernel-test/0-sheet.png"
+    },
+    "close": {
+      "file": "inputs/close.jpg",
+      "from": "data/kernel-test/1-close.png"
+    },
+    "medium": {
+      "file": "inputs/medium.jpg",
+      "from": "inputs/medium.png",
+      "image": {
+        "prompt": "A single manga panel.\n\nThe character in this panel is shown in the attached reference sheet.\nKeep his face, hairstyle, eyes, outfit, scar and scarf EXACTLY as the\nreference sheet shows. Do not restyle, age, or redesign him.\nOnly his pose, expression and surroundings change.\n\nHis fixed appearance, for reference:\nKaito Ren, an 18-year-old male rooftop courier. Short messy black hair with a blunt fringe falling over the left eyebrow. Sharp amber eyes, thin angular face, light olive skin. Wears a dark grey high-collared courier jacket over a white shirt, cargo trousers and worn lace-up boots. Distinguishing marks: a long pale scar through the right eyebrow, and a frayed deep-red scarf always wound twice around his neck, one end hanging to his waist.\n\nFraming: Square panel. Frame the character from the waist up, centred, with headroom above and nothing important near the edges.\nCamera: Medium shot, eye level, facing the camera.\nAction: He is tugging the scarf tighter with both hands, a small tired smile, eyes on something just past the camera.\nBackground: A rooftop at night, water towers and tangled cables behind him, the city lights soft and out of focus.\n\nBlack and white manga artwork, screentone shading, confident inked linework. Seinen style, detailed backgrounds, strong use of blacks. ABSOLUTELY NO TEXT, no speech bubbles, no sound effects, no signatures, no watermarks and no panel borders anywhere in the image.",
+        "costUsd": 0.027103,
+        "ms": 29309,
+        "dimensions": {
+          "w": 1024,
+          "h": 1024
+        }
+      }
+    },
+    "wide": {
+      "file": "inputs/wide.jpg",
+      "from": "data/kernel-test/2-wide.png",
+      "crop": "3:2 -> 16:9, centred"
+    }
+  },
+  "clips": {
+    "A-close": {
+      "method": "A",
+      "shot": "close",
+      "aspect": "1:1",
+      "jobId": "gen-vid-1792001962-xnIjOyiKw8HNCimCEvjm",
+      "prompt": "Animate this manga panel into one continuous 5-second shot.\nThe attached image is the first frame: begin exactly on it, then let it move.\n\nCamera: Slow push-in on his face, the camera otherwise steady.\nAction: He breathes hard, a puff of steam leaving his mouth; his jaw stays set and his eyes narrow against the wind; a strand of hair stirs across the scar and the end of the scarf flutters.\n\nHis fixed appearance, which does not change at any point in the shot:\nKaito Ren, an 18-year-old male rooftop courier. Short messy black hair with a blunt fringe falling over the left eyebrow. Sharp amber eyes, thin angular face, light olive skin. Wears a dark grey high-collared courier jacket over a white shirt, cargo trousers and worn lace-up boots. Distinguishing marks: a long pale scar through the right eyebrow, and a frayed deep-red scarf always wound twice around his neck, one end hanging to his waist.\n\nKeep the exact black-and-white manga ink style of the opening image for the whole shot: screentone shading, confident inked linework, no colour, no 3D or photoreal rendering, no change of style.\nNo text, no speech bubbles, no captions, no sound-effect lettering and no watermark anywhere in the shot.",
+      "inputReferences": [
+        "inputs/close.jpg (first_frame)"
+      ],
+      "file": "A-close.mp4",
+      "error": null,
+      "costUsd": 0.7623,
+      "formulaUsd": 0.756,
+      "costDeviation": 0.008333333333333297,
+      "generationMs": 152573,
+      "clip": {
+        "w": 960,
+        "h": 960,
+        "codec": "h264",
+        "durationS": 5.041667,
+        "frames": 121,
+        "fps": 24
+      },
+      "frames": {
+        "first": "frames/A-close-first.jpg",
+        "middle": "frames/A-close-middle.jpg",
+        "last": "frames/A-close-last.jpg"
+      },
+      "checks": {
+        "playable": true,
+        "ratio": true,
+        "duration": true,
+        "costWithinTolerance": true
+      }
+    },
+    "B-close": {
+      "method": "B",
+      "shot": "close",
+      "aspect": "1:1",
+      "jobId": "gen-vid-1792001968-tUJQAXWPcVDhIUFPtz7e",
+      "prompt": "One continuous 5-second animated shot of a single character.\nThe first reference image is the opening frame of the shot: begin exactly on that composition, with the character, framing and background as drawn.\nThe second reference image is the character model sheet: his face, hair, eyes, scar, scarf and outfit match it in every frame, from the first frame to the last.\n\nCamera: Slow push-in on his face, the camera otherwise steady.\nAction: He breathes hard, a puff of steam leaving his mouth; his jaw stays set and his eyes narrow against the wind; a strand of hair stirs across the scar and the end of the scarf flutters.\n\nHis fixed appearance, which does not change at any point in the shot:\nKaito Ren, an 18-year-old male rooftop courier. Short messy black hair with a blunt fringe falling over the left eyebrow. Sharp amber eyes, thin angular face, light olive skin. Wears a dark grey high-collared courier jacket over a white shirt, cargo trousers and worn lace-up boots. Distinguishing marks: a long pale scar through the right eyebrow, and a frayed deep-red scarf always wound twice around his neck, one end hanging to his waist.\n\nKeep the exact black-and-white manga ink style of the opening image for the whole shot: screentone shading, confident inked linework, no colour, no 3D or photoreal rendering, no change of style.\nNo text, no speech bubbles, no captions, no sound-effect lettering and no watermark anywhere in the shot.",
+      "inputReferences": [
+        "inputs/close.jpg",
+        "inputs/sheet.jpg"
+      ],
+      "file": "B-close.mp4",
+      "error": null,
+      "costUsd": 0.7623,
+      "formulaUsd": 0.756,
+      "costDeviation": 0.008333333333333297,
+      "generationMs": 269998,
+      "clip": {
+        "w": 960,
+        "h": 960,
+        "codec": "h264",
+        "durationS": 5.041667,
+        "frames": 121,
+        "fps": 24
+      },
+      "frames": {
+        "first": "frames/B-close-first.jpg",
+        "middle": "frames/B-close-middle.jpg",
+        "last": "frames/B-close-last.jpg"
+      },
+      "checks": {
+        "playable": true,
+        "ratio": true,
+        "duration": true,
+        "costWithinTolerance": true
+      }
+    },
+    "A-medium": {
+      "method": "A",
+      "shot": "medium",
+      "aspect": "1:1",
+      "jobId": "gen-vid-1792001978-mL9aNxapBri0HHFDs4p3",
+      "prompt": "Animate this manga panel into one continuous 5-second shot.\nThe attached image is the first frame: begin exactly on it, then let it move.\n\nCamera: Static medium shot with a very slight handheld drift.\nAction: He tugs the scarf tighter with both hands, a small tired smile comes and goes, and his eyes move to something just past the camera.\n\nHis fixed appearance, which does not change at any point in the shot:\nKaito Ren, an 18-year-old male rooftop courier. Short messy black hair with a blunt fringe falling over the left eyebrow. Sharp amber eyes, thin angular face, light olive skin. Wears a dark grey high-collared courier jacket over a white shirt, cargo trousers and worn lace-up boots. Distinguishing marks: a long pale scar through the right eyebrow, and a frayed deep-red scarf always wound twice around his neck, one end hanging to his waist.\n\nKeep the exact black-and-white manga ink style of the opening image for the whole shot: screentone shading, confident inked linework, no colour, no 3D or photoreal rendering, no change of style.\nNo text, no speech bubbles, no captions, no sound-effect lettering and no watermark anywhere in the shot.",
+      "inputReferences": [
+        "inputs/medium.jpg (first_frame)"
+      ],
+      "file": "A-medium.mp4",
+      "error": null,
+      "costUsd": 0.7623,
+      "formulaUsd": 0.756,
+      "costDeviation": 0.008333333333333297,
+      "generationMs": 201629,
+      "clip": {
+        "w": 960,
+        "h": 960,
+        "codec": "h264",
+        "durationS": 5.041667,
+        "frames": 121,
+        "fps": 24
+      },
+      "frames": {
+        "first": "frames/A-medium-first.jpg",
+        "middle": "frames/A-medium-middle.jpg",
+        "last": "frames/A-medium-last.jpg"
+      },
+      "checks": {
+        "playable": true,
+        "ratio": true,
+        "duration": true,
+        "costWithinTolerance": true
+      }
+    },
+    "B-medium": {
+      "method": "B",
+      "shot": "medium",
+      "aspect": "1:1",
+      "jobId": "gen-vid-1792001983-MPkUBPXAKVZEIp0WnjHd",
+      "prompt": "One continuous 5-second animated shot of a single character.\nThe first reference image is the opening frame of the shot: begin exactly on that composition, with the character, framing and background as drawn.\nThe second reference image is the character model sheet: his face, hair, eyes, scar, scarf and outfit match it in every frame, from the first frame to the last.\n\nCamera: Static medium shot with a very slight handheld drift.\nAction: He tugs the scarf tighter with both hands, a small tired smile comes and goes, and his eyes move to something just past the camera.\n\nHis fixed appearance, which does not change at any point in the shot:\nKaito Ren, an 18-year-old male rooftop courier. Short messy black hair with a blunt fringe falling over the left eyebrow. Sharp amber eyes, thin angular face, light olive skin. Wears a dark grey high-collared courier jacket over a white shirt, cargo trousers and worn lace-up boots. Distinguishing marks: a long pale scar through the right eyebrow, and a frayed deep-red scarf always wound twice around his neck, one end hanging to his waist.\n\nKeep the exact black-and-white manga ink style of the opening image for the whole shot: screentone shading, confident inked linework, no colour, no 3D or photoreal rendering, no change of style.\nNo text, no speech bubbles, no captions, no sound-effect lettering and no watermark anywhere in the shot.",
+      "inputReferences": [
+        "inputs/medium.jpg",
+        "inputs/sheet.jpg"
+      ],
+      "file": "B-medium.mp4",
+      "error": null,
+      "costUsd": 0.7623,
+      "formulaUsd": 0.756,
+      "costDeviation": 0.008333333333333297,
+      "generationMs": 254377,
+      "clip": {
+        "w": 960,
+        "h": 960,
+        "codec": "h264",
+        "durationS": 5.041667,
+        "frames": 121,
+        "fps": 24
+      },
+      "frames": {
+        "first": "frames/B-medium-first.jpg",
+        "middle": "frames/B-medium-middle.jpg",
+        "last": "frames/B-medium-last.jpg"
+      },
+      "checks": {
+        "playable": true,
+        "ratio": true,
+        "duration": true,
+        "costWithinTolerance": true
+      }
+    },
+    "A-wide": {
+      "method": "A",
+      "shot": "wide",
+      "aspect": "16:9",
+      "jobId": "gen-vid-1792001992-fkz5mBHbSHCml9poN88F",
+      "prompt": "Animate this manga panel into one continuous 5-second shot.\nThe attached image is the first frame: begin exactly on it, then let it move.\n\nCamera: Slow tracking shot to the right, following him; the city stays behind him.\nAction: He sails through the air across the rooftop gap, scarf streaming behind him, and comes down on the far rooftop in a low running crouch.\n\nHis fixed appearance, which does not change at any point in the shot:\nKaito Ren, an 18-year-old male rooftop courier. Short messy black hair with a blunt fringe falling over the left eyebrow. Sharp amber eyes, thin angular face, light olive skin. Wears a dark grey high-collared courier jacket over a white shirt, cargo trousers and worn lace-up boots. Distinguishing marks: a long pale scar through the right eyebrow, and a frayed deep-red scarf always wound twice around his neck, one end hanging to his waist.\n\nKeep the exact black-and-white manga ink style of the opening image for the whole shot: screentone shading, confident inked linework, no colour, no 3D or photoreal rendering, no change of style.\nNo text, no speech bubbles, no captions, no sound-effect lettering and no watermark anywhere in the shot.",
+      "inputReferences": [
+        "inputs/wide.jpg (first_frame)"
+      ],
+      "file": "A-wide.mp4",
+      "error": null,
+      "costUsd": 0.7623,
+      "formulaUsd": 0.756,
+      "costDeviation": 0.008333333333333297,
+      "generationMs": 153416,
+      "clip": {
+        "w": 1280,
+        "h": 720,
+        "codec": "h264",
+        "durationS": 5.041667,
+        "frames": 121,
+        "fps": 24
+      },
+      "frames": {
+        "first": "frames/A-wide-first.jpg",
+        "middle": "frames/A-wide-middle.jpg",
+        "last": "frames/A-wide-last.jpg"
+      },
+      "checks": {
+        "playable": true,
+        "ratio": true,
+        "duration": true,
+        "costWithinTolerance": true
+      }
+    },
+    "B-wide": {
+      "method": "B",
+      "shot": "wide",
+      "aspect": "16:9",
+      "jobId": "gen-vid-1792001998-n2Cn7Nlvk9IG2meYn2qI",
+      "prompt": "One continuous 5-second animated shot of a single character.\nThe first reference image is the opening frame of the shot: begin exactly on that composition, with the character, framing and background as drawn.\nThe second reference image is the character model sheet: his face, hair, eyes, scar, scarf and outfit match it in every frame, from the first frame to the last.\n\nCamera: Slow tracking shot to the right, following him; the city stays behind him.\nAction: He sails through the air across the rooftop gap, scarf streaming behind him, and comes down on the far rooftop in a low running crouch.\n\nHis fixed appearance, which does not change at any point in the shot:\nKaito Ren, an 18-year-old male rooftop courier. Short messy black hair with a blunt fringe falling over the left eyebrow. Sharp amber eyes, thin angular face, light olive skin. Wears a dark grey high-collared courier jacket over a white shirt, cargo trousers and worn lace-up boots. Distinguishing marks: a long pale scar through the right eyebrow, and a frayed deep-red scarf always wound twice around his neck, one end hanging to his waist.\n\nKeep the exact black-and-white manga ink style of the opening image for the whole shot: screentone shading, confident inked linework, no colour, no 3D or photoreal rendering, no change of style.\nNo text, no speech bubbles, no captions, no sound-effect lettering and no watermark anywhere in the shot.",
+      "inputReferences": [
+        "inputs/wide.jpg",
+        "inputs/sheet.jpg"
+      ],
+      "file": "B-wide.mp4",
+      "error": null,
+      "costUsd": 0.7623,
+      "formulaUsd": 0.756,
+      "costDeviation": 0.008333333333333297,
+      "generationMs": 155545,
+      "clip": {
+        "w": 1280,
+        "h": 720,
+        "codec": "h264",
+        "durationS": 5.041667,
+        "frames": 121,
+        "fps": 24
+      },
+      "frames": {
+        "first": "frames/B-wide-first.jpg",
+        "middle": "frames/B-wide-middle.jpg",
+        "last": "frames/B-wide-last.jpg"
+      },
+      "checks": {
+        "playable": true,
+        "ratio": true,
+        "duration": true,
+        "costWithinTolerance": true
+      }
+    }
+  },
+  "totalCostUsd": 4.600903,
+  "dna": "Kaito Ren, an 18-year-old male rooftop courier. Short messy black hair with a blunt fringe falling over the left eyebrow. Sharp amber eyes, thin angular face, light olive skin. Wears a dark grey high-collared courier jacket over a white shirt, cargo trousers and worn lace-up boots. Distinguishing marks: a long pale scar through the right eyebrow, and a frayed deep-red scarf always wound twice around his neck, one end hanging to his waist.",
+  "generatedAt": "2026-10-14T18:24:10.245Z",
+  "verdict": null,
+  "verdictNote": "A person records the verdict here after looking at index.html; the script never fills this in, and null means nobody has looked yet. Suggested shape: {\"method\": \"A\" | \"B\" | \"neither\", \"A\": {\"close\": \"pass|fail\", \"medium\": \"pass|fail\", \"wide\": \"pass|fail\"}, \"B\": {...}, \"note\": \"...\"}. Judge to the last frame: face, scar, hair, scarf, outfit, ink style."
+}
