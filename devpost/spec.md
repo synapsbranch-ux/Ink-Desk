@@ -1875,7 +1875,10 @@ A separate package, `video/`, so the app's dependencies stay clean:
   is composed by code (above) and ducked under the voice. Sync is held by
   construction: every clip starts 0.4 s into its beat, `narrate.mts` and
   `prepare.mts` report any clip longer than its beat's room before a render,
-  and the captions are timed from the measured clip. The mp3s, the track and
+  and the captions are timed from the measured clip. Every clip is leveled
+  once saved — EBU R128 measured, one linear gain to −16 LUFS, a limiter
+  under −2 dBTP — so the mix constants in `src/mix.ts` (0.3 between lines,
+  0.12 under one) mean the same on every beat. The mp3s, the track and
   the render stay uncommitted; the commands rebuild them.
 
 ## Verified for v2 (2026-10-13)

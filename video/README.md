@@ -74,9 +74,10 @@ npm run video:narrate -- --voice george         # or set NARRATION_VOICE in .env
 Only sections whose words, voice or model changed are sent again; bracketed
 placeholders are never sent. `--only intro,pages` narrates just those;
 `--model elevenlabs/eleven-flash-v2.5` is half the price of the default
-`elevenlabs/eleven-v4` (≈ $0.08 for a 2 000-character script). After a run,
-a "Runs long" line names any beat whose audio is longer than its slot in
-`src/cut.ts`.
+`elevenlabs/eleven-v4` (≈ $0.08 for a 2 000-character script). Every clip is
+leveled to −16 LUFS as it is saved (needs ffmpeg), so the voice sits at the
+same loudness on every beat. After a run, a "Runs long" line names any beat
+whose audio is longer than its slot in `src/cut.ts`.
 
 **3. Music** — two ways to a royalty-free track, both generated, both yours to
 pick by ear:

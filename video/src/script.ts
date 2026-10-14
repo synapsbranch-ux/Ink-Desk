@@ -137,7 +137,8 @@ export const wordBudget = (seconds: number) => Math.max(0, Math.floor((seconds -
 export type NarrationManifest = {
   model: string
   voice: string
-  segments: Record<string, { src: string; seconds: number; key: string }>
+  /** `lufs`: the loudness the clip was leveled to; absent on a clip recorded before leveling. */
+  segments: Record<string, { src: string; seconds: number; key: string; lufs?: number }>
 }
 
 /** A content key for one clip (cyrb53, pure — the same in Node and the browser). */

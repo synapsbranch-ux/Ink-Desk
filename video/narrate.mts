@@ -123,6 +123,34 @@ function requireFfprobe() {
   }
 }
 
+/** The voice's loudness on every clip, so the mix constants (src/mix.ts) mean the same on every beat. */
+const VOICE_LUFS = -16
+/** Room for the music summed under the voice, and for the mp3's own overshoot. */
+const VOICE_TRUE_PEAK_DB = -2
+
+/**
+ * Levels a clip in place: integrated loudness measured (EBU R128), then one
+ * linear gain to VOICE_LUFS — the voice keeps its own dynamics — held under
+ * the true-peak ceiling by a limiter. The provider's clips arrive around
+ * −23 LUFS, too quiet beside a platform's −14 to −16.
+ */
+function levelClip(path: string): number {
+  const probe = spawnSync('ffmpeg', ['-hide_banner', '-nostats', '-i', path, '-vn', '-af', 'ebur128=peak=true:framelog=quiet', '-f', 'null', '-'], { encoding: 'utf8' })
+  if (probe.error) throw new NarrateError('ffmpeg is not installed, and the clips cannot be leveled without it; install ffmpeg and run again.')
+  const lufs = Number(/^\s+I:\s+(-?[\d.]+) LUFS/m.exec(probe.stderr)?.[1])
+  const peak = Number(/^\s+Peak:\s+(-?[\d.]+) dBFS/m.exec(probe.stderr)?.[1])
+  if (!Number.isFinite(lufs) || !Number.isFinite(peak)) throw new NarrateError(`${relative(VIDEO, path)} could not be measured for loudness; delete it and run again.`)
+  const gain = VOICE_LUFS - lufs
+  if (Math.abs(gain) < 0.3 && peak <= VOICE_TRUE_PEAK_DB) return lufs
+  const leveled = `${path}.leveled.mp3`
+  // The limiter's ceiling sits under the true-peak target: the encoder overshoots by up to half a decibel.
+  const limit = Math.pow(10, (VOICE_TRUE_PEAK_DB - 0.8) / 20).toFixed(3)
+  const run = spawnSync('ffmpeg', ['-hide_banner', '-nostats', '-y', '-i', path, '-vn', '-af', `volume=${gain.toFixed(2)}dB,alimiter=limit=${limit}:attack=5:release=60:level=false`, '-c:a', 'libmp3lame', '-q:a', '2', leveled], { encoding: 'utf8' })
+  if (run.status !== 0) throw new NarrateError(`${relative(VIDEO, path)} could not be leveled: ${run.stderr.trim().split('\n').pop() ?? 'ffmpeg failed'}`)
+  renameSync(leveled, path)
+  return VOICE_LUFS
+}
+
 /** Seconds of audio, measured — the edit is timed from this, not an estimate. */
 function measureSeconds(path: string): number {
   const r = spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'a:0', '-show_entries', 'stream=codec_name:format=duration', '-of', 'json', path], {
@@ -290,7 +318,16 @@ async function narrate(opts: { model: string; voice: string; only: string[]; dry
     const k = narrationKey(s.text, voice, model)
     const had = manifest.segments[s.id]
     if (had && had.key === k && existsSync(join(PUBLIC, had.src))) {
-      console.log(`  ${s.id.padEnd(10)} ${String(s.text.length).padStart(5)} chars   ${had.seconds.toFixed(1).padStart(5)} s   cached`)
+      // A clip recorded before leveling existed is leveled now, for free.
+      let note = 'cached'
+      if (had.lufs === undefined && !opts.dryRun) {
+        levelClip(join(PUBLIC, had.src))
+        had.seconds = Math.round(measureSeconds(join(PUBLIC, had.src)) * 1000) / 1000
+        had.lufs = VOICE_LUFS
+        writeJson(MANIFEST, manifest)
+        note = 'cached, leveled'
+      }
+      console.log(`  ${s.id.padEnd(10)} ${String(s.text.length).padStart(5)} chars   ${had.seconds.toFixed(1).padStart(5)} s   ${note}`)
       current++
       continue
     }
@@ -308,9 +345,10 @@ async function narrate(opts: { model: string; voice: string; only: string[]; dry
       if (generationId) ids.push(generationId)
       const name = `${s.id}-${k}.mp3`
       writeFileSync(join(NARRATION_DIR, name), audio)
+      levelClip(join(NARRATION_DIR, name))
       const seconds = measureSeconds(join(NARRATION_DIR, name))
       removeOlderClips(s.id, name)
-      manifest.segments[s.id] = { src: `narration/${name}`, seconds: Math.round(seconds * 1000) / 1000, key: k }
+      manifest.segments[s.id] = { src: `narration/${name}`, seconds: Math.round(seconds * 1000) / 1000, key: k, lufs: VOICE_LUFS }
       // Saved after every clip: a stop half-way keeps (and caches) what was made.
       writeJson(MANIFEST, manifest)
       current++
