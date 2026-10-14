@@ -1,90 +1,114 @@
 {
   "version": 1,
-  "recordedAt": "2026-10-14T00:39:21.196Z",
-  "quality": "low",
-  "footage": "capture/footage.webm",
-  "duration": 247.72,
+  "recordedAt": "2026-10-14T12:52:25.296Z",
+  "quality": "high",
+  "footage": "capture/footage.mp4",
+  "duration": 550.3,
   "marks": [
     {
       "name": "dashboard",
-      "t": 1.16
+      "t": 1.83
     },
     {
       "name": "project-created",
-      "t": 14.48
+      "t": 19.51
     },
     {
       "name": "scenario-ready",
-      "t": 22.8
+      "t": 28.51
     },
     {
       "name": "library-open",
-      "t": 33.24
+      "t": 38.74
     },
     {
       "name": "import-done",
-      "t": 50
+      "t": 58.24
     },
     {
       "name": "cast-locked",
-      "t": 80.16
+      "t": 110.31
     },
     {
       "name": "director-open",
-      "t": 82.64
+      "t": 112.95
     },
     {
       "name": "plan-ready",
-      "t": 124.08
+      "t": 146.59
     },
     {
       "name": "pages-queued",
-      "t": 131.48
+      "t": 152.9
     },
     {
       "name": "page1-inked",
-      "t": 191.28
+      "t": 262.2
     },
     {
       "name": "bubble-edited",
-      "t": 202.04
+      "t": 269.88
     },
     {
       "name": "redraw-done",
-      "t": 231.04
+      "t": 527.29
+    },
+    {
+      "name": "chapter-inked",
+      "t": 534.23
     },
     {
       "name": "reader-open",
-      "t": 237.44
+      "t": 539.43
     },
     {
       "name": "pdf-exported",
-      "t": 244.24
+      "t": 546.67
     },
     {
       "name": "end",
-      "t": 246.72
+      "t": 549.31
     }
   ],
   "stills": {
     "title": "The Last Delivery Before Dawn",
     "character": {
       "name": "Kaito Ren",
-      "reference": "capture/stills/asset-7e694adf-1836-40e3-80c3-847c26d3c8b4.png",
+      "reference": "capture/stills/asset-e5fdc016-e389-4907-8247-bbb5528d6995.png",
       "source": "upload"
     },
     "panels": [
       {
-        "src": "capture/stills/panel-835b40f0-d3e8-43d5-800f-b79a0c06367d.png",
+        "src": "capture/stills/panel-ae8b66e3-3455-4593-a016-4b10d220b5be.png",
         "page": 1,
         "panel": 1
       },
       {
-        "src": "capture/stills/panel-00aebb7b-8c01-4e6d-9836-e52e7dc697bb.png",
+        "src": "capture/stills/panel-c74d4630-bf4e-47df-a449-ff60230d7438.png",
         "page": 1,
+        "panel": 3
+      },
+      {
+        "src": "capture/stills/panel-31447479-a3b6-4adc-a53d-f8727c87708f.png",
+        "page": 2,
+        "panel": 1
+      },
+      {
+        "src": "capture/stills/panel-e63e6024-6b37-4c3e-ac42-0167ec9085d8.png",
+        "page": 2,
+        "panel": 3
+      },
+      {
+        "src": "capture/stills/panel-b7aefa77-6112-46e0-8ce7-8a2f7d9991f7.png",
+        "page": 3,
+        "panel": 1
+      },
+      {
+        "src": "capture/stills/panel-56f0eefc-cd2f-4b0c-a343-eb6bdde86e5c.png",
+        "page": 3,
         "panel": 3
       }
     ],
-    "cover": null
+    "cover": "capture/stills/cover-789cfb9f-aa27-4494-bc32-bb9447a7109c.png"
   }
 }

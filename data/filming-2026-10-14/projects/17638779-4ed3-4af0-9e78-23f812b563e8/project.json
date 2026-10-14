@@ -1,0 +1,439 @@
+{
+  "version": 2,
+  "id": "17638779-4ed3-4af0-9e78-23f812b563e8",
+  "title": "The Last Delivery Before Dawn",
+  "stylePresetId": "manga-bw",
+  "story": {
+    "mode": "scenario",
+    "pitch": {
+      "text": "",
+      "genre": "",
+      "tone": ""
+    },
+    "synopsis": null,
+    "scenario": {
+      "text": "THE LAST DELIVERY BEFORE DAWN\n\nFuture Osaka, a city of stacked rooftops and humming cable lines. Kaito Ren is a rooftop courier: eighteen, quick, a little reckless, he runs letters across the roofs because the streets below are too slow. Tonight his satchel holds one envelope that makes no sense — it is addressed in his own handwriting, to a woman he has never met, and it is dated three days from now.\n\nScene one — the roof of the old post tower, just after midnight. Kaito lands hard on the gravel, catches his breath and turns the envelope over under a flickering sign. The wax seal is still warm. He has delivered strange mail before, but never his own. He decides the only way to understand it is to deliver it.\n\nScene two — the Night Archive, a library built inside a disused water tank, its shelves climbing in a spiral. Mio Asakura, the archivist, works alone among the letters the city forgot to send. She is precise, dry and not easily surprised. When Kaito holds out the envelope she reads the address, then the date, and goes very still: the letter is for her, and she recognises the seal — it belongs to the Archive itself, which only seals letters that have not been written yet.\n\nScene three — the Archive’s rooftop observatory, under the slow turn of the cable cars. Mio explains the rule she has kept for years: a letter from the future can be read, but whoever delivers it becomes its author. If Kaito hands it over, he will write it, three days from now, whatever it says. Kaito laughs, then stops laughing. He looks at the skyline, at the first grey edge of dawn, and gives her the letter anyway. Mio opens it. We never see the words — only her face as she reads, and the small, surprised smile she tries to hide. Kaito asks what it says. She folds it away and tells him he will find out on Thursday.",
+      "notes": "Keep it quiet and a little magical rather than action-heavy. The letter’s contents stay secret to the end.",
+      "referenceAssetIds": [],
+      "saved": true
+    }
+  },
+  "library": {
+    "characters": [
+      {
+        "id": "05130af7-77ba-4fb5-a7b4-a7ac094905b1",
+        "name": "Kaito Ren",
+        "role": "Lead · rooftop courier",
+        "traits": [
+          "Quick-thinking",
+          "Reckless",
+          "Curious"
+        ],
+        "look": "An apparently eighteen-year-old, lean and springy young man with warm tan skin, a narrow face, and alert dark eyes. His unruly black hair is cut short at the sides but falls in a wind-tossed fringe, and he wears a weatherproof charcoal courier jacket over a rust-red hoodie, tapered cargo pants, and battered rooftop running shoes. From afar, he is recognizable by his bright rust-red hood and the oversized slate-blue delivery satchel slung diagonally across his chest.",
+        "dna": "Kaito Ren, an apparently eighteen-year-old young man, has short, tousled black hair with closely cut sides and a long jagged fringe falling across his forehead, dark narrow eyes, a slim angular face, light tan skin, and a lean wiry build. He wears a wide dark rust-brown scarf wrapped high around his neck, a black weatherproof zip-front jacket with a raised collar and small utility pockets over a pale grey-white shirt, black fingerless gloves, a dark diagonal cross-body strap, loose black cargo trousers with large thigh pockets and strapped details, and battered black lace-up combat boots with thick soles. A large dark utility satchel hangs behind him from the cross-body strap, and his long frayed rust-brown scarf, marked with dark weathered stains, is his most visible distinguishing feature.",
+        "sheetImageId": "asset-e5fdc016-e389-4907-8247-bbb5528d6995.png",
+        "locked": true,
+        "source": "imported"
+      },
+      {
+        "id": "df9129dd-aedb-418f-9ccd-aa6166a7a330",
+        "name": "Mio Asakura",
+        "role": "Counterpart · Night Archive archivist",
+        "traits": [
+          "Precise",
+          "Dry-witted",
+          "Composed"
+        ],
+        "look": "A slender woman in her mid-twenties with pale skin, a long oval face, calm grey-brown eyes, and straight black hair cut in a severe chin-length bob. She wears a high-collared ink-blue archive coat over a cream turtleneck, a long dark skirt or fitted trousers, and neat black lace-up boots, giving her a still, formal silhouette against the machinery of the Archive. From afar, she is recognizable by her thin round silver glasses and a narrow copper key-ring clipped at her left hip.",
+        "dna": "Mio Asakura, an apparent twenty-five-year-old woman, has straight jet-black hair in a severe chin-length blunt bob, sharply center-parted and tucked neatly behind both ears, calm grey-brown eyes behind thin round silver glasses, a long oval face, pale skin, and a slender build. She wears a high-collared, knee-length ink-blue archive coat with clean tailored seams and dark buttons over a fitted cream turtleneck, straight dark charcoal trousers, and neat black lace-up ankle boots with low heels. Her thin round silver glasses and a narrow copper key-ring clipped visibly at her left hip are her constant distinguishing marks.",
+        "sheetImageId": "sheet-a03e86ae-6db3-42d7-aaee-cef8bdad1614.png",
+        "locked": true
+      }
+    ],
+    "assets": [
+      {
+        "id": "asset-e5fdc016-e389-4907-8247-bbb5528d6995.png",
+        "kind": "reference",
+        "name": "my-character",
+        "blobId": "asset-e5fdc016-e389-4907-8247-bbb5528d6995.png",
+        "mediaType": "image/png",
+        "bytes": 3155539,
+        "createdAt": "2026-10-14T12:53:10.351Z"
+      }
+    ]
+  },
+  "chapters": [
+    {
+      "id": "dfe24a23-b009-49a9-b53f-1a0a6c2ba02b",
+      "title": "Chapter 1",
+      "plan": {
+        "pageCount": 3,
+        "coverBrief": "Portrait cover: Kaito Ren stands alone on a rain-dark rooftop ledge, his lean body angled into the wind as he holds a sealed envelope at chest height and looks down at it with wary curiosity; his long frayed rust-brown scarf streams dramatically across the lower frame, with his dark satchel behind him. Future Osaka rises below in layered black rooftops, slender cable lines, and distant cable cars, while a pale pre-dawn glow opens behind the skyline; leave the upper third as quiet misty sky, with no lettering or symbols, for a hushed magical mood in bold black ink and restrained screentone.",
+        "pages": [
+          {
+            "panels": [
+              {
+                "characterId": "05130af7-77ba-4fb5-a7b4-a7ac094905b1",
+                "action": "Kaito has just landed on the gravel roof in a low, braced stance, one gloved hand gripping his satchel strap while the other turns a small sealed envelope beneath his narrowed eyes. His stained rust-brown scarf trails behind him and his expression is winded but intensely curious.",
+                "camera": "Medium-wide landscape shot at a low three-quarter angle, with Kaito in the left third.",
+                "background": "The roof of an old post tower stretches behind him with loose gravel, squat vents, cable lines, and a flickering bare lamp casting hard broken shadows across stacked rooftops.",
+                "dialogue": "This seal is still warm."
+              },
+              {
+                "characterId": "df9129dd-aedb-418f-9ccd-aa6166a7a330",
+                "action": "Mio stands composed beside the roof access door, one hand lightly touching her silver glasses as she studies the envelope held off-panel. Her severe bob and tailored archive coat remain immaculate in the rooftop wind, but her eyes have sharpened with concern.",
+                "camera": "Waist-up square medium shot at eye level, centred on Mio.",
+                "background": "A weathered concrete rooftop wall, a dark stairwell opening, and sagging overhead cables frame her without any visible lettering.",
+                "dialogue": "Let me see the address."
+              },
+              {
+                "characterId": "05130af7-77ba-4fb5-a7b4-a7ac094905b1",
+                "action": "Kaito holds the envelope just below his chin, its wax seal catching the lamp glow, while his dark eyes widen at Mio's off-panel reaction. His jagged fringe crosses his forehead and his mouth has lost its earlier grin.",
+                "camera": "Square close-up straight on, with Kaito's eyes on the upper third.",
+                "background": "The background falls into dark screentone rooftops and a single blurred cable line behind his head.",
+                "dialogue": "You know who it's for?"
+              },
+              {
+                "characterId": "df9129dd-aedb-418f-9ccd-aa6166a7a330",
+                "action": "Mio stands in the right third, angled toward Kaito off-panel, with one hand closed around the copper key-ring at her hip. Her controlled face has gone still as she recognizes the Archive seal, creating a restrained but unmistakable reaction.",
+                "camera": "Medium-wide landscape reaction shot from slightly below, with Mio in the right third.",
+                "background": "The old tower roof recedes toward black city silhouettes and a distant water tank, while a narrow stairwell door stands open behind her.",
+                "dialogue": "Take it to the Night Archive."
+              }
+            ]
+          },
+          {
+            "panels": [
+              {
+                "characterId": "05130af7-77ba-4fb5-a7b4-a7ac094905b1",
+                "action": "Kaito stands in the left third at the threshold of the Night Archive, holding the envelope out flat on his open palm while his other hand rests on his satchel. He scans the vast interior with an impressed, cautious half-smile.",
+                "camera": "Medium-wide landscape shot from just inside the entrance, with Kaito in the left third.",
+                "background": "Inside a disused cylindrical water tank, narrow shelves of undelivered envelopes climb in a spiral around a deep central void, lit by hanging lamps and bands of pale screentone light.",
+                "dialogue": "You keep all this forgotten mail?"
+              },
+              {
+                "characterId": "df9129dd-aedb-418f-9ccd-aa6166a7a330",
+                "action": "Mio holds the envelope delicately between two gloved fingertips, reading its date through her thin round glasses. Her posture stays precise, but a small tension has entered her mouth as she realizes the impossible detail.",
+                "camera": "Waist-up square medium shot at a slight side angle, centred on Mio.",
+                "background": "Curving archive shelves packed with unmarked envelopes rise behind her, with a steel ladder disappearing into the tank's dim upper levels.",
+                "dialogue": "Not forgotten. Delayed."
+              },
+              {
+                "characterId": "05130af7-77ba-4fb5-a7b4-a7ac094905b1",
+                "action": "Kaito leans forward into frame, his face intent and his scarf collar high beneath his jaw, as he listens to Mio off-panel. Suspicion replaces amusement in his narrowed eyes.",
+                "camera": "Square close-up at eye level, with Kaito's eyes on the upper third.",
+                "background": "Out-of-focus circular shelves and suspended lamp halos form a deep spiral behind him.",
+                "dialogue": "The date is three days ahead."
+              },
+              {
+                "characterId": "df9129dd-aedb-418f-9ccd-aa6166a7a330",
+                "action": "Mio stands in the right third beside the tank's central railing, the envelope held close to her archive coat as she looks toward Kaito off-panel. Her composed expression is grave, and the copper key-ring at her hip catches a hard white glint.",
+                "camera": "Medium-wide landscape reaction shot looking along the curved inner walkway, with Mio in the right third.",
+                "background": "The spiral shelves descend into shadow on the left, while a narrow metal stair rises behind Mio toward a circular rooftop hatch.",
+                "dialogue": "This seal marks letters not written yet."
+              }
+            ]
+          },
+          {
+            "panels": [
+              {
+                "characterId": "05130af7-77ba-4fb5-a7b4-a7ac094905b1",
+                "action": "Kaito stands in the left third on the Archive observatory roof, one boot planted on the parapet ledge as he looks toward Mio off-panel and lightly laughs in disbelief. The envelope rests in his gloved hand, and his scarf whips sideways in the dawn wind.",
+                "camera": "Medium-wide landscape shot at a slightly low angle, with Kaito in the left third.",
+                "background": "A rooftop observatory platform overlooks layered Osaka roofs and slowly gliding cable cars, with the first pale grey band of dawn behind the city.",
+                "dialogue": "So I write it by delivering it?"
+              },
+              {
+                "characterId": "df9129dd-aedb-418f-9ccd-aa6166a7a330",
+                "action": "Mio faces Kaito off-panel with the envelope poised between both hands, her gaze level and unsentimental behind silver glasses. Her tailored coat moves only slightly in the wind as she states the rule she has clearly lived with for years.",
+                "camera": "Waist-up square medium shot at eye level, centred on Mio.",
+                "background": "The observatory's curved metal railing and crossing cable lines sit behind her against a softly screentoned pre-dawn sky.",
+                "dialogue": "The courier becomes the author."
+              },
+              {
+                "characterId": "05130af7-77ba-4fb5-a7b4-a7ac094905b1",
+                "action": "Kaito's laughter has vanished; he looks past the frame toward the waking skyline, then extends the envelope forward with a calm, deliberate expression. The frayed end of his rust-brown scarf crosses one shoulder while his fingers finally let go.",
+                "camera": "Square close-up at a slight three-quarter angle, with Kaito's eyes on the upper third.",
+                "background": "A blurred pale horizon and dark cable-car supports isolate his face in the growing light.",
+                "dialogue": "Then deliver it."
+              },
+              {
+                "characterId": "df9129dd-aedb-418f-9ccd-aa6166a7a330",
+                "action": "Mio stands in the right third, holding the opened letter close enough that its words remain hidden from view; she lowers it slightly with a small surprised smile she is trying not to show. Her other hand rests near her copper key-ring as she looks toward Kaito off-panel.",
+                "camera": "Medium-wide landscape reaction shot from Kaito's side of the roof, with Mio in the right third.",
+                "background": "Cable cars drift across the grey dawn above a dense silhouette of rooftops, and the observatory rail runs across the open space between Mio and the unseen Kaito.",
+                "dialogue": "You'll find out on Thursday."
+              }
+            ]
+          }
+        ],
+        "source": "scenario",
+        "summarized": false,
+        "writtenAt": "2026-10-14T12:54:51.258Z"
+      },
+      "cover": {
+        "brief": "Portrait cover: Kaito Ren stands alone on a rain-dark rooftop ledge, his lean body angled into the wind as he holds a sealed envelope at chest height and looks down at it with wary curiosity; his long frayed rust-brown scarf streams dramatically across the lower frame, with his dark satchel behind him. Future Osaka rises below in layered black rooftops, slender cable lines, and distant cable cars, while a pale pre-dawn glow opens behind the skyline; leave the upper third as quiet misty sky, with no lettering or symbols, for a hushed magical mood in bold black ink and restrained screentone.",
+        "title": "The Last Delivery Before Dawn",
+        "versions": [
+          {
+            "imageId": "cover-789cfb9f-aa27-4494-bc32-bb9447a7109c.png",
+            "createdAt": "2026-10-14T13:01:04.113Z"
+          }
+        ],
+        "currentVersion": 0,
+        "status": "done",
+        "startedAt": null,
+        "startedByRun": null
+      },
+      "pages": [
+        {
+          "index": 0,
+          "layoutId": "four-shot",
+          "panels": [
+            {
+              "index": 0,
+              "characterId": "05130af7-77ba-4fb5-a7b4-a7ac094905b1",
+              "action": "Kaito has just landed on the gravel roof in a low, braced stance, one gloved hand gripping his satchel strap while the other turns a small sealed envelope beneath his narrowed eyes. His stained rust-brown scarf trails behind him and his expression is winded but intensely curious.",
+              "camera": "Medium-wide landscape shot at a low three-quarter angle, with Kaito in the left third.",
+              "background": "The roof of an old post tower stretches behind him with loose gravel, squat vents, cable lines, and a flickering bare lamp casting hard broken shadows across stacked rooftops.",
+              "dialogue": "My own handwriting. Dated Thursday.",
+              "versions": [
+                {
+                  "imageId": "panel-ae8b66e3-3455-4593-a016-4b10d220b5be.png",
+                  "createdAt": "2026-10-14T12:55:52.195Z"
+                }
+              ],
+              "currentVersion": 0,
+              "status": "done",
+              "startedAt": null,
+              "startedByRun": null
+            },
+            {
+              "index": 1,
+              "characterId": "df9129dd-aedb-418f-9ccd-aa6166a7a330",
+              "action": "Mio stands composed beside the roof access door, one hand lightly touching her silver glasses as she studies the envelope held off-panel. Her severe bob and tailored archive coat remain immaculate in the rooftop wind, but her eyes have sharpened with concern.",
+              "camera": "Waist-up square medium shot at eye level, centred on Mio.",
+              "background": "A weathered concrete rooftop wall, a dark stairwell opening, and sagging overhead cables frame her without any visible lettering.",
+              "dialogue": "Let me see the address.",
+              "versions": [
+                {
+                  "imageId": "panel-7c34bc7b-5030-49ef-a0ac-9cf941e97989.png",
+                  "createdAt": "2026-10-14T12:55:57.571Z"
+                },
+                {
+                  "imageId": "panel-9173912d-9fa1-4d8f-9dc3-781e34e48868.png",
+                  "createdAt": "2026-10-14T13:01:09.492Z"
+                }
+              ],
+              "currentVersion": 1,
+              "status": "done",
+              "startedAt": null,
+              "startedByRun": null
+            },
+            {
+              "index": 2,
+              "characterId": "05130af7-77ba-4fb5-a7b4-a7ac094905b1",
+              "action": "Kaito holds the envelope just below his chin, its wax seal catching the lamp glow, while his dark eyes widen at Mio's off-panel reaction. His jagged fringe crosses his forehead and his mouth has lost its earlier grin.",
+              "camera": "Square close-up straight on, with Kaito's eyes on the upper third.",
+              "background": "The background falls into dark screentone rooftops and a single blurred cable line behind his head.",
+              "dialogue": "You know who it's for?",
+              "versions": [
+                {
+                  "imageId": "panel-c74d4630-bf4e-47df-a449-ff60230d7438.png",
+                  "createdAt": "2026-10-14T12:56:44.245Z"
+                }
+              ],
+              "currentVersion": 0,
+              "status": "done",
+              "startedAt": null,
+              "startedByRun": null
+            },
+            {
+              "index": 3,
+              "characterId": "df9129dd-aedb-418f-9ccd-aa6166a7a330",
+              "action": "Mio stands in the right third, angled toward Kaito off-panel, with one hand closed around the copper key-ring at her hip. Her controlled face has gone still as she recognizes the Archive seal, creating a restrained but unmistakable reaction.",
+              "camera": "Medium-wide landscape reaction shot from slightly below, with Mio in the right third.",
+              "background": "The old tower roof recedes toward black city silhouettes and a distant water tank, while a narrow stairwell door stands open behind her.",
+              "dialogue": "Take it to the Night Archive.",
+              "versions": [
+                {
+                  "imageId": "panel-c1ead1c6-4f84-40a3-aa3e-759e511c6d38.png",
+                  "createdAt": "2026-10-14T12:56:39.442Z"
+                }
+              ],
+              "currentVersion": 0,
+              "status": "done",
+              "startedAt": null,
+              "startedByRun": null
+            }
+          ]
+        },
+        {
+          "index": 1,
+          "layoutId": "four-shot",
+          "panels": [
+            {
+              "index": 0,
+              "characterId": "05130af7-77ba-4fb5-a7b4-a7ac094905b1",
+              "action": "Kaito stands in the left third at the threshold of the Night Archive, holding the envelope out flat on his open palm while his other hand rests on his satchel. He scans the vast interior with an impressed, cautious half-smile.",
+              "camera": "Medium-wide landscape shot from just inside the entrance, with Kaito in the left third.",
+              "background": "Inside a disused cylindrical water tank, narrow shelves of undelivered envelopes climb in a spiral around a deep central void, lit by hanging lamps and bands of pale screentone light.",
+              "dialogue": "You keep all this forgotten mail?",
+              "versions": [
+                {
+                  "imageId": "panel-31447479-a3b6-4adc-a53d-f8727c87708f.png",
+                  "createdAt": "2026-10-14T12:57:25.393Z"
+                }
+              ],
+              "currentVersion": 0,
+              "status": "done",
+              "startedAt": null,
+              "startedByRun": null
+            },
+            {
+              "index": 1,
+              "characterId": "df9129dd-aedb-418f-9ccd-aa6166a7a330",
+              "action": "Mio holds the envelope delicately between two gloved fingertips, reading its date through her thin round glasses. Her posture stays precise, but a small tension has entered her mouth as she realizes the impossible detail.",
+              "camera": "Waist-up square medium shot at a slight side angle, centred on Mio.",
+              "background": "Curving archive shelves packed with unmarked envelopes rise behind her, with a steel ladder disappearing into the tank's dim upper levels.",
+              "dialogue": "Not forgotten. Delayed.",
+              "versions": [
+                {
+                  "imageId": "panel-b94e2d76-b97c-4c37-87cb-435e34efccb4.png",
+                  "createdAt": "2026-10-14T12:57:38.321Z"
+                }
+              ],
+              "currentVersion": 0,
+              "status": "done",
+              "startedAt": null,
+              "startedByRun": null
+            },
+            {
+              "index": 2,
+              "characterId": "05130af7-77ba-4fb5-a7b4-a7ac094905b1",
+              "action": "Kaito leans forward into frame, his face intent and his scarf collar high beneath his jaw, as he listens to Mio off-panel. Suspicion replaces amusement in his narrowed eyes.",
+              "camera": "Square close-up at eye level, with Kaito's eyes on the upper third.",
+              "background": "Out-of-focus circular shelves and suspended lamp halos form a deep spiral behind him.",
+              "dialogue": "The date is three days ahead.",
+              "versions": [
+                {
+                  "imageId": "panel-e63e6024-6b37-4c3e-ac42-0167ec9085d8.png",
+                  "createdAt": "2026-10-14T12:58:23.992Z"
+                }
+              ],
+              "currentVersion": 0,
+              "status": "done",
+              "startedAt": null,
+              "startedByRun": null
+            },
+            {
+              "index": 3,
+              "characterId": "df9129dd-aedb-418f-9ccd-aa6166a7a330",
+              "action": "Mio stands in the right third beside the tank's central railing, the envelope held close to her archive coat as she looks toward Kaito off-panel. Her composed expression is grave, and the copper key-ring at her hip catches a hard white glint.",
+              "camera": "Medium-wide landscape reaction shot looking along the curved inner walkway, with Mio in the right third.",
+              "background": "The spiral shelves descend into shadow on the left, while a narrow metal stair rises behind Mio toward a circular rooftop hatch.",
+              "dialogue": "This seal marks letters not written yet.",
+              "versions": [
+                {
+                  "imageId": "panel-9587cd2d-9bd0-4598-898b-3988bf71c931.png",
+                  "createdAt": "2026-10-14T12:58:30.872Z"
+                }
+              ],
+              "currentVersion": 0,
+              "status": "done",
+              "startedAt": null,
+              "startedByRun": null
+            }
+          ]
+        },
+        {
+          "index": 2,
+          "layoutId": "four-shot",
+          "panels": [
+            {
+              "index": 0,
+              "characterId": "05130af7-77ba-4fb5-a7b4-a7ac094905b1",
+              "action": "Kaito stands in the left third on the Archive observatory roof, one boot planted on the parapet ledge as he looks toward Mio off-panel and lightly laughs in disbelief. The envelope rests in his gloved hand, and his scarf whips sideways in the dawn wind.",
+              "camera": "Medium-wide landscape shot at a slightly low angle, with Kaito in the left third.",
+              "background": "A rooftop observatory platform overlooks layered Osaka roofs and slowly gliding cable cars, with the first pale grey band of dawn behind the city.",
+              "dialogue": "So I write it by delivering it?",
+              "versions": [
+                {
+                  "imageId": "panel-b7aefa77-6112-46e0-8ce7-8a2f7d9991f7.png",
+                  "createdAt": "2026-10-14T12:59:12.974Z"
+                }
+              ],
+              "currentVersion": 0,
+              "status": "done",
+              "startedAt": null,
+              "startedByRun": null
+            },
+            {
+              "index": 1,
+              "characterId": "df9129dd-aedb-418f-9ccd-aa6166a7a330",
+              "action": "Mio faces Kaito off-panel with the envelope poised between both hands, her gaze level and unsentimental behind silver glasses. Her tailored coat moves only slightly in the wind as she states the rule she has clearly lived with for years.",
+              "camera": "Waist-up square medium shot at eye level, centred on Mio.",
+              "background": "The observatory's curved metal railing and crossing cable lines sit behind her against a softly screentoned pre-dawn sky.",
+              "dialogue": "The courier becomes the author.",
+              "versions": [
+                {
+                  "imageId": "panel-37d18845-d0e9-426e-9ff2-f7c40b0e10ee.png",
+                  "createdAt": "2026-10-14T12:59:28.018Z"
+                }
+              ],
+              "currentVersion": 0,
+              "status": "done",
+              "startedAt": null,
+              "startedByRun": null
+            },
+            {
+              "index": 2,
+              "characterId": "05130af7-77ba-4fb5-a7b4-a7ac094905b1",
+              "action": "Kaito's laughter has vanished; he looks past the frame toward the waking skyline, then extends the envelope forward with a calm, deliberate expression. The frayed end of his rust-brown scarf crosses one shoulder while his fingers finally let go.",
+              "camera": "Square close-up at a slight three-quarter angle, with Kaito's eyes on the upper third.",
+              "background": "A blurred pale horizon and dark cable-car supports isolate his face in the growing light.",
+              "dialogue": "Then deliver it.",
+              "versions": [
+                {
+                  "imageId": "panel-56f0eefc-cd2f-4b0c-a343-eb6bdde86e5c.png",
+                  "createdAt": "2026-10-14T13:00:14.089Z"
+                }
+              ],
+              "currentVersion": 0,
+              "status": "done",
+              "startedAt": null,
+              "startedByRun": null
+            },
+            {
+              "index": 3,
+              "characterId": "df9129dd-aedb-418f-9ccd-aa6166a7a330",
+              "action": "Mio stands in the right third, holding the opened letter close enough that its words remain hidden from view; she lowers it slightly with a small surprised smile she is trying not to show. Her other hand rests near her copper key-ring as she looks toward Kaito off-panel.",
+              "camera": "Medium-wide landscape reaction shot from Kaito's side of the roof, with Mio in the right third.",
+              "background": "Cable cars drift across the grey dawn above a dense silhouette of rooftops, and the observatory rail runs across the open space between Mio and the unseen Kaito.",
+              "dialogue": "You'll find out on Thursday.",
+              "versions": [
+                {
+                  "imageId": "panel-87b8222e-f067-4927-9525-aabaa500a1b3.png",
+                  "createdAt": "2026-10-14T13:00:18.223Z"
+                }
+              ],
+              "currentVersion": 0,
+              "status": "done",
+              "startedAt": null,
+              "startedByRun": null
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "usage": {
+    "images": 15,
+    "costUsd": 0.956018
+  },
+  "station": "reader",
+  "openPage": 0,
+  "serverRunId": "6773d665-a979-4171-97a2-2e7794d5d0fa",
+  "createdAt": "2026-10-14T12:52:41.319Z",
+  "updatedAt": "2026-10-14T13:01:24.485Z"
+}
