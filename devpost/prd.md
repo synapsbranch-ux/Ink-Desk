@@ -1,12 +1,14 @@
 ---
 doc: prd
-status: approved
+status: draft
 ---
 
 # Ink Desk — Product Requirements
 
 An AI manga creator studio for storytellers and manga fans who have ideas but can't draw: you pitch a story, and Ink Desk turns it into a real 4-panel manga page with your own characters drawn consistently across every panel.
 
+> **Revised again 2026-10-14 — v3, draft for review: see [Revision — Ink Desk Studio v3](#revision--ink-desk-studio-v3-public-on-the-learners-domain) at the very end, with its *Changes Since Approval*.**
+>
 > **Revised 2026-10-13 — see [Revision — Ink Desk Studio (v2)](#revision--ink-desk-studio-v2) at the end.** Everything below is the approved v1 PRD, built and tagged `v1-poc`, kept intact. The v2 section adds the dashboard, projects with a locked style, scenario mode, the library with imported references, the Director's chapter plan, the chapter reader and the PDF export; the v1 page journey becomes the inner loop of every page. Source: `scope.md > Revision — Ink Desk Studio (v2)`.
 
 Source: `scope.md > The Unique Kernel`, `scope.md > Who It's For`. Scope headings are cited beside each major requirement below.
@@ -497,3 +499,155 @@ The ten numbered items of `scope.md > The POC Boundary (v2)`, as behavior above:
 - **Whether the global library should allow re-using a locked character in a new project** — read-only for now; copying a lock into a second project is Later.
 - **Which premade voice narrates the video** — the learner's choice when the script exists. *2026-10-14:* the learner asked for the voice-over to be produced now; recorded in `george` (the voice the plan named first), one `--voice` switch and ≈ $0.10 to change. Still open: whether the learner keeps it.
 - **Which generated track ships** — the piece composed by code (reproducible, CC0) or the Lyria 3 piece generated through OpenRouter (used under the service's terms for generated output, which the learner confirms before publishing). The review render carries the Lyria piece; the learner decides by ear.
+
+---
+
+# Revision — Ink Desk Studio v3 (public, on the learner's domain)
+
+> **Draft, 2026-10-14 — awaiting the learner's review.** Source: `scope.md > Revision — Ink Desk Studio v3`, decided by the learner the same day. The v2 studio journey above is unchanged and becomes what a signed-in user does inside their own projects; v3 adds who they are, what they may spend, how they share, and the animated page. Product behavior only — the how is `spec.md > Revision v3`.
+
+## Changes Since Approval
+
+Against the approved v2 PRD:
+
+1. **There are users now.** v2 had one desk for whoever opened the app. v3 has accounts (email, Google, GitHub), and every project, image, video, share and quota belongs to one user. *Supersedes* v2's "Accounts" under *Deferred From the POC (v2)*.
+2. **The app is public on the learner's domain**, with no landing page: the domain root is the sign-in screen or the dashboard. *Supersedes* v2's "the demo and the video run local".
+3. **Spending has limits a user can see.** A quota meter in the header, a Usage page, disabled buttons with a reason and a reset time, and a global kill switch. *Supersedes* v2's "Budget … no hard cap in the product".
+4. **Animate a page** is new: a 20–30 s trailer of one finished page. *Supersedes* v2's "In-app video export and in-app dubbing — Later".
+5. **Share publicly** is new, for a manga and for a video, with a Report button on every public page.
+6. **Settings, Usage, Terms and Privacy** are new screens.
+7. **Every screen works on a phone.** v2 was designed for a desktop studio.
+8. **The demo video is re-filmed on the live domain on Oct 23–24**, narrated from the learner's own script. *Supersedes* v2's "narration drafted by the AI partner".
+9. **Freeze moves to 2026-10-22, end of day**; the cut line is the learner's: not working and checkpointed by Oct 22 → *Later*, no debate; if v3 is unstable, the last stable tag ships.
+
+## Core Journey (v3)
+
+1. **Open the domain.** Signed out: the Clerk sign-in screen (email, Google, GitHub), with links to Terms and Privacy and to sign up. Signed in: the dashboard.
+2. **Dashboard.** My projects (manga), my videos, the library, **New project**, and a compact **quota meter** in the header (today's images, video seconds and audio characters against the limit).
+3. **The studio, as v2** — style preset, scenario, library with an imported reference and locks, the Director's plan with its estimate, pages ink in, the reader, PNG and PDF. Now inside the user's own project, inside their quota.
+4. **Animate a page.** From a finished page (any page whose four panels are inked): **Animate** → the estimate (shots, seconds, dollars, and what it takes from today's quota) → **Confirm**. The page's shots appear as cards, each with its own progress; a failed shot says why and offers **Try again** while the others carry on. When every shot is done the trailer is assembled, and it appears under **My videos**.
+5. **Share.** On a manga or a video: **Share publicly** → a link on the domain (`/s/<token>`) to copy; **Unpublish** at any time.
+6. **Someone opens the link.** Signed in or not, they see a read-only reader or player — title, cover, pages or the video — and nothing else of the owner's. A **Report** button lets them flag it.
+7. **Settings and Usage**, from the dashboard and the user menu.
+
+## Features and Behavior (v3)
+
+### Accounts and Sign-in (v3)
+
+- [ ] Signed out, every page except sign-in, sign-up, Terms, Privacy, share pages and the health check sends the visitor to sign-in; after signing in they land where they were going, or on the dashboard
+- [ ] Sign-in and sign-up offer email, Google and GitHub; a new account exists in the app's own records the moment it is created
+- [ ] Sign-up resists mass account creation (Clerk's bot protection on)
+- [ ] Signing out from the user menu returns to sign-in; "sign out of other sessions" is available in Settings
+
+### Ownership and Privacy (v3)
+
+- [ ] A user sees only their own projects, images, videos, shares and usage — in the dashboard, the studio, every image and every download
+- [ ] Opening another user's project by its address shows the same "There is no such project" page as an address that never existed
+- [ ] Nothing a user did is visible to anyone else unless they shared it
+
+### Dashboard (v3)
+
+- [ ] Sections: **Projects** (covers, as v2), **Videos** (poster, length, status, date), **Library**, **New project**
+- [ ] The header shows the quota meter and the user menu on every signed-in screen
+- [ ] A video still being made shows its progress on the dashboard; a finished one plays from there
+- [ ] Empty states: a new account sees a short line on what to do first, not a blank page
+
+### Limits and Usage (v3)
+
+- [ ] Every action that costs money is counted against today's quota **before** it starts; the estimate says what it will take
+- [ ] At 80% of a limit the meter warns; at 100% the buttons that would spend are **disabled with the reason and the reset time** — never a raw error
+- [ ] Too many requests in a short time are refused with a calm sentence and when to try again
+- [ ] When the global daily spend cap is reached, generation pauses for everyone with one clear message; reading, the reader, exports and shares keep working
+- [ ] **Usage** in Settings shows, for today: images, video seconds and audio characters used vs the limit, the reset time; spend today and this month from the providers' real costs; the user's plan (free or allowlisted) and each limit
+- [ ] What the meter shows is exactly what is enforced
+- [ ] A free account starts with a small quota (the learner's example: 1 project, 20 images, 1 short video a day); allowlisted emails get higher limits
+
+### Animate a Page (v3)
+
+Source: `scope.md > What "Working" Looks Like (v3)`.
+
+- [ ] **Animate** appears on a page whose four panels are inked; otherwise it is disabled with "Finish this page first"
+- [ ] The estimate before anything is spent: number of shots, total seconds, dollars, and the share of today's quota; **Confirm** or **Cancel**
+- [ ] One shot per panel, 3–5 s each, in the panel's own framing; the camera motion follows the panel's stored camera line
+- [ ] Each shot has its own card and progress (queued, animating, done, failed); a failed shot shows why and **Try again**; the other shots continue
+- [ ] Dialogue is spoken by **one voice per character**, chosen once and kept; the line plays while its bubble is on screen
+- [ ] Bubbles appear on time over the shots, lettered by the app as in the reader — never drawn by the model
+- [ ] Music sits under the voices
+- [ ] The finished trailer (20–30 s) plays in the studio and on the dashboard, with a poster image
+- [ ] Leaving the page, closing the tab or a server restart never loses a shot that was paid for: progress continues and is still there on return
+- [ ] **The motion proof** (`scope.md > The Unique Kernel (v3)`): the imported character, across a close-up, a medium and a wide shot, keeps the same face, outfit and marks from the first frame to the last — judged by the learner on the motion kernel test before the app may claim it
+
+### Sharing (v3)
+
+- [ ] **Share publicly** on a manga or a video gives a link on the domain; copying it is one tap
+- [ ] The link opens a read-only page: the manga in the reader (reading direction by style) or the video in a player — title and cover, nothing else of the owner's (no scenario, DNA, plan, costs, account)
+- [ ] Shared links look right when pasted elsewhere: title and cover image as the preview
+- [ ] Share pages are not indexed by search engines until the learner decides otherwise
+- [ ] **Unpublish** makes the link show the same "not found" page as a link that never existed, at once
+- [ ] Later edits to a project do not change what an existing link shows until the owner updates the share
+
+### Report (v3)
+
+- [ ] Every public page has **Report**: a reason and an optional note; the visitor is thanked, never told the outcome
+- [ ] Reports reach the learner — an admin list visible only to allowlisted admin emails, and (if an email service is configured) an email
+- [ ] The learner can unpublish a reported share from that list
+
+### Settings (v3)
+
+- [ ] **Account**: Clerk's account management — email, connected Google/GitHub, sessions
+- [ ] **Studio defaults**: default style for new projects, default reading direction, default voice per character type
+- [ ] **Sharing**: everything this user has shared, with its link and **Unpublish**
+- [ ] **Data and privacy**: **Export my data** (projects as JSON plus their images, as one download) and **Delete my account** — with a confirmation that names what goes: projects, images, videos, shares, queued work; after it, nothing of theirs remains
+- [ ] **Usage** (above)
+
+### Terms and Privacy (v3)
+
+- [ ] Two short text pages, linked from sign-in and Settings: what content is allowed, what is stored and where, which outside services see it, how to delete it
+
+### Status and Health (v3)
+
+- [ ] If the queue or its store is down, buttons that would generate say "The studio is busy — try again in a few minutes"; reading existing work keeps working
+- [ ] A health address answers for the host's deploy checks
+
+### Responsive (v3)
+
+- [ ] Every screen — sign-in, dashboard, studio stations, reader, animate, share pages, settings, usage — works at phone (≈ 390 px), tablet (≈ 768 px) and desktop widths with no sideways scrolling
+- [ ] Every action is reachable by touch with a comfortably sized target; a locked station explains itself when tapped, not only on hover
+- [ ] Bubble text is never cut off on a small panel
+- [ ] The 5b rules hold everywhere: visible actions, explained disabled states, real loading states
+
+### Safety (v3)
+
+- [ ] Uploads are checked for real type and size, re-encoded, and stripped of hidden metadata (such as GPS) before anyone else could see them
+- [ ] Nothing a user types — bubble text, scenario, titles — can run as code in anyone's browser, including on share pages
+- [ ] A failure anywhere ends in a sentence and a way forward, never a blank screen or a technical message
+
+## States and Boundaries (v3)
+
+- **Who can do what.** Signed out: sign-in, sign-up, Terms, Privacy, share pages, Report, health. Signed in: their own work only. Allowlisted: higher limits; admin emails also see the report list.
+- **Spending is always behind sign-in, a quota and the kill switch.** No exception for any route.
+- **One page is the unit of animation.** Full-chapter animation is *Later*.
+- **Work survives restarts and deploys.** A shot or panel that was paid for is never lost or paid for twice because the app restarted.
+- **Deleting an account is complete** — records, files, queued work, public links.
+- **Share pages are a snapshot**, read-only, revocable, `noindex`.
+- **Feature freeze 2026-10-22, end of day.** After it: fixes, the video, the README, the submission.
+
+## Product Decisions (v3)
+
+All the learner's, 2026-10-14: v3 is in the submission; Railway web + worker; the domain root is the app (no landing page); Clerk with email, Google and GitHub; Redis + BullMQ for the queue, the limits and the counters, with Mongo as the source of truth; a private bucket with signed URLs; small free quotas, an allowlist, a $5/day global kill switch; Settings with account, defaults, sharing, export and delete; a Report button reaching the learner; Terms and Privacy; one page animated per trailer with `seedance-2.0`, one ElevenLabs voice per character, music, ffmpeg assembly in the worker; other production models only after a test; straight to `main` with tags; re-film on the live domain on Oct 23–24 with the learner's own narration.
+
+## Deferred From the POC (v3)
+
+Full-chapter animation; upscaling, frame interpolation and alternative video models (each only after its own test); lip-sync; interface languages; a paid plan; a public gallery; indexing of share pages; emailed reports if no email service is configured.
+
+## Open Questions (v3)
+
+The decisions below are the learner's; the build stops at each one when it comes up.
+
+- **The domain.** The plan says `<your-domain>`; the DNS records Railway and Clerk need are listed in `spec.md > Revision v3 > Domain and DNS` and can only be added once the domain is known.
+- **The variables in this environment look like another app's.** `APP_URL`, `ADMIN_URL` and `COMPILE_WORKER_URL` point at another app's domain, `DB_PORT` is an unresolved Railway reference to a **Postgres** service, the buckets are named for "project files" and "compile outputs", and `DB_URL` is a MongoDB URL on Railway's public proxy with `DB_SSL=false`. If these belong to another project, Ink Desk would share its users (Clerk), its files (bucket) and its database with it. **Are these Ink Desk's own, or do they need their own Clerk application, bucket and database?** There is **no Redis URL** yet.
+- **The budget.** v3's honest total (≈ $8.50) is over what remains of the $10 cap (≈ $7.70), and the $5/day kill switch alone could spend ≈ $40 by the end of judging. Raise the cap, run the motion kernel test at 480p, or lower the kill switch? Add a cumulative cap?
+- **The motion method** — A (panel as first frame) or B (panel + sheet as references) — chosen by the learner after the motion kernel test.
+- **Error tracking.** No error-tracking service is configured; structured logs on Railway work without one. Add one (it needs an account and a key), or keep logs only?
+- **Emailed reports** need an email service; without one, reports reach the learner through the admin list.
+- **Tags.** This build session cannot push tags (the push is refused); the learner pushes each `v3-cp*` tag from their machine, starting with `v1-poc`.

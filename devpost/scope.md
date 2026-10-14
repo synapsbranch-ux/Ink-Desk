@@ -1,12 +1,14 @@
 ---
 doc: scope
-status: approved
+status: draft
 ---
 
 # Ink Desk
 
 An AI manga creator studio: you pitch a story idea, and the app turns it into a real manga page with your own characters drawn consistently across every panel.
 
+> **Revised again 2026-10-14 — v3, draft for review: see [Revision — Ink Desk Studio v3](#revision--ink-desk-studio-v3-public-on-the-learners-domain) at the very end, with its *Changes Since Approval*.**
+>
 > **Revised 2026-10-13 — see [Revision — Ink Desk Studio (v2)](#revision--ink-desk-studio-v2) at the end.** The sections below are the approved v1 scope, kept intact as the record of what was built and tagged `v1-poc`. The revision restates the kernel, widens the boundary to a multi-page chapter studio, and names the demo video as a deliverable. Where v2 supersedes a v1 line, the revision says so; nothing below was edited in place.
 
 ## The Unique Kernel
@@ -272,3 +274,85 @@ All keys stay in `.env`, server-side only, as in v1.
 ## What v2 keeps from v1 unchanged
 
 The lettering rule (bubbles are app UI, never drawn by the model), the no-text rule in every image prompt, one generation per panel with a CSS ink-in, DNA-first sheets, final locks, per-panel independence, the silent single retry, plain-language failures, and the pre-existing-work disclosure (the mockup and the logo) in the README.
+
+---
+
+# Revision — Ink Desk Studio v3 (public, on the learner's domain)
+
+> **Draft, 2026-10-14 — awaiting the learner's review.** Decided by the learner the same day, after the v2 build was filmed: *"v3 is part of the hackathon submission."* v1 and v2 above stay intact as the record of what was built (`v1-poc`, then the v2 slices 8–15). Where v3 supersedes a v2 line, the change is listed under **Changes Since Approval**.
+
+## Changes Since Approval
+
+What changed against the approved v2 scope, and why — the learner's decisions of 2026-10-14:
+
+1. **Accounts and public deployment move from *Later* into the submission.** v2 listed "accounts, public deployment" under *Later (v2)*. v3 is a public app on the learner's own domain, used by the judges, a small invited group and anyone who signs up, *with strict limits — not a paid launch*.
+2. **In-app video moves from *Later* into the submission, as one page.** v2 allowed "in-app video export … only if items 1–9 are done by 2026-10-20". Items 1–9 were done on 2026-10-14, so by the learner's own rule it is in. The unit is **one page**, animated as a 20–30 s trailer; full-chapter animation stays *Later*.
+3. **The kernel gains a motion clause** (below). Until it passes its own kernel test it is a *candidate*, exactly as the style and setting locks were.
+4. **The feature freeze moves from 2026-10-20 to 2026-10-22, end of day.** The demo video is **re-filmed on Oct 23–24** on the live domain. **Submission Oct 25; Oct 26 is buffer only.**
+5. **The cut line is the learner's, verbatim:** *"Anything not working and checkpointed by Oct 22 goes to Later, no debate. If v3 is unstable on Oct 22, I submit the last stable tag with a polished video."*
+6. **The narration returns to the learner's own words.** v2's drafted script (a recorded deviation from the shipping skill) stays a draft; the v3 film is narrated from a script the learner writes.
+7. **Git workflow:** straight to `main`, no branches, small verified commits, never force-push or rewrite history, a pushed tag at every stable checkpoint (`v1-poc`, then `v3-cp1`, `v3-cp2`, …). Railway deploys `main` to the public domain, so half-done work stays behind a feature flag in the environment rather than on screen.
+8. **The order is by risk, in the learner's words:** *"domain + storage + Redis/BullMQ worker + auth + ownership + rate limits first, then the Studio features, then video generation, then polish."*
+
+## The Unique Kernel (v3)
+
+**Locked appearance, free action — and now free motion.** The character lock stays the anchor and the only proven claim. v3 extends the same contract to motion: an animated shot starts from a panel that was drawn from the locked sheet, carries the locked appearance, and is free only in movement and camera.
+
+- **The motion clause is a candidate lock** until its own kernel test passes: the imported character animated across **at least three shots (close-up, medium, wide)**, still the same face, outfit and marks **from the first frame to the last frame of each shot**. That is the money shot of the v3 demo video.
+- **Verified 2026-10-14, and it changes the learner's first idea:** one Seedance request **cannot carry both a first frame and reference images** — first/last-frame mode and reference mode are exclusive (OpenRouter's video docs and ByteDance's own). So the motion kernel test compares the two allowed ways: **(A)** the panel as the first frame, the face carried by the panel alone; **(B)** the panel and the locked sheet both as references, with the prompt naming the panel as the opening frame. **Which one becomes the method is the learner's decision after seeing the test.** See `spec.md > Revision v3 > Verified for v3`.
+
+## The Core Loop (v3)
+
+Sign in → the dashboard (projects, manga, videos, library, a quota meter) → the v2 studio, unchanged → a finished chapter → **Animate a page**: see the estimate, confirm, watch each shot progress on its own → the trailer lands on the dashboard → **Share publicly**: an unguessable read-only link on the domain, revocable at any time.
+
+## What "Working" Looks Like (v3)
+
+In the learner's words: *"I open a finished chapter in the dashboard, click 'Animate', see the cost estimate and confirm. Each shot shows its own progress, and the other shots continue if one fails."* What comes back: a **20–30 s trailer of one page** — one Seedance shot per panel (3–5 s each, `bytedance/seedance-2.0` through OpenRouter), camera motion written from the panel's stored camera field, bubbles revealed on time, one ElevenLabs voice per character speaking the dialogue, music, assembled with ffmpeg in the worker. It lives in the dashboard, is stored in the bucket, and is shareable through a public link on the domain.
+
+And the public app: a stranger can sign up with email, Google or GitHub, make a small chapter inside a free quota, and cannot see, change or spend anyone else's work; when a limit is reached the buttons say why and when it resets; the whole thing works on a phone.
+
+## The POC Boundary (v3) — feature freeze 2026-10-22, end of day
+
+In the order the learner set (risk first):
+
+1. **Domain and hosting.** Railway, two services from `main`: the Next.js **web** app and a separate **worker**. Custom domain with HTTPS; the domain root goes straight into the app (signed-out → sign-in, signed-in → dashboard) — **no landing page**. One source of truth for the URL (`APP_URL`, `NEXT_PUBLIC_APP_URL`). A health check Railway deploys against, and a calm status message when the worker or Redis is down.
+2. **Storage.** MongoDB is the source of truth for projects, users, jobs, videos, shares and reports; the bucket holds every image, video and audio file, **private**, served through short-lived signed URLs; public access only through share links. The local adapter stays for development. The generated art and media that git should not carry move to the bucket.
+3. **Queue.** Redis + BullMQ on Railway: image, video and audio queues with retries, back-off, timeouts, stalled-job recovery and per-queue concurrency (2 for images, 1 for video). Mongo keeps job status and results, so progress and history survive a Redis flush.
+4. **Auth and ownership.** Clerk with email, Google and GitHub; every route requires sign-in except sign-in/sign-up, the public share pages, Terms and Privacy, and the health check. A signed webhook creates the user in Mongo. **Every resource is checked against the signed-in user on the server** (no IDOR). Clerk's bot protection on sign-up.
+5. **Limits.** Per-user and per-IP rate limits on sign-up, generation and upload routes; daily per-user quotas (a new account gets a small free quota, e.g. 1 project, 20 images, 1 short video a day; higher limits only for allowlisted emails — the learner, testers, a judge demo account); a **global daily spend kill switch, starting at $5/day for all users**, that pauses generation with a clear message. The same counters drive the header meter, the Usage page and the enforcement.
+6. **Studio features.** The dashboard as home (projects, manga, videos, library, quota meter, New project); **Settings** (profile and account through Clerk, studio defaults, my shared links with unpublish, export my data, delete my account and everything with it); **Usage** (today vs limit for images, video seconds, audio characters, reset time, spend today and this month from real `usage.cost`, the plan, an 80% warning); **public sharing** of manga and videos on `/s/<token>` with Open Graph previews, `noindex`, and a **Report** button whose reports reach the learner; **Terms and Privacy** pages linked from sign-in and Settings.
+7. **Video generation** — the one-page trailer above, behind its estimate and the caps.
+8. **Responsive and polish.** Every screen works on mobile, tablet and desktop, following the 5b rules (visible actions, explained disabled states, real loading states).
+9. **Production readiness and security.** Environment validated at boot, HTTPS only, security headers and a CSP that allow only the domain, Clerk and the providers in use, structured logs with no secrets or personal data, error tracking, graceful failures, and a **security and stability audit before and after the build**, written to `devpost/security-report.md` with severity and fix status.
+10. **The judge demo account** with a pre-made chapter and video; its credentials go in the Devpost testing instructions, which the learner writes.
+
+The v2 studio scope stays as agreed: projects with a locked style, the library with imported references, the Director's chapter plan, the multi-page reader, PDF export, the text fallback to `openai/gpt-5.6-terra`.
+
+## Later (v3)
+
+- **Full-chapter animation** (one page is the unit for the submission).
+- **Other production models** — upscaling (`black-forest-labs/flux-video-upscale`), video edit (`flux-video-edit`), alternative video models (Kling, Veo, Wan, Hailuo), sound effects — **each adopted only after a kernel-style test**, with cost and purpose stated first (`spec.md > Revision v3 > Production models`).
+- Lip-sync, interface languages, a paid plan, a public gallery, indexing of share pages (they are `noindex` until the learner decides otherwise).
+- Everything still *Later* from v2 that v3 does not name.
+
+## Explicitly Cut (v3 additions)
+
+- **A landing page.** The domain root is the app.
+- **Claiming "locked in motion"** — on screen, in the narration or in the submission — before the motion kernel test passes. The honesty rule, extended.
+- **Unlimited anything for strangers.** No route that spends money is reachable without sign-in, a quota and the kill switch.
+- **Pushing a red build.** Typecheck, lint and every `check:*` pass before every push to `main`.
+
+## Budget (v3) — the learner's cap meets the plan
+
+The learner's line: *about $10 of provider credit for the whole build and demo; generations at `low` while building; the kill switch protects the budget once the domain is public.* Spent so far (v2, including the filming): **≈ $2.33**, so **≈ $7.70 remains**. The honest arithmetic for v3, from OpenRouter's published video-token formula (`spec.md > Revision v3 > Verified for v3`):
+
+| Item | Estimate |
+|---|---|
+| Motion kernel test: 3 shots × 5 s at 720p on `seedance-2.0`, modes A and B | ≈ $3.20 |
+| Development runs of the trailer at 480p on `seedance-2.0-fast` (two pages) | ≈ $1.30 |
+| The filmed trailer: 4 shots × 5 s at 720p on `seedance-2.0` | ≈ $2.40 |
+| Re-filming the chapter's images at `high` | ≈ $1.00 |
+| Voices, music, text, re-takes | ≈ $0.60 |
+| **v3 total** | **≈ $8.50 — over the ≈ $7.70 left** |
+
+And the public kill switch at **$5/day** could by itself spend **≈ $40** between the first public deploy (≈ Oct 16) and the end of judging (Oct 30). **Both are decisions for the learner** (open in `prd.md > Open Questions (v3)`): raise the cap, run the kernel test at 480p, or lower the kill switch — and add a *cumulative* cap and a credit limit on the OpenRouter key, so the domain can never spend past what the learner chose.

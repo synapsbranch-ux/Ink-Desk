@@ -1,8 +1,10 @@
 ---
 doc: checklist
-status: approved
+status: draft
 ---
 
+> **Status note, 2026-10-14:** slices 8–15 are built and the v2 demo is filmed. **Slices 16–23 are the v3 revision, in draft until the learner's gut check** — see **Revisions** and the v3 target dates.
+>
 > **Status note, 2026-10-13:** slices 1–7 are built, reviewed and tagged `v1-poc`. Slices 8–15 (the v2 revision, see **Revisions**) were approved at the gut check the same day — *"approved, start slice 8."*
 
 # Build Checklist
@@ -20,6 +22,18 @@ ships with the paper background, CSS halftone, Cormorant Garamond / Lora /
 Comic Neue, the hanko red, and the station rail with its gating, hover hints,
 "Saved to desk" label and image counter. Every later slice inherits that shell
 rather than being styled afterwards. Learner's call.
+
+## Changes Since Approval
+
+The v1/v2 plan (slices 1–15) was approved on 2026-10-12 and 2026-10-13 and is built. **The v3 revision of 2026-10-14 changes the plan as follows, and is a draft until the learner's gut check:**
+
+1. **Eight new slices, 16–23** (under *v3* in **Slices**), ordered by risk as the learner set it, with the motion kernel test recommended for day one beside the foundation (the learner's to accept or move).
+2. **Every v3 slice has its own hands-on checkpoint, commit and tag** (`v3-cp1` … `v3-cp7`, then `v3-rc`) — the learner's request; v2 had checkpoints only where they could change the plan.
+3. **Feature freeze moves to 2026-10-22, end of day**; the re-film is Oct 23–24; submit Oct 25.
+4. **Workflow:** straight to `main`, typecheck + lint + every `check:*` before each push, never a red build, flags instead of half-done UI (Railway deploys `main` to the live domain).
+5. **New checks:** `check:config`, `check:hardening`, `check:queue`, `check:auth`, `check:limits`, `check:share`, `check:video` — each is the mechanical verification of its slice.
+6. **A cut line for v3** (under the v3 target dates), and the fallback: the last tag that passed its checkpoint.
+7. **The v2 checkpoints still open** are folded into v3's (see **Revisions**).
 
 ## Slices
 
@@ -187,6 +201,90 @@ Generation quality stays **`low` throughout**; `medium` only for the candidate-l
   Learner check: The final kick-the-tires on v2 — run the whole journey yourself, try to break it, and say what is not ready for the video. **Hands-on checkpoint and the v2 Final Review.**
   Commit: `Freeze: switch removed, canaries run, README, filming configuration`
 
+### v3 — Ink Desk Studio, public on the learner's domain (revision of 2026-10-14; see **Revisions**) — *draft, awaiting the gut check*
+
+Order by risk, as the learner set it — *domain + storage + Redis/BullMQ worker + auth + ownership + rate limits first, then the Studio features, then video generation, then polish* — with one recommendation of the build's, the learner's to accept or move: the **motion kernel test** (slice 17) runs on day one, beside the foundation, because it needs nothing but the OpenRouter key and it decides the money shot. Every slice: straight to `main`, typecheck + lint + every `check:*` before the push, **a hands-on checkpoint, its own commit, and a tag** (`v3-cp1` …) that the learner pushes. Anything not finished cleanly stays behind a flag in the environment, never half-done on the live domain. Generation stays **off on the public domain** (`GENERATION_ENABLED=false`) until auth, ownership and limits are all in (slice 20).
+
+- [ ] **16. Foundation on Railway — config, Mongo and the buckets, hardened requests, the live domain**
+  Becomes usable: the app runs on Railway at the learner's domain over HTTPS — the v2 studio, on MongoDB and the two private buckets, behind an environment validated at boot — with **generation switched off** until sign-in and limits exist; `/api/health` answers Railway's deploy checks; the repository's generated media are in the bucket.
+  Why now: everything after it — the worker, Clerk's production instance, signed URLs, share links — needs the domain, the database and the buckets; and the audit's request-hardening fixes are cheapest before any feature is added on top. Clerk's DNS records can take 48 h, so they are added today too.
+  PRD ref: `prd.md > Status and Health (v3)`, `prd.md > Safety (v3)`, `prd.md > Revision — Ink Desk Studio v3 > Changes Since Approval` (items 2, 9)
+  Spec ref: `spec.md > Revision v3 > Where It Runs and How Someone Tries It (v3)`, `> Domain and DNS (v3)`, `> Environment and Configuration (v3)`, `> Config and Boot (v3)`, `> Store v3 — Mongo and the Buckets (v3)`, `> Request Hardening (v3)`, `> Uploads (v3)`, `> Security Headers and CSP (v3)`, `> Health, Status and Logs (v3)`
+  Build: `lib/config.ts` (the learner's names mapped, zod, fail fast); the store on two buckets with signed URLs, `S3_FORCE_PATH_STYLE`/`S3_PUBLIC_ENDPOINT` honoured, timeouts on every S3/Mongo call, summaries by projection; `.max()` and `.strict()` on every request schema, body caps that hold for chunked bodies, re-encoded uploads (`sharp`), `server-only` on secret modules; security headers and CSP; `/api/health`; `GENERATION_ENABLED`; `scripts/move-media-to-bucket.mts` (upload `data/images`, `data/kernel-test`, `data/filming-*`, `video/out`, `video/public/capture` with a sha256 manifest, then untrack the data folders — **no history rewrite**); a `gitleaks` run over the full history. **Learner:** Railway project with `web` (and the Mongo on its private network), the variables from the spec's per-service list, the domain's `CNAME` + `TXT` at the registrar, Clerk's production DNS records started.
+  Verify (mechanical): typecheck, lint, every `check:*`, `npm run build`; new `check:config` (missing/malformed variables refused with a sentence, never a value) and `check:hardening` (an oversized body, a chunked upload over the cap and a 1 MB string each refused before parsing; an upload's EXIF gone after re-encode); `curl https://<domain>/api/health` → 200 with mongo and bucket `ok`; a generate route on the domain → refused while the flag is off; `gitleaks detect` → no leaks; the manifest's sha256s match the bucket's objects.
+  Learner check: open `https://<your-domain>` on your phone and your laptop — the dashboard and an existing project load from Mongo and the bucket over HTTPS, and pressing a generate button says generation is not open yet. **Hands-on checkpoint.**
+  Commit: `Foundation: Railway, Mongo and the buckets, validated config, hardened requests, health` — tag `v3-cp1`
+
+- [ ] **17. The motion kernel test — does the face hold in motion?**
+  Becomes usable: `scripts/kernel-test.mjs --motion` animates one locked character in three shots (close-up 1:1, medium 1:1, wide 16:9), 5 s each at 720p on `bytedance/seedance-2.0`, in **method A** (the panel as first frame) and **method B** (panel and sheet as references), and writes `data/kernel-test/motion/index.html` with first/middle/last-frame strips beside the sheet and a `manifest.json` whose verdict is `null` until the learner fills it.
+  Why now: it is the riskiest unknown in v3 and the money shot of the re-filmed video, it needs nothing built first, and the docs already ruled out the learner's first design (first frame and references in one call are exclusive). If neither method holds, the Animate slice and the video change shape — better known on day one than on Oct 21.
+  PRD ref: `prd.md > Animate a Page (v3)` (the motion proof), `scope.md > The Unique Kernel (v3)`
+  Spec ref: `spec.md > Revision v3 > Verified for v3`, `> Animate a Page (v3)`, `> Decisions and Open Issues (v3)`
+  Build: the free capability probe (`GET /api/v1/videos/models`); submit, poll and download per the verified flow; frames with ffmpeg; the strips page; spend read from `usage.cost` and compared with the token formula.
+  Verify (mechanical): the probe passes for `seedance-2.0`; six clips downloaded and playable (`ffprobe`); the billed cost within 5% of the formula (≈ $3.20 in all); the page renders all strips.
+  Learner check: open `data/kernel-test/motion/index.html` and judge, shot by shot, whether the face, outfit and marks hold **to the last frame**, in A and in B; choose the method (or neither). Your verdict goes in the manifest and in `spec.md > Decisions and Open Issues (v3)`. **Hands-on checkpoint — the kernel decision is yours.**
+  Commit: `Motion kernel test: two methods, three shots, the learner's verdict` — tag `v3-cp2`
+
+- [ ] **18. The queue and the worker — BullMQ on Redis, Mongo as the record**
+  Becomes usable: generation runs in a separate `worker` service: a panel, a sheet or a cover is a job with its own state, survives a web restart or deploy, and is never paid for twice; when Redis or the worker is down, generate buttons say the studio is busy and reading keeps working.
+  Why now: the v2 in-process queue, `serverRunId` floor and promise-chain lock stop protecting anything once web and worker are two processes (CR-1, CR-3) — every later feature (limits settle on job completion, the trailer is a chain of jobs) is built on this.
+  PRD ref: `prd.md > Status and Health (v3)`, `prd.md > States and Boundaries (v3)` (work survives restarts)
+  Spec ref: `spec.md > Revision v3 > Queue and Worker (v3)`, `> Store v3 — Mongo and the Buckets (v3)`, `> Failure Modes (v3)`
+  Build: `lib/queue/*`, `worker/index.ts` (image and text processors first, the reconciler, the heartbeat), `jobs` in Mongo, atomic `rev` updates replacing the per-project lock, per-user in-flight caps; the studio polls job records (paused in hidden tabs). **Learner:** Railway Redis, the `worker` service with ffmpeg in its image.
+  Verify (mechanical): new `check:queue` — a job survives a killed worker (stalled recovery), a flushed Redis re-enqueues from Mongo, two parallel updates to one project both land, Redis down → 503 "busy"; every existing check still passes with `INKDESK_QUEUE=inline`; on Railway, a page inks while the `web` service is redeployed.
+  Learner check: on the domain (generation on for your account only, by flag), start a page, redeploy `web` from Railway mid-way, and watch the panels finish anyway; then stop Redis and see the busy message while your projects still open. **Hands-on checkpoint.**
+  Commit: `The worker: BullMQ queues on Redis, jobs recorded in Mongo, restarts lose nothing` — tag `v3-cp3`
+
+- [ ] **19. Accounts and ownership — Clerk, and every record checked against its owner**
+  Becomes usable: the domain root is Clerk's sign-in (email, Google, GitHub) for a stranger and the dashboard for a signed-in user; each user sees and touches only their own work; Terms and Privacy pages are linked from sign-in.
+  Why now: the audit's first critical finding (SEC-01) — no route knows who is calling — and nothing about limits, sharing or deletion can be built without an owner.
+  PRD ref: `prd.md > Accounts and Sign-in (v3)`, `prd.md > Ownership and Privacy (v3)`, `prd.md > Terms and Privacy (v3)`
+  Spec ref: `spec.md > Revision v3 > Auth (v3)`, `> Data Access and Ownership (v3)`, `> Domain and DNS (v3)`
+  Build: `@clerk/nextjs` 7.9.14, `proxy.ts`, sign-in/up pages, `<Show>`/`<UserButton>`, the webhook into `users`, `ownerId` on every record, `lib/auth/access.ts` (404 for anything not owned), the image route replaced by owner-checked signed URLs, the Origin check, `scripts/claim-projects.mts` (the v1 desk and the filmed project to the learner), `/terms`, `/privacy`, `INKDESK_AUTH=off` for dev and checks. **Learner:** Clerk production instance on the domain (DNS verified), the Google and GitHub OAuth apps with Clerk's redirect URIs, bot protection on, the webhook endpoint and its secret in Railway.
+  Verify (mechanical): new `check:auth` — every `app/api/**/route.ts` either calls `requireUser`/`owned*` or is on the public allow-list; user B reading, patching or fetching an image of user A's project gets 404; a forged webhook is refused; a replayed one is a no-op; a cross-origin POST is refused.
+  Learner check: sign up with email, then with Google, then with GitHub; with two accounts, paste one account's project address into the other and see "There is no such project". **Hands-on checkpoint.**
+  Commit: `Accounts: Clerk on the domain, ownership on every record` — tag `v3-cp4`
+
+- [ ] **20. Limits — rate limits, quotas, the spend reservation and the kill switch; generation opens**
+  Becomes usable: generation is **on for everyone** — inside a small free quota (allowlisted emails get more), with a quota meter in the header, a Usage page, an 80% warning, disabled buttons that give the reason and the reset time, and a global daily spend cap that pauses generation for everyone with one clear message.
+  Why now: the audit's second critical finding (SEC-02) — anonymous, unmetered spending — is the last thing standing between the domain and the public; nothing that spends opens before it.
+  PRD ref: `prd.md > Limits and Usage (v3)`
+  Spec ref: `spec.md > Revision v3 > Limits, Quotas and the Kill Switch (v3)`, `> Quality, Cost and Budget (v3)`
+  Build: `lib/limits/*` (sliding windows, daily counters, the Lua `reserve`, `settle` from `usage.cost`, `release`), plans from `ALLOWLIST_EMAILS`, `GLOBAL_DAILY_USD_CAP` and the cumulative cap the learner chooses, `GET /api/usage`, `QuotaMeter`, the Usage page; `GENERATION_ENABLED=true`. **Learner:** the allowlist, the caps, the OpenRouter key's credit limit with auto top-up off.
+  Verify (mechanical): new `check:limits` — the 21st image of a free day is refused before any provider call, parallel requests cannot over-spend the cap (the reservation is atomic), a failed job releases its reservation, the meter's numbers equal the enforcement's; the daily keys expire at the reset.
+  Learner check: with a free test account, spend down a day's quota and watch the meter warn at 80% and the buttons disable with the reset time; lower the global cap to $0.01 in Railway and see generation pause for everyone with the message. **Hands-on checkpoint.**
+  Commit: `Limits: quotas, rate limits, spend reservation and the kill switch; generation opens` — tag `v3-cp5`
+
+- [ ] **21. The studio around the work — dashboard v3, sharing, reports, settings**
+  Becomes usable: the dashboard shows projects, videos and the library; a manga can be **shared publicly** on `/s/<token>` (read-only, Open Graph preview, `noindex`, unpublish at once), with **Report** reaching the learner's admin list; **Settings** holds the account (Clerk), sharing, data (export, delete account) and usage.
+  Why now: the learner's order — the Studio features after the foundations; and the share page is where the trailer will live in slice 22.
+  PRD ref: `prd.md > Dashboard (v3)`, `prd.md > Sharing (v3)`, `prd.md > Report (v3)`, `prd.md > Settings (v3)`
+  Spec ref: `spec.md > Revision v3 > Sharing (v3)`, `> Reports (v3)`, `> Settings, Usage, Terms and Privacy (v3)`, `> Data Model (v3)`
+  Build: `shares` with snapshots, `app/s/[token]` and its OG image, `/api/s/[token]/*` serving only snapshot ids, reports and `app/admin/reports`, Settings pages, export zip, **delete account** as one idempotent worker job (also run by the `user.deleted` webhook), studio defaults if the day allows (first on the cut list).
+  Verify (mechanical): new `check:share` — a share exposes no field outside the snapshot, a revoked and an unknown token give the same 404, a report is rate-limited per IP; account deletion leaves no record, object, job or share for that user (counted in Mongo and the bucket).
+  Learner check: share a chapter, open the link signed out on your phone, paste it in a chat app and see the preview, report it, find the report in the admin list, unpublish it; export your data; delete a throwaway account and confirm it is gone. **Hands-on checkpoint.**
+  Commit: `Sharing, reports and settings: share links, the admin list, export and account deletion` — tag `v3-cp6`
+
+- [ ] **22. Animate a page — the one-page trailer**
+  Becomes usable: on a finished page, **Animate** shows the estimate and quota, then makes one Seedance shot per panel with its own progress card (a failed shot retries alone), speaks each line in its character's voice, reveals the bubbles on time, lays music under, assembles a 20–30 s trailer in the worker, and puts it on the dashboard — shareable on `/s/<token>`.
+  Why now: the learner's order puts video after the Studio features; slice 17 already chose the method, so this is assembly of verified parts, not a gamble.
+  PRD ref: `prd.md > Animate a Page (v3)`, `prd.md > Sharing (v3)`
+  Spec ref: `spec.md > Revision v3 > Animate a Page (v3)`, `> Production Models (v3)`, `> Queue and Worker (v3)`, `> Failure Modes (v3)`
+  Build: `lib/video/*`, `lib/audio/*` (ported, not imported, from `video/`), `Character.voice`, the `video` and `audio` processors, `AnimateStation`/`ShotCard`, the animate and video routes, video shares; development runs at 480p on `seedance-2.0-fast`, behind `VIDEO_ENABLED`.
+  Verify (mechanical): new `check:video` — the token formula against OpenRouter's per-second prices, the shot state machine (a crash between POST and saving the job id becomes `orphaned`, never resubmitted), the ffmpeg arguments, the webhook signature; one real 480p trailer end to end (≈ $0.65) with `ffprobe`: 20–30 s, 1280×720, audio present; the reservation settled to the billed cost.
+  Learner check: animate a page of your own, watch the shots progress, make one fail (the flag `VIDEO_FAIL_SHOT=n` in development) and retry it, play the trailer from the dashboard and from its share link on your phone. **Hands-on checkpoint.**
+  Commit: `Animate a page: Seedance shots, voices, bubbles and music, assembled in the worker` — tag `v3-cp7`
+
+- [ ] **23. Responsive, the after-audit, the judge account — the v3 freeze**
+  Becomes usable: every screen works at phone, tablet and desktop widths; the security and stability report is re-run on the frozen build with every row's status; the judge demo account holds a finished chapter and its trailer; the README covers the live domain, the two services, the variables and the disclosures.
+  Why now: polish last, as the learner ordered; the freeze is Oct 22, end of day.
+  PRD ref: `prd.md > Responsive (v3)`, `prd.md > Safety (v3)`, `prd.md > States and Boundaries (v3)`
+  Spec ref: `spec.md > Revision v3 > Responsive (v3)`, `devpost/security-report.md`
+  Build: the responsive punch list (stepper rail, panel-sized lettering, 44 px targets, touch bubble edit sheet, `100dvh`, Director accordion, reader swipe, full-height dialogs); the after-audit (both lenses + adversarial verify, `npm audit`, `gitleaks`); the judge account (allowlisted) with its chapter and trailer; README.
+  Verify (mechanical): Playwright screenshots of every screen at 390, 768 and 1280 px with no horizontal scroll and no target under 44 px (a script, not a framework); every `check:*`; `security-report.md` with no `open` critical or high row; `npm run build` on a fresh clone.
+  Learner check: the v3 final kick-the-tires — on your phone and laptop, on the live domain, as a new stranger and as the judge account: try to break it, try to spend past a limit, try to see someone else's work. Say what is not ready for the film. **Hands-on checkpoint and the v3 Final Review.**
+  Commit: `Freeze v3: responsive, the after-audit, the judge account, README` — tag `v3-rc`
+
 ## Target Dates
 
 Set by the learner at the plan review. Kept out of the slice fields above so the
@@ -246,6 +344,34 @@ cut without being recorded under **Revisions**.
 
 **Never on the list:** the character lock, the Director with at least three pages, the imported character, the two presets, the PDF, the migration of the v1 desk, and the video. **Already decided, not a cut:** in-app video export and dubbing are Later unless slices 8–13 are done by 2026-10-20 — *"otherwise Later, no debate."* **The fallback submission is `v1-poc`** with a polished video if v2 is not solid on 2026-10-20.
 
+### v3 target dates (set by the learner on 2026-10-14) — feature freeze **2026-10-22, end of day**
+
+| Slice | Target | Tag | Status |
+|---|---|---|---|
+| 16. Foundation on Railway | 2026-10-15 | `v3-cp1` | — |
+| 17. Motion kernel test | 2026-10-15 (runs beside 16) | `v3-cp2` | — |
+| 18. Queue and worker | 2026-10-16 | `v3-cp3` | — |
+| 19. Accounts and ownership | 2026-10-17 | `v3-cp4` | — |
+| 20. Limits; generation opens | 2026-10-18 | `v3-cp5` | — |
+| 21. Dashboard, sharing, reports, settings | 2026-10-19 | `v3-cp6` | — |
+| 22. Animate a page | 2026-10-20 → 21 | `v3-cp7` | — |
+| 23. Responsive, after-audit, judge account — **freeze** | **2026-10-22, end of day** | `v3-rc` | — |
+| Re-film on the live domain (learner's narration) | 2026-10-23 → 24 | — | — |
+| Submit on Devpost | **2026-10-25**; Oct 26 is buffer only | — | — |
+
+**What does not fit, honestly.** Eight slices in eight days, each with a hands-on checkpoint, means the learner is needed every day; a missed checkpoint is a day lost. Outside the code, three waits are not ours to shorten: Clerk's production DNS (up to 48 h), Google's OAuth consent screen, and the domain itself. The budget does not fit either (`scope.md > Budget (v3)`: ≈ $8.50 needed, ≈ $7.70 left). And this session cannot push tags (refused, HTTP 403) — **the learner pushes every tag**, beginning with `v1-poc`.
+
+**The v3 cut line** — the learner's rule: *anything not working and checkpointed by Oct 22 goes to Later, no debate; if v3 is unstable on Oct 22, submit the last stable tag with a polished video.* When a day slips, cuts are offered in this order, each with its cost:
+
+1. **Studio defaults in Settings.** New projects start from the global defaults. Costs one Settings tab.
+2. **The data export as a zip of images.** Export the JSON only; images stay downloadable one by one. Costs convenience, not the privacy promise.
+3. **Emailed reports.** Reports reach the admin list only. Costs a notification.
+4. **The touch bubble-edit sheet.** On phones, bubbles are read and retyped, not moved. Costs mobile editing of bubble position.
+5. **Spoken dialogue in the trailer.** Bubbles and music only. Costs the voices.
+6. **Slice 22 entirely.** The submission is the v3 public studio with the v2 film's money shot. Costs the motion money shot — offered only if slice 17 failed or the 21st arrives without a trailer.
+
+**Never on the list:** sign-in, ownership checks, the limits and the kill switch, account deletion, the share page's privacy, a green build on `main`. **The fallback is the last tag that passed its checkpoint** (`v3-cp*`, or the v2 film on `e70d4df`), one command away.
+
 ## Stretch Goals
 
 Named so they cannot sneak into a slice. Touched only after slice 7 is done and
@@ -265,6 +391,8 @@ verified, and only if time allows before `6-ship`.
 - [ ] **v2:** The Director explored — after slice 11: the plan from the sample scenario, the estimate, page 1 and the cover, and the imported character beside their panel. The first time v2 is a manga creator; prompt and plan feedback is still cheap here.
 - [ ] **v2:** The video drafts explored — after slice 14: the motion-design render and the test capture, and the learner's narration script written. *2026-10-14:* the draft is now complete — voice, music and the method beat are in the review render (`video/out/inkdesk-demo-review-720p.mp4`); what the learner judges here is the words (theirs to rewrite in `narration.md`), the voice (`george`, one switch to change), the music's mood and level, and the method beat's lines.
 - [ ] **v2:** Final kick-the-tires on v2 — after slice 15, at the freeze. *2026-10-14:* slice 15’s cloud part is built. What the learner judges here: the rendered demo (`video/out/inkdesk-demo.mp4`, sent from the session; the footage and the art it was cut from are in `data/filming-2026-10-14/` and `video/timeline.json`), the whole v2 journey on a fresh project at the filming values if they want to break it themselves, the README’s commands on a fresh clone, and the two candidate-lock verdicts in `data/kernel-test/style-ref/index.html` and `data/kernel-test/setting-ref/index.html`, recorded by the build session by eye and theirs to confirm or overturn.
+
+- [ ] **v3:** Each of slices 16–23 has its own hands-on checkpoint, at the learner's request (*"each slice gets a hands-on checkpoint, its own commit and a tag"*); they are recorded in the slices' `Learner check:` lines and ticked with the slice. The ones that decide the plan: **the motion kernel verdict (slice 17)** — the method, or neither — and **the v3 final kick-the-tires (slice 23)**, which also closes the v2 boxes above.
 
 ## Final Review
 
@@ -287,6 +415,7 @@ Activity mode: Prior practice connected, with a brief evidence-based recap; the 
 
 ## Revisions
 
+- **v3 — Ink Desk Studio, public on the learner's domain: a plan revision after the v2 film (2026-10-14).** The learner asked for Seedance animation from the references and the script, other production models, the database and the bucket in production, rate limiting, Clerk auth with email, Google and GitHub, safety and production readiness, a responsive interface, the media moved to the bucket, videos on the dashboard, public sharing, and a vulnerability and crash review — and decided, in their words, that *"v3 is part of the hackathon submission"*, hosted on Railway as `web` + `worker` with Redis/BullMQ, on their own domain with no landing page, small free quotas with an allowlist and a $5/day kill switch, a one-page trailer as the motion kernel, freeze Oct 22, re-film Oct 23–24, straight to `main` with a tag per checkpoint. Handled under `5-build`'s rule for a request that substantially changes the project: the four documents were revised through `2-scope`, `3-prd` and `4-spec` in revision mode, each with a *Changes Since Approval* section and v1/v2 left intact, and set back to `status: draft` until the learner's review. Gathered first, read-only and for $0: a security audit (15 findings) and a crash audit (18), every one surviving an adversarial verifier — now `devpost/security-report.md`; the OpenRouter video API and Seedance's models, which showed that **a first frame and reference images cannot go in one call** (so slice 17 compares the two allowed methods); Clerk on Next 16.4 (`proxy.ts`; the SDK reads `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, not this environment's `CLERK_PUBLISHABLE_KEY`); Railway's domain, health-check and Redis facts; a history scan with no key found. **Raised for the learner, not decided:** the environment's variables look like another app's (another app's domain, a Postgres reference, "compile outputs" buckets) and there is no Redis URL; the domain is not named yet; the budget does not fit; the session cannot push tags. The v2 checkpoints still open (dashboard, Director, video drafts, the v2 kick-the-tires) are folded into the v3 checkpoints rather than run on a build that is about to change.
 - **Slice 15: filmed on 2026-10-14, in the cloud session, at the learner’s word — a week before the schedule’s Oct 21–22.** The dev server ran at `IMAGE_SHEET_QUALITY=high`, `IMAGE_PANEL_QUALITY=high` on a fresh desk (`INKDESK_DATA_DIR=data/filming-2026-10-14`, so the dashboard opened empty and the filmed art is still tracked, 44 MB, 16 images with the project file), and `npm run video:capture -- --quality high` ran the whole v2 journey from `video/capture/seed.json`: dashboard, new project, the sample scenario, the imported picture locked as Kaito, Mio drawn and locked, the Director’s plan (**3 pages + cover**, the plan’s minimum), every page and the cover inked, a bubble edited, panel 2 redrawn, the reader, the PDF. **16 marks, 550.3 s of footage, 15 images, $0.956** as the providers reported it — under half the spec’s ≈ $2 line. Measured at `high`, per image: a 3:2 panel $0.056, a 1:1 panel $0.067, the sheet $0.043, the 2:3 cover $0.056; the slowest call 61 s; no retry, no refusal, no 402. `lib/cost.ts` keeps `high` at $0.09 (its rule is never optimistic); the spec’s table carries the measurement. Then `npm run video:render`: `video/out/inkdesk-demo.mp4`, **177.0 s, 1920×1080, h264 + aac, 41.9 MB**, and `prepare.mts` reports *“Final: every beat has its footage, words and voice”* — the DRAFT stamp’s last two causes are gone. The art holds at `high`: the same Kaito in the page 1 wide shot, both close-ups and the cover (scar, scarf, satchel). Three things the learner should know before publishing: (1) **every text call was answered by the fallback** (`openai/gpt-5.6-terra`), since this session has no `ANTHROPIC_API_KEY` — the cast, the DNA, the plan and the dialogue on screen are Terra’s words, and a local re-run with a key would film Claude’s; (2) **the imported picture is still the seed’s stand-in** (the day-one kernel-test sheet), not the learner’s own drawing, which `seed.json` asks for; (3) per `video/README.md > Not committed`, the footage (120 MB), the stills, the PDF and the mp4 are not in the repository, and this container is ephemeral — the mp4 and the footage were sent to the learner from the session, and `video/timeline.json` plus the art under `data/filming-2026-10-14/` are committed, so the edit can be re-rendered from the footage file alone. Re-filming is one command and about a dollar.
 - **Slice 15 was built in the cloud session on 2026-10-14, six days before the freeze; what could not run there is named below.** Ran: the switch removal, the canary, both candidate-lock tests, the README, `typecheck`, `lint`, every `check:*`, `npm run build`, and the README’s commands on a fresh checkout of the tree. Not run at first: the filming at `high`, planned for the learner on Oct 21–22 — then run the same day at the learner’s word (*“you actually film now”*), see the filming bullet above. Still not run: the kick-the-tires, which is the learner’s by definition. This session spent **$0.37** on OpenRouter: the two reference plates ($0.0218), the canary ($0.0701), the style test ($0.1402), the setting test ($0.1280) and one `--probe-only` run of the README’s first command ($0.0075).
 - **Slice 15: `SIMULATE_PANEL_FAILURE` is gone.** `simulatedResponse()` and its use in the retry loop left `lib/image-provider.ts`; the REMOVE-BEFORE-FILMING block left `.env.example`; the `delete process.env.SIMULATE_PANEL_FAILURE` line left `scripts/plan-check.mts`. For a real call the loop is unchanged: one silent retry on a 429 or on `fetch` rejecting, nothing else, the timeout signal still on the request; `check:repair` and `check:page` still prove the pair. The slice 6 bullet below stays as the record of why the switch existed.

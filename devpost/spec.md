@@ -1,6 +1,6 @@
 ---
 doc: spec
-status: approved
+status: draft
 ---
 
 # Ink Desk — Technical Spec
@@ -8,6 +8,9 @@ status: approved
 The blueprint for `prd.md`. One Next.js app, two AI providers called from the
 server, one chapter of work kept on disk.
 
+> **Revised again 2026-10-14 — v3, draft for review: see [Revision — Ink Desk Studio v3](#revision--ink-desk-studio-v3-public-on-the-learners-domain)
+> at the very end, with its *Changes Since Approval*.**
+>
 > **Revised 2026-10-13 — see [Revision — Ink Desk Studio (v2)](#revision--ink-desk-studio-v2)
 > at the end.** Everything below is the approved v1 spec, built and tagged
 > `v1-poc`, kept intact. The v2 section specifies the project data model and
@@ -2057,3 +2060,266 @@ Same pattern as v1 (scratch folder, `INKDESK_DATA_DIR`, dynamic imports,
   so this closes as "no" unless the learner reopens it before the freeze.*
 - **The exact Remotion version and its browser flags.** Checked at install in
   slice 14.
+
+---
+
+# Revision — Ink Desk Studio v3 (public, on the learner's domain)
+
+> **Draft, 2026-10-14 — awaiting the learner's review.** Implements `prd.md > Revision — Ink Desk Studio v3`, from `scope.md > Revision — Ink Desk Studio v3`. Everything above stays the record of v1 and v2. The facts below marked *verified* were read off the live APIs, the installed packages and the providers' docs on 2026-10-14 — not from memory; no paid call was made to gather them.
+
+## Changes Since Approval
+
+Against the approved v2 spec:
+
+1. **Where it runs** — from "local only; cloud is a switch, the demo runs local" to **Railway, two services from `main`**: `web` (`next start`) and `worker` (a Node process). One replica each.
+2. **Storage** — from "local by default, Mongo + one bucket switchable" to **MongoDB as the source of truth in production** and **two private R2 buckets** (`S3_BUCKET_PROJECT_FILES` for images and uploads, `S3_BUCKET_COMPILE_OUTPUTS` for videos, audio and exports), served through short-lived signed URLs. The local adapter stays for development and the checks.
+3. **The queue** — from an in-process FIFO with a `serverRunId` floor and a per-project promise-chain lock on `globalThis` (all of which stop protecting anything once web and worker are separate processes; confirmed as CR-1, CR-3) to **BullMQ on Redis**, with Mongo `jobs` as the record of status and results.
+4. **Auth** — none to **Clerk** (`@clerk/nextjs` Core 3), a `proxy.ts` gate, and a **data-access layer** that checks the owner next to every read and write.
+5. **Limits** — none to Redis sliding windows, daily quota counters, a per-user spend reservation and a global kill switch.
+6. **New surfaces** — share pages, reports, settings, usage, Terms/Privacy, health, the Animate pipeline.
+7. **Security baseline** — the pre-build audit (`devpost/security-report.md`, 15 security and 18 stability findings, every one confirmed by an adversarial verifier) is part of the plan: each finding is closed by a named slice.
+8. **Text model id** unchanged; **image model** unchanged; **video** `bytedance/seedance-2.0` and **speech** `elevenlabs/eleven-v4` join, all through OpenRouter.
+
+## How This Works, In Plain Language (v3)
+
+A visitor opens the domain. The **web** service answers: if they are not signed in, Clerk's sign-in screen; if they are, their dashboard, built from **Mongo** — their projects, videos and quota. Every request the browser makes carries the Clerk session; the server asks "who is this?" and then reads only that user's records. When they press a button that costs money, the web service first asks **Redis** "is this user under their limit, and is the whole site under today's spend cap?", reserves the estimated cost, writes a **job** record in Mongo and puts the job on a **BullMQ** queue — then answers immediately. The **worker** service picks the job up, calls OpenRouter (an image, a Seedance shot, a voice line), stores the file in the **bucket**, writes the result and the real cost to Mongo, and settles the reservation in Redis. The browser polls the job records and shows progress. To show a file, the server hands the browser a signed URL that works for a few minutes. To share, the owner creates a snapshot with an unguessable token; anyone with the link sees that snapshot and nothing else.
+
+## Where It Runs and How Someone Tries It (v3)
+
+**Production (Railway, deployed from `main`):**
+
+| Service | Start | Needs |
+|---|---|---|
+| `web` | `npm run build && npm run start` | Mongo, Redis, the buckets, Clerk, OpenRouter (text only — estimates and vision calls stay synchronous only where they already are), the health check on `/api/health` |
+| `worker` | `npm run worker` (`tsx worker/index.ts`, or the compiled file) | Mongo, Redis, the buckets, OpenRouter, **ffmpeg in the image** (nixpacks `aptPkgs = ["ffmpeg"]` or a Dockerfile) |
+| `redis` | Railway's Redis template | private network only: `redis.railway.internal` (verified: Railway exposes `REDIS_URL`) |
+| `mongo` | the existing Mongo service, **on the private network** (`*.railway.internal`), not the public `rlwy.net` proxy with `DB_SSL=false` | |
+
+Railway health checks: a `2xx` on the configured path within 300 s by default (`RAILWAY_HEALTHCHECK_TIMEOUT_SEC` to change), from the host `healthcheck.railway.app` — which the host allow-list and the proxy must accept (verified, Railway docs). One replica per service: no rolling overlap matters once jobs are leased, but two web replicas are not needed for this audience.
+
+**Development:** `npm run dev` with `INKDESK_AUTH=off` (single local owner, no account, local files) — the path every `check:*`, the Playwright capture and CI use; or with Clerk development keys for real sign-in. `npm run worker` in a second terminal when Redis is available; with `INKDESK_QUEUE=inline` the web process runs jobs itself, for the checks.
+
+**What the judges open:** `https://<your-domain>` — sign in with the judge demo account from the Devpost testing instructions (the learner writes them), or sign up.
+
+## Domain and DNS (v3)
+
+*Verified against Railway's and Clerk's current docs. The exact targets are generated per project and are shown in each dashboard — copy them from there, never from here.*
+
+**Railway, on the `web` service → Settings → Networking → Custom domain:**
+
+| Record | Name | Value | Note |
+|---|---|---|---|
+| `CNAME` (apex: CNAME flattening or `ALIAS`) | `@` | the target Railway shows, e.g. `xxxx.up.railway.app` | Railway supports CNAME flattening (Cloudflare) and dynamic ALIAS (DNSimple, Namecheap CNAME at root). Plain `A` records are not offered. |
+| `TXT` | the name Railway shows | the value Railway shows | **Required** — without it the domain returns 404 even when the CNAME resolves. |
+| `CNAME` | `www` | the target Railway shows for `www` | **On the Trial plan only one custom domain is allowed**, so `www` and the apex cannot both be added; on a paid plan add `www` and redirect it to the apex in the app (`proxy.ts`, 308). |
+
+If DNS is on Cloudflare: the Railway records may be proxied once verified, with SSL mode **Full**; the verification CNAME must be **DNS only** during verification.
+
+**Clerk production instance** (Dashboard → Domains): Clerk lists the records for the instance — typically `CNAME clerk.<domain>` (Frontend API), `CNAME accounts.<domain>` (Account Portal), and the email records (`clkmail.<domain>` and two DKIM `CNAME`s) that make sign-in emails come **from the domain**. On Cloudflare these must be **DNS only** (Clerk's check fails behind the proxy). No `CAA` record on the apex may block Let's Encrypt or Google Trust Services. Propagation can take up to 48 h — **start this first**. Restrict the Frontend API's allowed subdomains (Clerk's subdomain allowlist).
+
+**OAuth apps for production** (development keeps Clerk's shared credentials): a Google OAuth client and a GitHub OAuth app, each with the **Authorized redirect URI / callback URL that Clerk's dashboard shows** for the production instance; the Google consent screen published "In production" (basic scopes — `openid`, `email`, `profile` — normally publish without the full verification review, but check on day one). Block email subaddresses for Google sign-ups (Clerk recommends it).
+
+**The bucket (R2):** CORS allows `GET` and `PUT` from `APP_URL` (and `http://localhost:3000` in development) only; no public bucket access; signed URLs only.
+
+## Environment and Configuration (v3)
+
+One module (`lib/config.ts`) reads every variable once, validates it with zod at boot, and fails fast with a sentence naming the missing or malformed variable — never its value. **The learner's variable names are mapped, not renamed:**
+
+| The app needs | This environment has (names only) | Status |
+|---|---|---|
+| Mongo connection | `DB_URL` (a `mongodb://` URL on `rlwy.net`) | mapped: `MONGO_URL = DB_URL`. **Open question:** these look like another app's variables (see below). `DB_PORT` is an unresolved `${{Postgres.PGPORT}}` reference — not used. |
+| Mongo database name | `DB_DATABASE` | mapped |
+| Redis | — | **missing**: add Railway Redis; it provides `REDIS_URL` |
+| Buckets | `S3_BUCKET_PROJECT_FILES`, `S3_BUCKET_COMPILE_OUTPUTS`, `S3_ENDPOINT`, `S3_PUBLIC_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE` | all used (v2 read only one `S3_BUCKET` and hard-coded path style — fixed) |
+| Clerk | `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `CLERK_JWT_KEY`, `CLERK_WEBHOOK_SIGNING_SECRET` | the SDK reads `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, **not** `CLERK_PUBLISHABLE_KEY` (verified in `@clerk/nextjs` 7.9.15's source): add it with the same value, or the config passes `publishableKey` explicitly; `CLERK_JWT_KEY` is passed explicitly as `jwtKey` (the SDK does not read it) |
+| The URL | `APP_URL` (points at another app's domain today) | `APP_URL` + `NEXT_PUBLIC_APP_URL` — **must be set to the Ink Desk domain** |
+| OpenRouter | `OPENROUTER_API_KEY` | unchanged |
+| Anthropic | — (`ANTHROPIC_API_KEY` unset; Terra fallback answers) | unchanged; set it on Railway for Claude |
+
+**Open question for the learner (blocks slice 16):** `APP_URL`, `ADMIN_URL`, `COMPILE_WORKER_URL`, `FRONTEND_API_URL`, `JWKS_URL`, the buckets' names and the Postgres reference all point at another app's project. If they belong to another app, Ink Desk would share that app's Clerk users, its bucket and its database. **Ink Desk needs its own Clerk application, its own buckets (or a dedicated prefix with its own scoped key), and its own database** unless the learner confirms these are Ink Desk's. `RAILWAY_TOKEN` is also present; the build never uses it without the learner's explicit word.
+
+**Variables per Railway service** (names only; values in Railway, never in files):
+
+- **web:** `NODE_ENV=production`, `APP_URL`, `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`, `CLERK_JWT_KEY`, `CLERK_WEBHOOK_SIGNING_SECRET`, `NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in`, `NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up`, `DB_URL`, `DB_DATABASE`, `REDIS_URL`, the eight `S3_*`, `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY` (optional), `ANTHROPIC_MODEL`, `IMAGE_MODEL`, `LLM_FALLBACK`, `LLM_FALLBACK_MODEL`, the `IMAGE_*` sizes and qualities, `INKDESK_STORAGE=cloud`, `INKDESK_QUEUE=bullmq`, `ALLOWLIST_EMAILS`, `ADMIN_EMAILS`, `GLOBAL_DAILY_USD_CAP=5`, `GLOBAL_TOTAL_USD_CAP` (proposed, see Budget), the per-plan quota numbers, `VIDEO_ENABLED`, `SHARE_ENABLED` (feature flags).
+- **worker:** `NODE_ENV`, `DB_URL`, `DB_DATABASE`, `REDIS_URL`, the eight `S3_*`, `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY` (optional), the model and quality variables, `VIDEO_MODEL=bytedance/seedance-2.0`, `VIDEO_RESOLUTION=720p`, `TTS_MODEL=elevenlabs/eleven-v4`, `MUSIC_MODEL`, `QUEUE_CONCURRENCY_IMAGE=2`, `QUEUE_CONCURRENCY_VIDEO=1`, `GLOBAL_DAILY_USD_CAP`.
+
+## Components (v3)
+
+### Config and Boot (v3)
+
+`lib/config.ts` (zod, server-only), `instrumentation.ts` calls it on boot; production refuses to start with `INKDESK_AUTH=off`, without Clerk keys, or without Mongo/Redis/buckets. Implements `prd.md > Status and Health (v3)`.
+
+### Auth (v3)
+
+`proxy.ts` at the repo root (Next 16 renamed `middleware` to `proxy`; it always runs on Node — *verified* in `node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/proxy.md`): `clerkMiddleware({ publishableKey, jwtKey, authorizedParties: [APP_URL] })`, an **optimistic** redirect of signed-out page requests to `/sign-in`, an `Origin` check on non-GET `/api/*` (CSRF defence beside SameSite cookies), `www` → apex redirect, cheap per-IP limits on public routes. Next's own docs say Proxy must not be the only check, so `lib/auth/session.ts` (`requireUser()`, server-only) runs inside every handler. Sign-in/up pages: `app/sign-in/[[...sign-in]]`, `app/sign-up/[[...sign-up]]`. Core 3 components: `<Show when="signed-in">`, `<UserButton>`, `<UserProfile>` (not the removed `SignedIn`/`SignedOut`). Webhook: `app/api/webhooks/clerk/route.ts` with `verifyWebhook()` (`@clerk/nextjs/webhooks`, Standard Webhooks — no `svix` package), de-duplicated on the message id; `user.created` → `users`, `user.deleted` → the account-deletion job. `INKDESK_AUTH=off` keeps the single-owner local desk for development, the checks and the capture. Implements `prd.md > Accounts and Sign-in (v3)`.
+
+### Data Access and Ownership (v3)
+
+`lib/auth/access.ts`: `ownedProject(userId, id)`, `ownedVideo(...)`, `ownedBlob(...)` — **404 for anything the caller does not own**, so ids cannot be probed. Mongo filters always include `ownerId`. `/api/image/[id]` is replaced by `/api/projects/[id]/image/[imageId]` (owner, and the image must belong to that project) and signed URLs; closes SEC-01, SEC-06. `scripts/claim-projects.mts` assigns the migrated v1 desk and the filmed project to the learner's user id. Implements `prd.md > Ownership and Privacy (v3)`.
+
+### Store v3 — Mongo and the Buckets (v3)
+
+`lib/store/cloud.ts` grows from one `projects` collection to: `users`, `projects` (+ `ownerId`), `jobs`, `videos` (with `shots[]`), `shares`, `reports`, `settings`. Writes become **atomic updates with a `rev` compare-and-set** (already the pattern in v2's `revUpdate`), so web and worker can both write without the in-process lock; a short Redis lock (`SET NX PX`) only where a read-modify-write cannot be expressed as one update. Indexes: `projects {ownerId, updatedAt}`, `jobs {ownerId, status}`, `shares {token}` unique, `videos {ownerId, createdAt}`. The dashboard lists **summaries by projection**, not whole documents (CR-12, SEC-12). Bucket keys: `u/<userId>/p/<projectId>/<kind>/<id>.<ext>` in `PROJECT_FILES`; `u/<userId>/p/<projectId>/video/<videoId>/{shots/<n>.mp4, final.mp4, poster.jpg, captions.vtt}` and `…/audio/…`, `…/export/…` in `COMPILE_OUTPUTS`; `archive/…` for the repo's media. Every S3 and Mongo call gets a timeout (CR-6); images stream with an `ETag`, video always by signed redirect (CR-17). `S3_FORCE_PATH_STYLE` and `S3_PUBLIC_ENDPOINT` are honoured.
+
+### Queue and Worker (v3)
+
+`lib/queue/` (BullMQ 6, ioredis 5): three queues — `image` (concurrency 2), `video` (1), `audio` (2) — with `attempts`, exponential back-off, a per-job timeout, and BullMQ's stalled-job recovery replacing the `serverRunId` demote rule (CR-1, CR-9, CR-13). `worker/index.ts` runs the processors; the web service only enqueues. **Mongo `jobs` is the source of truth**: `queued → running → done | failed`, written before enqueue and on every transition, so a flushed Redis loses no history; a reconciler on worker start re-enqueues `queued` jobs that Redis no longer holds. Paid video submissions are written `submitting` **before** the POST and `submitted(jobId)` straight after — never re-submitted automatically (OpenRouter has no idempotency key and no list endpoint). Per-user fairness: one active video and at most N image jobs per user in flight (CR-10, SEC-08). Redis down → `enqueue` throws `Busy`, the route answers 503 with "The studio is busy" (PRD), reads keep working.
+
+### Limits, Quotas and the Kill Switch (v3)
+
+`lib/limits/` on Redis: sliding-window rate limits keyed on `userId` (and IP for anonymous routes) — paid text 10/min, paid image 6/min, uploads 20/hour, edits 120/min, reads 240/min, sign-up and share views per IP; **daily quotas** per plan (`free` vs `allowlisted`, from `ALLOWLIST_EMAILS`) as atomic counters with keys that expire at the daily reset; **spend reservation**: `reserve(userId, estUsd)` atomically (a Lua script: user cap, global daily cap, optional global total cap) before enqueue, `settle(userId, reserved, actualUsd)` with the provider's `usage.cost` when the job finishes, `release` on failure. The same counters feed `GET /api/usage`, the header meter and the Usage page. Closes SEC-02, SEC-08.
+
+### Request Hardening (v3)
+
+Every request schema gets `.max()` on every string and array and `.strict()` objects (SEC-03, CR-5); bodies are read with a size cap before parsing (chunked bodies included — SEC-04, CR-4); `experimental.proxyClientMaxBodySize` set; environment numbers validated (CR-15); a corrupt project document shows an error with a way out (CR-14); polling pauses in hidden tabs and never overlaps itself (CR-8).
+
+### Uploads (v3)
+
+Real type from the bytes, size cap enforced while streaming, **re-encoded** with `sharp` (strips EXIF/GPS and any appended payload), served with `X-Content-Type-Options: nosniff` (SEC-05); per-user storage quota.
+
+### Security Headers and CSP (v3)
+
+`next.config.ts` headers: CSP allowing only `self`, the Clerk Frontend API host, the bucket's signed-URL host, and nothing else for scripts; `frame-ancestors 'none'`; HSTS; `Referrer-Policy: strict-origin-when-cross-origin`; `nosniff`; `poweredByHeader: false` (SEC-09). Errors shown to users never carry internals (SEC-11). Secret-reading modules import `server-only` (SEC-15).
+
+### Sharing (v3)
+
+`shares {token, ownerId, kind: 'manga' | 'video', projectId | videoId, snapshot, createdAt, revokedAt}` — the token is 128 random bits, base62; the **snapshot** holds only title, style, reading direction, cover and panel image ids, bubble layout and dialogue (no DNA, scenario, plan, costs, owner). `app/s/[token]/page.tsx` renders a read-only reader or player; `opengraph-image.tsx` uses the cover or poster; `generateMetadata` adds `robots: noindex`; images and video through `/api/s/[token]/…`, which serve only ids in the snapshot. Unpublish sets `revokedAt` → `notFound()`, the same page as an unknown token. Implements `prd.md > Sharing (v3)`.
+
+### Reports (v3)
+
+`POST /api/s/[token]/report` (public, per-IP rate-limited): `reports {token, reason, note, at, ip-hash}`; `app/admin/reports` visible only to `ADMIN_EMAILS`, with Unpublish. Email delivery only if an email service is configured (open question). Implements `prd.md > Report (v3)`.
+
+### Settings, Usage, Terms and Privacy (v3)
+
+`app/settings/(account|defaults|sharing|data|usage)` — account through Clerk's `<UserProfile>`; defaults in `settings`; export as one zip (`yazl`) streamed to the bucket and downloaded by signed URL; **delete account** as a worker job that removes Mongo records, bucket prefixes, queued jobs, shares, and then the Clerk user — idempotent, so `user.deleted` from the webhook runs the same job. `app/terms`, `app/privacy` — static pages. Implements `prd.md > Settings (v3)`, `prd.md > Terms and Privacy (v3)`.
+
+### Animate a Page (v3)
+
+Implements `prd.md > Animate a Page (v3)`. In the worker:
+
+1. **Frames** (`lib/video/frames.ts`): each panel's image cropped or padded to a Seedance ratio (Seedance offers 16:9, 4:3, 1:1, 3:4, 9:16, 21:9 — **no 3:2**; wide 3:2 panels are cropped to 16:9, square panels go at 1:1 and are padded onto a 16:9 paper canvas at assembly), uploaded to `COMPILE_OUTPUTS`, sent as a signed URL — never a user-supplied URL (no SSRF path).
+2. **Motion prompt** (`lib/video/prompt.ts`): Claude (Terra fallback) turns the panel's action, camera and dialogue, the locked DNA word for word and the style rules into one continuous motion beat and one camera move, ending "no text, no speech bubbles, no captions".
+3. **Speech** (`lib/audio/tts.ts`, ported from `video/narrate.mts` — not imported: its `process.exit` and `spawnSync` would stop the server): one ElevenLabs voice per character (`Character.voice`, chosen once and kept), `/api/v1/audio/speech`, leveled to −16 LUFS; the shot's length is `clamp(ceil(speech + 1 s), 3, 5)` s.
+4. **Shot**: `POST /api/v1/videos` with `bytedance/seedance-2.0`, 720p, the chosen motion method (A or B, below), `generate_audio: false` (so the model does not invent speech), `seed`, `session_id = videoId`, `user = userId`; poll `GET /api/v1/videos/{id}` (or the signed webhook once the domain is public), download straight to the bucket — OpenRouter's copy expires.
+5. **Music** (`lib/audio/music.ts`, ported from `video/music/generate.mts`): one Lyria clip per trailer.
+6. **Assembly** (`lib/video/assemble.ts`, ffmpeg in the worker — not Remotion, which would need Chromium and `@remotion/renderer` server-side and a company licence above three people): normalise to 1280×720, 24 fps; overlay each bubble as a PNG lettered by the app's own renderer, timed to its line; lay in the voices; duck the music with v2's `mix.ts` constants; `loudnorm`; write `final.mp4`, `poster.jpg`, `captions.vtt`.
+7. **Progress**: each shot is a `videos.shots[n]` entry with its own state; a failed shot does not stop the others; **Try again** re-runs one shot.
+
+### Responsive (v3)
+
+From the measured punch list at 390 and 768 px (`devpost/security-report.md > Appendix — responsive`): the station rail becomes a compact stepper under 720 px with tap-to-explain on locked stations; bubble lettering sized from the panel (container units), not the viewport; 44 px touch targets; touch bubble editing through an edit sheet instead of drag; `100dvh`; the Director's page cards collapse; the reader swipes; dialogs become full-height sheets under 480 px.
+
+### Health, Status and Logs (v3)
+
+`GET /api/health` — 200 with `{web: ok, mongo, redis, worker}` (the worker writes a heartbeat key every 15 s); Railway deploys on it; a status line appears in the app when Redis or the worker is down. `pino` structured logs with a redaction list (keys, tokens, emails, prompts), request ids; error tracking only if the learner adds a service (open question).
+
+## Verified for v3 (2026-10-14)
+
+**OpenRouter video** (docs at `openrouter.ai/docs` — video generation guides and API reference; `GET /api/v1/videos/models`, 30 models):
+- `POST /api/v1/videos` → 202 `{id, polling_url, status: pending}`; `GET /api/v1/videos/{id}` → `pending | in_progress | completed | failed | cancelled | expired`, with `unsigned_urls` and `usage.cost`; `GET /api/v1/videos/{id}/content?index=0` with the bearer key; the result **expires** (`expires_at`) — download at once. No list endpoint, no idempotency key. Webhooks: per-request `callback_url` (HTTPS), `X-OpenRouter-Signature: t=…,v1=…` = HMAC-SHA256 of `"{t},{raw body}"`, 5-minute tolerance, de-duplicate on `X-OpenRouter-Idempotency-Key`. Video is not eligible for zero data retention.
+- Fields: `model, prompt, duration, resolution, aspect_ratio | size, generate_audio, seed, callback_url, session_id, user, frame_images[{type:'image_url', image_url:{url}, frame_type:'first_frame'|'last_frame'}], input_references[]` (image; audio and video references on Seedance 2+). **`frame_images` and `input_references` are exclusive** — sent together, the references are dropped (OpenRouter docs and ByteDance ModelArk docs). Reference images: 1–9 on Seedance 2.0, 1–30 on 2.5. Seedance 2.x **refuses reference images with real human faces**.
+- `bytedance/seedance-2.0`: 480p–4K, 4–15 s, ratios 1:1, 3:4, 9:16, 4:3, 16:9, 21:9, 9:21, first and last frame, `seed`, audio; **$7.0 per million video tokens** ($7.7/M at 1080p), audio at no extra cost. **Tokens = W × H × seconds × 24 / 1024** (OpenRouter's model page; checked against its own per-second prices). So 720p 16:9 = 21,600 tokens/s = **$0.151/s, $0.756 per 5 s**; 720p 1:1 = $0.085/s; 480p 16:9 on `seedance-2.0-fast` ($4.2/M) = $0.040/s.
+- The billed `usage.cost` with references attached is the one thing still to confirm by the first paid shot.
+
+**Clerk** (`@clerk/nextjs` 7.9.15 unpacked; clerk.com docs): peer `next ^16`, `react ~19.3`; Node ≥ 20.9; `proxy.ts` on Next 16; `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` is the name read; `CLERK_JWT_KEY` passed as `jwtKey`; `verifyWebhook` reads `CLERK_WEBHOOK_SIGNING_SECRET`; `createRouteMatcher` deprecated; Core 3 removed `SignedIn`/`SignedOut`/`Protect` in favour of `<Show>`; production needs own Google/GitHub OAuth credentials and DNS records; keyless mode exists for development only.
+
+**Next 16.4** (`node_modules/next/dist/docs`): `middleware` deprecated and renamed `proxy`, Node runtime always, both files present is a build error; Proxy buffers request bodies up to `experimental.proxyClientMaxBodySize` (10 MB default); `after()` lasts only as long as the route's `maxDuration` — not a queue.
+
+**Railway** (docs.railway.com): custom domain = `CNAME` + `TXT`; apex through CNAME flattening or ALIAS; Trial plan = one custom domain; health check path, 300 s default timeout, from `healthcheck.railway.app`; Redis exposes `REDIS_URL`; private networking at `<service>.railway.internal`.
+
+**History scan:** all 80 commits searched for OpenRouter, Anthropic, Clerk, AWS/R2, Mongo-with-password, Redis-with-password, webhook-secret and PEM patterns — **no match**; `.env` was never committed (only `.env.example`). A `gitleaks` run is part of slice 16 to confirm with a maintained rule set.
+
+## Production Models (v3) — proposed, each adopted only after a test
+
+| Model (OpenRouter) | Purpose | Cost (verified listing) | Test before adopting |
+|---|---|---|---|
+| `bytedance/seedance-2.0` | **the trailer's shots** | $0.151/s at 720p 16:9 | the motion kernel test |
+| `bytedance/seedance-2.0-fast` | development and previews at 480p | $0.040/s at 480p 16:9 | used for dev only; never the claim |
+| `bytedance/seedance-2.0-mini` | cheapest 2.x; `return_last_frame` chains shots | $3.5/M tokens | continuity test across two shots |
+| `bytedance/seedance-2.5` | 30 s shots, 30 references, extend a shot | $10.7/M tokens | motion kernel test |
+| `black-forest-labs/flux-video-upscale` | a 1080p master from 720p | 7.5¢ per megapixel-second (input or output basis unstated) | one paid probe to read the bill |
+| `black-forest-labs/flux-video-edit` | fix one detail without re-generating | listed per second | a before/after on a failed shot |
+| `kwaivgi/kling-v3.0-std` / `-pro` | fallback image-to-video | $0.084 / $0.112 per s | the motion kernel test |
+| `google/veo-3.1-lite` | cheap fallback with native audio | ≈ $0.05/s at 720p | the motion kernel test |
+| `elevenlabs/eleven-v4` | one voice per character | $0.00004/char | already used (v2 narration) |
+| `google/lyria-3-clip-preview` | the trailer's music | $0.04 per 30 s | already used (v2 music) |
+
+Frame interpolation is not offered as a separate model on OpenRouter's listing; Seedance's own 24 fps output is used as is.
+
+## Data Model (v3)
+
+- `users {_id: clerkUserId, email, plan: 'free'|'allowlisted', admin: bool, createdAt, deletedAt?}`
+- `projects` — v2's `Project` + `ownerId`; nothing else moves
+- `jobs {_id, ownerId, projectId, kind: 'sheet'|'panel'|'cover'|'text'|'shot'|'speech'|'music'|'assemble'|'export'|'delete-account', status, attempts, reservedUsd, costUsd, error?, providerJobId?, createdAt, updatedAt}`
+- `videos {_id, ownerId, projectId, page, status, shots: [{panel, method, state, providerJobId?, blobKey?, seconds, costUsd, error?}], finalKey?, posterKey?, captionsKey?, seconds, costUsd, createdAt}`
+- `shares {_id: token, ownerId, kind, projectId?, videoId?, snapshot, createdAt, revokedAt?}`
+- `reports {_id, token, reason, note, ipHash, at, handledAt?}`
+- `settings {_id: userId, defaultStyle, readingDirection, voices: {lead, counterpart}}`
+- Redis: `rl:<bucket>:<id>` (sliding windows), `quota:<userId>:<YYYYMMDD>:<kind>`, `spend:<userId>:<YYYYMMDD>`, `spend:global:<YYYYMMDD>`, `spend:global:total`, `heartbeat:worker`, `lock:<key>`
+
+## Failure Modes (v3)
+
+| What fails | What the user sees | What the system does |
+|---|---|---|
+| Redis down | "The studio is busy — try again in a few minutes" on generate buttons | enqueue refused (503); reads, reader, shares work from Mongo and the bucket |
+| Worker down | the status line; jobs stay *queued* | the reconciler re-enqueues on start; nothing paid is lost |
+| Mongo down | an error page with a retry | health check fails; Railway holds the old deploy |
+| A Seedance shot fails or is refused (real face, policy) | that shot's card: why, **Try again** | others continue; reservation released |
+| OpenRouter 402 (credit) | "The studio has paused generation for today" | global switch trips; learner alerted in logs |
+| Global daily cap reached | the same pause message for everyone | `reserve` refuses before any call |
+| A user over quota | disabled buttons with reason and reset time | `reserve` refuses |
+| Crash between a paid video POST and saving its job id | the shot shows *failed — not charged twice* | marked `orphaned`, never re-submitted; findable in OpenRouter's logs by `session_id` |
+| Clerk webhook replay | nothing | de-duplicated on the message id |
+| Share revoked | not found | same page as an unknown token |
+
+## File Structure (v3)
+
+```
+proxy.ts                               # Clerk gate, www→apex, Origin check, per-IP limits on public routes
+instrumentation.ts                     # boot: validate config (fail fast)
+worker/index.ts                        # BullMQ processors: image, video, audio; reconciler; heartbeat
+lib/config.ts                          # every env variable, zod-validated, server-only; the learner's names mapped
+lib/auth/{session,access}.ts           # requireUser(); ownedProject/ownedVideo/ownedBlob → 404
+lib/limits/{rate,quota,spend}.ts       # Redis sliding windows, daily counters, reserve/settle/release (Lua)
+lib/queue/{queues,jobs,enqueue}.ts     # BullMQ queues; Mongo jobs as the record
+lib/store/{cloud,local,index}.ts       # + users, jobs, videos, shares, reports, settings; two buckets; signed URLs
+lib/video/{frames,prompt,shots,assemble,cost,models}.ts
+lib/audio/{tts,music}.ts               # ported from video/narrate.mts and video/music/generate.mts
+lib/share/snapshot.ts
+lib/log.ts                             # pino with redaction
+app/sign-in/[[...sign-in]]/page.tsx, app/sign-up/[[...sign-up]]/page.tsx
+app/terms/page.tsx, app/privacy/page.tsx
+app/settings/{account,defaults,sharing,data,usage}/page.tsx
+app/admin/reports/page.tsx
+app/s/[token]/{page,opengraph-image}.tsx
+app/api/health/route.ts
+app/api/usage/route.ts
+app/api/webhooks/clerk/route.ts
+app/api/projects/[id]/image/[imageId]/route.ts     # replaces /api/image/[id]
+app/api/projects/[id]/pages/[n]/animate/route.ts   # estimate (GET), confirm (POST)
+app/api/videos/[videoId]/route.ts                  # status, retry a shot
+app/api/projects/[id]/share/route.ts, app/api/videos/[videoId]/share/route.ts
+app/api/s/[token]/{image/[imageId],video,report}/route.ts
+app/api/settings/{export,delete}/route.ts
+components/{QuotaMeter,AnimateStation,ShotCard,ShareDialog,ReportDialog,UsagePanel}.tsx
+scripts/{claim-projects,move-media-to-bucket}.mts
+scripts/{auth,limits,queue,share,video,config}-check.mts
+devpost/security-report.md
+```
+
+## Dependencies (v3)
+
+Pinned exactly, each at least a few days old at install: `@clerk/nextjs` 7.9.14 (7.9.15 published 2026-10-13), `bullmq` 6.3.12 (2026-10-09), `ioredis` 5.11.1 (6.0.0 is two days old; BullMQ accepts ≥ 5), `sharp` 0.35.5, `yazl` 3.3.1, `pino` 10.4.0, `server-only`. Docs: clerk.com/docs, docs.bullmq.io, docs.railway.com, openrouter.ai/docs (video, audio), sharp.pixelplumbing.com.
+
+## Quality, Cost and Budget (v3)
+
+Development at `low` images and **480p `seedance-2.0-fast`** for trailer runs; the motion kernel test and the filmed trailer at **720p `seedance-2.0`**. The arithmetic and the over-budget finding are in `scope.md > Budget (v3)`: ≈ $8.50 needed, ≈ $7.70 left, plus the public kill switch. Proposed guard, the learner's to accept: `GLOBAL_DAILY_USD_CAP=5` **and** `GLOBAL_TOTAL_USD_CAP` (a cumulative ceiling across all days), **and** a credit limit on the OpenRouter key itself, with auto top-up off.
+
+## Decisions and Open Issues (v3)
+
+- **One useful unknown — the motion method.** The learner's first design put the panel as the first frame *and* the sheet as a reference in one call; the docs say that cannot be done. The motion kernel test (`scripts/kernel-test.mjs --motion`) answers which allowed method holds the face: A (first frame) or B (both as references, the panel named as the opening frame). The learner chooses from the frame strips; the choice is recorded here.
+- **Whose variables are these?** (`Environment and Configuration (v3)`) — blocks slice 16.
+- **The domain** — blocks the DNS work in slice 16 and Clerk production in slice 18.
+- **Budget, kill switch, cumulative cap** — the learner's (`scope.md > Budget (v3)`).
+- **Error tracking service, email service for reports** — the learner's; logs and the admin list work without them.
+- **Tags** — this session's push of tag refs is refused (HTTP 403); the learner pushes each tag.
