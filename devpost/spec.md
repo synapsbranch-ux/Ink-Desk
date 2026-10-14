@@ -1,6 +1,6 @@
 ---
 doc: spec
-status: draft
+status: approved
 ---
 
 # Ink Desk — Technical Spec
@@ -8,7 +8,7 @@ status: draft
 The blueprint for `prd.md`. One Next.js app, two AI providers called from the
 server, one chapter of work kept on disk.
 
-> **Revised again 2026-10-14 — v3, draft for review: see [Revision — Ink Desk Studio v3](#revision--ink-desk-studio-v3-public-on-the-learners-domain)
+> **Revised again 2026-10-14 — v3, approved 2026-10-14: see [Revision — Ink Desk Studio v3](#revision--ink-desk-studio-v3-public-on-the-learners-domain)
 > at the very end, with its *Changes Since Approval*.**
 >
 > **Revised 2026-10-13 — see [Revision — Ink Desk Studio (v2)](#revision--ink-desk-studio-v2)
@@ -2065,7 +2065,7 @@ Same pattern as v1 (scratch folder, `INKDESK_DATA_DIR`, dynamic imports,
 
 # Revision — Ink Desk Studio v3 (public, on the learner's domain)
 
-> **Draft, 2026-10-14 — awaiting the learner's review.** Implements `prd.md > Revision — Ink Desk Studio v3`, from `scope.md > Revision — Ink Desk Studio v3`. Everything above stays the record of v1 and v2. The facts below marked *verified* were read off the live APIs, the installed packages and the providers' docs on 2026-10-14 — not from memory; no paid call was made to gather them.
+> **Approved 2026-10-14** — the learner's word: *"start with slice 16"*. Implements `prd.md > Revision — Ink Desk Studio v3`, from `scope.md > Revision — Ink Desk Studio v3`. Everything above stays the record of v1 and v2. The facts below marked *verified* were read off the live APIs, the installed packages and the providers' docs on 2026-10-14 — not from memory; no paid call was made to gather them.
 
 ## Changes Since Approval
 

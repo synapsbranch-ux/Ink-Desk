@@ -1,13 +1,13 @@
 ---
 doc: scope
-status: draft
+status: approved
 ---
 
 # Ink Desk
 
 An AI manga creator studio: you pitch a story idea, and the app turns it into a real manga page with your own characters drawn consistently across every panel.
 
-> **Revised again 2026-10-14 — v3, draft for review: see [Revision — Ink Desk Studio v3](#revision--ink-desk-studio-v3-public-on-the-learners-domain) at the very end, with its *Changes Since Approval*.**
+> **Revised again 2026-10-14 — v3, approved 2026-10-14: see [Revision — Ink Desk Studio v3](#revision--ink-desk-studio-v3-public-on-the-learners-domain) at the very end, with its *Changes Since Approval*.**
 >
 > **Revised 2026-10-13 — see [Revision — Ink Desk Studio (v2)](#revision--ink-desk-studio-v2) at the end.** The sections below are the approved v1 scope, kept intact as the record of what was built and tagged `v1-poc`. The revision restates the kernel, widens the boundary to a multi-page chapter studio, and names the demo video as a deliverable. Where v2 supersedes a v1 line, the revision says so; nothing below was edited in place.
 
@@ -279,7 +279,7 @@ The lettering rule (bubbles are app UI, never drawn by the model), the no-text r
 
 # Revision — Ink Desk Studio v3 (public, on the learner's domain)
 
-> **Draft, 2026-10-14 — awaiting the learner's review.** Decided by the learner the same day, after the v2 build was filmed: *"v3 is part of the hackathon submission."* v1 and v2 above stay intact as the record of what was built (`v1-poc`, then the v2 slices 8–15). Where v3 supersedes a v2 line, the change is listed under **Changes Since Approval**.
+> **Approved 2026-10-14** — the learner's word: *"start with slice 16"*. Decided by the learner the same day, after the v2 build was filmed: *"v3 is part of the hackathon submission."* v1 and v2 above stay intact as the record of what was built (`v1-poc`, then the v2 slices 8–15). Where v3 supersedes a v2 line, the change is listed under **Changes Since Approval**.
 
 ## Changes Since Approval
 

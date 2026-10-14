@@ -1,13 +1,13 @@
 ---
 doc: prd
-status: draft
+status: approved
 ---
 
 # Ink Desk — Product Requirements
 
 An AI manga creator studio for storytellers and manga fans who have ideas but can't draw: you pitch a story, and Ink Desk turns it into a real 4-panel manga page with your own characters drawn consistently across every panel.
 
-> **Revised again 2026-10-14 — v3, draft for review: see [Revision — Ink Desk Studio v3](#revision--ink-desk-studio-v3-public-on-the-learners-domain) at the very end, with its *Changes Since Approval*.**
+> **Revised again 2026-10-14 — v3, approved 2026-10-14: see [Revision — Ink Desk Studio v3](#revision--ink-desk-studio-v3-public-on-the-learners-domain) at the very end, with its *Changes Since Approval*.**
 >
 > **Revised 2026-10-13 — see [Revision — Ink Desk Studio (v2)](#revision--ink-desk-studio-v2) at the end.** Everything below is the approved v1 PRD, built and tagged `v1-poc`, kept intact. The v2 section adds the dashboard, projects with a locked style, scenario mode, the library with imported references, the Director's chapter plan, the chapter reader and the PDF export; the v1 page journey becomes the inner loop of every page. Source: `scope.md > Revision — Ink Desk Studio (v2)`.
 
@@ -504,7 +504,7 @@ The ten numbered items of `scope.md > The POC Boundary (v2)`, as behavior above:
 
 # Revision — Ink Desk Studio v3 (public, on the learner's domain)
 
-> **Draft, 2026-10-14 — awaiting the learner's review.** Source: `scope.md > Revision — Ink Desk Studio v3`, decided by the learner the same day. The v2 studio journey above is unchanged and becomes what a signed-in user does inside their own projects; v3 adds who they are, what they may spend, how they share, and the animated page. Product behavior only — the how is `spec.md > Revision v3`.
+> **Approved 2026-10-14** — the learner's word: *"start with slice 16"*. Source: `scope.md > Revision — Ink Desk Studio v3`, decided by the learner the same day. The v2 studio journey above is unchanged and becomes what a signed-in user does inside their own projects; v3 adds who they are, what they may spend, how they share, and the animated page. Product behavior only — the how is `spec.md > Revision v3`.
 
 ## Changes Since Approval
 
