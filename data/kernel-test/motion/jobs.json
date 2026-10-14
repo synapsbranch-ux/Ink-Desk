@@ -60,6 +60,12 @@
       "prompt": "Animate this manga panel into one continuous 5-second shot.\nThe attached image is the first frame: begin exactly on it, then let it move.\n\nCamera: Slow tracking shot to the right, following him; the city stays behind him.\nAction: He sails through the air across the rooftop gap, scarf streaming behind him, and comes down on the far rooftop in a low running crouch.\n\nHis fixed appearance, which does not change at any point in the shot:\nKaito Ren, an 18-year-old male rooftop courier. Short messy black hair with a blunt fringe falling over the left eyebrow. Sharp amber eyes, thin angular face, light olive skin. Wears a dark grey high-collared courier jacket over a white shirt, cargo trousers and worn lace-up boots. Distinguishing marks: a long pale scar through the right eyebrow, and a frayed deep-red scarf always wound twice around his neck, one end hanging to his waist.\n\nKeep the exact black-and-white manga ink style of the opening image for the whole shot: screentone shading, confident inked linework, no colour, no 3D or photoreal rendering, no change of style.\nNo text, no speech bubbles, no captions, no sound-effect lettering and no watermark anywhere in the shot.",
       "inputReferences": [
         "inputs/wide.jpg (first_frame)"
+      ],
+      "status": "completed",
+      "costUsd": 0.7623,
+      "generationMs": 153416,
+      "unsignedUrls": [
+        "https://openrouter.ai/api/v1/videos/gen-vid-1792001992-fkz5mBHbSHCml9poN88F/content?index=0"
       ]
     },
     "B-wide": {
