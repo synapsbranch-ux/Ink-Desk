@@ -118,6 +118,8 @@
     border:1px solid var(--n300);padding:var(--s4);overflow-x:auto;white-space:pre}
   .tree b{color:var(--hanko);font-weight:400}
   .tree i{color:var(--n600);font-style:normal}
+  #v3 p code,#v3 li code{overflow-wrap:anywhere}
+  #v3 .stamp{transform:rotate(-3deg)}
   footer{margin-top:var(--s6);padding-top:var(--s4);border-top:1.5px solid var(--ink);font-size:13.5px;color:var(--n700)}
 </style>
 </head>
@@ -144,7 +146,8 @@
       <span class="tag">claude-sonnet-5-5</span>
       <span class="tag tag-red">openai/gpt-image-2.5-sunburst</span>
       <span class="tag">via OpenRouter</span>
-      <span class="tag tag-quiet">Local only</span>
+      <span class="tag tag-quiet">v1·v2 local · v3 on Railway (draft)</span>
+      <a class="tag tag-red" href="#v3" style="text-decoration:none">v3 · draft ↓</a>
     </div>
   </div>
 </header>
@@ -1349,6 +1352,1054 @@ ChapterPlan { pageCount, coverBrief, pages[{ panels: PanelLine[4] }] }</pre>
   <p><strong>Checks</strong>, same stubbed pattern as v1: <code>check:store</code> (migration, two projects, cloud half only with <code>MONGODB_URI</code>), <code>check:llm</code> (fallback triggers, strict schemas), <code>check:models</code> (body per model, caps, presets verbatim), <code>check:assets</code>, <code>check:plan</code>, <code>check:export</code> (PDF, RTL, vertical, gate), <code>check:demo-timeline</code>; <code>kernel-test.mjs</code> stays the only live script.</p>
   <p class="quiet"><strong>New failure modes:</strong> Claude unavailable → Terra answers, terminal names it; a fallback reply failing the schema → one retry then the calm sentence, never written; a bad upload → a sentence, nothing stored; an unreadable v1 file → an empty dashboard naming the file, the file untouched; cloud mode missing env → refused at startup by name; an unsupported model parameter → refused before the request leaves.</p>
   <p class="quiet"><strong>Open, answered by the build:</strong> the strict-schema shape of the v1 output schemas (slice 9); Next 16.4's <code>params</code> and boundaries (slice 8, by reading the docs); whether a candidate lock holds (slice 15, ≈ $0.10 each); whether one alternative model is worth adding before Oct 18; the exact Remotion version and flags (slice 14).</p>
+</section>
+
+<hr class="rule">
+
+<!-- ============================= REVISION v3 (DRAFT) ============================= -->
+<section id="v3">
+  <p class="eyebrow">Revision · 2026-10-14 · Ink Desk Studio v3 (public, on the learner&#8217;s domain)</p>
+  <div class="metarow" style="margin:var(--s3) 0 var(--s4)">
+    <span class="stamp">Draft &mdash; awaiting your review</span>
+    <span class="tag tag-solid">Railway · web + worker</span>
+    <span class="tag">Mongo · Redis · R2</span>
+    <span class="tag tag-red">Clerk Core 3</span>
+    <span class="tag tag-quiet">Public</span>
+  </div>
+  <p class="note">Draft, 2026-10-14 &mdash; awaiting the learner&#8217;s review. Implements
+    <code>prd.md &gt; Revision — Ink Desk Studio v3</code>, from
+    <code>scope.md &gt; Revision — Ink Desk Studio v3</code>. Everything above stays the record of
+    v1 and v2. The facts below marked <em>verified</em> were read off the live APIs, the installed
+    packages and the providers&#8217; docs on 2026-10-14 &mdash; not from memory; <strong>no paid
+    call was made to gather them.</strong></p>
+
+  <h2 style="margin-top:var(--s4)">What changes, in plain language</h2>
+  <p>A visitor opens the domain. The <strong>web</strong> service answers: if they are not signed in,
+    Clerk&#8217;s sign-in screen; if they are, their dashboard, built from <strong>Mongo</strong>
+    &mdash; their projects, videos and quota. Every request the browser makes carries the Clerk
+    session; the server asks &ldquo;who is this?&rdquo; and then reads only that user&#8217;s
+    records.</p>
+  <p>When they press a button that costs money, the web service first asks <strong>Redis</strong>
+    &ldquo;is this user under their limit, and is the whole site under today&#8217;s spend
+    cap?&rdquo;, reserves the estimated cost, writes a <strong>job</strong> record in Mongo and puts
+    the job on a <strong>BullMQ</strong> queue &mdash; then answers immediately. The
+    <strong>worker</strong> service picks the job up, calls OpenRouter (an image, a Seedance shot, a
+    voice line), stores the file in the <strong>bucket</strong>, writes the result and the real cost
+    to Mongo, and settles the reservation in Redis. The browser polls the job records and shows
+    progress.</p>
+  <p>To show a file, the server hands the browser a signed URL that works for a few minutes. To
+    share, the owner creates a snapshot with an unguessable token; anyone with the link sees that
+    snapshot and nothing else.</p>
+
+  <!-- ---------- CHANGES SINCE APPROVAL ---------- -->
+  <h3 style="margin-top:var(--s5)">Changes since approval</h3>
+  <p class="quiet">Against the approved v2 spec. Everything above stays the record of v1 and v2.</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th style="width:4%">#</th><th style="width:18%">Area</th><th>v2, approved</th><th>v3, this draft</th></tr></thead>
+      <tbody>
+        <tr><td class="num">1</td><td><strong>Where it runs</strong></td>
+          <td>Local only; cloud is a switch, the demo runs local.</td>
+          <td><strong>Railway, two services from <code>main</code></strong>: <code>web</code>
+            (<code>next start</code>) and <code>worker</code> (a Node process). One replica each.</td></tr>
+        <tr><td class="num">2</td><td><strong>Storage</strong></td>
+          <td>Local by default, Mongo + one bucket switchable.</td>
+          <td><strong>MongoDB as the source of truth in production</strong> and <strong>two private
+            R2 buckets</strong> (<code>S3_BUCKET_PROJECT_FILES</code> for images and uploads,
+            <code>S3_BUCKET_COMPILE_OUTPUTS</code> for videos, audio and exports), served through
+            short-lived signed URLs. The local adapter stays for development and the checks.</td></tr>
+        <tr class="hl"><td class="num">3</td><td><strong>The queue</strong></td>
+          <td>An in-process FIFO with a <code>serverRunId</code> floor and a per-project
+            promise-chain lock on <code>globalThis</code> &mdash; all of which stop protecting
+            anything once web and worker are separate processes (confirmed as CR-1, CR-3).</td>
+          <td><strong>BullMQ on Redis</strong>, with Mongo <code>jobs</code> as the record of status
+            and results.</td></tr>
+        <tr><td class="num">4</td><td><strong>Auth</strong></td>
+          <td>None.</td>
+          <td><strong>Clerk</strong> (<code>@clerk/nextjs</code> Core 3), a <code>proxy.ts</code>
+            gate, and a <strong>data-access layer</strong> that checks the owner next to every read
+            and write.</td></tr>
+        <tr><td class="num">5</td><td><strong>Limits</strong></td>
+          <td>None.</td>
+          <td>Redis sliding windows, daily quota counters, a per-user spend reservation and a global
+            kill switch.</td></tr>
+        <tr><td class="num">6</td><td><strong>New surfaces</strong></td>
+          <td>&mdash;</td>
+          <td>Share pages, reports, settings, usage, Terms/Privacy, health, the Animate
+            pipeline.</td></tr>
+        <tr class="hl"><td class="num">7</td><td><strong>Security baseline</strong></td>
+          <td>&mdash;</td>
+          <td>The pre-build audit (<code>devpost/security-report.md</code>, 15 security and 18
+            stability findings, every one confirmed by an adversarial verifier) is part of the plan:
+            each finding is closed by a named slice.</td></tr>
+        <tr><td class="num">8</td><td><strong>Models</strong></td>
+          <td>Text model and image model as approved.</td>
+          <td><strong>Text model id</strong> unchanged; <strong>image model</strong> unchanged;
+            <strong>video</strong> <code>bytedance/seedance-2.0</code> and <strong>speech</strong>
+            <code>elevenlabs/eleven-v4</code> join, all through OpenRouter.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ---------- ARCHITECTURE DIAGRAM ---------- -->
+  <h3 style="margin-top:var(--s5)">The v3 architecture</h3>
+  <figure>
+    <div class="svgbox">
+      <svg viewBox="0 0 900 560" role="img" aria-label="v3 architecture: the browser calls the Railway web service (proxy.ts, route handlers, data-access layer), which reads and writes Mongo, Redis and two R2 buckets and enqueues jobs on BullMQ; the Railway worker takes jobs from Redis, calls OpenRouter for images, Seedance video, ElevenLabs speech, Lyria music and fallback text, assembles with ffmpeg, and writes files to the buckets and status and cost to Mongo">
+        <defs>
+          <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0 0 L10 5 L0 10 z" fill="#201f1d"/></marker>
+          <marker id="ar3R" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0 0 L10 5 L0 10 z" fill="#b5382e"/></marker>
+        </defs>
+
+        <!-- BROWSER -->
+        <rect x="14" y="50" width="150" height="200" fill="#f3f2f2" stroke="#201f1d" stroke-width="1.5"/>
+        <text class="lbl" x="22" y="40">A visitor</text>
+        <text x="89" y="80" text-anchor="middle" font-size="17" font-weight="700" fill="#201f1d">Browser</text>
+        <text x="89" y="100" text-anchor="middle" font-size="11.5" fill="#605d5d">on your domain</text>
+        <line x1="30" y1="114" x2="148" y2="114" stroke="#d7d3d3"/>
+        <g font-size="12" fill="#444141" text-anchor="middle">
+          <text x="89" y="136">Clerk session</text>
+          <text x="89" y="152">on every request</text>
+          <text x="89" y="176">polls job records,</text>
+          <text x="89" y="192">shows progress</text>
+        </g>
+        <rect x="26" y="210" width="126" height="28" fill="#eae9e9" stroke="#bab6b6"/>
+        <text class="mono" x="89" y="228" text-anchor="middle" font-size="10" fill="#605d5d">files: signed URL</text>
+
+        <!-- WEB -->
+        <rect x="200" y="50" width="360" height="200" fill="#f3f2f2" stroke="#201f1d" stroke-width="1.5"/>
+        <text class="lbl" x="208" y="40">Railway · web · next start</text>
+        <text x="380" y="72" text-anchor="middle" font-size="15" font-weight="700" fill="#201f1d">web service</text>
+        <rect x="216" y="84" width="328" height="46" fill="#fcecea" stroke="#eba49d"/>
+        <text class="mono" x="226" y="102" font-size="11.5" font-weight="700" fill="#3e140f">proxy.ts</text>
+        <text x="226" y="120" font-size="11" fill="#444141">Clerk gate · Origin check · www → apex · per-IP limits</text>
+        <rect x="216" y="138" width="328" height="46" fill="#f8f4f4" stroke="#d7d3d3"/>
+        <text class="mono" x="226" y="156" font-size="11.5" font-weight="700" fill="#201f1d">route handlers · app/api/…</text>
+        <text x="226" y="174" font-size="11" fill="#444141">requireUser() inside every handler · only enqueues</text>
+        <rect x="216" y="192" width="328" height="46" fill="#f8f4f4" stroke="#d7d3d3"/>
+        <text class="mono" x="226" y="210" font-size="11.5" font-weight="700" fill="#201f1d">lib/auth/access.ts · data access</text>
+        <text x="226" y="228" font-size="11" fill="#444141">ownerId in every Mongo filter · 404 if not yours</text>
+
+        <!-- STORES -->
+        <rect x="200" y="290" width="110" height="84" fill="#eae9e9" stroke="#201f1d" stroke-width="1.5"/>
+        <text x="255" y="309" text-anchor="middle" font-size="13" font-weight="700" fill="#201f1d">R2 buckets</text>
+        <g class="mono" font-size="9.5" fill="#3e140f" text-anchor="middle">
+          <text x="255" y="327">PROJECT_FILES</text>
+          <text x="255" y="342">COMPILE_OUTPUTS</text>
+        </g>
+        <text x="255" y="362" text-anchor="middle" font-size="10.5" fill="#605d5d">signed URLs only</text>
+
+        <rect x="325" y="290" width="110" height="84" fill="#eae9e9" stroke="#201f1d" stroke-width="1.5"/>
+        <text x="380" y="309" text-anchor="middle" font-size="13" font-weight="700" fill="#201f1d">MongoDB</text>
+        <g font-size="10.5" fill="#444141" text-anchor="middle">
+          <text x="380" y="327">source of truth</text>
+          <text x="380" y="342">jobs: status, cost</text>
+          <text x="380" y="362" fill="#605d5d">private network</text>
+        </g>
+
+        <rect x="450" y="290" width="110" height="84" fill="#eae9e9" stroke="#201f1d" stroke-width="1.5"/>
+        <text x="505" y="309" text-anchor="middle" font-size="13" font-weight="700" fill="#201f1d">Redis</text>
+        <g font-size="10.5" fill="#444141" text-anchor="middle">
+          <text x="505" y="327">BullMQ queues</text>
+          <text x="505" y="342">limits · spend</text>
+          <text x="505" y="362" fill="#605d5d">worker heartbeat</text>
+        </g>
+
+        <!-- WORKER -->
+        <rect x="200" y="410" width="360" height="132" fill="#eae9e9" stroke="#201f1d" stroke-width="1.5"/>
+        <text class="lbl" x="212" y="430">Railway · worker · npm run worker</text>
+        <g class="mono" font-size="11">
+          <rect x="212" y="440" width="104" height="26" fill="#f8f4f4" stroke="#d7d3d3"/><text x="264" y="457" text-anchor="middle" fill="#444141">image × 2</text>
+          <rect x="328" y="440" width="104" height="26" fill="#fcecea" stroke="#eba49d"/><text x="380" y="457" text-anchor="middle" fill="#3e140f">video × 1</text>
+          <rect x="444" y="440" width="104" height="26" fill="#f8f4f4" stroke="#d7d3d3"/><text x="496" y="457" text-anchor="middle" fill="#444141">audio × 2</text>
+        </g>
+        <text x="212" y="486" font-size="11.5" fill="#201f1d"><tspan font-weight="700">ffmpeg</tspan> in the image &mdash; assembles the trailer</text>
+        <text class="mono" x="212" y="503" font-size="10.5" fill="#605d5d">final.mp4 · poster.jpg · captions.vtt</text>
+        <text x="212" y="528" font-size="11" fill="#605d5d">reconciler on start · heartbeat every 15 s</text>
+
+        <!-- EXTERNAL -->
+        <rect x="620" y="50" width="266" height="52" fill="#f3f2f2" stroke="#201f1d" stroke-width="1.5"/>
+        <text x="753" y="72" text-anchor="middle" font-size="14" font-weight="700" fill="#201f1d">Clerk</text>
+        <text x="753" y="91" text-anchor="middle" font-size="11" fill="#605d5d">sign-in · users · webhooks</text>
+
+        <rect x="620" y="116" width="266" height="56" fill="#f3f2f2" stroke="#201f1d" stroke-width="1.5"/>
+        <text x="753" y="138" text-anchor="middle" font-size="13.5" font-weight="700" fill="#201f1d">Claude · Anthropic API</text>
+        <text x="753" y="158" text-anchor="middle" font-size="11" fill="#605d5d">text first; Terra fallback through OpenRouter</text>
+
+        <rect x="620" y="200" width="266" height="342" fill="#fcecea" stroke="#b5382e" stroke-width="1.5"/>
+        <text x="753" y="224" text-anchor="middle" font-size="15" font-weight="700" fill="#3e140f">OpenRouter</text>
+        <text class="mono" x="753" y="242" text-anchor="middle" font-size="9.5" fill="#605d5d">one key · OPENROUTER_API_KEY</text>
+        <text class="lbl" x="634" y="270">images</text>
+        <text class="mono" x="634" y="286" font-size="10" fill="#201f1d">openai/gpt-image-2.5-sunburst</text>
+        <text class="lbl" x="634" y="312" fill="#b5382e">video · the shots</text>
+        <text class="mono" x="634" y="328" font-size="10" fill="#3e140f" font-weight="700">bytedance/seedance-2.0 · 720p</text>
+        <text class="lbl" x="634" y="354">speech · one voice each</text>
+        <text class="mono" x="634" y="370" font-size="10" fill="#201f1d">elevenlabs/eleven-v4</text>
+        <text class="lbl" x="634" y="396">music · one clip a trailer</text>
+        <text class="mono" x="634" y="412" font-size="10" fill="#201f1d">google/lyria-3-clip-preview</text>
+        <text class="lbl" x="634" y="438">text · fallback</text>
+        <text class="mono" x="634" y="454" font-size="10" fill="#201f1d">openai/gpt-5.6-terra</text>
+        <line x1="634" y1="472" x2="872" y2="472" stroke="#eba49d"/>
+        <text x="634" y="492" font-size="11" fill="#3e140f">a video result expires &mdash; download</text>
+        <text x="634" y="508" font-size="11" fill="#3e140f">straight to the bucket</text>
+        <text x="634" y="528" font-size="11" fill="#605d5d">no idempotency key, no list endpoint</text>
+
+        <!-- ARROWS: browser <-> web -->
+        <line x1="164" y1="100" x2="194" y2="100" stroke="#201f1d" stroke-width="1.5" marker-end="url(#ar3)"/>
+        <text x="180" y="92" text-anchor="middle" font-size="10" fill="#605d5d">fetch</text>
+        <line x1="200" y1="170" x2="170" y2="170" stroke="#b5382e" stroke-width="1.5" marker-end="url(#ar3R)"/>
+        <text x="184" y="162" text-anchor="middle" font-size="10" fill="#b5382e">status</text>
+        <!-- browser -> bucket by signed URL -->
+        <path d="M89 250 V331 H194" fill="none" stroke="#b5382e" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#ar3R)"/>
+        <text x="96" y="284" font-size="10" fill="#b5382e">signed URL,</text>
+        <text x="96" y="298" font-size="10" fill="#b5382e">a few minutes</text>
+
+        <!-- web -> stores -->
+        <line x1="255" y1="250" x2="255" y2="286" stroke="#201f1d" stroke-width="1.5" marker-end="url(#ar3)"/>
+        <text x="261" y="272" font-size="10" fill="#605d5d">uploads</text>
+        <line x1="380" y1="250" x2="380" y2="286" stroke="#201f1d" stroke-width="1.5" marker-end="url(#ar3)"/>
+        <text x="386" y="272" font-size="10" fill="#605d5d">owner-scoped</text>
+        <line x1="505" y1="250" x2="505" y2="286" stroke="#b5382e" stroke-width="1.5" marker-end="url(#ar3R)"/>
+        <text x="511" y="272" font-size="10" fill="#b5382e">reserve · enqueue</text>
+
+        <!-- stores <-> worker -->
+        <line x1="255" y1="410" x2="255" y2="378" stroke="#201f1d" stroke-width="1.5" marker-end="url(#ar3)"/>
+        <text x="261" y="398" font-size="10" fill="#605d5d">files</text>
+        <line x1="380" y1="410" x2="380" y2="378" stroke="#201f1d" stroke-width="1.5" marker-end="url(#ar3)"/>
+        <text x="386" y="398" font-size="10" fill="#605d5d">status · cost</text>
+        <line x1="492" y1="374" x2="492" y2="406" stroke="#b5382e" stroke-width="1.5" marker-end="url(#ar3R)"/>
+        <text x="486" y="398" text-anchor="end" font-size="10" fill="#b5382e">jobs</text>
+        <line x1="530" y1="410" x2="530" y2="378" stroke="#201f1d" stroke-width="1.5" marker-end="url(#ar3)"/>
+        <text x="536" y="398" font-size="10" fill="#605d5d">settle</text>
+
+        <!-- external -->
+        <line x1="620" y1="76" x2="566" y2="76" stroke="#201f1d" stroke-width="1.5" marker-end="url(#ar3)"/>
+        <text x="592" y="68" text-anchor="middle" font-size="10" fill="#605d5d">webhook</text>
+        <line x1="560" y1="144" x2="614" y2="144" stroke="#201f1d" stroke-width="1.5" marker-end="url(#ar3)"/>
+        <text x="587" y="136" text-anchor="middle" font-size="10" fill="#605d5d">text</text>
+        <line x1="560" y1="228" x2="614" y2="228" stroke="#201f1d" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#ar3)"/>
+        <text x="587" y="220" text-anchor="middle" font-size="10" fill="#605d5d">text only</text>
+        <line x1="560" y1="476" x2="614" y2="476" stroke="#b5382e" stroke-width="2" marker-end="url(#ar3R)"/>
+        <text x="587" y="468" text-anchor="middle" font-size="10" fill="#b5382e">paid calls</text>
+      </svg>
+    </div>
+    <figcaption>The web service only enqueues; every paid image, shot, voice line and music clip runs
+      in the worker. The web service calls OpenRouter for text only &mdash; estimates and vision calls
+      stay synchronous only where they already are. Mongo <code>jobs</code> is the record: a flushed
+      Redis loses no history, and the worker&#8217;s reconciler re-enqueues <code>queued</code> jobs
+      Redis no longer holds.</figcaption>
+  </figure>
+
+  <!-- ---------- WHERE IT RUNS ---------- -->
+  <h3 style="margin-top:var(--s5)">Where it runs, and how someone tries it</h3>
+  <h4 style="margin-top:0">Production &mdash; Railway, deployed from <code>main</code></h4>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th style="width:14%">Service</th><th style="width:30%">Start</th><th>Needs</th></tr></thead>
+      <tbody>
+        <tr><td class="num">web</td><td><code>npm run build &amp;&amp; npm run start</code></td>
+          <td>Mongo, Redis, the buckets, Clerk, OpenRouter (text only &mdash; estimates and vision
+            calls stay synchronous only where they already are), the health check on
+            <code>/api/health</code></td></tr>
+        <tr class="hl"><td class="num">worker</td><td><code>npm run worker</code> (<code>tsx worker/index.ts</code>, or the compiled file)</td>
+          <td>Mongo, Redis, the buckets, OpenRouter, <strong>ffmpeg in the image</strong> (nixpacks
+            <code>aptPkgs = ["ffmpeg"]</code> or a Dockerfile)</td></tr>
+        <tr><td class="num">redis</td><td>Railway&#8217;s Redis template</td>
+          <td>Private network only: <code>redis.railway.internal</code> (<em>verified</em>: Railway
+            exposes <code>REDIS_URL</code>)</td></tr>
+        <tr><td class="num">mongo</td><td>The existing Mongo service, <strong>on the private
+            network</strong> (<code>*.railway.internal</code>)</td>
+          <td>Not the public <code>rlwy.net</code> proxy with <code>DB_SSL=false</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note" style="margin-top:var(--s3)">Railway health checks: a <code>2xx</code> on the
+    configured path within 300 s by default (<code>RAILWAY_HEALTHCHECK_TIMEOUT_SEC</code> to change),
+    from the host <code>healthcheck.railway.app</code> &mdash; which the host allow-list and the proxy
+    must accept (<em>verified</em>, Railway docs). One replica per service: no rolling overlap matters
+    once jobs are leased, but two web replicas are not needed for this audience.</p>
+  <div class="cols" style="margin-top:var(--s4)">
+    <div class="card">
+      <h4 style="margin-top:0">Development</h4>
+      <p style="margin-bottom:0"><code>npm run dev</code> with <code>INKDESK_AUTH=off</code> (single
+        local owner, no account, local files) &mdash; the path every <code>check:*</code>, the
+        Playwright capture and CI use; or with Clerk development keys for real sign-in.
+        <code>npm run worker</code> in a second terminal when Redis is available; with
+        <code>INKDESK_QUEUE=inline</code> the web process runs jobs itself, for the checks.</p>
+    </div>
+    <div class="card" style="border-color:var(--hanko);background:var(--hanko-100)">
+      <h4 style="margin-top:0;color:var(--hanko)">What the judges open</h4>
+      <p style="margin-bottom:0"><code>https://&lt;your-domain&gt;</code> &mdash; sign in with the
+        judge demo account from the Devpost testing instructions (the learner writes them), or sign
+        up.</p>
+    </div>
+  </div>
+
+  <!-- ---------- MONEY PATH DIAGRAM ---------- -->
+  <h3 style="margin-top:var(--s5)">The money path &mdash; reserve, run, settle</h3>
+  <p>Nothing paid leaves the server until Redis has said yes. The job record moves
+    <code>queued → running → done | failed</code>, written before the enqueue and on every
+    transition.</p>
+  <figure>
+    <div class="svgbox">
+      <svg viewBox="0 0 900 476" role="img" aria-label="Spend flow: in the web service a request passes the sliding-window rate limit, then reserve with the user cap, global daily cap and optional global total cap, which refuses before any call; then a queued job is written in Mongo and enqueued on BullMQ. In the worker the job runs, the provider is called, and the job ends done with settle using the provider's usage.cost, or failed with the reservation released. A paid video shot is written submitting before the POST and submitted after, and a crash between them marks it orphaned, never re-submitted.">
+        <defs>
+          <marker id="ar4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0 0 L10 5 L0 10 z" fill="#201f1d"/></marker>
+          <marker id="ar4R" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0 0 L10 5 L0 10 z" fill="#b5382e"/></marker>
+        </defs>
+
+        <text class="lbl" x="14" y="26">web service &mdash; before any paid call</text>
+        <line x1="14" y1="252" x2="886" y2="252" stroke="#bab6b6" stroke-dasharray="4 4"/>
+        <text class="lbl" x="14" y="272">worker service &mdash; after</text>
+
+        <!-- B1 rate limit -->
+        <rect x="14" y="40" width="170" height="90" fill="#f8f4f4" stroke="#201f1d" stroke-width="1.5"/>
+        <text x="26" y="64" font-size="14" font-weight="700" fill="#201f1d">Rate limit</text>
+        <text x="26" y="84" font-size="11" fill="#444141">sliding window on userId</text>
+        <text class="mono" x="26" y="104" font-size="10" fill="#605d5d">paid image 6/min</text>
+        <text class="mono" x="26" y="119" font-size="10" fill="#605d5d">paid text 10/min</text>
+
+        <!-- B2 reserve -->
+        <rect x="220" y="40" width="230" height="90" fill="#fcecea" stroke="#b5382e" stroke-width="2"/>
+        <text class="mono" x="232" y="64" font-size="12" font-weight="700" fill="#3e140f">reserve(userId, estUsd)</text>
+        <text x="232" y="84" font-size="11" fill="#444141">one Lua script, atomic:</text>
+        <text x="232" y="101" font-size="11" fill="#444141">user cap · global daily cap</text>
+        <text x="232" y="118" font-size="11" fill="#444141">optional global total cap</text>
+
+        <!-- B3 job queued -->
+        <rect x="486" y="40" width="190" height="90" fill="#f8f4f4" stroke="#201f1d" stroke-width="1.5"/>
+        <text class="mono" x="498" y="64" font-size="12" font-weight="700" fill="#201f1d">jobs · queued</text>
+        <text x="498" y="84" font-size="11" fill="#444141">written in Mongo</text>
+        <text x="498" y="101" font-size="11" fill="#444141">before the enqueue,</text>
+        <text x="498" y="118" font-size="11" fill="#444141">with reservedUsd</text>
+
+        <!-- B4 enqueue -->
+        <rect x="712" y="40" width="174" height="90" fill="#f8f4f4" stroke="#201f1d" stroke-width="1.5"/>
+        <text x="724" y="64" font-size="13" font-weight="700" fill="#201f1d">BullMQ enqueue</text>
+        <text x="724" y="84" font-size="11" fill="#444141">the route answers</text>
+        <text x="724" y="101" font-size="11" fill="#444141">immediately; the</text>
+        <text x="724" y="118" font-size="11" fill="#444141">browser polls the job</text>
+
+        <line x1="184" y1="85" x2="214" y2="85" stroke="#201f1d" stroke-width="1.5" marker-end="url(#ar4)"/>
+        <line x1="450" y1="85" x2="480" y2="85" stroke="#201f1d" stroke-width="1.5" marker-end="url(#ar4)"/>
+        <text x="465" y="78" text-anchor="middle" font-size="10" fill="#605d5d">yes</text>
+        <line x1="676" y1="85" x2="706" y2="85" stroke="#201f1d" stroke-width="1.5" marker-end="url(#ar4)"/>
+
+        <!-- refusal -->
+        <line x1="335" y1="130" x2="335" y2="164" stroke="#b5382e" stroke-width="1.5" marker-end="url(#ar4R)"/>
+        <text x="341" y="152" font-size="10" fill="#b5382e">no</text>
+        <rect x="14" y="168" width="436" height="66" fill="#f3f2f2" stroke="#b5382e" stroke-width="1.5" stroke-dasharray="5 3"/>
+        <text x="26" y="188" font-size="12" font-weight="700" fill="#b5382e">Refused before any call</text>
+        <text x="26" y="206" font-size="11" fill="#444141">user over quota → buttons disabled, with reason and reset time</text>
+        <text x="26" y="223" font-size="11" fill="#444141">global daily cap → &#8220;The studio has paused generation for today&#8221;</text>
+
+        <!-- redis down -->
+        <rect x="486" y="168" width="190" height="66" fill="#eae9e9" stroke="#bab6b6" stroke-dasharray="5 3"/>
+        <text x="498" y="188" font-size="12" font-weight="700" fill="#201f1d">If Redis is down</text>
+        <text x="498" y="206" font-size="11" fill="#444141">enqueue throws Busy → 503</text>
+        <text x="498" y="223" font-size="11" fill="#444141">&#8220;The studio is busy&#8221;</text>
+
+        <!-- B4 -> W1 -->
+        <line x1="799" y1="130" x2="799" y2="276" stroke="#b5382e" stroke-width="1.5" marker-end="url(#ar4R)"/>
+        <text x="806" y="200" font-size="10" fill="#b5382e">job</text>
+
+        <!-- W1 running -->
+        <rect x="712" y="280" width="174" height="100" fill="#f8f4f4" stroke="#201f1d" stroke-width="1.5"/>
+        <text class="mono" x="724" y="302" font-size="12" font-weight="700" fill="#201f1d">jobs · running</text>
+        <text x="724" y="322" font-size="11" fill="#444141">Mongo written on every</text>
+        <text x="724" y="338" font-size="11" fill="#444141">transition &mdash; a flushed</text>
+        <text x="724" y="354" font-size="11" fill="#444141">Redis loses no history</text>
+
+        <!-- W2 provider call -->
+        <rect x="430" y="280" width="246" height="106" fill="#fcecea" stroke="#b5382e" stroke-width="1.5"/>
+        <text x="442" y="302" font-size="13" font-weight="700" fill="#3e140f">Provider call → bucket</text>
+        <text x="442" y="320" font-size="11" fill="#444141">OpenRouter: image, shot, voice, music</text>
+        <line x1="442" y1="330" x2="664" y2="330" stroke="#eba49d"/>
+        <text x="442" y="346" font-size="11" font-weight="700" fill="#3e140f">a paid video shot:</text>
+        <text class="mono" x="442" y="362" font-size="10" fill="#3e140f">submitting → POST → submitted(jobId)</text>
+        <text x="442" y="378" font-size="11" fill="#444141">never re-submitted automatically</text>
+        <line x1="712" y1="326" x2="682" y2="326" stroke="#201f1d" stroke-width="1.5" marker-end="url(#ar4)"/>
+
+        <!-- W3 done / W4 failed -->
+        <text class="mono" x="14" y="310" font-size="11" font-weight="700" fill="#201f1d">jobs · done</text>
+        <rect x="150" y="280" width="250" height="54" fill="#f3f2f2" stroke="#201f1d" stroke-width="1.5"/>
+        <text class="mono" x="160" y="301" font-size="11" font-weight="700" fill="#201f1d">settle(userId, reserved, actualUsd)</text>
+        <text x="160" y="320" font-size="11" fill="#444141">actualUsd = the provider&#8217;s usage.cost</text>
+        <line x1="430" y1="305" x2="404" y2="305" stroke="#201f1d" stroke-width="1.5" marker-end="url(#ar4)"/>
+        <text x="417" y="298" text-anchor="middle" font-size="9.5" fill="#605d5d">done</text>
+
+        <text class="mono" x="14" y="378" font-size="11" font-weight="700" fill="#b5382e">jobs · failed</text>
+        <rect x="150" y="346" width="250" height="54" fill="#f3f2f2" stroke="#b5382e" stroke-width="1.5"/>
+        <text class="mono" x="160" y="367" font-size="11" font-weight="700" fill="#b5382e">release</text>
+        <text x="160" y="386" font-size="11" fill="#444141">reservation released; others continue</text>
+        <line x1="430" y1="372" x2="404" y2="372" stroke="#b5382e" stroke-width="1.5" marker-end="url(#ar4R)"/>
+        <text x="417" y="365" text-anchor="middle" font-size="9.5" fill="#b5382e">failed</text>
+
+        <!-- orphaned -->
+        <rect x="430" y="402" width="456" height="62" fill="#f3f2f2" stroke="#b5382e" stroke-width="1.5" stroke-dasharray="5 3"/>
+        <text x="442" y="421" font-size="11" font-weight="700" fill="#b5382e">Crash between a paid video POST and saving its job id</text>
+        <text x="442" y="437" font-size="11" fill="#444141">→ marked <tspan class="mono" font-size="10.5">orphaned</tspan>, never re-submitted; findable in OpenRouter&#8217;s</text>
+        <text x="442" y="453" font-size="11" fill="#444141">logs by session_id. The shot shows &#8220;failed &mdash; not charged twice&#8221;.</text>
+      </svg>
+    </div>
+    <figcaption>OpenRouter has no idempotency key and no list endpoint, which is why a paid shot is
+      recorded <code>submitting</code> before the POST and never retried blindly. The same counters
+      feed <code>GET /api/usage</code>, the header meter and the Usage page. Redis keys:
+      <code>spend:&lt;userId&gt;:&lt;YYYYMMDD&gt;</code>, <code>spend:global:&lt;YYYYMMDD&gt;</code>,
+      <code>spend:global:total</code>.</figcaption>
+  </figure>
+
+  <!-- ---------- COMPONENTS ---------- -->
+  <h3 style="margin-top:var(--s5)">Components (v3)</h3>
+  <p class="quiet">Each names the PRD heading it serves and the files it lives in; the security
+    findings it closes are cited by id from <code>devpost/security-report.md</code>.</p>
+
+  <details>
+    <summary>Config and Boot <span class="cnt">lib/config.ts</span></summary>
+    <div class="dbody">
+      <p><code>lib/config.ts</code> (zod, server-only); <code>instrumentation.ts</code> calls it on
+        boot. Production <strong>refuses to start</strong> with <code>INKDESK_AUTH=off</code>, without
+        Clerk keys, or without Mongo/Redis/buckets. It fails fast with a sentence naming the missing
+        or malformed variable &mdash; never its value.</p>
+      <p class="quiet">Implements <code>prd.md &gt; Status and Health (v3)</code></p>
+    </div>
+  </details>
+
+  <details>
+    <summary>Auth <span class="cnt cnt-red">proxy.ts</span></summary>
+    <div class="dbody">
+      <p><code>proxy.ts</code> at the repo root (Next 16 renamed <code>middleware</code> to
+        <code>proxy</code>; it always runs on Node &mdash; <em>verified</em> in
+        <code>node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/proxy.md</code>):</p>
+      <ul>
+        <li><code>clerkMiddleware({ publishableKey, jwtKey, authorizedParties: [APP_URL] })</code></li>
+        <li>an <strong>optimistic</strong> redirect of signed-out page requests to <code>/sign-in</code></li>
+        <li>an <code>Origin</code> check on non-GET <code>/api/*</code> (CSRF defence beside SameSite cookies)</li>
+        <li><code>www</code> → apex redirect; cheap per-IP limits on public routes</li>
+      </ul>
+      <p style="margin-top:var(--s3)"><strong>Next&#8217;s own docs say Proxy must not be the only
+        check</strong>, so <code>lib/auth/session.ts</code> (<code>requireUser()</code>, server-only)
+        runs inside every handler. Sign-in/up pages: <code>app/sign-in/[[...sign-in]]</code>,
+        <code>app/sign-up/[[...sign-up]]</code>. Core 3 components: <code>&lt;Show
+        when="signed-in"&gt;</code>, <code>&lt;UserButton&gt;</code>, <code>&lt;UserProfile&gt;</code>
+        (not the removed <code>SignedIn</code>/<code>SignedOut</code>).</p>
+      <p>Webhook: <code>app/api/webhooks/clerk/route.ts</code> with <code>verifyWebhook()</code>
+        (<code>@clerk/nextjs/webhooks</code>, Standard Webhooks &mdash; no <code>svix</code> package),
+        de-duplicated on the message id; <code>user.created</code> → <code>users</code>,
+        <code>user.deleted</code> → the account-deletion job. <code>INKDESK_AUTH=off</code> keeps the
+        single-owner local desk for development, the checks and the capture.</p>
+      <p class="quiet">Implements <code>prd.md &gt; Accounts and Sign-in (v3)</code></p>
+    </div>
+  </details>
+
+  <details>
+    <summary>Data Access and Ownership <span class="cnt cnt-red">lib/auth/access.ts</span></summary>
+    <div class="dbody">
+      <p><code>ownedProject(userId, id)</code>, <code>ownedVideo(...)</code>,
+        <code>ownedBlob(...)</code> &mdash; <strong>404 for anything the caller does not own</strong>,
+        so ids cannot be probed. Mongo filters always include <code>ownerId</code>.
+        <code>/api/image/[id]</code> is replaced by
+        <code>/api/projects/[id]/image/[imageId]</code> (owner, and the image must belong to that
+        project) and signed URLs; closes SEC-01, SEC-06.
+        <code>scripts/claim-projects.mts</code> assigns the migrated v1 desk and the filmed project to
+        the learner&#8217;s user id.</p>
+      <p class="quiet">Implements <code>prd.md &gt; Ownership and Privacy (v3)</code></p>
+    </div>
+  </details>
+
+  <details>
+    <summary>Store v3 &mdash; Mongo and the Buckets <span class="cnt">lib/store/cloud.ts</span></summary>
+    <div class="dbody">
+      <p>Grows from one <code>projects</code> collection to <code>users</code>, <code>projects</code>
+        (+ <code>ownerId</code>), <code>jobs</code>, <code>videos</code> (with <code>shots[]</code>),
+        <code>shares</code>, <code>reports</code>, <code>settings</code>. Writes become
+        <strong>atomic updates with a <code>rev</code> compare-and-set</strong> (already the pattern in
+        v2&#8217;s <code>revUpdate</code>), so web and worker can both write without the in-process
+        lock; a short Redis lock (<code>SET NX PX</code>) only where a read-modify-write cannot be
+        expressed as one update.</p>
+      <p>Indexes: <code>projects {ownerId, updatedAt}</code>, <code>jobs {ownerId, status}</code>,
+        <code>shares {token}</code> unique, <code>videos {ownerId, createdAt}</code>. The dashboard
+        lists <strong>summaries by projection</strong>, not whole documents (CR-12, SEC-12).</p>
+      <div class="wire">PROJECT_FILES    u/&lt;userId&gt;/p/&lt;projectId&gt;/&lt;kind&gt;/&lt;id&gt;.&lt;ext&gt;
+COMPILE_OUTPUTS  u/&lt;userId&gt;/p/&lt;projectId&gt;/video/&lt;videoId&gt;/
+                   {shots/&lt;n&gt;.mp4, final.mp4, poster.jpg, captions.vtt}
+                 …/audio/…   …/export/…
+                 <b>archive/…</b>   the repo&#8217;s media</div>
+      <p style="margin-top:var(--s3)">Every S3 and Mongo call gets a timeout (CR-6); images stream
+        with an <code>ETag</code>, video always by signed redirect (CR-17).
+        <code>S3_FORCE_PATH_STYLE</code> and <code>S3_PUBLIC_ENDPOINT</code> are honoured.</p>
+    </div>
+  </details>
+
+  <details>
+    <summary>Queue and Worker <span class="cnt cnt-red">lib/queue/ · worker/index.ts</span></summary>
+    <div class="dbody">
+      <p><code>lib/queue/</code> (BullMQ 6, ioredis 5): three queues &mdash; <code>image</code>
+        (concurrency 2), <code>video</code> (1), <code>audio</code> (2) &mdash; with
+        <code>attempts</code>, exponential back-off, a per-job timeout, and BullMQ&#8217;s stalled-job
+        recovery replacing the <code>serverRunId</code> demote rule (CR-1, CR-9, CR-13).
+        <code>worker/index.ts</code> runs the processors; the web service only enqueues.</p>
+      <ul class="reasons">
+        <li class="is-lock"><b>Mongo <code>jobs</code> is the source of truth.</b>
+          <code>queued → running → done | failed</code>, written before enqueue and on every
+          transition, so a flushed Redis loses no history; a reconciler on worker start re-enqueues
+          <code>queued</code> jobs that Redis no longer holds.</li>
+        <li class="is-lock"><b>Paid video submissions are never re-submitted automatically.</b>
+          Written <code>submitting</code> <strong>before</strong> the POST and
+          <code>submitted(jobId)</code> straight after (OpenRouter has no idempotency key and no list
+          endpoint).</li>
+        <li><b>Per-user fairness.</b> One active video and at most N image jobs per user in flight
+          (CR-10, SEC-08).</li>
+        <li><b>Redis down.</b> <code>enqueue</code> throws <code>Busy</code>, the route answers 503
+          with &ldquo;The studio is busy&rdquo; (PRD), reads keep working.</li>
+      </ul>
+    </div>
+  </details>
+
+  <details>
+    <summary>Limits, Quotas and the Kill Switch <span class="cnt cnt-red">lib/limits/</span></summary>
+    <div class="dbody">
+      <p>On Redis. Closes SEC-02, SEC-08.</p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Mechanism</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Sliding-window rate limits</strong></td><td>Keyed on <code>userId</code>
+              (and IP for anonymous routes) &mdash; paid text 10/min, paid image 6/min, uploads
+              20/hour, edits 120/min, reads 240/min, sign-up and share views per IP.</td></tr>
+            <tr><td><strong>Daily quotas</strong></td><td>Per plan (<code>free</code> vs
+              <code>allowlisted</code>, from <code>ALLOWLIST_EMAILS</code>) as atomic counters with keys
+              that expire at the daily reset.</td></tr>
+            <tr class="hl"><td><strong>Spend reservation</strong></td><td><code>reserve(userId,
+              estUsd)</code> atomically (a Lua script: user cap, global daily cap, optional global total
+              cap) before enqueue; <code>settle(userId, reserved, actualUsd)</code> with the
+              provider&#8217;s <code>usage.cost</code> when the job finishes; <code>release</code> on
+              failure.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:var(--s3)">The same counters feed <code>GET /api/usage</code>, the header
+        meter and the Usage page.</p>
+    </div>
+  </details>
+
+  <details>
+    <summary>Request Hardening <span class="cnt">schemas · body caps</span></summary>
+    <div class="dbody">
+      <p>Every request schema gets <code>.max()</code> on every string and array and
+        <code>.strict()</code> objects (SEC-03, CR-5); bodies are read with a size cap before parsing
+        (chunked bodies included &mdash; SEC-04, CR-4); <code>experimental.proxyClientMaxBodySize</code>
+        set; environment numbers validated (CR-15); a corrupt project document shows an error with a
+        way out (CR-14); polling pauses in hidden tabs and never overlaps itself (CR-8).</p>
+    </div>
+  </details>
+
+  <details>
+    <summary>Uploads <span class="cnt">sharp</span></summary>
+    <div class="dbody">
+      <p>Real type from the bytes, size cap enforced while streaming, <strong>re-encoded</strong> with
+        <code>sharp</code> (strips EXIF/GPS and any appended payload), served with
+        <code>X-Content-Type-Options: nosniff</code> (SEC-05); per-user storage quota.</p>
+    </div>
+  </details>
+
+  <details>
+    <summary>Security Headers and CSP <span class="cnt">next.config.ts</span></summary>
+    <div class="dbody">
+      <p>CSP allowing only <code>self</code>, the Clerk Frontend API host, the bucket&#8217;s
+        signed-URL host, and nothing else for scripts; <code>frame-ancestors 'none'</code>; HSTS;
+        <code>Referrer-Policy: strict-origin-when-cross-origin</code>; <code>nosniff</code>;
+        <code>poweredByHeader: false</code> (SEC-09). Errors shown to users never carry internals
+        (SEC-11). Secret-reading modules import <code>server-only</code> (SEC-15).</p>
+    </div>
+  </details>
+
+  <details>
+    <summary>Sharing <span class="cnt">app/s/[token]</span></summary>
+    <div class="dbody">
+      <div class="wire">shares { token, ownerId, kind: 'manga' | 'video',
+         projectId | videoId, snapshot, createdAt, revokedAt }</div>
+      <p style="margin-top:var(--s3)">The token is <strong>128 random bits, base62</strong>; the
+        <strong>snapshot</strong> holds only title, style, reading direction, cover and panel image
+        ids, bubble layout and dialogue (no DNA, scenario, plan, costs, owner).
+        <code>app/s/[token]/page.tsx</code> renders a read-only reader or player;
+        <code>opengraph-image.tsx</code> uses the cover or poster; <code>generateMetadata</code> adds
+        <code>robots: noindex</code>; images and video through <code>/api/s/[token]/…</code>, which
+        serve only ids in the snapshot. Unpublish sets <code>revokedAt</code> →
+        <code>notFound()</code>, the same page as an unknown token.</p>
+      <p class="quiet">Implements <code>prd.md &gt; Sharing (v3)</code></p>
+    </div>
+  </details>
+
+  <details>
+    <summary>Reports <span class="cnt">app/admin/reports</span></summary>
+    <div class="dbody">
+      <p><code>POST /api/s/[token]/report</code> (public, per-IP rate-limited):
+        <code>reports {token, reason, note, at, ip-hash}</code>; <code>app/admin/reports</code>
+        visible only to <code>ADMIN_EMAILS</code>, with Unpublish. Email delivery only if an email
+        service is configured (open question).</p>
+      <p class="quiet">Implements <code>prd.md &gt; Report (v3)</code></p>
+    </div>
+  </details>
+
+  <details>
+    <summary>Settings, Usage, Terms and Privacy <span class="cnt">app/settings/</span></summary>
+    <div class="dbody">
+      <p><code>app/settings/(account|defaults|sharing|data|usage)</code> &mdash; account through
+        Clerk&#8217;s <code>&lt;UserProfile&gt;</code>; defaults in <code>settings</code>; export as
+        one zip (<code>yazl</code>) streamed to the bucket and downloaded by signed URL.</p>
+      <p><strong>Delete account</strong> is a worker job that removes Mongo records, bucket prefixes,
+        queued jobs, shares, and then the Clerk user &mdash; idempotent, so <code>user.deleted</code>
+        from the webhook runs the same job. <code>app/terms</code>, <code>app/privacy</code> &mdash;
+        static pages.</p>
+      <p class="quiet">Implements <code>prd.md &gt; Settings (v3)</code>,
+        <code>prd.md &gt; Terms and Privacy (v3)</code></p>
+    </div>
+  </details>
+
+  <details>
+    <summary>Animate a Page <span class="cnt cnt-red">lib/video/ · lib/audio/</span></summary>
+    <div class="dbody">
+      <p>Seven steps, all in the worker.</p>
+      <ol style="padding-left:var(--s4)">
+        <li><strong>Frames</strong> (<code>lib/video/frames.ts</code>): each panel&#8217;s image
+          cropped or padded to a Seedance ratio (Seedance offers 16:9, 4:3, 1:1, 3:4, 9:16, 21:9
+          &mdash; <strong>no 3:2</strong>; wide 3:2 panels are cropped to 16:9, square panels go at
+          1:1 and are padded onto a 16:9 paper canvas at assembly), uploaded to
+          <code>COMPILE_OUTPUTS</code>, sent as a signed URL &mdash; never a user-supplied URL (no
+          SSRF path).</li>
+        <li><strong>Motion prompt</strong> (<code>lib/video/prompt.ts</code>): Claude (Terra
+          fallback) turns the panel&#8217;s action, camera and dialogue, the locked DNA word for word
+          and the style rules into one continuous motion beat and one camera move, ending &ldquo;no
+          text, no speech bubbles, no captions&rdquo;.</li>
+        <li><strong>Speech</strong> (<code>lib/audio/tts.ts</code>, ported from
+          <code>video/narrate.mts</code> &mdash; not imported: its <code>process.exit</code> and
+          <code>spawnSync</code> would stop the server): one ElevenLabs voice per character
+          (<code>Character.voice</code>, chosen once and kept), <code>/api/v1/audio/speech</code>,
+          leveled to &minus;16 LUFS; the shot&#8217;s length is
+          <code>clamp(ceil(speech + 1 s), 3, 5)</code> s.</li>
+        <li><strong>Shot</strong>: <code>POST /api/v1/videos</code> with
+          <code>bytedance/seedance-2.0</code>, 720p, the chosen motion method (A or B),
+          <code>generate_audio: false</code> (so the model does not invent speech),
+          <code>seed</code>, <code>session_id = videoId</code>, <code>user = userId</code>; poll
+          <code>GET /api/v1/videos/{id}</code> (or the signed webhook once the domain is public),
+          download straight to the bucket &mdash; OpenRouter&#8217;s copy expires.</li>
+        <li><strong>Music</strong> (<code>lib/audio/music.ts</code>, ported from
+          <code>video/music/generate.mts</code>): one Lyria clip per trailer.</li>
+        <li><strong>Assembly</strong> (<code>lib/video/assemble.ts</code>, ffmpeg in the worker
+          &mdash; not Remotion, which would need Chromium and <code>@remotion/renderer</code>
+          server-side and a company licence above three people): normalise to 1280&times;720, 24 fps;
+          overlay each bubble as a PNG lettered by the app&#8217;s own renderer, timed to its line;
+          lay in the voices; duck the music with v2&#8217;s <code>mix.ts</code> constants;
+          <code>loudnorm</code>; write <code>final.mp4</code>, <code>poster.jpg</code>,
+          <code>captions.vtt</code>.</li>
+        <li><strong>Progress</strong>: each shot is a <code>videos.shots[n]</code> entry with its own
+          state; a failed shot does not stop the others; <strong>Try again</strong> re-runs one
+          shot.</li>
+      </ol>
+      <p class="quiet" style="margin-top:var(--s3)">Implements <code>prd.md &gt; Animate a Page (v3)</code></p>
+    </div>
+  </details>
+
+  <details>
+    <summary>Responsive <span class="cnt">390 · 768 px</span></summary>
+    <div class="dbody">
+      <p>From the measured punch list at 390 and 768 px
+        (<code>devpost/security-report.md &gt; Appendix — responsive</code>): the station rail becomes
+        a compact stepper under 720 px with tap-to-explain on locked stations; bubble lettering sized
+        from the panel (container units), not the viewport; 44 px touch targets; touch bubble editing
+        through an edit sheet instead of drag; <code>100dvh</code>; the Director&#8217;s page cards
+        collapse; the reader swipes; dialogs become full-height sheets under 480 px.</p>
+    </div>
+  </details>
+
+  <details>
+    <summary>Health, Status and Logs <span class="cnt">app/api/health</span></summary>
+    <div class="dbody">
+      <p><code>GET /api/health</code> &mdash; 200 with <code>{web: ok, mongo, redis, worker}</code>
+        (the worker writes a heartbeat key every 15 s); Railway deploys on it; a status line appears
+        in the app when Redis or the worker is down. <code>pino</code> structured logs with a
+        redaction list (keys, tokens, emails, prompts), request ids; error tracking only if the
+        learner adds a service (open question).</p>
+    </div>
+  </details>
+
+  <!-- ---------- ENVIRONMENT ---------- -->
+  <h3 style="margin-top:var(--s5)">Environment and configuration</h3>
+  <p>One module (<code>lib/config.ts</code>) reads every variable once, validates it with zod at
+    boot, and fails fast with a sentence naming the missing or malformed variable &mdash; never its
+    value. <strong>The learner&#8217;s variable names are mapped, not renamed:</strong></p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th style="width:18%">The app needs</th><th style="width:36%">This environment has (names only)</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr class="hl"><td>Mongo connection</td><td><code>DB_URL</code> (a <code>mongodb://</code> URL on <code>rlwy.net</code>)</td>
+          <td>Mapped: <code>MONGO_URL = DB_URL</code>. <strong>Open question:</strong> these look like
+            another app&#8217;s variables (below). <code>DB_PORT</code> is an unresolved
+            <code>${{Postgres.PGPORT}}</code> reference &mdash; not used.</td></tr>
+        <tr><td>Mongo database name</td><td><code>DB_DATABASE</code></td><td>Mapped</td></tr>
+        <tr><td>Redis</td><td>&mdash;</td><td><strong>Missing</strong>: add Railway Redis; it provides <code>REDIS_URL</code></td></tr>
+        <tr><td>Buckets</td><td><code>S3_BUCKET_PROJECT_FILES</code>, <code>S3_BUCKET_COMPILE_OUTPUTS</code>,
+            <code>S3_ENDPOINT</code>, <code>S3_PUBLIC_ENDPOINT</code>, <code>S3_REGION</code>,
+            <code>S3_ACCESS_KEY_ID</code>, <code>S3_SECRET_ACCESS_KEY</code>, <code>S3_FORCE_PATH_STYLE</code></td>
+          <td>All used (v2 read only one <code>S3_BUCKET</code> and hard-coded path style &mdash; fixed)</td></tr>
+        <tr><td>Clerk</td><td><code>CLERK_SECRET_KEY</code>, <code>CLERK_PUBLISHABLE_KEY</code>,
+            <code>CLERK_JWT_KEY</code>, <code>CLERK_WEBHOOK_SIGNING_SECRET</code></td>
+          <td>The SDK reads <code>NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY</code>, <strong>not</strong>
+            <code>CLERK_PUBLISHABLE_KEY</code> (<em>verified</em> in <code>@clerk/nextjs</code>
+            7.9.15&#8217;s source): add it with the same value, or the config passes
+            <code>publishableKey</code> explicitly; <code>CLERK_JWT_KEY</code> is passed explicitly as
+            <code>jwtKey</code> (the SDK does not read it)</td></tr>
+        <tr class="hl"><td>The URL</td><td><code>APP_URL</code> (points at another app&#8217;s domain today)</td>
+          <td><code>APP_URL</code> + <code>NEXT_PUBLIC_APP_URL</code> &mdash; <strong>must be set to
+            the Ink Desk domain</strong></td></tr>
+        <tr><td>OpenRouter</td><td><code>OPENROUTER_API_KEY</code></td><td>Unchanged</td></tr>
+        <tr><td>Anthropic</td><td>&mdash; (<code>ANTHROPIC_API_KEY</code> unset; Terra fallback answers)</td>
+          <td>Unchanged; set it on Railway for Claude</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="warn" style="margin-top:var(--s4)">
+    <h3 style="color:var(--hanko)">Open question for you &mdash; whose variables are these? <span class="cnt cnt-red">blocks slice 16</span></h3>
+    <p><code>APP_URL</code>, <code>ADMIN_URL</code>, <code>COMPILE_WORKER_URL</code>,
+      <code>FRONTEND_API_URL</code>, <code>JWKS_URL</code>, the buckets&#8217; names and the Postgres
+      reference all point at another app&#8217;s project. If they belong to another app, Ink Desk would
+      <strong>share that app&#8217;s Clerk users, its bucket and its database</strong>.</p>
+    <p><strong>Ink Desk needs its own Clerk application, its own buckets (or a dedicated prefix with
+      its own scoped key), and its own database</strong> unless you confirm these are Ink
+      Desk&#8217;s.</p>
+    <p style="margin-bottom:0"><code>RAILWAY_TOKEN</code> is also present; the build never uses it
+      without your explicit word.</p>
+  </div>
+
+  <details style="margin-top:var(--s4)">
+    <summary>Variables per Railway service <span class="cnt">names only</span></summary>
+    <div class="dbody">
+      <p class="quiet">Values in Railway, never in files.</p>
+      <h4 style="margin-top:0">web</h4>
+      <p><code>NODE_ENV=production</code>, <code>APP_URL</code>, <code>NEXT_PUBLIC_APP_URL</code>,
+        <code>NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY</code>, <code>CLERK_SECRET_KEY</code>,
+        <code>CLERK_JWT_KEY</code>, <code>CLERK_WEBHOOK_SIGNING_SECRET</code>,
+        <code>NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in</code>,
+        <code>NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up</code>, <code>DB_URL</code>,
+        <code>DB_DATABASE</code>, <code>REDIS_URL</code>, the eight <code>S3_*</code>,
+        <code>OPENROUTER_API_KEY</code>, <code>ANTHROPIC_API_KEY</code> (optional),
+        <code>ANTHROPIC_MODEL</code>, <code>IMAGE_MODEL</code>, <code>LLM_FALLBACK</code>,
+        <code>LLM_FALLBACK_MODEL</code>, the <code>IMAGE_*</code> sizes and qualities,
+        <code>INKDESK_STORAGE=cloud</code>, <code>INKDESK_QUEUE=bullmq</code>,
+        <code>ALLOWLIST_EMAILS</code>, <code>ADMIN_EMAILS</code>, <code>GLOBAL_DAILY_USD_CAP=5</code>,
+        <code>GLOBAL_TOTAL_USD_CAP</code> (proposed, see Budget), the per-plan quota numbers,
+        <code>VIDEO_ENABLED</code>, <code>SHARE_ENABLED</code> (feature flags).</p>
+      <h4>worker</h4>
+      <p style="margin-bottom:0"><code>NODE_ENV</code>, <code>DB_URL</code>, <code>DB_DATABASE</code>,
+        <code>REDIS_URL</code>, the eight <code>S3_*</code>, <code>OPENROUTER_API_KEY</code>,
+        <code>ANTHROPIC_API_KEY</code> (optional), the model and quality variables,
+        <code>VIDEO_MODEL=bytedance/seedance-2.0</code>, <code>VIDEO_RESOLUTION=720p</code>,
+        <code>TTS_MODEL=elevenlabs/eleven-v4</code>, <code>MUSIC_MODEL</code>,
+        <code>QUEUE_CONCURRENCY_IMAGE=2</code>, <code>QUEUE_CONCURRENCY_VIDEO=1</code>,
+        <code>GLOBAL_DAILY_USD_CAP</code>.</p>
+    </div>
+  </details>
+
+  <details>
+    <summary>Domain and DNS <span class="cnt cnt-red">start this first</span></summary>
+    <div class="dbody">
+      <p class="note"><em>Verified</em> against Railway&#8217;s and Clerk&#8217;s current docs. The
+        exact targets are generated per project and are shown in each dashboard &mdash; copy them
+        from there, never from here.</p>
+      <h4>Railway, on the <code>web</code> service → Settings → Networking → Custom domain</h4>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Record</th><th>Name</th><th>Value</th><th>Note</th></tr></thead>
+          <tbody>
+            <tr><td><code>CNAME</code> (apex: CNAME flattening or <code>ALIAS</code>)</td><td class="num">@</td>
+              <td>the target Railway shows, e.g. <code>xxxx.up.railway.app</code></td>
+              <td>Railway supports CNAME flattening (Cloudflare) and dynamic ALIAS (DNSimple, Namecheap
+                CNAME at root). Plain <code>A</code> records are not offered.</td></tr>
+            <tr class="hl"><td><code>TXT</code></td><td>the name Railway shows</td><td>the value Railway shows</td>
+              <td><strong>Required</strong> &mdash; without it the domain returns 404 even when the
+                CNAME resolves.</td></tr>
+            <tr><td><code>CNAME</code></td><td class="num">www</td><td>the target Railway shows for <code>www</code></td>
+              <td><strong>On the Trial plan only one custom domain is allowed</strong>, so
+                <code>www</code> and the apex cannot both be added; on a paid plan add
+                <code>www</code> and redirect it to the apex in the app (<code>proxy.ts</code>,
+                308).</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:var(--s3)">If DNS is on Cloudflare: the Railway records may be proxied once
+        verified, with SSL mode <strong>Full</strong>; the verification CNAME must be <strong>DNS
+        only</strong> during verification.</p>
+      <h4>Clerk production instance (Dashboard → Domains)</h4>
+      <p>Clerk lists the records for the instance &mdash; typically <code>CNAME clerk.&lt;domain&gt;</code>
+        (Frontend API), <code>CNAME accounts.&lt;domain&gt;</code> (Account Portal), and the email
+        records (<code>clkmail.&lt;domain&gt;</code> and two DKIM <code>CNAME</code>s) that make
+        sign-in emails come <strong>from the domain</strong>. On Cloudflare these must be <strong>DNS
+        only</strong> (Clerk&#8217;s check fails behind the proxy). No <code>CAA</code> record on the
+        apex may block Let&#8217;s Encrypt or Google Trust Services. Propagation can take up to 48 h
+        &mdash; <strong>start this first</strong>. Restrict the Frontend API&#8217;s allowed
+        subdomains (Clerk&#8217;s subdomain allowlist).</p>
+      <h4>OAuth apps for production</h4>
+      <p>Development keeps Clerk&#8217;s shared credentials. Production: a Google OAuth client and a
+        GitHub OAuth app, each with the <strong>Authorized redirect URI / callback URL that
+        Clerk&#8217;s dashboard shows</strong> for the production instance; the Google consent screen
+        published &ldquo;In production&rdquo; (basic scopes &mdash; <code>openid</code>,
+        <code>email</code>, <code>profile</code> &mdash; normally publish without the full
+        verification review, but check on day one). Block email subaddresses for Google sign-ups
+        (Clerk recommends it).</p>
+      <h4>The bucket (R2)</h4>
+      <p style="margin-bottom:0">CORS allows <code>GET</code> and <code>PUT</code> from
+        <code>APP_URL</code> (and <code>http://localhost:3000</code> in development) only; no public
+        bucket access; signed URLs only.</p>
+    </div>
+  </details>
+
+  <!-- ---------- VERIFIED ---------- -->
+  <h3 style="margin-top:var(--s5)">Verified for v3 &mdash; 2026-10-14</h3>
+  <details>
+    <summary>OpenRouter video <span class="cnt">GET /api/v1/videos/models · 30 models</span></summary>
+    <div class="dbody">
+      <div class="wire">POST <b>/api/v1/videos</b>              → 202 {id, polling_url, status: pending}
+GET  /api/v1/videos/{id}         → pending | in_progress | completed
+                                   | failed | cancelled | expired
+                                   + unsigned_urls, usage.cost
+GET  /api/v1/videos/{id}/content?index=0   with the bearer key
+     ↳ the result <b>expires</b> (expires_at) — download at once</div>
+      <ul style="margin-top:var(--s3)">
+        <li>No list endpoint, no idempotency key. Webhooks: per-request <code>callback_url</code>
+          (HTTPS), <code>X-OpenRouter-Signature: t=…,v1=…</code> = HMAC-SHA256 of
+          <code>"{t},{raw body}"</code>, 5-minute tolerance, de-duplicate on
+          <code>X-OpenRouter-Idempotency-Key</code>. Video is not eligible for zero data
+          retention.</li>
+        <li>Fields: <code>model, prompt, duration, resolution, aspect_ratio | size, generate_audio,
+          seed, callback_url, session_id, user, frame_images[…], input_references[]</code> (image;
+          audio and video references on Seedance 2+).</li>
+        <li><strong><code>frame_images</code> and <code>input_references</code> are exclusive</strong>
+          &mdash; sent together, the references are dropped (OpenRouter docs and ByteDance ModelArk
+          docs). Reference images: 1&ndash;9 on Seedance 2.0, 1&ndash;30 on 2.5. Seedance 2.x
+          <strong>refuses reference images with real human faces</strong>.</li>
+        <li><code>bytedance/seedance-2.0</code>: 480p&ndash;4K, 4&ndash;15 s, ratios 1:1, 3:4, 9:16,
+          4:3, 16:9, 21:9, 9:21, first and last frame, <code>seed</code>, audio; <strong>$7.0 per
+          million video tokens</strong> ($7.7/M at 1080p), audio at no extra cost.
+          <strong>Tokens = W &times; H &times; seconds &times; 24 / 1024</strong> (OpenRouter&#8217;s
+          model page; checked against its own per-second prices). So 720p 16:9 = 21,600 tokens/s =
+          <strong>$0.151/s, $0.756 per 5 s</strong>; 720p 1:1 = $0.085/s; 480p 16:9 on
+          <code>seedance-2.0-fast</code> ($4.2/M) = $0.040/s.</li>
+        <li>The billed <code>usage.cost</code> with references attached is the one thing still to
+          confirm by the first paid shot.</li>
+      </ul>
+    </div>
+  </details>
+  <details>
+    <summary>Clerk <span class="cnt">@clerk/nextjs 7.9.15 unpacked</span></summary>
+    <div class="dbody">
+      <p style="margin-bottom:0">Peer <code>next ^16</code>, <code>react ~19.3</code>; Node &ge; 20.9;
+        <code>proxy.ts</code> on Next 16; <code>NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY</code> is the name
+        read; <code>CLERK_JWT_KEY</code> passed as <code>jwtKey</code>; <code>verifyWebhook</code>
+        reads <code>CLERK_WEBHOOK_SIGNING_SECRET</code>; <code>createRouteMatcher</code> deprecated;
+        Core 3 removed <code>SignedIn</code>/<code>SignedOut</code>/<code>Protect</code> in favour of
+        <code>&lt;Show&gt;</code>; production needs own Google/GitHub OAuth credentials and DNS
+        records; keyless mode exists for development only.</p>
+    </div>
+  </details>
+  <details>
+    <summary>Next 16.4 <span class="cnt">node_modules/next/dist/docs</span></summary>
+    <div class="dbody">
+      <p style="margin-bottom:0"><code>middleware</code> deprecated and renamed <code>proxy</code>,
+        Node runtime always, both files present is a build error; Proxy buffers request bodies up to
+        <code>experimental.proxyClientMaxBodySize</code> (10 MB default); <code>after()</code> lasts
+        only as long as the route&#8217;s <code>maxDuration</code> &mdash; not a queue.</p>
+    </div>
+  </details>
+  <details>
+    <summary>Railway <span class="cnt">docs.railway.com</span></summary>
+    <div class="dbody">
+      <p style="margin-bottom:0">Custom domain = <code>CNAME</code> + <code>TXT</code>; apex through
+        CNAME flattening or ALIAS; Trial plan = one custom domain; health check path, 300 s default
+        timeout, from <code>healthcheck.railway.app</code>; Redis exposes <code>REDIS_URL</code>;
+        private networking at <code>&lt;service&gt;.railway.internal</code>.</p>
+    </div>
+  </details>
+  <details>
+    <summary>History scan <span class="cnt">80 commits · no match</span></summary>
+    <div class="dbody">
+      <p style="margin-bottom:0">All 80 commits searched for OpenRouter, Anthropic, Clerk, AWS/R2,
+        Mongo-with-password, Redis-with-password, webhook-secret and PEM patterns &mdash; <strong>no
+        match</strong>; <code>.env</code> was never committed (only <code>.env.example</code>). A
+        <code>gitleaks</code> run is part of slice 16 to confirm with a maintained rule set.</p>
+    </div>
+  </details>
+
+  <!-- ---------- MODELS ---------- -->
+  <h3 style="margin-top:var(--s5)">Production models &mdash; proposed, each adopted only after a test</h3>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Model (OpenRouter)</th><th>Purpose</th><th>Cost (verified listing)</th><th>Test before adopting</th></tr></thead>
+      <tbody>
+        <tr class="hl"><td class="num">bytedance/seedance-2.0</td><td><strong>the trailer&#8217;s shots</strong></td><td>$0.151/s at 720p 16:9</td><td>the motion kernel test</td></tr>
+        <tr><td class="num">bytedance/seedance-2.0-fast</td><td>development and previews at 480p</td><td>$0.040/s at 480p 16:9</td><td>used for dev only; never the claim</td></tr>
+        <tr><td class="num">bytedance/seedance-2.0-mini</td><td>cheapest 2.x; <code>return_last_frame</code> chains shots</td><td>$3.5/M tokens</td><td>continuity test across two shots</td></tr>
+        <tr><td class="num">bytedance/seedance-2.5</td><td>30 s shots, 30 references, extend a shot</td><td>$10.7/M tokens</td><td>motion kernel test</td></tr>
+        <tr><td class="num">black-forest-labs/flux-video-upscale</td><td>a 1080p master from 720p</td><td>7.5&cent; per megapixel-second (input or output basis unstated)</td><td>one paid probe to read the bill</td></tr>
+        <tr><td class="num">black-forest-labs/flux-video-edit</td><td>fix one detail without re-generating</td><td>listed per second</td><td>a before/after on a failed shot</td></tr>
+        <tr><td class="num">kwaivgi/kling-v3.0-std / -pro</td><td>fallback image-to-video</td><td>$0.084 / $0.112 per s</td><td>the motion kernel test</td></tr>
+        <tr><td class="num">google/veo-3.1-lite</td><td>cheap fallback with native audio</td><td>&asymp; $0.05/s at 720p</td><td>the motion kernel test</td></tr>
+        <tr><td class="num">elevenlabs/eleven-v4</td><td>one voice per character</td><td>$0.00004/char</td><td>already used (v2 narration)</td></tr>
+        <tr><td class="num">google/lyria-3-clip-preview</td><td>the trailer&#8217;s music</td><td>$0.04 per 30 s</td><td>already used (v2 music)</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="quiet" style="margin-top:var(--s3)">Frame interpolation is not offered as a separate
+    model on OpenRouter&#8217;s listing; Seedance&#8217;s own 24 fps output is used as is.</p>
+
+  <!-- ---------- DATA MODEL ---------- -->
+  <h3 style="margin-top:var(--s5)">Data model (v3)</h3>
+  <details>
+    <summary>Mongo collections and Redis keys <span class="cnt">7 collections</span></summary>
+    <div class="dbody">
+      <div class="wire">users    {_id: clerkUserId, email, plan: 'free'|'allowlisted', admin: bool,
+          createdAt, deletedAt?}
+projects  v2&#8217;s Project + <b>ownerId</b>; nothing else moves
+jobs     {_id, ownerId, projectId, kind: 'sheet'|'panel'|'cover'|'text'|'shot'|
+          'speech'|'music'|'assemble'|'export'|'delete-account', status, attempts,
+          <b>reservedUsd, costUsd</b>, error?, providerJobId?, createdAt, updatedAt}
+videos   {_id, ownerId, projectId, page, status,
+          shots: [{panel, method, state, providerJobId?, blobKey?, seconds,
+                   costUsd, error?}],
+          finalKey?, posterKey?, captionsKey?, seconds, costUsd, createdAt}
+shares   {_id: token, ownerId, kind, projectId?, videoId?, snapshot, createdAt,
+          revokedAt?}
+reports  {_id, token, reason, note, ipHash, at, handledAt?}
+settings {_id: userId, defaultStyle, readingDirection, voices: {lead, counterpart}}
+
+<b>Redis</b>  rl:&lt;bucket&gt;:&lt;id&gt;                      sliding windows
+       quota:&lt;userId&gt;:&lt;YYYYMMDD&gt;:&lt;kind&gt;
+       spend:&lt;userId&gt;:&lt;YYYYMMDD&gt;   spend:global:&lt;YYYYMMDD&gt;   spend:global:total
+       heartbeat:worker   lock:&lt;key&gt;</div>
+    </div>
+  </details>
+
+  <!-- ---------- FAILURE MODES ---------- -->
+  <h3 style="margin-top:var(--s5)">Where v3 will break, and what happens</h3>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>What fails</th><th>What the user sees</th><th>What the system does</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Redis down</strong></td><td>&ldquo;The studio is busy &mdash; try again in a few minutes&rdquo; on generate buttons</td><td>enqueue refused (503); reads, reader, shares work from Mongo and the bucket</td></tr>
+        <tr><td><strong>Worker down</strong></td><td>the status line; jobs stay <em>queued</em></td><td>the reconciler re-enqueues on start; nothing paid is lost</td></tr>
+        <tr><td><strong>Mongo down</strong></td><td>an error page with a retry</td><td>health check fails; Railway holds the old deploy</td></tr>
+        <tr><td><strong>A Seedance shot fails or is refused</strong> <span class="quiet">(real face, policy)</span></td><td>that shot&#8217;s card: why, <strong>Try again</strong></td><td>others continue; reservation released</td></tr>
+        <tr class="hl"><td><strong>OpenRouter 402</strong> <span class="quiet">(credit)</span></td><td>&ldquo;The studio has paused generation for today&rdquo;</td><td>global switch trips; learner alerted in logs</td></tr>
+        <tr><td><strong>Global daily cap reached</strong></td><td>the same pause message for everyone</td><td><code>reserve</code> refuses before any call</td></tr>
+        <tr><td><strong>A user over quota</strong></td><td>disabled buttons with reason and reset time</td><td><code>reserve</code> refuses</td></tr>
+        <tr class="hl"><td><strong>Crash between a paid video POST and saving its job id</strong></td><td>the shot shows <em>failed &mdash; not charged twice</em></td><td>marked <code>orphaned</code>, never re-submitted; findable in OpenRouter&#8217;s logs by <code>session_id</code></td></tr>
+        <tr><td><strong>Clerk webhook replay</strong></td><td>nothing</td><td>de-duplicated on the message id</td></tr>
+        <tr><td><strong>Share revoked</strong></td><td>not found</td><td>same page as an unknown token</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ---------- FILES + DEPS ---------- -->
+  <h3 style="margin-top:var(--s5)">File structure and dependencies</h3>
+  <details>
+    <summary>New and changed files <span class="cnt">v3</span></summary>
+    <div class="dbody">
+      <div class="tree"><b>proxy.ts</b>                               <i># Clerk gate, www→apex, Origin check, per-IP limits on public routes</i>
+instrumentation.ts                     <i># boot: validate config (fail fast)</i>
+<b>worker/index.ts</b>                        <i># BullMQ processors: image, video, audio; reconciler; heartbeat</i>
+lib/config.ts                          <i># every env variable, zod-validated, server-only; the learner&#8217;s names mapped</i>
+<b>lib/auth/{session,access}.ts</b>           <i># requireUser(); ownedProject/ownedVideo/ownedBlob → 404</i>
+<b>lib/limits/{rate,quota,spend}.ts</b>       <i># Redis sliding windows, daily counters, reserve/settle/release (Lua)</i>
+lib/queue/{queues,jobs,enqueue}.ts     <i># BullMQ queues; Mongo jobs as the record</i>
+lib/store/{cloud,local,index}.ts       <i># + users, jobs, videos, shares, reports, settings; two buckets; signed URLs</i>
+lib/video/{frames,prompt,shots,assemble,cost,models}.ts
+lib/audio/{tts,music}.ts               <i># ported from video/narrate.mts and video/music/generate.mts</i>
+lib/share/snapshot.ts
+lib/log.ts                             <i># pino with redaction</i>
+app/sign-in/[[...sign-in]]/page.tsx, app/sign-up/[[...sign-up]]/page.tsx
+app/terms/page.tsx, app/privacy/page.tsx
+app/settings/{account,defaults,sharing,data,usage}/page.tsx
+app/admin/reports/page.tsx
+app/s/[token]/{page,opengraph-image}.tsx
+app/api/health/route.ts
+app/api/usage/route.ts
+app/api/webhooks/clerk/route.ts
+app/api/projects/[id]/image/[imageId]/route.ts     <i># replaces /api/image/[id]</i>
+app/api/projects/[id]/pages/[n]/animate/route.ts   <i># estimate (GET), confirm (POST)</i>
+app/api/videos/[videoId]/route.ts                  <i># status, retry a shot</i>
+app/api/projects/[id]/share/route.ts, app/api/videos/[videoId]/share/route.ts
+app/api/s/[token]/{image/[imageId],video,report}/route.ts
+app/api/settings/{export,delete}/route.ts
+components/{QuotaMeter,AnimateStation,ShotCard,ShareDialog,ReportDialog,UsagePanel}.tsx
+scripts/{claim-projects,move-media-to-bucket}.mts
+scripts/{auth,limits,queue,share,video,config}-check.mts
+devpost/security-report.md</div>
+    </div>
+  </details>
+  <p style="margin-top:var(--s3)"><strong>Pinned exactly, each at least a few days old at
+    install:</strong> <code>@clerk/nextjs</code> 7.9.14 (7.9.15 published 2026-10-13),
+    <code>bullmq</code> 6.3.12 (2026-10-09), <code>ioredis</code> 5.11.1 (6.0.0 is two days old;
+    BullMQ accepts &ge; 5), <code>sharp</code> 0.35.5, <code>yazl</code> 3.3.1, <code>pino</code>
+    10.4.0, <code>server-only</code>.</p>
+  <p class="quiet">Docs: clerk.com/docs, docs.bullmq.io, docs.railway.com, openrouter.ai/docs (video,
+    audio), sharp.pixelplumbing.com.</p>
+
+  <!-- ---------- BUDGET ---------- -->
+  <h3 style="margin-top:var(--s5)">Quality, cost and budget</h3>
+  <p>Development at <code>low</code> images and <strong>480p <code>seedance-2.0-fast</code></strong>
+    for trailer runs; the motion kernel test and the filmed trailer at <strong>720p
+    <code>seedance-2.0</code></strong>. The arithmetic and the over-budget finding are in
+    <code>scope.md &gt; Budget (v3)</code>.</p>
+  <div class="cols">
+    <div class="card" style="border-color:var(--hanko);background:var(--hanko-100)">
+      <h4 style="margin-top:0;color:var(--hanko)">Needed</h4>
+      <p style="font-size:26px;font-family:var(--font-head);margin-bottom:var(--s1)">&asymp; $8.50</p>
+      <p class="quiet" style="margin-bottom:0">plus the public kill switch.</p>
+    </div>
+    <div class="card">
+      <h4 style="margin-top:0">Left</h4>
+      <p style="font-size:26px;font-family:var(--font-head);margin-bottom:var(--s1)">&asymp; $7.70</p>
+      <p class="quiet" style="margin-bottom:0">the over-budget finding, in <code>scope.md</code>.</p>
+    </div>
+    <div class="card">
+      <h4 style="margin-top:0">Shot at 720p</h4>
+      <p style="font-size:26px;font-family:var(--font-head);margin-bottom:var(--s1)">$0.756</p>
+      <p class="quiet" style="margin-bottom:0">per 5 s, <code>seedance-2.0</code>, 16:9.</p>
+    </div>
+  </div>
+  <div class="warn" style="margin-top:var(--s4)">
+    <h3 style="color:var(--hanko)">Proposed guard &mdash; yours to accept</h3>
+    <p style="margin-bottom:0"><code>GLOBAL_DAILY_USD_CAP=5</code> <strong>and</strong>
+      <code>GLOBAL_TOTAL_USD_CAP</code> (a cumulative ceiling across all days), <strong>and</strong> a
+      credit limit on the OpenRouter key itself, with auto top-up off.</p>
+  </div>
+
+  <!-- ---------- DECISIONS ---------- -->
+  <h3 style="margin-top:var(--s5)">Decisions and open issues (v3)</h3>
+  <ul class="reasons">
+    <li class="is-lock"><b>One useful unknown &mdash; the motion method.</b> The learner&#8217;s first
+      design put the panel as the first frame <em>and</em> the sheet as a reference in one call; the
+      docs say that cannot be done. The motion kernel test
+      (<code>scripts/kernel-test.mjs --motion</code>) answers which allowed method holds the face:
+      <strong>A</strong> (first frame) or <strong>B</strong> (both as references, the panel named as
+      the opening frame). The learner chooses from the frame strips; the choice is recorded
+      here.</li>
+    <li class="is-lock"><b>Whose variables are these?</b> (Environment and configuration, above)
+      &mdash; blocks slice 16.</li>
+    <li class="is-lock"><b>The domain</b> &mdash; blocks the DNS work in slice 16 and Clerk
+      production in slice 18.</li>
+    <li><b>Budget, kill switch, cumulative cap</b> &mdash; the learner&#8217;s
+      (<code>scope.md &gt; Budget (v3)</code>).</li>
+    <li><b>Error tracking service, email service for reports</b> &mdash; the learner&#8217;s; logs and
+      the admin list work without them.</li>
+    <li><b>Tags</b> &mdash; this session&#8217;s push of tag refs is refused (HTTP 403); the learner
+      pushes each tag.</li>
+  </ul>
 </section>
 
 <footer>

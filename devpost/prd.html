@@ -144,6 +144,7 @@
   .cols{display:grid;gap:var(--s4);grid-template-columns:repeat(auto-fit,minmax(255px,1fr))}
   .assume{border:1px dashed var(--n500);background:var(--paper);padding:var(--s3) var(--s4);font-size:14.5px;
     color:var(--n800);margin-top:var(--s3)}
+  a{color:var(--hanko)}
   footer{margin-top:var(--s6);padding-top:var(--s4);border-top:1.5px solid var(--ink);font-size:13.5px;color:var(--n700)}
 </style>
 </head>
@@ -167,10 +168,14 @@
       <p class="lede">Product requirements. You pitch a story; Ink Desk turns it into a real 4-panel manga page
         with your own characters drawn consistently across every panel.</p>
       <div class="metarow">
-        <span class="tag tag-red">Approved</span>
+        <span class="tag tag-red">v3 · Draft</span>
+        <span class="tag tag-quiet">v1 · v2 approved</span>
         <span class="tag tag-quiet">4 stations · 1 page · 2 characters</span>
         <span class="tag tag-red">Canonical: prd.md</span>
       </div>
+      <p class="note" style="margin-top:var(--s3)">Latest: <a href="#v3">Revision — Ink Desk Studio v3 (public, on the
+        learner's domain)</a> — <strong>draft, 2026-10-14, awaiting your review.</strong> v1 and v2 below stay as
+        approved.</p>
     </div>
   </header>
 
@@ -733,11 +738,13 @@
     <p>Pins down <code>scope.md › Revision — Ink Desk Studio (v2)</code> as behavior. <strong>The v1 page journey above is unchanged and becomes the inner loop of every page.</strong> v1 is tagged <code>v1-poc</code> and stays the fallback submission.</p>
 
     <h3>Two surfaces, one rail</h3>
-    <table style="border-collapse:collapse;width:100%;margin:0 0 var(--s3)">
+    <div class="tablewrap" style="margin:0 0 var(--s3)">
+    <table style="border-collapse:collapse;width:100%">
       <tr><th style="text-align:left;padding:6px 8px;border-bottom:1.5px solid var(--ink)">Surface</th><th style="text-align:left;padding:6px 8px;border-bottom:1.5px solid var(--ink)">Route</th><th style="text-align:left;padding:6px 8px;border-bottom:1.5px solid var(--ink)">Holds</th></tr>
       <tr><td style="padding:6px 8px">Dashboard</td><td style="padding:6px 8px"><code>/</code></td><td style="padding:6px 8px">project cards · New project · global library · budget readout</td></tr>
       <tr><td style="padding:6px 8px">Studio</td><td style="padding:6px 8px"><code>/p/&lt;project&gt;</code></td><td style="padding:6px 8px">the rail for one project: Story (pitch or scenario) → Library → Director → Page → Ink &amp; Publish</td></tr>
     </table>
+    </div>
     <p class="quiet">Gates as in v1: Library opens on an accepted synopsis or a saved scenario; the Director on two locked characters; Page on a plan; Ink &amp; Publish on the first page with four inked panels. The header shows the open page and "Images this project: N · ≈ $X".</p>
 
     <h3>The journey, eleven steps</h3>
@@ -804,6 +811,459 @@
     <h3>Deferred and never</h3>
     <p class="quiet"><strong>Deferred:</strong> in-app video export and dubbing (only if items 1–9 are done by Oct 20 — otherwise Later, no debate); two characters in one panel; volumes in the UI; alternative image models unless one passes the kernel test before Oct 18; style and setting locks beyond candidates; accounts, deployment, the mini-game, a shared library. <strong>Never:</strong> claiming a candidate lock before its test; a second layout; a hard cap; any feature not on the list after Oct 20.</p>
     <p class="quiet"><strong>Open:</strong> the page-count range (drafted 3–6); a tall-strip export for manhwa; reusing a locked character across projects; which premade voice narrates the video.</p>
+  </section>
+
+  <!-- ============ V3 ============ -->
+  <section id="v3">
+    <hr class="rule" style="margin-bottom:var(--s5)">
+    <p class="eyebrow">Revision · 2026-10-14 · Ink Desk Studio v3</p>
+    <h2>Public, on the learner's domain</h2>
+    <p style="margin:var(--s3) 0 var(--s4)"><span class="stamp" style="max-width:100%">Draft — awaiting your review</span></p>
+    <p>Source: <code>scope.md › Revision — Ink Desk Studio v3</code>, decided by the learner the same day. <strong>The v2
+      studio journey above is unchanged and becomes what a signed-in user does inside their own projects;</strong> v3
+      adds who they are, what they may spend, how they share, and the animated page. Product behavior only — the how is
+      <code>spec.md › Revision v3</code>.</p>
+
+    <h3 style="margin-top:var(--s5)">Changes since approval</h3>
+    <p class="quiet">Against the approved v2 PRD — nine changes.</p>
+    <ul class="reasons" style="margin-top:var(--s3)">
+      <li><b>1 · There are users now.</b> v2 had one desk for whoever opened the app. v3 has accounts (email, Google,
+        GitHub), and every project, image, video, share and quota belongs to one user.
+        <span class="quiet"><em>Supersedes</em> v2's “Accounts” under <em>Deferred From the POC (v2)</em>.</span></li>
+      <li><b>2 · The app is public on the learner's domain,</b> with no landing page: the domain root is the sign-in
+        screen or the dashboard. <span class="quiet"><em>Supersedes</em> v2's “the demo and the video run local”.</span></li>
+      <li><b>3 · Spending has limits a user can see.</b> A quota meter in the header, a Usage page, disabled buttons with
+        a reason and a reset time, and a global kill switch. <span class="quiet"><em>Supersedes</em> v2's “Budget … no hard
+        cap in the product”.</span></li>
+      <li><b>4 · Animate a page is new:</b> a 20–30 s trailer of one finished page. <span class="quiet"><em>Supersedes</em>
+        v2's “In-app video export and in-app dubbing — Later”.</span></li>
+      <li><b>5 · Share publicly is new,</b> for a manga and for a video, with a Report button on every public page.</li>
+      <li><b>6 · Settings, Usage, Terms and Privacy</b> are new screens.</li>
+      <li><b>7 · Every screen works on a phone.</b> v2 was designed for a desktop studio.</li>
+      <li><b>8 · The demo video is re-filmed on the live domain on Oct 23–24,</b> narrated from the learner's own script.
+        <span class="quiet"><em>Supersedes</em> v2's “narration drafted by the AI partner”.</span></li>
+      <li><b>9 · Freeze moves to 2026-10-22, end of day.</b> The cut line is the learner's: not working and checkpointed
+        by Oct 22 → <em>Later</em>, no debate; if v3 is unstable, the last stable tag ships.</li>
+    </ul>
+
+    <h3 style="margin-top:var(--s5)">The v3 journey, at a glance</h3>
+    <figure>
+      <div class="svgbox">
+        <svg viewBox="0 0 860 350" role="img"
+             aria-label="Diagram of the v3 core journey. Open the domain: signed out goes to the Clerk sign-in, signed in goes straight to the dashboard. Dashboard to the studio (as v2), then Animate a page, which assembles a trailer into My videos; Settings and Usage hang off the dashboard. The studio and every animation spend behind sign-in, the quota and the kill switch. A manga from the studio or a video from My videos can be shared publicly as a /s/ link; anyone, signed in or not, opens it read-only and can Report it; reports reach the learner's admin list, which can unpublish the share.">
+          <defs>
+            <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="#201f1d"/></marker>
+            <marker id="a3r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="#b5382e"/></marker>
+            <pattern id="d3" width="6" height="6" patternUnits="userSpaceOnUse">
+              <circle cx="1.5" cy="1.5" r="1" fill="#bab6b6"/></pattern>
+          </defs>
+          <g font-family="Georgia,serif">
+            <!-- spending zone -->
+            <rect x="546" y="52" width="310" height="92" fill="#fcecea" stroke="#b5382e" stroke-width="1.2" stroke-dasharray="5 4"/>
+            <text x="556" y="44" font-size="10.5" letter-spacing="1.8" fill="#b5382e">SPENDS — SIGN-IN · QUOTA · KILL SWITCH</text>
+
+            <!-- row 1 -->
+            <rect x="8" y="62" width="128" height="70" fill="#201f1d"/>
+            <text x="72" y="92" text-anchor="middle" font-size="15" fill="#f3f2f2">Open the</text>
+            <text x="72" y="110" text-anchor="middle" font-size="15" fill="#f3f2f2">domain</text>
+            <text x="72" y="125" text-anchor="middle" font-size="9.5" fill="#bab6b6">no landing page</text>
+
+            <rect x="184" y="62" width="136" height="70" fill="#f8f4f4" stroke="#201f1d" stroke-width="1.5"/>
+            <text x="252" y="88" text-anchor="middle" font-size="16">Sign-in</text>
+            <text x="252" y="106" text-anchor="middle" font-size="10.5" fill="#605d5d">email · Google · GitHub</text>
+            <text x="252" y="122" text-anchor="middle" font-size="10" fill="#b5382e">Terms · Privacy · sign up</text>
+
+            <rect x="364" y="62" width="152" height="70" fill="#f8f4f4" stroke="#201f1d" stroke-width="1.5"/>
+            <text x="440" y="88" text-anchor="middle" font-size="16">Dashboard</text>
+            <text x="440" y="106" text-anchor="middle" font-size="10.5" fill="#605d5d">projects · videos · library</text>
+            <text x="440" y="122" text-anchor="middle" font-size="10" fill="#b5382e">quota meter in the header</text>
+
+            <rect x="556" y="62" width="136" height="70" fill="#f8f4f4" stroke="#201f1d" stroke-width="1.5"/>
+            <text x="624" y="88" text-anchor="middle" font-size="16">Studio</text>
+            <text x="624" y="106" text-anchor="middle" font-size="10.5" fill="#605d5d">as v2 · own project</text>
+            <text x="624" y="122" text-anchor="middle" font-size="10" fill="#b5382e">plan · estimate · ink</text>
+
+            <rect x="732" y="62" width="116" height="70" fill="url(#d3)" stroke="#201f1d" stroke-width="1.5"/>
+            <rect x="742" y="74" width="96" height="48" fill="#f8f4f4"/>
+            <text x="790" y="92" text-anchor="middle" font-size="15">Animate</text>
+            <text x="790" y="106" text-anchor="middle" font-size="10" fill="#605d5d">estimate → Confirm</text>
+            <text x="790" y="119" text-anchor="middle" font-size="10" fill="#b5382e">one card per shot</text>
+
+            <!-- row 1 arrows -->
+            <path d="M139 97 L180 97" stroke="#201f1d" stroke-width="1.5" marker-end="url(#a3)"/>
+            <text x="160" y="148" text-anchor="middle" font-size="10.5" fill="#605d5d">signed</text>
+            <text x="160" y="160" text-anchor="middle" font-size="10.5" fill="#605d5d">out</text>
+            <path d="M160 140 L160 104" stroke="#9b9797" stroke-width="1"/>
+            <path d="M323 97 L360 97" stroke="#201f1d" stroke-width="1.5" marker-end="url(#a3)"/>
+            <path d="M519 97 L552 97" stroke="#201f1d" stroke-width="1.5" marker-end="url(#a3)"/>
+            <path d="M695 97 L728 97" stroke="#201f1d" stroke-width="1.5" marker-end="url(#a3)"/>
+
+            <!-- signed in: straight to dashboard -->
+            <path d="M72 60 C 72 20, 440 20, 440 58" stroke="#201f1d" stroke-width="1.5" fill="none" marker-end="url(#a3)"/>
+            <text x="256" y="22" text-anchor="middle" font-size="11.5" font-style="italic">signed in</text>
+
+            <!-- settings -->
+            <path d="M440 135 L440 160" stroke="#201f1d" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#a3)"/>
+            <rect x="380" y="164" width="120" height="34" fill="#fff" stroke="#201f1d" stroke-width="1.2" stroke-dasharray="6 4"/>
+            <text x="440" y="180" text-anchor="middle" font-size="12">Settings · Usage</text>
+            <text x="440" y="192" text-anchor="middle" font-size="9.5" fill="#605d5d">export · delete · shares</text>
+
+            <!-- down arrows -->
+            <path d="M790 135 L790 236" stroke="#201f1d" stroke-width="1.5" marker-end="url(#a3)"/>
+            <text x="782" y="186" text-anchor="end" font-size="10.5" fill="#605d5d">all shots</text>
+            <text x="782" y="199" text-anchor="end" font-size="10.5" fill="#605d5d">done</text>
+            <path d="M624 135 L624 236" stroke="#201f1d" stroke-width="1.5" marker-end="url(#a3)"/>
+            <text x="616" y="186" text-anchor="end" font-size="10.5" fill="#605d5d">a manga</text>
+
+            <!-- row 2 -->
+            <text x="184" y="228" font-size="10.5" letter-spacing="1.8" fill="#201f1d">PUBLIC — SIGNED IN OR NOT</text>
+
+            <rect x="732" y="240" width="116" height="70" fill="#f8f4f4" stroke="#201f1d" stroke-width="1.5"/>
+            <text x="790" y="266" text-anchor="middle" font-size="15">My videos</text>
+            <text x="790" y="284" text-anchor="middle" font-size="10.5" fill="#605d5d">trailer 20–30 s</text>
+            <text x="790" y="300" text-anchor="middle" font-size="10" fill="#605d5d">with a poster</text>
+
+            <rect x="556" y="240" width="136" height="70" fill="#201f1d"/>
+            <text x="624" y="266" text-anchor="middle" font-size="15" fill="#f3f2f2">Share publicly</text>
+            <text x="624" y="284" text-anchor="middle" font-size="10.5" fill="#bab6b6">/s/&lt;token&gt; · copy</text>
+            <text x="624" y="300" text-anchor="middle" font-size="10" fill="#eba49d">Unpublish any time</text>
+
+            <rect x="364" y="240" width="152" height="70" fill="#f8f4f4" stroke="#201f1d" stroke-width="1.5"/>
+            <text x="440" y="266" text-anchor="middle" font-size="15">Opens the link</text>
+            <text x="440" y="284" text-anchor="middle" font-size="10.5" fill="#605d5d">read-only reader or player</text>
+            <text x="440" y="300" text-anchor="middle" font-size="10" fill="#605d5d">nothing else of the owner's</text>
+
+            <rect x="184" y="240" width="136" height="70" fill="#fcecea" stroke="#b5382e" stroke-width="1.5"/>
+            <text x="252" y="266" text-anchor="middle" font-size="15" fill="#b5382e">Report</text>
+            <text x="252" y="284" text-anchor="middle" font-size="10.5" fill="#605d5d">reason · optional note</text>
+            <text x="252" y="300" text-anchor="middle" font-size="10" fill="#605d5d">visitor is thanked</text>
+
+            <rect x="8" y="240" width="128" height="70" fill="#f8f4f4" stroke="#201f1d" stroke-width="1.5"/>
+            <text x="72" y="266" text-anchor="middle" font-size="15">Admin list</text>
+            <text x="72" y="284" text-anchor="middle" font-size="10.5" fill="#605d5d">the learner</text>
+            <text x="72" y="300" text-anchor="middle" font-size="10" fill="#605d5d">admin emails only</text>
+
+            <!-- row 2 arrows (right to left) -->
+            <path d="M729 275 L696 275" stroke="#201f1d" stroke-width="1.5" marker-end="url(#a3)"/>
+            <text x="712" y="266" text-anchor="middle" font-size="10" fill="#605d5d">video</text>
+            <path d="M553 275 L520 275" stroke="#201f1d" stroke-width="1.5" marker-end="url(#a3)"/>
+            <text x="536" y="266" text-anchor="middle" font-size="10" fill="#605d5d">link</text>
+            <path d="M361 275 L324 275" stroke="#b5382e" stroke-width="1.5" marker-end="url(#a3r)"/>
+            <text x="342" y="266" text-anchor="middle" font-size="10" fill="#b5382e">flag</text>
+            <path d="M181 275 L140 275" stroke="#b5382e" stroke-width="1.5" marker-end="url(#a3r)"/>
+
+            <!-- unpublish loop -->
+            <path d="M72 313 C 72 346, 624 346, 624 316" stroke="#b5382e" stroke-width="1.5" fill="none"
+                  stroke-dasharray="5 4" marker-end="url(#a3r)"/>
+            <text x="348" y="331" text-anchor="middle" font-size="11" fill="#b5382e">the learner can unpublish a reported share</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption>The v2 studio sits unchanged inside the red zone: everything that spends money is behind sign-in, a
+        quota and the global kill switch. Share pages are a read-only snapshot anyone can open — and Report.</figcaption>
+    </figure>
+
+    <h3 style="margin-top:var(--s5)">Core journey (v3)</h3>
+    <ol class="journey">
+      <li class="gate"><strong>Open the domain.</strong> Signed out: the Clerk sign-in screen (email, Google, GitHub),
+        with links to Terms and Privacy and to sign up. Signed in: the dashboard.</li>
+      <li><strong>Dashboard.</strong> My projects (manga), my videos, the library, <strong>New project</strong>, and a
+        compact <strong>quota meter</strong> in the header (today's images, video seconds and audio characters against the
+        limit).</li>
+      <li><strong>The studio, as v2</strong> — style preset, scenario, library with an imported reference and locks, the
+        Director's plan with its estimate, pages ink in, the reader, PNG and PDF. Now inside the user's own project,
+        inside their quota.</li>
+      <li class="gate"><strong>Animate a page.</strong> From a finished page (any page whose four panels are inked):
+        <strong>Animate</strong> → the estimate (shots, seconds, dollars, and what it takes from today's quota) →
+        <strong>Confirm</strong>. The page's shots appear as cards, each with its own progress; a failed shot says why and
+        offers <strong>Try again</strong> while the others carry on. When every shot is done the trailer is assembled, and
+        it appears under <strong>My videos</strong>.</li>
+      <li><strong>Share.</strong> On a manga or a video: <strong>Share publicly</strong> → a link on the domain
+        (<code>/s/&lt;token&gt;</code>) to copy; <strong>Unpublish</strong> at any time.</li>
+      <li><strong>Someone opens the link.</strong> Signed in or not, they see a read-only reader or player — title, cover,
+        pages or the video — and nothing else of the owner's. A <strong>Report</strong> button lets them flag it.</li>
+      <li><strong>Settings and Usage</strong>, from the dashboard and the user menu.</li>
+    </ol>
+
+    <h3 style="margin-top:var(--s5)">Features and behavior — the checks</h3>
+    <p class="quiet">Twelve groups, 52 acceptance criteria. Open a group to see its checks.</p>
+    <div style="margin-top:var(--s3)">
+    <details>
+      <summary>Accounts and sign-in <span class="cnt">4</span></summary>
+      <div class="dbody">
+        <ul class="crit">
+          <li>Signed out, every page except sign-in, sign-up, Terms, Privacy, share pages and the health check sends the
+            visitor to sign-in; after signing in they land where they were going, or on the dashboard</li>
+          <li>Sign-in and sign-up offer email, Google and GitHub; a new account exists in the app's own records the moment
+            it is created</li>
+          <li>Sign-up resists mass account creation (Clerk's bot protection on)</li>
+          <li>Signing out from the user menu returns to sign-in; “sign out of other sessions” is available in Settings</li>
+        </ul>
+      </div>
+    </details>
+    <details>
+      <summary>Ownership and privacy <span class="cnt">3</span></summary>
+      <div class="dbody">
+        <ul class="crit">
+          <li>A user sees only their own projects, images, videos, shares and usage — in the dashboard, the studio, every
+            image and every download</li>
+          <li>Opening another user's project by its address shows the same “There is no such project” page as an address
+            that never existed</li>
+          <li>Nothing a user did is visible to anyone else unless they shared it</li>
+        </ul>
+      </div>
+    </details>
+    <details>
+      <summary>Dashboard <span class="cnt">4</span></summary>
+      <div class="dbody">
+        <ul class="crit">
+          <li>Sections: <strong>Projects</strong> (covers, as v2), <strong>Videos</strong> (poster, length, status, date),
+            <strong>Library</strong>, <strong>New project</strong></li>
+          <li>The header shows the quota meter and the user menu on every signed-in screen</li>
+          <li>A video still being made shows its progress on the dashboard; a finished one plays from there</li>
+          <li>Empty states: a new account sees a short line on what to do first, not a blank page</li>
+        </ul>
+      </div>
+    </details>
+    <details>
+      <summary>Limits and usage <span class="cnt">7</span></summary>
+      <div class="dbody">
+        <ul class="crit">
+          <li>Every action that costs money is counted against today's quota <strong>before</strong> it starts; the
+            estimate says what it will take</li>
+          <li>At 80% of a limit the meter warns; at 100% the buttons that would spend are <strong>disabled with the reason
+            and the reset time</strong> — never a raw error</li>
+          <li>Too many requests in a short time are refused with a calm sentence and when to try again</li>
+          <li>When the global daily spend cap is reached, generation pauses for everyone with one clear message; reading,
+            the reader, exports and shares keep working</li>
+          <li><strong>Usage</strong> in Settings shows, for today: images, video seconds and audio characters used vs the
+            limit, the reset time; spend today and this month from the providers' real costs; the user's plan (free or
+            allowlisted) and each limit</li>
+          <li>What the meter shows is exactly what is enforced</li>
+          <li>A free account starts with a small quota (the learner's example: 1 project, 20 images, 1 short video a
+            day); allowlisted emails get higher limits</li>
+        </ul>
+      </div>
+    </details>
+    <details>
+      <summary>Animate a page <span class="cnt">10</span></summary>
+      <div class="dbody">
+        <p class="quiet">Source: <code>scope.md › What “Working” Looks Like (v3)</code>.</p>
+        <ul class="crit">
+          <li><strong>Animate</strong> appears on a page whose four panels are inked; otherwise it is disabled with
+            “Finish this page first”</li>
+          <li>The estimate before anything is spent: number of shots, total seconds, dollars, and the share of today's
+            quota; <strong>Confirm</strong> or <strong>Cancel</strong></li>
+          <li>One shot per panel, 3–5 s each, in the panel's own framing; the camera motion follows the panel's stored
+            camera line</li>
+          <li>Each shot has its own card and progress (queued, animating, done, failed); a failed shot shows why and
+            <strong>Try again</strong>; the other shots continue</li>
+          <li>Dialogue is spoken by <strong>one voice per character</strong>, chosen once and kept; the line plays while its
+            bubble is on screen</li>
+          <li>Bubbles appear on time over the shots, lettered by the app as in the reader — never drawn by the model</li>
+          <li>Music sits under the voices</li>
+          <li>The finished trailer (20–30 s) plays in the studio and on the dashboard, with a poster image</li>
+          <li>Leaving the page, closing the tab or a server restart never loses a shot that was paid for: progress
+            continues and is still there on return</li>
+          <li><strong>The motion proof</strong> (<code>scope.md › The Unique Kernel (v3)</code>): the imported character,
+            across a close-up, a medium and a wide shot, keeps the same face, outfit and marks from the first frame to the
+            last — judged by the learner on the motion kernel test before the app may claim it</li>
+        </ul>
+      </div>
+    </details>
+    <details>
+      <summary>Sharing <span class="cnt">6</span></summary>
+      <div class="dbody">
+        <ul class="crit">
+          <li><strong>Share publicly</strong> on a manga or a video gives a link on the domain; copying it is one tap</li>
+          <li>The link opens a read-only page: the manga in the reader (reading direction by style) or the video in a
+            player — title and cover, nothing else of the owner's (no scenario, DNA, plan, costs, account)</li>
+          <li>Shared links look right when pasted elsewhere: title and cover image as the preview</li>
+          <li>Share pages are not indexed by search engines until the learner decides otherwise</li>
+          <li><strong>Unpublish</strong> makes the link show the same “not found” page as a link that never existed, at
+            once</li>
+          <li>Later edits to a project do not change what an existing link shows until the owner updates the share</li>
+        </ul>
+      </div>
+    </details>
+    <details>
+      <summary>Report <span class="cnt">3</span></summary>
+      <div class="dbody">
+        <ul class="crit">
+          <li>Every public page has <strong>Report</strong>: a reason and an optional note; the visitor is thanked, never
+            told the outcome</li>
+          <li>Reports reach the learner — an admin list visible only to allowlisted admin emails, and (if an email service
+            is configured) an email</li>
+          <li>The learner can unpublish a reported share from that list</li>
+        </ul>
+      </div>
+    </details>
+    <details>
+      <summary>Settings <span class="cnt">5</span></summary>
+      <div class="dbody">
+        <ul class="crit">
+          <li><strong>Account</strong>: Clerk's account management — email, connected Google/GitHub, sessions</li>
+          <li><strong>Studio defaults</strong>: default style for new projects, default reading direction, default voice
+            per character type</li>
+          <li><strong>Sharing</strong>: everything this user has shared, with its link and <strong>Unpublish</strong></li>
+          <li><strong>Data and privacy</strong>: <strong>Export my data</strong> (projects as JSON plus their images, as
+            one download) and <strong>Delete my account</strong> — with a confirmation that names what goes: projects,
+            images, videos, shares, queued work; after it, nothing of theirs remains</li>
+          <li><strong>Usage</strong> (see Limits and usage)</li>
+        </ul>
+      </div>
+    </details>
+    <details>
+      <summary>Terms and privacy <span class="cnt">1</span></summary>
+      <div class="dbody">
+        <ul class="crit">
+          <li>Two short text pages, linked from sign-in and Settings: what content is allowed, what is stored and where,
+            which outside services see it, how to delete it</li>
+        </ul>
+      </div>
+    </details>
+    <details>
+      <summary>Status and health <span class="cnt">2</span></summary>
+      <div class="dbody">
+        <ul class="crit">
+          <li>If the queue or its store is down, buttons that would generate say “The studio is busy — try again in a few
+            minutes”; reading existing work keeps working</li>
+          <li>A health address answers for the host's deploy checks</li>
+        </ul>
+      </div>
+    </details>
+    <details>
+      <summary>Responsive <span class="cnt">4</span></summary>
+      <div class="dbody">
+        <ul class="crit">
+          <li>Every screen — sign-in, dashboard, studio stations, reader, animate, share pages, settings, usage — works at
+            phone (≈ 390 px), tablet (≈ 768 px) and desktop widths with no sideways scrolling</li>
+          <li>Every action is reachable by touch with a comfortably sized target; a locked station explains itself when
+            tapped, not only on hover</li>
+          <li>Bubble text is never cut off on a small panel</li>
+          <li>The 5b rules hold everywhere: visible actions, explained disabled states, real loading states</li>
+        </ul>
+      </div>
+    </details>
+    <details>
+      <summary>Safety <span class="cnt">3</span></summary>
+      <div class="dbody">
+        <ul class="crit">
+          <li>Uploads are checked for real type and size, re-encoded, and stripped of hidden metadata (such as GPS) before
+            anyone else could see them</li>
+          <li>Nothing a user types — bubble text, scenario, titles — can run as code in anyone's browser, including on
+            share pages</li>
+          <li>A failure anywhere ends in a sentence and a way forward, never a blank screen or a technical message</li>
+        </ul>
+      </div>
+    </details>
+    </div>
+
+    <h3 style="margin-top:var(--s5)">States and boundaries (v3)</h3>
+    <div class="states">
+      <div class="state">
+        <h3>Who can do what</h3>
+        <p style="font-size:14.5px"><strong>Signed out:</strong> sign-in, sign-up, Terms, Privacy, share pages, Report,
+          health. <strong>Signed in:</strong> their own work only. <strong>Allowlisted:</strong> higher limits; admin
+          emails also see the report list.</p>
+      </div>
+      <div class="state bad">
+        <h3>Spending is always gated</h3>
+        <p style="font-size:14.5px;color:var(--hanko-900)">Behind sign-in, a quota and the kill switch. <strong>No
+          exception for any route.</strong></p>
+      </div>
+      <div class="state">
+        <h3>One page per animation</h3>
+        <p style="font-size:14.5px">One page is the unit of animation. Full-chapter animation is <em>Later</em>.</p>
+      </div>
+      <div class="state">
+        <h3>Work survives restarts</h3>
+        <p style="font-size:14.5px">…and deploys. A shot or panel that was paid for is never lost or paid for twice
+          because the app restarted.</p>
+      </div>
+      <div class="state">
+        <h3>Deleting is complete</h3>
+        <p style="font-size:14.5px">Deleting an account removes records, files, queued work, public links.</p>
+      </div>
+      <div class="state">
+        <h3>Shares are snapshots</h3>
+        <p style="font-size:14.5px">Read-only, revocable, <code>noindex</code>.</p>
+      </div>
+      <div class="state bad">
+        <h3>Freeze 2026-10-22</h3>
+        <p style="font-size:14.5px;color:var(--hanko-900)">Feature freeze at end of day. After it: fixes, the video, the
+          README, the submission.</p>
+      </div>
+    </div>
+
+    <h3 style="margin-top:var(--s5)">Decisions, deferred</h3>
+    <details>
+      <summary><span class="tag tag-red">Decided</span> Product decisions (v3) <span class="cnt">14</span></summary>
+      <div class="dbody">
+        <p class="quiet">All the learner's, 2026-10-14.</p>
+        <ul style="margin-top:var(--s2)">
+          <li>v3 is in the submission</li>
+          <li>Railway web + worker</li>
+          <li>The domain root is the app (no landing page)</li>
+          <li>Clerk with email, Google and GitHub</li>
+          <li>Redis + BullMQ for the queue, the limits and the counters, with Mongo as the source of truth</li>
+          <li>A private bucket with signed URLs</li>
+          <li>Small free quotas, an allowlist, a $5/day global kill switch</li>
+          <li>Settings with account, defaults, sharing, export and delete</li>
+          <li>A Report button reaching the learner</li>
+          <li>Terms and Privacy</li>
+          <li>One page animated per trailer with <code>seedance-2.0</code>, one ElevenLabs voice per character, music,
+            ffmpeg assembly in the worker</li>
+          <li>Other production models only after a test</li>
+          <li>Straight to <code>main</code> with tags</li>
+          <li>Re-film on the live domain on Oct 23–24 with the learner's own narration</li>
+        </ul>
+      </div>
+    </details>
+    <details>
+      <summary><span class="tag tag-quiet">Deferred</span> From the POC (v3) <span class="cnt">8</span></summary>
+      <div class="dbody">
+        <ul>
+          <li>Full-chapter animation</li>
+          <li>Upscaling, frame interpolation and alternative video models (each only after its own test)</li>
+          <li>Lip-sync</li>
+          <li>Interface languages</li>
+          <li>A paid plan</li>
+          <li>A public gallery</li>
+          <li>Indexing of share pages</li>
+          <li>Emailed reports if no email service is configured</li>
+        </ul>
+      </div>
+    </details>
+
+    <div class="warn" style="margin-top:var(--s5)">
+      <p class="eyebrow" style="color:var(--hanko-900)">Open questions (v3) · 7</p>
+      <h3 style="margin-top:var(--s2)">The decisions below are the learner's; the build stops at each one when it comes up.</h3>
+      <ul class="reasons" style="margin-top:var(--s3)">
+        <li><b>The domain.</b> The plan says <code>&lt;your-domain&gt;</code>; the DNS records Railway and Clerk need are
+          listed in <code>spec.md › Revision v3 › Domain and DNS</code> and can only be added once the domain is known.</li>
+        <li><b>The variables in this environment look like another app's.</b> <code>APP_URL</code>,
+          <code>ADMIN_URL</code> and <code>COMPILE_WORKER_URL</code> point at another app's domain,
+          <code>DB_PORT</code> is an unresolved Railway reference to a <strong>Postgres</strong> service, the buckets are
+          named for “project files” and “compile outputs”, and <code>DB_URL</code> is a MongoDB URL on Railway's public
+          proxy with <code>DB_SSL=false</code>. If these belong to another project, Ink Desk would share its users (Clerk),
+          its files (bucket) and its database with it. <strong>Are these Ink Desk's own, or do they need their own Clerk
+          application, bucket and database?</strong> There is <strong>no Redis URL</strong> yet.</li>
+        <li><b>The budget.</b> v3's honest total (≈ $8.50) is over what remains of the $10 cap (≈ $7.70), and the $5/day
+          kill switch alone could spend ≈ $40 by the end of judging. Raise the cap, run the motion kernel test at 480p, or
+          lower the kill switch? Add a cumulative cap?</li>
+        <li><b>The motion method</b> — A (panel as first frame) or B (panel + sheet as references) — chosen by the learner
+          after the motion kernel test.</li>
+        <li><b>Error tracking.</b> No error-tracking service is configured; structured logs on Railway work without one.
+          Add one (it needs an account and a key), or keep logs only?</li>
+        <li><b>Emailed reports</b> need an email service; without one, reports reach the learner through the admin
+          list.</li>
+        <li><b>Tags.</b> This build session cannot push tags (the push is refused); the learner pushes each
+          <code>v3-cp*</code> tag from their machine, starting with <code>v1-poc</code>.</li>
+      </ul>
+    </div>
   </section>
 
   <footer>

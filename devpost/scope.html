@@ -149,6 +149,28 @@
   .cols{display:grid;gap:var(--s4);grid-template-columns:repeat(auto-fit,minmax(255px,1fr))}
   .card{border:1px solid var(--n300);background:var(--n100);padding:var(--s4)}
   footer{margin-top:var(--s6);padding-top:var(--s4);border-top:1.5px solid var(--ink);font-size:13.5px;color:var(--n700)}
+
+  /* ---------- v3 revision ---------- */
+  .v3head{display:flex;gap:var(--s4);align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
+  .v3head > div{flex:1 1 320px;min-width:0}
+  .v3head .stamp{margin:var(--s3) 0 var(--s4) var(--s2);flex:none}
+  .changes{border:1.5px solid var(--hanko);background:var(--hanko-100);padding:var(--s4)}
+  .changes h3{color:var(--hanko-900)}
+  .changes ul.reasons li{border-left-color:var(--hanko-300)}
+  .budgetbar{position:relative;margin:var(--s4) 0 var(--s2);padding-top:22px}
+  .budgetbar .track{display:flex;height:34px;border:1.5px solid var(--ink);background:var(--paper)}
+  .budgetbar .seg{background:var(--hanko-300);font-family:var(--font-mono);font-size:11px;color:var(--hanko-900);
+    display:flex;align-items:center;justify-content:center;overflow:hidden;min-width:0;flex:none;border-right:2px solid var(--paper)}
+  .budgetbar .seg.spent{background:var(--n400);color:var(--n900)}
+  .budgetbar .cap{position:absolute;top:0;bottom:-4px;width:0;border-left:2.5px solid var(--ink)}
+  .budgetbar .cap span{position:absolute;top:0;right:6px;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap;line-height:1.2}
+  .budgetbar .scale{position:relative;height:16px;font-family:var(--font-mono);font-size:11px;color:var(--n700);margin-top:var(--s1)}
+  .budgetbar .scale span{position:absolute;top:0;transform:translateX(-50%)}
+  .budgetbar .scale span:first-child{transform:none}
+  td.num,th.num{text-align:right;white-space:nowrap}
+  .v3hint{display:none}
+  @media (max-width:640px){ .v3hint{display:block;margin-top:var(--s2)} }
+  tr.total td{border-top:1.5px solid var(--ink);background:var(--hanko-100);color:var(--hanko-900)}
 </style>
 </head>
 <body>
@@ -171,11 +193,15 @@
       <p class="lede">An AI manga creator studio: you pitch a story idea, and the app turns it into a real manga page
         with your own characters drawn consistently across every panel.</p>
       <div class="metarow">
-        <span class="tag tag-red">Approved</span>
+        <span class="tag tag-red">v3 · Draft — awaiting review</span>
+        <span class="tag tag-quiet">v1 · v2 approved</span>
         <span class="tag tag-quiet">Proof of concept</span>
         <span class="tag tag-quiet">2–4 hours active</span>
         <span class="tag tag-red">Canonical: scope.md</span>
       </div>
+      <p class="note" style="margin-top:var(--s3)"><strong>New, 2026-10-14:</strong> a draft revision —
+        <a href="#v3">Ink Desk Studio v3, public on the learner’s domain</a> — is at the end of this page, with its
+        <a href="#v3-changes">Changes Since Approval</a>. v1 and <a href="#v2">v2</a> stay above, unchanged, as the record of what was built.</p>
     </div>
   </header>
 
@@ -684,6 +710,346 @@
     <p>Motion-graphics intro and outro with the logo, an animated money shot, <strong>real usage footage</strong> recorded with Playwright (every generation real, waits trimmed), narration with ElevenLabs via OpenRouter from <strong>a script the learner writes</strong> (revised 2026-10-14 at the learner’s word: drafted and voiced by the AI partner in <code>george</code>, the learner’s to rewrite), <strong>music composed by the repository’s own code</strong> (an original ambient future-wave track, CC0, ducked under the voice), English subtitles, built with <strong>Remotion</strong> under <code>video/</code>. Nine beats (≈ 2:57), one of them <em>Planned before built</em> — the scope, the PRD and the spec written with the hackathon’s Learn Skill Pack before any code. Under three minutes, public on YouTube, no third-party marks. Schedule: Oct 18–19 build · Oct 21–22 record · Oct 23–24 finish · <strong>Oct 25 submit; Oct 26 buffer only.</strong></p>
     <p class="quiet">Budget for every generation until the deadline: ≈ $10. Development at <code>low</code>; filming two pages at <code>high</code>.</p>
   </section>
+
+  <!-- ===================== v3 REVISION (draft) ===================== -->
+  <section id="v3">
+    <div class="v3head">
+      <div>
+        <p class="eyebrow">Revision · 2026-10-14 · decided by the learner · draft</p>
+        <h2>Ink Desk Studio v3 — public, on the learner’s domain</h2>
+      </div>
+      <span class="stamp" role="note" aria-label="Status: draft, awaiting your review">Draft — awaiting your review</span>
+    </div>
+    <p class="lede">Decided by the learner the same day, after the v2 build was filmed: <em>“v3 is part of the hackathon
+      submission.”</em> v1 and v2 above stay intact as the record of what was built (<code>v1-poc</code>, then the v2
+      slices 8–15). Where v3 supersedes a v2 line, the change is listed below.</p>
+
+    <!-- ---- changes since approval ---- -->
+    <div class="changes" id="v3-changes" style="margin-top:var(--s4)">
+      <h3>Changes Since Approval</h3>
+      <p class="quiet" style="color:var(--hanko-900)">What changed against the approved v2 scope, and why — the learner’s
+        decisions of 2026-10-14.</p>
+      <ul class="reasons" style="margin-top:var(--s3)">
+        <li><b>1 · Accounts and public deployment move from <em>Later</em> into the submission.</b> v2 listed “accounts,
+          public deployment” under <em>Later (v2)</em>. v3 is a public app on the learner’s own domain, used by the judges,
+          a small invited group and anyone who signs up, <em>with strict limits — not a paid launch</em>.</li>
+        <li><b>2 · In-app video moves from <em>Later</em> into the submission, as one page.</b> v2 allowed “in-app video
+          export … only if items 1–9 are done by 2026-10-20”. Items 1–9 were done on 2026-10-14, so by the learner’s own
+          rule it is in. The unit is <strong>one page</strong>, animated as a 20–30 s trailer; full-chapter animation stays
+          <em>Later</em>.</li>
+        <li><b>3 · The kernel gains a motion clause.</b> Until it passes its own kernel test it is a <em>candidate</em>,
+          exactly as the style and setting locks were.</li>
+        <li><b>4 · The feature freeze moves from 2026-10-20 to 2026-10-22, end of day.</b> The demo video is
+          <strong>re-filmed on Oct 23–24</strong> on the live domain. <strong>Submission Oct 25; Oct 26 is buffer only.</strong></li>
+        <li><b>5 · The cut line is the learner’s, verbatim.</b> <em>“Anything not working and checkpointed by Oct 22 goes
+          to Later, no debate. If v3 is unstable on Oct 22, I submit the last stable tag with a polished video.”</em></li>
+        <li><b>6 · The narration returns to the learner’s own words.</b> v2’s drafted script (a recorded deviation from
+          the shipping skill) stays a draft; the v3 film is narrated from a script the learner writes.</li>
+        <li><b>7 · Git workflow.</b> Straight to <code>main</code>, no branches, small verified commits, never force-push
+          or rewrite history, a pushed tag at every stable checkpoint (<code>v1-poc</code>, then <code>v3-cp1</code>,
+          <code>v3-cp2</code>, …). Railway deploys <code>main</code> to the public domain, so half-done work stays behind a
+          feature flag in the environment rather than on screen.</li>
+        <li><b>8 · The order is by risk.</b> In the learner’s words: <em>“domain + storage + Redis/BullMQ worker + auth +
+          ownership + rate limits first, then the Studio features, then video generation, then polish.”</em></li>
+      </ul>
+    </div>
+
+    <!-- ---- kernel ---- -->
+    <h3 style="margin:var(--s5) 0 var(--s4)">The kernel, extended to motion</h3>
+    <div class="kernel">
+      <span class="stamp">Candidate</span>
+      <p class="kernel-line">Locked appearance, free action — and now free motion.</p>
+      <p>The character lock stays the anchor and the only proven claim. v3 extends the same contract to motion: an
+        animated shot starts from a panel that was drawn from the locked sheet, carries the locked appearance, and is
+        free only in movement and camera.</p>
+      <p>The <strong>motion clause is a candidate lock</strong> until its own kernel test passes: the imported character
+        animated across <strong>at least three shots (close-up, medium, wide)</strong>, still the same face, outfit and
+        marks <strong>from the first frame to the last frame of each shot</strong>. That is the money shot of the v3 demo
+        video.</p>
+      <hr class="rule-thin">
+      <p class="quiet"><strong>Verified 2026-10-14, and it changes the learner’s first idea:</strong> one Seedance request
+        <strong>cannot carry both a first frame and reference images</strong> — first/last-frame mode and reference mode
+        are exclusive (OpenRouter’s video docs and ByteDance’s own). So the motion kernel test compares the two allowed ways:</p>
+      <div class="io">
+        <div class="is-lock"><dt>Mode A · first frame</dt>
+          <dd>The panel as the first frame; the face is carried by the panel alone.</dd></div>
+        <div class="is-lock"><dt>Mode B · references</dt>
+          <dd>The panel and the locked sheet both as references, with the prompt naming the panel as the opening frame.</dd></div>
+        <div><dt>Who decides</dt>
+          <dd><strong>Which one becomes the method is the learner’s decision after seeing the test.</strong> See
+            <code>spec.md &gt; Revision v3 &gt; Verified for v3</code>.</dd></div>
+      </div>
+    </div>
+
+    <!-- ---- loop diagram ---- -->
+    <h3 style="margin-top:var(--s5)">The v3 loop</h3>
+    <p>The v2 studio sits in the middle, unchanged. What v3 adds wraps around it: an account in front, a page animation
+      and a public link behind.</p>
+    <figure>
+      <div class="svgbox">
+        <svg viewBox="0 0 860 410" role="img" aria-labelledby="v3t v3d">
+          <title id="v3t">The v3 core loop</title>
+          <desc id="v3d">Sign in, then the dashboard with projects, manga, videos, library and a quota meter, then the v2
+            studio unchanged, then a finished chapter. From the chapter: Animate a page — see the estimate, confirm, watch
+            each shot progress on its own — then the trailer lands on the dashboard, then Share publicly through an
+            unguessable, read-only, revocable link. Underneath: the character lock, proven, feeds the studio; the motion
+            lock, a candidate with two test modes A and B, feeds the animation.</desc>
+          <defs>
+            <marker id="v3a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="#201f1d"/>
+            </marker>
+            <marker id="v3r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="#b5382e"/>
+            </marker>
+            <pattern id="v3dots" width="6" height="6" patternUnits="userSpaceOnUse">
+              <circle cx="1.5" cy="1.5" r="1" fill="#d7d3d3"/>
+            </pattern>
+          </defs>
+
+          <g font-family="Georgia,serif" fill="#201f1d">
+            <text x="22" y="22" font-size="11.5" letter-spacing="2.2" fill="#605d5d">THE V3 LOOP · NEW IN v3 OUTLINED IN RED</text>
+
+            <!-- row 1 -->
+            <rect x="22" y="38" width="180" height="80" fill="#fff" stroke="#b5382e" stroke-width="2"/>
+            <text x="34" y="60" font-size="14" font-weight="bold">1 · Sign in</text>
+            <text x="34" y="78" font-size="11.5" fill="#444141">email · Google · GitHub</text>
+            <text x="34" y="93" font-size="11.5" fill="#444141">domain root goes straight</text>
+            <text x="34" y="108" font-size="11.5" fill="#444141">into the app, no landing page</text>
+
+            <rect x="234" y="38" width="180" height="80" fill="#fff" stroke="#b5382e" stroke-width="2"/>
+            <text x="246" y="60" font-size="14" font-weight="bold">2 · Dashboard</text>
+            <text x="246" y="80" font-size="11.5" fill="#444141">projects · manga · videos</text>
+            <text x="246" y="96" font-size="11.5" fill="#444141">library · a quota meter</text>
+
+            <rect x="446" y="38" width="180" height="80" fill="url(#v3dots)" stroke="#201f1d" stroke-width="1.5"/>
+            <rect x="447" y="39" width="178" height="78" fill="#f8f4f4" opacity=".9"/>
+            <text x="458" y="60" font-size="14" font-weight="bold">3 · The v2 studio</text>
+            <text x="458" y="80" font-size="11.5" fill="#444141">unchanged: style, library,</text>
+            <text x="458" y="96" font-size="11.5" fill="#444141">Director, pages, reader, PDF</text>
+
+            <rect x="658" y="38" width="180" height="80" fill="#fff" stroke="#201f1d" stroke-width="1.5"/>
+            <text x="670" y="60" font-size="14" font-weight="bold">4 · A finished chapter</text>
+            <text x="670" y="80" font-size="11.5" fill="#444141">opened from the dashboard</text>
+
+            <path d="M202 78 H232" stroke="#201f1d" stroke-width="1.5" fill="none" marker-end="url(#v3a)"/>
+            <path d="M414 78 H444" stroke="#201f1d" stroke-width="1.5" fill="none" marker-end="url(#v3a)"/>
+            <path d="M626 78 H656" stroke="#201f1d" stroke-width="1.5" fill="none" marker-end="url(#v3a)"/>
+            <path d="M748 118 V168" stroke="#201f1d" stroke-width="1.5" fill="none" marker-end="url(#v3a)"/>
+
+            <!-- row 2, right to left -->
+            <rect x="658" y="170" width="180" height="96" fill="#fcecea" stroke="#b5382e" stroke-width="2.5"/>
+            <text x="670" y="192" font-size="14" font-weight="bold" fill="#3e140f">5 · Animate a page</text>
+            <text x="670" y="210" font-size="11.5" fill="#444141">see the estimate, confirm</text>
+            <text x="670" y="225" font-size="11.5" fill="#444141">one shot per panel, each</text>
+            <text x="670" y="240" font-size="11.5" fill="#444141">with its own progress; the</text>
+            <text x="670" y="255" font-size="11.5" fill="#444141">others continue if one fails</text>
+
+            <rect x="446" y="170" width="180" height="96" fill="#fff" stroke="#b5382e" stroke-width="2"/>
+            <text x="458" y="192" font-size="14" font-weight="bold">6 · The trailer lands</text>
+            <text x="458" y="212" font-size="11.5" fill="#444141">20–30 s, one page</text>
+            <text x="458" y="228" font-size="11.5" fill="#444141">on the dashboard,</text>
+            <text x="458" y="244" font-size="11.5" fill="#444141">stored in the bucket</text>
+
+            <rect x="234" y="170" width="180" height="96" fill="#fff" stroke="#b5382e" stroke-width="2"/>
+            <text x="246" y="192" font-size="14" font-weight="bold">7 · Share publicly</text>
+            <text x="246" y="212" font-size="11.5" fill="#444141">/s/&lt;token&gt; on the domain</text>
+            <text x="246" y="228" font-size="11.5" fill="#444141">unguessable · read-only</text>
+            <text x="246" y="244" font-size="11.5" fill="#444141">revocable at any time</text>
+
+            <path d="M658 218 H628" stroke="#201f1d" stroke-width="1.5" fill="none" marker-end="url(#v3a)"/>
+            <path d="M446 218 H416" stroke="#201f1d" stroke-width="1.5" fill="none" marker-end="url(#v3a)"/>
+
+            <!-- cut line note, row 2 left -->
+            <text x="22" y="188" font-size="11" letter-spacing="1.6" fill="#605d5d">THE CUT LINE</text>
+            <text x="22" y="206" font-size="11.5" font-style="italic" fill="#444141">not working and</text>
+            <text x="22" y="222" font-size="11.5" font-style="italic" fill="#444141">checkpointed by Oct 22</text>
+            <text x="22" y="238" font-size="11.5" font-style="italic" fill="#444141">→ Later, no debate</text>
+
+            <!-- lock lane -->
+            <rect x="22" y="306" width="392" height="88" fill="#f8f4f4" stroke="#201f1d" stroke-width="1.5"/>
+            <text x="34" y="330" font-size="13.5" font-weight="bold">Character lock — proven</text>
+            <text x="34" y="350" font-size="11.5" fill="#444141">the anchor and the only proven claim;</text>
+            <text x="34" y="366" font-size="11.5" fill="#444141">every panel is drawn from the locked sheet</text>
+            <g transform="rotate(-7 352 336)">
+              <rect x="306" y="322" width="92" height="26" fill="none" stroke="#b5382e" stroke-width="2.2"/>
+              <text x="352" y="340" text-anchor="middle" font-size="11.5" font-weight="bold" letter-spacing="2.6" fill="#b5382e">LOCKED</text>
+            </g>
+            <!-- route from character lock up the gap to the studio -->
+            <path d="M430 306 V140 H520 V120" stroke="#201f1d" stroke-width="1.5" fill="none" marker-end="url(#v3a)" opacity=".7"/>
+
+            <rect x="446" y="306" width="392" height="88" fill="#fcecea" stroke="#b5382e" stroke-width="2" stroke-dasharray="6 4"/>
+            <text x="458" y="328" font-size="13.5" font-weight="bold" fill="#b5382e">Motion — candidate lock</text>
+            <text x="458" y="346" font-size="11.5" fill="#444141">test: ≥ 3 shots, same face first frame to last</text>
+            <text x="458" y="364" font-size="11.5" fill="#201f1d"><tspan font-weight="bold">A</tspan> panel as first frame</text>
+            <text x="640" y="364" font-size="11.5" fill="#201f1d"><tspan font-weight="bold">B</tspan> panel + sheet as references</text>
+            <text x="458" y="382" font-size="11" font-style="italic" fill="#605d5d">one request cannot carry both · the learner picks after the test</text>
+            <path d="M748 306 V268" stroke="#b5382e" stroke-width="2" fill="none" marker-end="url(#v3r)"/>
+            <path d="M414 350 H444" stroke="#b5382e" stroke-width="1.5" fill="none" stroke-dasharray="4 3" marker-end="url(#v3r)"/>
+          </g>
+        </svg>
+      </div>
+      <figcaption>Red outlines are what v3 adds; the dotted box is the v2 studio, unchanged. The motion lock is dashed
+        because it is still a candidate — “locked in motion” is not claimed anywhere until its kernel test passes.</figcaption>
+      <p class="quiet v3hint">On a narrow screen, scroll the diagram sideways to see all seven steps.</p>
+    </figure>
+
+    <!-- ---- working ---- -->
+    <h3 style="margin-top:var(--s5)">What “working” looks like (v3)</h3>
+    <p class="note">“I open a finished chapter in the dashboard, click ‘Animate’, see the cost estimate and confirm. Each
+      shot shows its own progress, and the other shots continue if one fails.”</p>
+    <div class="cols" style="margin-top:var(--s3)">
+      <div class="card">
+        <p class="eyebrow">What comes back</p>
+        <p style="margin-top:var(--s2)">A <strong>20–30 s trailer of one page</strong> — one Seedance shot per panel (3–5 s
+          each, <code>bytedance/seedance-2.0</code> through OpenRouter), camera motion written from the panel’s stored camera
+          field, bubbles revealed on time, one ElevenLabs voice per character speaking the dialogue, music, assembled with
+          ffmpeg in the worker. It lives in the dashboard, is stored in the bucket, and is shareable through a public link on
+          the domain.</p>
+      </div>
+      <div class="card">
+        <p class="eyebrow">And the public app</p>
+        <p style="margin-top:var(--s2)">A stranger can sign up with email, Google or GitHub, make a small chapter inside a
+          free quota, and <strong>cannot see, change or spend anyone else’s work</strong>; when a limit is reached the
+          buttons say why and when it resets; the whole thing works on a phone.</p>
+      </div>
+    </div>
+
+    <!-- ---- now / later / cut ---- -->
+    <h3 style="margin-top:var(--s5)">Now, later, cut — v3</h3>
+    <p>Feature freeze <strong>2026-10-22, end of day</strong>. The “Now” list is in the order the learner set — risk first.</p>
+    <details open>
+      <summary><span class="tag tag-red">Now</span> In the submission <span class="cnt">10 items</span></summary>
+      <div class="dbody">
+        <ul class="reasons">
+          <li><b>1 · Domain and hosting.</b> Railway, two services from <code>main</code>: the Next.js <strong>web</strong>
+            app and a separate <strong>worker</strong>. Custom domain with HTTPS; the domain root goes straight into the app
+            (signed-out → sign-in, signed-in → dashboard) — <strong>no landing page</strong>. One source of truth for the URL
+            (<code>APP_URL</code>, <code>NEXT_PUBLIC_APP_URL</code>). A health check Railway deploys against, and a calm status
+            message when the worker or Redis is down.</li>
+          <li><b>2 · Storage.</b> MongoDB is the source of truth for projects, users, jobs, videos, shares and reports; the
+            bucket holds every image, video and audio file, <strong>private</strong>, served through short-lived signed URLs;
+            public access only through share links. The local adapter stays for development. The generated art and media that
+            git should not carry move to the bucket.</li>
+          <li><b>3 · Queue.</b> Redis + BullMQ on Railway: image, video and audio queues with retries, back-off, timeouts,
+            stalled-job recovery and per-queue concurrency (2 for images, 1 for video). Mongo keeps job status and results, so
+            progress and history survive a Redis flush.</li>
+          <li><b>4 · Auth and ownership.</b> Clerk with email, Google and GitHub; every route requires sign-in except
+            sign-in/sign-up, the public share pages, Terms and Privacy, and the health check. A signed webhook creates the user
+            in Mongo. <strong>Every resource is checked against the signed-in user on the server</strong> (no IDOR). Clerk’s bot
+            protection on sign-up.</li>
+          <li><b>5 · Limits.</b> Per-user and per-IP rate limits on sign-up, generation and upload routes; daily per-user
+            quotas (a new account gets a small free quota, e.g. 1 project, 20 images, 1 short video a day; higher limits only
+            for allowlisted emails — the learner, testers, a judge demo account); a <strong>global daily spend kill switch,
+            starting at $5/day for all users</strong>, that pauses generation with a clear message. The same counters drive the
+            header meter, the Usage page and the enforcement.</li>
+          <li><b>6 · Studio features.</b> The dashboard as home (projects, manga, videos, library, quota meter, New project);
+            <strong>Settings</strong> (profile and account through Clerk, studio defaults, my shared links with unpublish,
+            export my data, delete my account and everything with it); <strong>Usage</strong> (today vs limit for images, video
+            seconds, audio characters, reset time, spend today and this month from real <code>usage.cost</code>, the plan, an
+            80% warning); <strong>public sharing</strong> of manga and videos on <code>/s/&lt;token&gt;</code> with Open Graph
+            previews, <code>noindex</code>, and a <strong>Report</strong> button whose reports reach the learner;
+            <strong>Terms and Privacy</strong> pages linked from sign-in and Settings.</li>
+          <li><b>7 · Video generation.</b> The one-page trailer above, behind its estimate and the caps.</li>
+          <li><b>8 · Responsive and polish.</b> Every screen works on mobile, tablet and desktop, following the 5b rules
+            (visible actions, explained disabled states, real loading states).</li>
+          <li><b>9 · Production readiness and security.</b> Environment validated at boot, HTTPS only, security headers and a
+            CSP that allow only the domain, Clerk and the providers in use, structured logs with no secrets or personal data,
+            error tracking, graceful failures, and a <strong>security and stability audit before and after the build</strong>,
+            written to <code>devpost/security-report.md</code> with severity and fix status.</li>
+          <li><b>10 · The judge demo account</b> with a pre-made chapter and video; its credentials go in the Devpost testing
+            instructions, which the learner writes.</li>
+        </ul>
+        <hr class="rule-thin">
+        <p class="quiet">The v2 studio scope stays as agreed: projects with a locked style, the library with imported
+          references, the Director’s chapter plan, the multi-page reader, PDF export, the text fallback to
+          <code>openai/gpt-5.6-terra</code>.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary><span class="tag tag-quiet">Later</span> Not in the submission <span class="cnt">4 items</span></summary>
+      <div class="dbody">
+        <ul>
+          <li><strong>Full-chapter animation</strong> — one page is the unit for the submission.</li>
+          <li><strong>Other production models</strong> — upscaling (<code>black-forest-labs/flux-video-upscale</code>), video
+            edit (<code>flux-video-edit</code>), alternative video models (Kling, Veo, Wan, Hailuo), sound effects —
+            <strong>each adopted only after a kernel-style test</strong>, with cost and purpose stated first
+            (<code>spec.md &gt; Revision v3 &gt; Production models</code>).</li>
+          <li>Lip-sync, interface languages, a paid plan, a public gallery, indexing of share pages (they are
+            <code>noindex</code> until the learner decides otherwise).</li>
+          <li>Everything still <em>Later</em> from v2 that v3 does not name.</li>
+        </ul>
+      </div>
+    </details>
+
+    <details>
+      <summary><span class="tag">Cut</span> v3 additions, with reasons <span class="cnt">4 items</span></summary>
+      <div class="dbody">
+        <ul class="reasons">
+          <li><b>A landing page</b> The domain root is the app.</li>
+          <li><b>Claiming “locked in motion”</b> — on screen, in the narration or in the submission — before the motion
+            kernel test passes. The honesty rule, extended.</li>
+          <li><b>Unlimited anything for strangers</b> No route that spends money is reachable without sign-in, a quota and
+            the kill switch.</li>
+          <li><b>Pushing a red build</b> Typecheck, lint and every <code>check:*</code> pass before every push to
+            <code>main</code>.</li>
+        </ul>
+      </div>
+    </details>
+
+    <!-- ---- budget ---- -->
+    <h3 style="margin-top:var(--s5)">Budget (v3) — the learner’s cap meets the plan</h3>
+    <p class="note">“About $10 of provider credit for the whole build and demo; generations at <code>low</code> while
+      building; the kill switch protects the budget once the domain is public.”</p>
+    <p>Spent so far (v2, including the filming): <strong>≈ $2.33</strong>, so <strong>≈ $7.70 remains</strong>. The honest
+      arithmetic for v3, from OpenRouter’s published video-token formula (<code>spec.md &gt; Revision v3 &gt; Verified for v3</code>):</p>
+
+    <div class="budgetbar" role="img" aria-label="Stacked bar on a scale of zero to eleven dollars: about 2.33 dollars already spent, then the five v3 estimates totalling about 8.50 dollars, which runs past the line at about 10 dollars where the remaining 7.70 dollars ends.">
+      <div class="track">
+        <div class="seg spent" style="width:21.18%" title="Spent so far (v2, incl. filming): ≈ $2.33">spent</div>
+        <div class="seg" style="width:29.09%" title="1 · Motion kernel test: ≈ $3.20">1</div>
+        <div class="seg" style="width:11.82%" title="2 · Development runs at 480p: ≈ $1.30">2</div>
+        <div class="seg" style="width:21.82%" title="3 · The filmed trailer: ≈ $2.40">3</div>
+        <div class="seg" style="width:9.09%" title="4 · Re-filming images at high: ≈ $1.00">4</div>
+        <div class="seg" style="width:5.45%;border-right:0" title="5 · Voices, music, text, re-takes: ≈ $0.60">5</div>
+      </div>
+      <div class="cap" style="left:91.18%"><span>≈ $7.70 left ends here</span></div>
+    </div>
+    <div class="budgetbar" style="margin:0;padding:0">
+      <div class="scale"><span style="left:0">$0</span><span style="left:45.45%">$5</span><span style="left:90.91%">$10</span></div>
+    </div>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--n400)"></span>Spent so far ≈ $2.33</span>
+      <span><span class="swatch" style="background:var(--hanko-300)"></span>v3 plan ≈ $8.50 (numbered as the table)</span>
+      <span><span class="swatch" style="background:var(--paper);border-left:3px solid var(--ink)"></span>Where the ≈ $7.70 left runs out</span>
+    </div>
+
+    <div class="tablewrap" style="margin-top:var(--s4)">
+      <table style="min-width:0">
+        <thead><tr><th>#</th><th>Item</th><th class="num">Estimate</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>Motion kernel test: 3 shots × 5 s at 720p on <code>seedance-2.0</code>, modes A and B</td><td class="num">≈ $3.20</td></tr>
+          <tr><td>2</td><td>Development runs of the trailer at 480p on <code>seedance-2.0-fast</code> (two pages)</td><td class="num">≈ $1.30</td></tr>
+          <tr><td>3</td><td>The filmed trailer: 4 shots × 5 s at 720p on <code>seedance-2.0</code></td><td class="num">≈ $2.40</td></tr>
+          <tr><td>4</td><td>Re-filming the chapter’s images at <code>high</code></td><td class="num">≈ $1.00</td></tr>
+          <tr><td>5</td><td>Voices, music, text, re-takes</td><td class="num">≈ $0.60</td></tr>
+          <tr class="total"><td></td><td><strong>v3 total</strong></td><td class="num" style="white-space:normal"><strong>≈ $8.50 — over the ≈ $7.70 left</strong></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="warn" style="margin-top:var(--s4)">
+      <h3>Over budget — two decisions for the learner</h3>
+      <p><strong>The plan is over the cap:</strong> the v3 estimates total ≈ $8.50 against ≈ $7.70 left. <strong>And the
+        public kill switch at $5/day</strong> could by itself spend <strong>≈ $40</strong> between the first public deploy
+        (≈ Oct 16) and the end of judging (Oct 30).</p>
+      <p class="quiet" style="color:var(--hanko-900)">Both are open in <code>prd.md &gt; Open Questions (v3)</code>. The
+        options on the table: raise the cap, run the kernel test at 480p, or lower the kill switch — and add a
+        <em>cumulative</em> cap and a credit limit on the OpenRouter key, so the domain can never spend past what the
+        learner chose.</p>
+    </div>
+  </section>
+
 
   <footer>
     <p><strong>devpost/scope.md</strong> is canonical — this page is a companion view and gets regenerated after
