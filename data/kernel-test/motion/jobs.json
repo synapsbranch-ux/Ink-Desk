@@ -76,6 +76,12 @@
       "inputReferences": [
         "inputs/wide.jpg",
         "inputs/sheet.jpg"
+      ],
+      "status": "completed",
+      "costUsd": 0.7623,
+      "generationMs": 155545,
+      "unsignedUrls": [
+        "https://openrouter.ai/api/v1/videos/gen-vid-1792001998-n2Cn7Nlvk9IG2meYn2qI/content?index=0"
       ]
     }
   },
