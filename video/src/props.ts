@@ -11,7 +11,7 @@ export type DemoProps = {
   narration: NarrationClip[]
   /** Path under video/public, or null for no music. Royalty-free only, with its licence file. */
   music: { src: string; volume: number } | null
-  /** Path under video/public of the captured webm, or null before a capture. */
+  /** Path under video/public of the captured footage, or null before a capture. */
   footage: string | null
   stills: MoneyShotStills
   /** True when the stills are the committed desk's art, not this capture's. */

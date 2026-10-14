@@ -35,9 +35,25 @@ Run from the repository root.
 (`IMAGE_SHEET_QUALITY=high`, `IMAGE_PANEL_QUALITY=high`), on a fresh desk, then:
 
 ```bash
-npm run dev                      # in one terminal
-npm run video:capture            # in another: drives the app, writes video/timeline.json
+npm run dev                                   # in one terminal
+npm run video:capture -- --quality high       # in another: the whole chapter and its cover
 ```
+
+It writes `video/timeline.json` (when each moment happened), the footage at
+`video/public/capture/footage.mp4` and the money shot's pictures. Before the
+real recording, replace the stand-in picture named in `video/capture/seed.json`
+with your own drawing of the lead — the point of the video is that *your*
+picture becomes the locked sheet — and change the title, the bubble's words or
+the panel to redraw there if you like. `--short` films page 1 only (a test,
+≈ $0.10 at `low`); `--stop-after scenario-ready` films only the free part;
+`--out <dir>` writes everything to another folder; `--url` points at another
+port. Ctrl+C once stops and keeps the footage so far; twice leaves at once.
+
+The recorder is a Chromium screencast piped into ffmpeg (h264, 30 fps) on its
+own clock, so a mark is the exact moment in the footage. Waits are real and
+long at `high` — the edit time-lapses them and says so on screen.
+`npx tsx capture/clock-check.mts --out /tmp/clock` re-proves the clock at any
+time, for free.
 
 **2. Narrate** — write your words in `video/narration.md`, pick a premade voice, then:
 

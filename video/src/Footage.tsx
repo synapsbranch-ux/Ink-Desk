@@ -1,4 +1,4 @@
-// One footage shot: the captured webm between two marks. A span longer than
+// One footage shot: the captured footage between two marks. A span longer than
 // its budget is time-lapsed — and says so on screen, with the real time it
 // covers, because every generation in the film is real and the waits are
 // shortened, not faked. Before a capture exists, the same length is a slate.

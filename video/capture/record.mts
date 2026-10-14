@@ -5,16 +5,17 @@
 //
 //   cd video && npx tsx capture/record.mts [--url http://localhost:3000]
 //                                          [--short] [--seed capture/seed.json]
-//                                          [--quality high]
+//                                          [--quality high] [--out <dir>]
+//                                          [--stop-after <mark>]
 //   npm run video:capture -- --short       (from the repo root)
 //
 // Writes, as it goes:
 //   video/timeline.json                 marks (MARKS in src/timeline.ts, in order,
 //                                       each when its moment is on screen; t =
-//                                       seconds into the footage, which starts
-//                                       when the page is created — see frames.mts
-//                                       for why that is not simply the clock)
-//   video/public/capture/footage.webm   the recording, 1920×1080
+//                                       seconds into the footage, which is wall
+//                                       time since its first frame — see
+//                                       screencast.mts)
+//   video/public/capture/footage.mp4    the recording, 1920×1080 h264 at 30 fps
 //   video/public/capture/stills/        the money shot: the imported picture, the
 //                                       lead's current panels, the cover if drawn
 //   video/public/capture/chapter.pdf    the exported PDF (proof the export ran)
@@ -23,30 +24,34 @@
 // capture); it still edits a bubble, redraws a panel, opens the reader and
 // exports the PDF, and it has no `chapter-inked` mark.
 //
+// --out <dir> writes all of the above into one scratch folder instead (the
+// footage, stills/, chapter.pdf and timeline.json side by side), so a test run
+// never touches the real capture. The paths inside its timeline stay the ones
+// the edit expects (capture/…).
+//
+// --stop-after <mark> ends the capture a beat after that mark, as a success:
+// e.g. `--stop-after scenario-ready` films only what costs nothing — the
+// Library's cast proposal right after it is the first paid call.
+//
 // On any failure the footage so far is still saved and the timeline keeps the
 // marks reached; the script then exits non-zero naming the step that stopped.
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { basename, dirname, extname, join, resolve } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { basename, dirname, extname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { chromium, type Browser, type BrowserContext, type Locator, type Page } from 'playwright'
 // The app's own preset table: no imports, no environment — safe to read here,
 // and it means the recorder clicks the label the dialog really shows.
 import { STYLE_PRESETS, type StylePresetId } from '../../lib/styles.ts'
-import { MARKS, type CaptureTimeline, type MarkName, type MoneyShotStills } from '../src/timeline.ts'
-import { RECORD_FPS, watchFrames } from './frames.mts'
+import { FPS, HEIGHT, MARKS, WIDTH, type CaptureTimeline, type MarkName, type MoneyShotStills } from '../src/timeline.ts'
+import { onScreen, startRecording, type Recording } from './screencast.mts'
 
 const VIDEO = join(dirname(fileURLToPath(import.meta.url)), '..')
-const TIMELINE = join(VIDEO, 'timeline.json')
-const PUBLIC = join(VIDEO, 'public')
-const CAPTURE_DIR = join(PUBLIC, 'capture')
-const FOOTAGE = 'capture/footage.webm' // relative to video/public, as the timeline records it
-const STILLS_DIR = join(CAPTURE_DIR, 'stills')
+const FOOTAGE = 'capture/footage.mp4' // relative to video/public, as the timeline records it
 
-const W = 1920
-const H = 1080
+const W = WIDTH
+const H = HEIGHT
 
 // Waits. A text call (cast, DNA, plan) is a minute or two through the
 // fallback; an image is up to GENERATION_TIMEOUT_MS before the app itself
@@ -70,11 +75,13 @@ function readFlags() {
         short: { type: 'boolean', default: false },
         seed: { type: 'string' },
         quality: { type: 'string' },
+        out: { type: 'string' },
+        'stop-after': { type: 'string' },
       },
       strict: true,
     }).values
   } catch {
-    console.error('\nThe capture takes --url <address>, --short, --seed <file> and --quality <name>; nothing else.\n')
+    console.error('\nThe capture takes --url <address>, --short, --seed <file>, --quality <name>, --out <dir> and --stop-after <mark>; nothing else.\n')
     process.exit(1)
   }
 }
@@ -84,6 +91,24 @@ const BASE = flags.url!.replace(/\/+$/, '')
 const SHORT = flags.short === true
 const QUALITY = flags.quality ?? process.env.IMAGE_PANEL_QUALITY ?? 'unknown'
 const SEED_PATH = flags.seed ? resolve(INVOKED_FROM, flags.seed) : join(VIDEO, 'capture', 'seed.json')
+
+// Where everything is written: the real places, or one scratch folder.
+const OUT = flags.out ? resolve(INVOKED_FROM, flags.out) : null
+const CAPTURE_DIR = OUT ?? join(VIDEO, 'public', 'capture')
+const TIMELINE = OUT ? join(OUT, 'timeline.json') : join(VIDEO, 'timeline.json')
+const FOOTAGE_FILE = join(CAPTURE_DIR, 'footage.mp4')
+const STILLS_DIR = join(CAPTURE_DIR, 'stills')
+/** A path as the person typing would write it: relative when it is under where they ran us, whole otherwise. */
+const shown = (path: string) => {
+  const r = relative(INVOKED_FROM, path)
+  return r === '' ? '.' : r.startsWith('..') ? path : r
+}
+
+const STOP_AFTER = flags['stop-after'] as MarkName | undefined
+if (STOP_AFTER !== undefined && !MARKS.some((m) => m.name === STOP_AFTER)) {
+  console.error(`\n--stop-after takes a mark's name: ${MARKS.map((m) => m.name).join(', ')}.\n`)
+  process.exit(1)
+}
 
 type Seed = {
   title: string
@@ -150,21 +175,24 @@ const timeline: CaptureTimeline = {
 }
 const saveTimeline = () => writeFileSync(TIMELINE, `${JSON.stringify(timeline, null, 2)}\n`)
 
-let t0 = 0
-const elapsed = () => Math.round((performance.now() - t0) / 10) / 100
-/** Date.now() of each mark, to place it in the footage once the webm is written. */
-const markWall: number[] = []
-const frameMap = watchFrames() // before the browser starts, so the recorder is counted from its first frame
+let recording: Recording | null = null
 
 const ORDER = MARKS.map((m) => m.name as string)
-function mark(name: MarkName): void {
+/** Ends the journey after --stop-after's mark; not a failure. */
+class StoppedAfter extends Error {}
+
+/** The moment on screen now, in footage seconds — the recorder's own clock, so it is where the file shows it. */
+async function mark(name: MarkName): Promise<void> {
   const last = timeline.marks.at(-1)
   if (last && ORDER.indexOf(name) <= ORDER.indexOf(last.name)) throw new Error(`mark ${name} out of order`)
-  const t = elapsed()
-  markWall.push(Date.now())
+  const { t, late } = await onScreen(page, recording!)
   timeline.marks.push({ name, t })
   saveTimeline()
-  console.log(`  · ${name.padEnd(16)} ${t.toFixed(1).padStart(7)} s`)
+  console.log(`  · ${name.padEnd(16)} ${t.toFixed(1).padStart(7)} s${late > 0.25 ? `  (painted ${late.toFixed(1)} s after it was found)` : ''}`)
+  if (name === STOP_AFTER) {
+    await pause(BEAT) // a beat of the moment itself, so a cut on this mark has somewhere to land
+    throw new StoppedAfter()
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -216,12 +244,13 @@ let mx = W / 2
 let my = H / 2
 
 const pause = (ms: number) => page.waitForTimeout(ms)
+const GLIDE_STEP_MS = 40
 const ease = (k: number) => (k < 0.5 ? 4 * k * k * k : 1 - (-2 * k + 2) ** 3 / 2)
 
 /**
- * Glide the pointer so the footage shows a hand rather than a jump: one move
- * per recorded frame (25 a second — faster moves only stretch the webm), half
- * a second to a second per glide.
+ * Glide the pointer so the footage shows a hand rather than a jump: 25 moves
+ * a second (the pace the journey was tuned at; every move still lands on a
+ * frame at 30 fps), half a second to a second per glide.
  */
 async function glide(x: number, y: number): Promise<void> {
   const sx = mx
@@ -230,7 +259,7 @@ async function glide(x: number, y: number): Promise<void> {
   for (let i = 1; i <= steps; i++) {
     const k = ease(i / steps)
     await page.mouse.move(sx + (x - sx) * k, sy + (y - sy) * k)
-    await page.waitForTimeout(1000 / RECORD_FPS)
+    await page.waitForTimeout(GLIDE_STEP_MS)
   }
   mx = x
   my = y
@@ -363,7 +392,7 @@ async function copyStills(projectId: string): Promise<MoneyShotStills | null> {
   }
 }
 
-/** Seconds and frames of footage, from the file itself; nulls when ffprobe can't say. */
+/** Seconds and frames of footage, from the file itself, to check the recorder's count; nulls when ffprobe can't say. */
 function probe(path: string): { seconds: number | null; frames: number | null } {
   const r = spawnSync(
     'ffprobe',
@@ -378,29 +407,6 @@ function probe(path: string): { seconds: number | null; frames: number | null } 
   const seconds = num('duration')
   return { seconds: seconds === null ? null : Math.round(seconds * 100) / 100, frames: num('nb_read_packets') }
 }
-
-/**
- * Move every mark from the session's clock to the footage's own time, using
- * the frames Playwright actually wrote. Only when the map agrees with the file.
- */
-function placeMarks(fileFrames: number | null): void {
-  const counted = frameMap.frames()
-  if (!frameMap.hooked || fileFrames === null || Math.abs(counted - fileFrames) > 2) {
-    console.warn(
-      `  ! The marks stay on the session clock: ${frameMap.hooked ? `the frame count (${counted}) doesn't match the file's (${fileFrames ?? 'unknown'})` : 'Playwright\'s recorder could not be watched'}. Check them against the footage before cutting.`
-    )
-    return
-  }
-  let last = 0
-  for (const [i, m] of timeline.marks.entries()) {
-    const at = frameMap.toFootage(markWall[i]) ?? m.t
-    m.t = Math.max(last, at) // never earlier than the mark before it
-    last = m.t
-  }
-  const end = timeline.marks.at(-1)
-  if (end) console.log(`  The marks are placed on the footage's frames (the last one moved from the clock's ${clockEnd.toFixed(1)} s to ${end.t.toFixed(1)} s).`)
-}
-let clockEnd = 0
 
 // ---------------------------------------------------------------------------
 // The journey
@@ -418,7 +424,7 @@ async function journey(seed: ReturnType<typeof readSeed>): Promise<void> {
   await heading('Your manga, one project each').waitFor()
   await page.waitForLoadState('networkidle').catch(() => {})
   await glide(W * 0.55, H * 0.45) // the pointer appears before anything is clicked
-  mark('dashboard')
+  await mark('dashboard')
   await pause(BEAT * 1.5)
 
   step = 'creating the project'
@@ -437,7 +443,7 @@ async function journey(seed: ReturnType<typeof readSeed>): Promise<void> {
   projectId = new URL(page.url()).pathname.split('/').at(-1) ?? null
   await heading('What’s your story?').waitFor({ timeout: 30_000 })
   await rail.waitFor()
-  mark('project-created')
+  await mark('project-created')
   await pause(BEAT)
 
   const desk = projectId ? await readDesk(projectId) : null
@@ -462,7 +468,7 @@ async function journey(seed: ReturnType<typeof readSeed>): Promise<void> {
   await press(page.getByRole('button', { name: 'Use this scenario', exact: true }))
   await page.getByText('Scenario · saved', { exact: true }).waitFor({ timeout: 30_000 })
   await page.getByText('Scenario saved — the library is open.').waitFor({ timeout: 30_000 })
-  mark('scenario-ready')
+  await mark('scenario-ready')
   await pause(BEAT)
 
   step = 'opening the Library (the cast proposal)'
@@ -470,7 +476,7 @@ async function journey(seed: ReturnType<typeof readSeed>): Promise<void> {
   await heading('The library').waitFor({ timeout: 30_000 })
   const cards = page.locator('article.cast-card')
   await until('the proposed cast', TEXT_MS, async () => (await cards.count()) === 2 || (await alertText()) || false)
-  mark('library-open')
+  await mark('library-open')
   await pause(BEAT * 1.4)
 
   step = 'uploading the character picture'
@@ -495,7 +501,7 @@ async function journey(seed: ReturnType<typeof readSeed>): Promise<void> {
   await pause(BEAT * 0.6)
   await press(lead.getByRole('button', { name: 'Use as sheet', exact: true }))
   await until(`${leadName}’s DNA from the picture`, TEXT_MS, () => cardReady(lead, leadName))
-  mark('import-done')
+  await mark('import-done')
   await pointAt(lead.locator('.dna-text'))
   await pause(BEAT * 2.2) // the DNA written from the picture, readable
 
@@ -517,14 +523,14 @@ async function journey(seed: ReturnType<typeof readSeed>): Promise<void> {
   await press(second.getByRole('group', { name: `Actions for ${secondName}` }).getByRole('button', { name: 'Lock', exact: true }))
   await second.getByText('Locked', { exact: true }).first().waitFor({ timeout: 30_000 })
   await page.getByText('Both sheets are locked — the Director is open.').waitFor({ timeout: 30_000 })
-  mark('cast-locked')
+  await mark('cast-locked')
   await pause(BEAT)
 
   step = 'opening the Director'
   await press(page.getByRole('button', { name: /^Next: Director/ }))
   await heading('The Director').waitFor({ timeout: 30_000 })
   await page.evaluate(() => window.scrollTo({ top: 0 }))
-  mark('director-open')
+  await mark('director-open')
   await pause(BEAT)
 
   step = 'writing the chapter plan'
@@ -538,7 +544,7 @@ async function journey(seed: ReturnType<typeof readSeed>): Promise<void> {
     ((await generateAll.isVisible()) && (await page1Card.isVisible())) || (await alertText()) || false
   )
   await settleScroll()
-  mark('plan-ready')
+  await mark('plan-ready')
   await pointAt(page.locator('.plan-bar .estimate'))
   await pause(BEAT * 2) // the plan's estimate, readable
   await pointAt(page1Card.getByRole('region').first())
@@ -547,10 +553,10 @@ async function journey(seed: ReturnType<typeof readSeed>): Promise<void> {
   step = SHORT ? 'starting page 1' : 'starting the chapter and the cover'
   if (SHORT) {
     await press(page1Card.getByRole('button', { name: 'Generate page 1', exact: true }))
-    mark('pages-queued')
+    await mark('pages-queued')
   } else {
     await press(generateAll)
-    mark('pages-queued')
+    await mark('pages-queued')
     await until('every page written', TEXT_MS, async () => (await alertText()) || (await generateAll.textContent()) !== 'Starting…')
     const coverButton = page.getByRole('article', { name: 'The cover' }).getByRole('button', { name: 'Generate cover', exact: true })
     await press(coverButton)
@@ -575,7 +581,7 @@ async function journey(seed: ReturnType<typeof readSeed>): Promise<void> {
     }
     return true
   })
-  mark('page1-inked')
+  await mark('page1-inked')
   await pause(BEAT * 2)
 
   step = 'editing a speech bubble'
@@ -590,7 +596,7 @@ async function journey(seed: ReturnType<typeof readSeed>): Promise<void> {
     const words = (await bubble.textContent())?.trim() === seed.bubble.trim()
     return (saved && words) || (await alertText()) || false
   })
-  mark('bubble-edited')
+  await mark('bubble-edited')
   await pointAt(bubble)
   await pause(BEAT * 1.4)
 
@@ -606,7 +612,7 @@ async function journey(seed: ReturnType<typeof readSeed>): Promise<void> {
     const src = await art.getAttribute('src').catch(() => null)
     return status === 'done' && src !== null && src !== oldSrc && (await target.getAttribute('data-inked')) === 'true'
   })
-  mark('redraw-done')
+  await mark('redraw-done')
   await pointAt(target.getByRole('group', { name: `Panel ${seed.redrawPanel} versions` }))
   await pause(BEAT * 1.6)
 
@@ -627,7 +633,7 @@ async function journey(seed: ReturnType<typeof readSeed>): Promise<void> {
       const allDone = labels.length === pageCount && labels.every((l) => l.startsWith('Complete'))
       return allDone && /\bis-inked\b/.test((await coverFrame.getAttribute('class')) ?? '')
     })
-    mark('chapter-inked')
+    await mark('chapter-inked')
     await pointAt(coverFrame)
     await pause(BEAT * 1.6)
   }
@@ -641,7 +647,7 @@ async function journey(seed: ReturnType<typeof readSeed>): Promise<void> {
   await until('the reader’s pictures', 60_000, () =>
     page.evaluate(() => [...document.querySelectorAll('main img')].every((i) => (i as HTMLImageElement).complete))
   )
-  mark('reader-open')
+  await mark('reader-open')
   await glide(W * 0.5, H * 0.55)
   await pause(BEAT * 2.4)
 
@@ -652,9 +658,9 @@ async function journey(seed: ReturnType<typeof readSeed>): Promise<void> {
   await until('the export to finish', 60_000, async () =>
     (await exportPdf.textContent()) === 'Export PDF' || (await alertText()) || false
   )
-  mark('pdf-exported')
+  await mark('pdf-exported')
   await pause(BEAT * 2.5)
-  mark('end')
+  await mark('end')
   await pause(BEAT)
 }
 
@@ -684,23 +690,30 @@ async function main(): Promise<void> {
   }
 
   mkdirSync(CAPTURE_DIR, { recursive: true })
-  rmSync(join(PUBLIC, FOOTAGE), { force: true })
+  rmSync(FOOTAGE_FILE, { force: true })
   rmSync(join(CAPTURE_DIR, 'failure.png'), { force: true })
-  const rawDir = mkdtempSync(join(tmpdir(), 'inkdesk-capture-'))
 
-  console.log(`Recording ${BASE} — ${SHORT ? 'short (page 1 only, no cover)' : 'the full chapter and its cover'}, quality recorded as "${QUALITY}".`)
+  console.log(`Recording ${BASE} — ${SHORT ? 'short (page 1 only, no cover)' : 'the full chapter and its cover'}, quality recorded as "${QUALITY}"${STOP_AFTER ? `, stopping after ${STOP_AFTER}` : ''}.`)
+  if (OUT) console.log(`Writing to ${shown(OUT)}, not the real capture.`)
 
   let browser: Browser | null = null
   let context: BrowserContext | null = null
   let failure: unknown = null
-  // Ctrl+C: closing the context finishes the video, the pending step then
-  // fails, and the footage so far is saved like any other stop. A second
-  // Ctrl+C leaves at once. Playwright's own SIGINT handling is off so it
-  // can't take the browser away before the footage is copied out.
-  let interrupted = false
+  let stoppedAfter = false
+  // Ctrl+C: closing the context makes the pending step fail, and the footage
+  // so far is finished and saved like any other stop. A second Ctrl+C leaves
+  // at once (ffmpeg, in its own process group, still closes the file when its
+  // input ends). Playwright's own SIGINT handling is off so it can't take the
+  // browser away mid-step.
+  let interrupted = 0
   process.on('SIGINT', () => {
-    if (interrupted) process.exit(130)
-    interrupted = true
+    // npm and tsx relay the terminal's Ctrl+C to us as well, so one press can
+    // arrive twice within a moment; only a later one is the second press.
+    if (interrupted) {
+      if (Date.now() - interrupted > 700) process.exit(130)
+      return
+    }
+    interrupted = Date.now()
     failure = new Stopped('the capture was interrupted')
     console.error('\nInterrupted — saving the footage so far (Ctrl+C again to leave without it).')
     void context?.close().catch(() => {})
@@ -708,51 +721,59 @@ async function main(): Promise<void> {
 
   try {
     browser = await chromium.launch({ handleSIGINT: false })
-    context = await browser.newContext({
-      viewport: { width: W, height: H },
-      deviceScaleFactor: 1,
-      recordVideo: { dir: rawDir, size: { width: W, height: H } },
-      acceptDownloads: true,
-    })
+    context = await browser.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: 1, acceptDownloads: true })
     context.setDefaultTimeout(60_000)
     await context.addInitScript(CURSOR_SCRIPT)
     page = await context.newPage()
-    t0 = performance.now() // the recording starts with the page
+    // The recording starts with the page; a capture that can no longer be
+    // filmed stops at once rather than spend on generations nobody will see.
+    recording = await startRecording(context, page, FOOTAGE_FILE, {
+      fps: FPS,
+      width: W,
+      height: H,
+      onFailure: (why) => {
+        failure ??= new Stopped(why)
+        void context?.close().catch(() => {})
+      },
+    })
     timeline.recordedAt = new Date().toISOString()
     saveTimeline()
     await journey(seed)
   } catch (err) {
-    failure ??= err
-    if (page) await page.screenshot({ path: join(CAPTURE_DIR, 'failure.png') }).catch(() => {})
-  }
-
-  // The footage, whatever happened.
-  const seconds = t0 ? elapsed() : null
-  const video = page?.video()
-  // The video is finished by closing the context, and copied out while the
-  // browser is still connected — saveAs needs it.
-  await context?.close().catch(() => {})
-  if (video) {
-    try {
-      await video.saveAs(join(PUBLIC, FOOTAGE))
-      timeline.footage = FOOTAGE
-      const probed = probe(join(PUBLIC, FOOTAGE))
-      timeline.duration = probed.seconds ?? seconds
-      console.log(`Footage: video/public/${FOOTAGE} · ${timeline.duration?.toFixed(1)} s${probed.seconds === null ? ' (by the clock; ffprobe could not read it)' : ` (${seconds?.toFixed(1)} s on the clock)`}`)
-      clockEnd = timeline.marks.at(-1)?.t ?? 0
-      placeMarks(probed.frames)
-    } catch (err) {
-      console.error(`The footage couldn't be saved: ${(err as Error).message}`)
+    if (err instanceof StoppedAfter) stoppedAfter = true
+    else {
+      failure ??= err
+      if (page) await page.screenshot({ path: join(CAPTURE_DIR, 'failure.png') }).catch(() => {})
     }
   }
+
+  // The footage, whatever happened: finished before the browser goes.
+  if (recording) {
+    const rec = await recording.stop()
+    if (rec.failure) {
+      failure ??= new Stopped(rec.failure)
+      console.error(`The recorder failed: ${rec.failure}.`)
+    }
+    const probed = probe(FOOTAGE_FILE)
+    if (probed.seconds !== null) {
+      timeline.footage = FOOTAGE
+      timeline.duration = probed.seconds
+      console.log(`Footage: ${shown(FOOTAGE_FILE)} · ${probed.seconds.toFixed(1)} s · ${rec.received} screen frames into ${rec.frames} at ${FPS} fps`)
+      if (probed.frames !== null && probed.frames !== rec.frames) {
+        console.warn(`  ! The file holds ${probed.frames} frames but ${rec.frames} were written; check the marks against the footage before cutting.`)
+      }
+    } else {
+      console.error(`The footage couldn't be read back from ${shown(FOOTAGE_FILE)}, so the timeline names none.`)
+    }
+  }
+  await context?.close().catch(() => {})
   await browser?.close().catch(() => {})
-  rmSync(rawDir, { recursive: true, force: true })
 
   if (projectId) {
     try {
       timeline.stills = await copyStills(projectId)
       if (timeline.stills) {
-        console.log(`Stills: ${1 + timeline.stills.panels.length + (timeline.stills.cover ? 1 : 0)} pictures in video/public/capture/stills`)
+        console.log(`Stills: ${1 + timeline.stills.panels.length + (timeline.stills.cover ? 1 : 0)} pictures in ${shown(STILLS_DIR)}`)
       }
       const desk = await readDesk(projectId)
       console.log(`Spend on this project, as the providers reported it: ${desk.imageCount} images · $${desk.costUsd.toFixed(4)}`)
@@ -761,15 +782,17 @@ async function main(): Promise<void> {
     }
   }
   saveTimeline()
-  console.log(`Timeline: video/timeline.json · ${timeline.marks.length} marks`)
+  console.log(`Timeline: ${shown(TIMELINE)} · ${timeline.marks.length} marks`)
 
   if (failure) {
     const why = failure instanceof Stopped ? failure.message : ((failure as Error).message ?? String(failure)).split('\n')[0]
     console.error(`\nThe capture stopped while ${step}: ${why}.`)
-    console.error('The footage so far and the marks reached are saved; video/public/capture/failure.png is the last screen.\n')
+    const kept = timeline.footage ? 'The footage so far and the marks reached are saved' : 'The marks reached are saved'
+    console.error(`${kept}; ${shown(join(CAPTURE_DIR, 'failure.png'))} is the last screen, if it could be taken.\n`)
     process.exit(1)
   }
-  console.log('\nThe capture is complete. Next: npm run video:render')
+  if (stoppedAfter) console.log(`\nThe capture stopped after ${STOP_AFTER}, as asked.`)
+  else console.log('\nThe capture is complete. Next: npm run video:render')
 }
 
 await main()

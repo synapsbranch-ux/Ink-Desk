@@ -7,63 +7,63 @@
   "marks": [
     {
       "name": "dashboard",
-      "t": 1.14
+      "t": 1.16
     },
     {
       "name": "project-created",
-      "t": 13.29
+      "t": 14.48
     },
     {
       "name": "scenario-ready",
-      "t": 20.91
+      "t": 22.8
     },
     {
       "name": "library-open",
-      "t": 28.75
+      "t": 33.24
     },
     {
       "name": "import-done",
-      "t": 45.1
+      "t": 50
     },
     {
       "name": "cast-locked",
-      "t": 73.77
+      "t": 80.16
     },
     {
       "name": "director-open",
-      "t": 76.12
+      "t": 82.64
     },
     {
       "name": "plan-ready",
-      "t": 113.25
+      "t": 124.08
     },
     {
       "name": "pages-queued",
-      "t": 119.22
+      "t": 131.48
     },
     {
       "name": "page1-inked",
-      "t": 169.49
+      "t": 191.28
     },
     {
       "name": "bubble-edited",
-      "t": 176.85
+      "t": 202.04
     },
     {
       "name": "redraw-done",
-      "t": 204.32
+      "t": 231.04
     },
     {
       "name": "reader-open",
-      "t": 209.86
+      "t": 237.44
     },
     {
       "name": "pdf-exported",
-      "t": 215.3
+      "t": 244.24
     },
     {
       "name": "end",
-      "t": 217.8
+      "t": 246.72
     }
   ],
   "stills": {

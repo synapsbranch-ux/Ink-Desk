@@ -60,7 +60,7 @@ export type CaptureTimeline = {
   recordedAt: string | null
   /** IMAGE_PANEL_QUALITY the capture ran at — 'low' is a test capture. */
   quality: string | null
-  /** Path under video/public, e.g. 'capture/footage.webm'. */
+  /** Path under video/public, e.g. 'capture/footage.mp4'. */
   footage: string | null
   /** Seconds of footage. */
   duration: number | null
