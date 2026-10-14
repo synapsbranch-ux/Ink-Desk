@@ -167,7 +167,7 @@ Generation quality stays **`low` throughout**; `medium` only for the candidate-l
   Learner check: Optional and your stack — point `.env` at your Atlas and R2, run one page, confirm the images come from the bucket.
   Commit: `Cloud storage behind the interface: MongoDB and an S3-compatible bucket`
 
-- [ ] **14. The video project — motion design, real footage, narration, subtitles**
+- [x] **14. The video project — motion design, real footage, narration, subtitles**
   Becomes usable: `video/` is a Remotion package with `Intro`, section titles, transitions, the **money-shot** animation and `Outro` in the brand's tokens; `video/capture/record.mts` records the real app with Playwright on a seeded project at filming quality and writes `timeline.json` with marks; `video/narrate.mts` turns the learner's script into mp3 segments (ElevenLabs via OpenRouter); `npm run video:render` produces `inkdesk-demo.mp4` (1920×1080, h264 + aac, under three minutes, burned-in English captions).
   Why now: the learner's schedule — build the motion design on Oct 18–19 in parallel with slices 11–13 (it does not depend on them), record after the freeze on Oct 21–22, finish on Oct 23–24.
   PRD ref: `scope.md > The Demo Video (v2)`
