@@ -805,7 +805,7 @@ async function main(): Promise<void> {
 
   // The footage, whatever happened: finished before the browser goes.
   if (recording) {
-    step = 'finishing the footage'
+    if (!failure && !stoppedAfter) step = 'finishing the footage' // a stop keeps naming the step it happened in
     const rec = await recording.stop()
     if (rec.failure) {
       failure ??= new Stopped(rec.failure)

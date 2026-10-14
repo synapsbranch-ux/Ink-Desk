@@ -47,7 +47,13 @@ picture becomes the locked sheet — and change the title, the bubble's words or
 the panel to redraw there if you like. `--short` films page 1 only (a test,
 ≈ $0.10 at `low`); `--stop-after scenario-ready` films only the free part;
 `--out <dir>` writes everything to another folder; `--url` points at another
-port. Ctrl+C once stops and keeps the footage so far; twice leaves at once.
+port. A run replaces the previous capture only when it succeeds; a run that
+fails or is stopped with Ctrl+C keeps what it filmed in
+`video/public/capture/failed-<time>/` (with its own `timeline.json`) and
+leaves the previous capture and `video/timeline.json` untouched — clear those
+folders out by hand now and then. The capture also refuses to start paying if
+`--quality` disagrees with what the app is drawing at. Ctrl+C once stops
+cleanly; twice leaves at once.
 
 The recorder is a Chromium screencast piped into ffmpeg (h264, 30 fps) on its
 own clock, so a mark is the exact moment in the footage. Waits are real and
