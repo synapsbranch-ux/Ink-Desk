@@ -8,13 +8,14 @@ not faked.
 
 ```
 video/
-  narration.md         your script — the narration and the captions, one section per beat
-  src/cut.ts           the edit: the beats, their shots and their budgets (≈ 2:50)
+  narration.md         the script — the narration and the captions, one section per beat (drafted for you; rewrite any line)
+  src/cut.ts           the edit: the beats, their shots and their budgets (≈ 2:57)
+  music/compose.mts    composes the background music — an original track, synthesized by this code
   timeline.json        written by the capture: when each moment happened in the footage
   capture/record.mts   drives the real app with Playwright and records it
   narrate.mts          narration.md → one mp3 per beat (ElevenLabs through OpenRouter)
   prepare.mts          runs before every render: resolves the edit, lists what is still draft
-  src/                 the compositions: Intro, Section, InkWipe, Footage, MoneyShot, Outro, Captions
+  src/                 the compositions: Intro, Section, InkWipe, Footage, MoneyShot, Method, Outro, Captions; mix.ts ducks the music under the voice
   public/fonts/        Cormorant Garamond, Lora, Comic Neue (SIL Open Font License, licences beside them)
 ```
 
@@ -27,7 +28,7 @@ cd video && npm install
 The video has its own dependencies (`remotion`, `@remotion/cli`, `playwright`)
 so the app's stay clean.
 
-## The three commands
+## The four commands
 
 Run from the repository root.
 
@@ -61,7 +62,7 @@ long at `high` — the edit time-lapses them and says so on screen.
 `cd video && npx tsx capture/clock-check.mts --out /tmp/clock` re-proves the
 clock at any time, for free.
 
-**2. Narrate** — write your words in `video/narration.md`, pick a premade voice, then:
+**2. Narrate** — the words are in `video/narration.md`, one section per beat with its word budget; rewrite any line you like (the draft was written for you to change), pick a premade voice, then:
 
 ```bash
 npm run video:narrate -- --samples              # hear all twelve voices first → video/out/voices/ (≈ $0.02)
@@ -76,7 +77,21 @@ placeholders are never sent. `--only intro,pages` narrates just those;
 a "Runs long" line names any beat whose audio is longer than its slot in
 `src/cut.ts`.
 
-**3. Render**
+**3. Music** — the track is composed by code, so it is yours and royalty-free:
+
+```bash
+npm run video:music              # → video/public/music/track.mp3 (+ LICENSE.txt), the same bytes every run
+```
+
+An original ambient future-wave instrumental that follows the beats of the
+edit — pads alone under the intro, the pulse from the second beat, fullest on
+the pages and the money shot, resolved in the outro — and sits under the
+voice: the render fades it in, ducks it while a narration clip plays, and
+fades it out over the last three seconds (`src/mix.ts`). To change its
+character, edit `music/compose.mts` (tempo, key, the chord cycle, the parts)
+and run it again.
+
+**4. Render**
 
 ```bash
 npm run video:render             # → video/out/inkdesk-demo.mp4, 1920×1080, h264 + aac
@@ -103,17 +118,18 @@ from `video/`, on a new machine).
 
 ## Music
 
-None by default. Royalty-free only, and only with its licence: put the track at
-`video/public/music/track.mp3` and its licence at
-`video/public/music/LICENSE.txt` — the render refuses a track without one.
-Never a copyrighted track.
+Composed by `music/compose.mts` (command 3) and written with its `LICENSE.txt`
+(CC0 — the repository's own work, no samples). The render refuses any
+`public/music/track.mp3` without a licence file beside it, and plays none
+when there is no track. Never a copyrighted track; if you swap in a
+royalty-free one, put its licence in the same `LICENSE.txt`.
 
 ## Not committed
 
 The captured footage, the stills copied from the desk, the narration mp3s, the
-music track (its licence is committed) and the rendered mp4. The edit, the
-script, `timeline.json`, the capture and narration scripts and the licence
-notes are. The mp4 is uploaded to YouTube, public, and linked from the
+music track (its licence is committed; the command rebuilds the same bytes)
+and the rendered mp4. The edit, the script, `timeline.json`, the capture,
+narration and music scripts and the licence notes are. The mp4 is uploaded to YouTube, public, and linked from the
 submission.
 
 ## Licences

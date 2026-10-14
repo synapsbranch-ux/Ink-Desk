@@ -456,6 +456,7 @@ Every v1 Storyboard criterion holds per page: placeholders with labels, two at a
 - **Generation survives a reload**, per page, with the v1 timeout-and-restart floor.
 - **New chapter** and **New project** are explicit, confirmed actions; nothing is deleted silently.
 - **Feature freeze 2026-10-20.** After it: fixes, the video, the README.
+- **The demo video, as a product in its own right (2026-10-14).** Nine beats under three minutes; the voice never runs past its beat (a clip is cut at the beat's end, and a clip that would is reported before the render); the music sits under the voice (ducked while a clip plays, faded in at the start and out at the end) and is composed by the repo's own code, so nothing in the soundtrack is anyone else's; the captions are the narration's own words; and one beat, "Planned before built", shows how the project was made — scope, PRD and spec before code, slices verified and committed — because the hackathon judges the planning as much as the product.
 
 ## Product Decisions (v2)
 
@@ -494,4 +495,4 @@ The ten numbered items of `scope.md > The POC Boundary (v2)`, as behavior above:
 - **The page-count range the Director accepts** — drafted as 3 to 6; tune at the slice 11 checkpoint.
 - **Vertical reading for manhwa in the export** — the PDF keeps one page per sheet; a single tall strip is a possible later export. Does not block.
 - **Whether the global library should allow re-using a locked character in a new project** — read-only for now; copying a lock into a second project is Later.
-- **Which premade voice narrates the video** — the learner's choice when the script exists.
+- **Which premade voice narrates the video** — the learner's choice when the script exists. *2026-10-14:* the learner asked for the voice-over to be produced now; recorded in `george` (the voice the plan named first), one `--voice` switch and ≈ $0.10 to change. Still open: whether the learner keeps it.

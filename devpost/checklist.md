@@ -232,7 +232,7 @@ cut without being recorded under **Revisions**.
 | 11. The Director, page 1, cover | 2026-10-16 → 17 | done 2026-10-13 (cloud, text via the Terra fallback; the hands-on checkpoint — and Claude writing the plan — are the learner’s) |
 | 12. Chapter reader and PDF | 2026-10-18 | — |
 | 13. Cloud storage | 2026-10-19 | done 2026-10-13 (cloud; against a scratch MongoDB and an S3 stand-in in the session — your Atlas and R2 are the optional learner check) |
-| 14. Video project: build Oct 18–19 · record Oct 21–22 · final Oct 23–24 | 2026-10-24 | built 2026-10-14 (cloud; the hands-on checkpoint, the narration script and the voice are the learner’s; recording after the freeze) |
+| 14. Video project: build Oct 18–19 · record Oct 21–22 · final Oct 23–24 | 2026-10-24 | built 2026-10-14 (cloud); the same day, at the learner’s word: the narration drafted and voiced (`george`), the music composed by code, the “Planned before built” beat — the hands-on checkpoint is the learner’s; recording after the freeze |
 | 15. Freeze and film | **2026-10-20 (freeze)**, filming 21–22 | — |
 | Submit on Devpost | **2026-10-25**; Oct 26 is buffer only | — |
 
@@ -263,7 +263,7 @@ verified, and only if time allows before `6-ship`.
 - [x] Final kick-the-tires exploration and feedback completed — after slice 7. **Done 2026-10-12, live on the learner's own desk**: a full fresh chapter ("Return to Sender") pitched through the new accept-and-clear flow, sheets locked, four panels inked through real network flakiness (Try again exercised repeatedly, honestly), the reader entered, the ink-in replay watched, the reading order flipped, and the page exported. Two findings: the export failed on Linux with a raw "network error" sentence (the font-fallback bug — fixed and re-verified the same evening, see **Revisions**), and the learner asked about PDF export (kept out of scope, see **Final Review**). Verdict after the fix: good.
 - [ ] **v2:** Dashboard and migration explored — after slice 8, on the learner's own desk: the migrated project, a new project with the manhwa preset. Where the new front door is cheapest to change.
 - [ ] **v2:** The Director explored — after slice 11: the plan from the sample scenario, the estimate, page 1 and the cover, and the imported character beside their panel. The first time v2 is a manga creator; prompt and plan feedback is still cheap here.
-- [ ] **v2:** The video drafts explored — after slice 14: the motion-design render and the test capture, and the learner's narration script written.
+- [ ] **v2:** The video drafts explored — after slice 14: the motion-design render and the test capture, and the learner's narration script written. *2026-10-14:* the draft is now complete — voice, music and the method beat are in the review render (`video/out/inkdesk-demo-review-720p.mp4`); what the learner judges here is the words (theirs to rewrite in `narration.md`), the voice (`george`, one switch to change), the music's mood and level, and the method beat's lines.
 - [ ] **v2:** Final kick-the-tires on v2 — after slice 15, at the freeze.
 
 ## Final Review

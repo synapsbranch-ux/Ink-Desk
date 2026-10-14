@@ -1817,7 +1817,20 @@ A separate package, `video/`, so the app's dependencies stay clean:
   `model: 'elevenlabs/eleven-v4'`, a premade `voice`, `response_format: 'mp3'`;
   one mp3 per segment, cached, ≈ $0.10 in total.
 - **Music:** royalty-free with a licence file in `video/assets/`, or none.
-  Never a copyrighted track.
+  Never a copyrighted track. *Revised 2026-10-14:* **composed by code** —
+  `video/music/compose.mts` synthesizes an original ambient future-wave
+  instrumental in Node (no audio dependency: a seeded generator, additive
+  and subtractive synthesis in float, a one-pole low-pass, a feedback delay,
+  a soft limiter), reading the edit so the arrangement follows the beats —
+  pads alone under the intro, drums and arpeggio from the second beat,
+  fullest on the pages and the money shot, thinner under the method beat,
+  resolved and faded in the outro — and writes a 16-bit WAV, then
+  `public/music/track.mp3` through ffmpeg (`libmp3lame`) with its
+  `LICENSE.txt` (CC0, the repo's own work). Deterministic: the same bytes on
+  every run. `npm run video:music`; the mp3 is rebuilt, not committed.
+  Under the voice: `Demo.tsx` shapes the music's volume per frame
+  (`src/mix.ts`, pure) — a fade-in, a base level, a duck while any narration
+  clip plays, a fade-out over the last three seconds.
 - **Subtitles:** burned-in English captions from the same script.
 - **Committed:** the compositions, `timeline.json`, the script, the capture
   and narration scripts, the licence notes. **Not committed:** the captured
@@ -1842,6 +1855,18 @@ A separate package, `video/`, so the app's dependencies stay clean:
   Fonts are the three OFL families as local files in `public/fonts/`. Every
   render carries an aac track (`--enforce-audio-track`), silent until
   narration exists. Music: none for now.
+- *Revised 2026-10-14 (the learner's word: "the video has no voice-over"):*
+  the edit is **nine beats, 177 s** — a `method` shot kind and
+  `src/Method.tsx` ("Planned before built": the scope, the PRD and the spec
+  as three sheets, then the slices) between the reader and the outro, the
+  other beats trimmed to make room under the 180 s rule; the narration
+  script is drafted by the AI partner into `narration.md` (the learner's to
+  rewrite) and recorded with `elevenlabs/eleven-v4` in `george`; the music
+  is composed by code (above) and ducked under the voice. Sync is held by
+  construction: every clip starts 0.4 s into its beat, `narrate.mts` and
+  `prepare.mts` report any clip longer than its beat's room before a render,
+  and the captions are timed from the measured clip. The mp3s, the track and
+  the render stay uncommitted; the commands rebuild them.
 
 ## Verified for v2 (2026-10-13)
 
@@ -1887,6 +1912,7 @@ The learner's cap for everything until the deadline: **≈ $10.**
 | Filming: 2 sheets + 8 panels + 1 cover at `high`, with a redraw or two | ≈ $2.00 |
 | Text, all calls, Claude or Terra | ≈ $0.30 |
 | Narration, ElevenLabs via OpenRouter, with retakes | ≈ $0.15 |
+| Music — composed by code, no API | $0 |
 | **Total** | **≈ $5–6**, margin ≈ $4 |
 
 Development stays at `low`; `high` only in the filming `.env`. The dashboard's
@@ -1926,7 +1952,7 @@ instrumentation.ts                 # refuses a cloud start with missing settings
 components/Dashboard.tsx · NewProjectDialog.tsx · AssetShelf.tsx · DirectorStation.tsx · PagePlanCard.tsx · PageSwitcher.tsx
 lib/types.ts (v2) · lib/migrate.ts · lib/store/{index,env,local,cloud}.ts · lib/llm.ts · lib/image-models.ts · lib/styles.ts · lib/cost.ts · lib/plan.ts
 scripts/{llm,assets,plan,demo-timeline}-check.mts; store-check and export-check extended; kernel-test.mjs gains --model, --style-ref, --setting-ref
-video/                             # Remotion package, capture and narration scripts
+video/                             # Remotion package, capture, narration and music scripts (music/compose.mts, src/Method.tsx, src/mix.ts)
 data/projects/<id>/project.json · data/images/ (every image, v1 and v2) · data/chapter.json (the v1 desk, read once, never written)
 ```
 
