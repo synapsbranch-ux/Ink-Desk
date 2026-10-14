@@ -1,22 +1,20 @@
 // Which store this process runs on, and what cloud mode needs before it may
-// start. Pure — read by `lib/store/index.ts`, by `instrumentation.ts` at
-// server start, and by `check:store` — so the refusal names the same
-// variables everywhere. See `devpost/spec.md > Storage Adapter (v2)`.
+// start. Read by `lib/store/index.ts`, by `instrumentation.ts` (through
+// `lib/config.ts`) and by `check:store`, so the refusal names the same
+// variables everywhere. The names and their mapping live in `lib/config.ts`:
+// each setting is named by every name it accepts — `MONGODB_URI (or DB_URL)` —
+// never by its value. See `devpost/spec.md > Store v3 — Mongo and the Buckets (v3)`.
+//
+// Server only (SEC-15): importing this from a client component is a build
+// error. The checks run under tsx, where `scripts/server-only.mts` resolves the
+// package the way Next's server does.
+import 'server-only'
+import { CLOUD_REQUIRED, NAMES, missingCloud, nameOf, type StorageMode } from '../config'
 
-export type StorageMode = 'local' | 'cloud'
+export type { StorageMode }
 
-/** Everything cloud mode needs, all server-side. */
-export const CLOUD_ENV = [
-  'MONGODB_URI',
-  'MONGODB_DB',
-  'S3_ENDPOINT',
-  'S3_REGION',
-  'S3_BUCKET',
-  'S3_ACCESS_KEY_ID',
-  'S3_SECRET_ACCESS_KEY',
-] as const
-
-export type CloudEnvName = (typeof CLOUD_ENV)[number]
+/** Every setting cloud mode needs, as the sentences name it. */
+export const CLOUD_ENV: readonly string[] = CLOUD_REQUIRED.map((key) => nameOf(NAMES[key]))
 
 /** `INKDESK_STORAGE`, unset meaning local. Anything else is a typo, refused by name. */
 export function storageMode(env: Record<string, string | undefined> = process.env): StorageMode {
@@ -25,9 +23,9 @@ export function storageMode(env: Record<string, string | undefined> = process.en
   throw new Error(`INKDESK_STORAGE is "${mode}"; this build knows "local" (the default) and "cloud".`)
 }
 
-/** The cloud variables that are missing or blank, in `CLOUD_ENV` order. */
-export function missingCloudEnv(env: Record<string, string | undefined> = process.env): CloudEnvName[] {
-  return CLOUD_ENV.filter((name) => !env[name]?.trim())
+/** The cloud settings that are missing or blank, in `CLOUD_ENV` order. */
+export function missingCloudEnv(env: Record<string, string | undefined> = process.env): string[] {
+  return missingCloud(env)
 }
 
 /** The one sentence for cloud mode started without its settings. */

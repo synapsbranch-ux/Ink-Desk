@@ -5,7 +5,10 @@
 //
 // The media type is read from the file's own first bytes, never trusted from
 // the browser or the file name: a renamed `.exe` is refused, a PNG named
-// `.jpg` is kept as the PNG it is.
+// `.jpg` is kept as the PNG it is. Since v3 (slice 16, SEC-05) the server
+// then decodes the picture and re-encodes it (`cleanUpload` in
+// `lib/images.ts`), so only pixels are kept — never EXIF, GPS or bytes
+// smuggled after the image.
 //
 // No Node imports: the browser checks the same limits before uploading.
 import { Refused } from './errors'
@@ -28,6 +31,11 @@ export function fitsVision(bytes: { length: number }): boolean {
   return Math.ceil(bytes.length / 3) * 4 <= VISION_LIMIT_BASE64
 }
 
+/** The longest side an upload may have. Larger pictures are refused before
+ *  they are decoded, which also stops a small file that inflates into a huge
+ *  bitmap. */
+export const MAX_UPLOAD_SIDE = 4096
+
 /** A shelf, not an archive. */
 export const MAX_ASSETS = 24
 
@@ -36,6 +44,12 @@ export const UPLOAD_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const
 /** The rights rule, shown wherever a file can be uploaded. */
 export const RIGHTS_NOTICE =
   'Only upload pictures you made or have permission to use. They become references every panel is drawn against.'
+
+/** The sentence for anything that is not a picture the shelf keeps. */
+export const NOT_A_PICTURE = 'Only PNG, JPEG or WebP pictures can be uploaded as references.'
+
+/** The sentence for a picture with a side over `MAX_UPLOAD_SIDE`. */
+export const TOO_MANY_PIXELS = `That picture is over ${MAX_UPLOAD_SIDE} pixels on a side. Save a smaller copy and upload that.`
 
 /** What the first bytes say the file is, or null if it is not a PNG, JPEG or WebP. */
 export function sniffImage(bytes: Uint8Array): (typeof UPLOAD_TYPES)[number] | null {
@@ -68,7 +82,7 @@ export function checkUpload(bytes: Uint8Array, shelfSize: number): (typeof UPLOA
     throw new Refused(`That picture is over ${UPLOAD_LIMIT_BYTES / (1024 * 1024)} MB. Save a smaller copy and upload that.`, 413)
   }
   const type = sniffImage(bytes)
-  if (!type) throw new Refused('Only PNG, JPEG or WebP pictures can be uploaded as references.', 415)
+  if (!type) throw new Refused(NOT_A_PICTURE, 415)
   if (shelfSize >= MAX_ASSETS) throw new Refused(`The shelf holds ${MAX_ASSETS} references. This build has no delete yet.`)
   return type
 }

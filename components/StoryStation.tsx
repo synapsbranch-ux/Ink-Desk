@@ -21,6 +21,8 @@ import { StationFooter } from '@/components/StationFooter'
 import type { Gates } from '@/lib/gates'
 import type { ChapterPatch } from '@/lib/patch'
 import { GENRES, SAMPLE_PITCH, TONES } from '@/lib/prompts'
+// The request schemas' own ceilings, so a long field stops at the box rather than failing the whole save.
+import { PITCH_MAX_CHARS, SYNOPSIS_BODY_MAX_CHARS, SYNOPSIS_TITLE_MAX_CHARS } from '@/lib/schemas'
 import { textStages } from '@/lib/stages'
 import type { Chapter, Pitch, Synopsis } from '@/lib/types'
 
@@ -182,6 +184,7 @@ export function StoryStation({
               rows={3}
               placeholder="A line or two is enough. Who, where, and what goes wrong."
               value={pitch.text}
+              maxLength={PITCH_MAX_CHARS}
               onChange={(e) => setPitch({ text: e.target.value })}
               disabled={pending}
               aria-label="Your pitch"
@@ -274,6 +277,7 @@ export function StoryStation({
                 <input
                   className="synopsis-title"
                   value={draft.title}
+                  maxLength={SYNOPSIS_TITLE_MAX_CHARS}
                   onChange={(e) => onDraftChange({ ...draft, title: e.target.value })}
                   aria-label="New project title"
                 />
@@ -281,6 +285,7 @@ export function StoryStation({
                   className="synopsis-body"
                   rows={5}
                   value={draft.body}
+                  maxLength={SYNOPSIS_BODY_MAX_CHARS}
                   onChange={(e) => onDraftChange({ ...draft, body: e.target.value })}
                   aria-label="New synopsis"
                 />
@@ -380,6 +385,7 @@ function CurrentSynopsis({
           <input
             className="synopsis-title"
             value={synopsis.title}
+            maxLength={SYNOPSIS_TITLE_MAX_CHARS}
             onChange={(e) => onEdit({ synopsis: { title: e.target.value } })}
             aria-label="Chapter title"
           />
@@ -387,6 +393,7 @@ function CurrentSynopsis({
             className="synopsis-body"
             rows={5}
             value={synopsis.body}
+            maxLength={SYNOPSIS_BODY_MAX_CHARS}
             onChange={(e) => onEdit({ synopsis: { body: e.target.value } })}
             aria-label="Synopsis"
           />

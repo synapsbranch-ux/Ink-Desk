@@ -7,11 +7,13 @@
 // If (b) fails the picture stays and the card says so; calling this again
 // with the same asset is "Reread picture". Lock applies the v1 rule
 // unchanged. See `devpost/prd.md > Library — Characters, Imported or Generated`.
+import { JSON_LIMIT_BYTES, parseJson } from '@/lib/body'
 import { assertUnlocked, findCharacter, importSheet, setDna } from '@/lib/cast'
 import { read, update } from '@/lib/chapter'
 import { writeDnaFromPicture } from '@/lib/claude'
 import { findAsset, fitsVision, UPLOAD_LIMIT_BYTES } from '@/lib/assets'
 import { errorResponse, Refused } from '@/lib/errors'
+import { assertGenerationEnabled } from '@/lib/generation'
 import { updateCharging, readImage } from '@/lib/images'
 import { textMeter } from '@/lib/llm'
 import { ImportRequestSchema } from '@/lib/schemas'
@@ -23,11 +25,9 @@ const CALM = 'The picture couldn’t be read just now. Try again in a moment.'
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id: projectId } = await params
-  const parsed = ImportRequestSchema.safeParse(await req.json().catch(() => null))
-  if (!parsed.success) return Response.json({ error: 'That request couldn’t be read.' }, { status: 400 })
-  const { id, assetId } = parsed.data
-
   try {
+    assertGenerationEnabled()
+    const { id, assetId } = await parseJson(req, ImportRequestSchema, JSON_LIMIT_BYTES, 'That request couldn’t be read.')
     const current = await read(projectId)
     const synopsis = storyBrief(current)
     if (!synopsis) throw new Refused('Settle the story first.')

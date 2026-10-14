@@ -3,8 +3,17 @@
 // MinIO) for every image. Selected by `INKDESK_STORAGE=cloud`; loaded only
 // then, so a local desk never pulls in either driver.
 //
-//   MongoDB  <MONGODB_DB>.projects   { _id: <project id>, rev: n, project: Project }
-//   bucket   <S3_BUCKET>/<kind>-<uuid>.<ext>   the same ids the local store writes
+//   MongoDB  <database>.projects   { _id: <project id>, rev: n, project: Project }
+//   bucket   <project-files bucket>/<prefix><kind>-<uuid>.<ext>   the same ids the local store writes,
+//            under S3_KEY_PREFIX (default `inkdesk/`), never at the bucket's root (SEC-13)
+//
+// The settings come from `lib/config.ts`, which maps the learner's names
+// (DB_URL, DB_DATABASE, S3_BUCKET_PROJECT_FILES, S3_BUCKET_COMPILE_OUTPUTS)
+// onto what this file needs. Images and uploads go to the project-files
+// bucket; the outputs bucket is exposed for rendered videos and exports, and
+// nothing writes to it yet. Every MongoDB and S3 call has a timeout (CR-6),
+// and so does every object body after its headers: a hung socket ends in the
+// calm sentence, never a hang.
 //
 // The same two guarantees as the local store, by other means
 // (`devpost/spec.md > Storage Adapter (v2)`):
@@ -23,18 +32,34 @@
 // public. The panel queue stays in this process in both modes, and the
 // stale-inking floor (`startedByRun`, `startedAt`) is unchanged — cloud mode
 // makes the data durable and shareable, not the app multi-instance.
-import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
-import { MongoClient, MongoNetworkError, MongoServerError, MongoServerSelectionError, type Collection } from 'mongodb'
+
+// Server only (SEC-15): importing this from a client component is a build
+// error. The checks run under tsx, where `scripts/server-only.mts` resolves the
+// package the way Next's server does.
+import 'server-only'
+import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import { MongoClient, MongoNetworkError, MongoServerError, MongoServerSelectionError, type Collection, type MongoClientOptions } from 'mongodb'
+import { ConfigError, cloudSettings, type CloudSettings } from '../config'
 import { ProviderError, Refused } from '../errors'
 import { singletons } from '../singleton'
 import type { Project, ProjectSummary } from '../types'
-import { CLOUD_ENV, missingCloudEnv, missingCloudSentence } from './env'
-import { isImageId, isProjectId, mediaTypeOf, summarize } from './local'
-import type { BlobKind, Store } from './index'
+import { missingCloudEnv, missingCloudSentence } from './env'
+import { isImageId, isProjectId, mediaTypeOf, projectProblem, summarize, unreadableProject, unreadableSummary } from './local'
+import type { BlobKind, BlobStream, Check, Store, StoreHealth } from './index'
 
 export type ProjectDoc = { _id: string; rev: number; project: Project }
 
-type Cloud = { client: MongoClient; projects: Collection<ProjectDoc>; s3: S3Client; bucket: string }
+type Cloud = {
+  client: MongoClient
+  projects: Collection<ProjectDoc>
+  s3: S3Client
+  /** Images and uploads. */
+  bucket: string
+  /** Rendered videos and exports — exposed, not written yet. */
+  outputsBucket: string
+  /** Every key starts with this; an image id never carries a slash, so no id reaches outside it. */
+  prefix: string
+}
 
 /** How many times one update re-reads after losing a race to another writer. */
 export const MAX_UPDATE_ATTEMPTS = 5
@@ -47,17 +72,84 @@ const EXT_BY_MEDIA_TYPE: Record<string, string> = {
 
 // --- Connection -----------------------------------------------------------------
 
-/** The object every connect writes: proves the bucket, the endpoint and the
- *  keys with the one permission the studio needs anyway. Never an image id
- *  (`.txt`), so `/api/image` can never serve it. */
+// --- Timeouts (CR-6) --------------------------------------------------------------
+
+/** MongoDB: finding the server, opening a socket, and any one read on it. A URI's own values win. */
+export const MONGO_TIMEOUTS = { serverSelectionTimeoutMS: 10_000, connectTimeoutMS: 10_000, socketTimeoutMS: 30_000 } as const
+
+/** S3: opening the connection, the whole request, and an idle socket. */
+export const S3_TIMEOUTS = { connectionTimeout: 5_000, requestTimeout: 30_000, socketTimeout: 30_000 } as const
+
+/**
+ * An object's body that stops arriving ends in an error after `idleMs` with no
+ * new bytes, and the socket is let go (CR-6). The SDK's own timers stop once
+ * the headers are in, so without this a bucket that sends its headers and then
+ * stalls would hold a queue slot, or a browser request, forever. Pull-based:
+ * a slow reader downstream is never mistaken for a stalled bucket.
+ */
+export function idleLimited(body: ReadableStream<Uint8Array>, idleMs: number = S3_TIMEOUTS.socketTimeout): ReadableStream<Uint8Array> {
+  const reader = body.getReader()
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const stalled = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(Object.assign(new Error(`the bucket sent nothing for ${idleMs} ms`), { name: 'TimeoutError' })), idleMs)
+      })
+      try {
+        const { done, value } = await Promise.race([reader.read(), stalled])
+        if (done) controller.close()
+        else controller.enqueue(value)
+      } catch (err) {
+        // Cancelling the source destroys the response, and with it the socket.
+        reader.cancel(err).catch(() => {})
+        controller.error(err)
+      } finally {
+        clearTimeout(timer)
+      }
+    },
+    cancel(reason) {
+      return reader.cancel(reason)
+    },
+  })
+}
+
+/** The client options, leaving out any timeout the URI already chooses. */
+export function mongoOptions(uri: string): MongoClientOptions {
+  const timeouts = Object.fromEntries(Object.entries(MONGO_TIMEOUTS).filter(([name]) => !new RegExp(`[?&]${name}=`, 'i').test(uri)))
+  // An absent field stays absent, as it does in the JSON file —
+  // `bubble: undefined` and `bubble: null` mean different things.
+  return { ignoreUndefined: true, ...timeouts }
+}
+
+/** An S3 client on these settings, every request bounded in time. */
+export function s3Client(
+  settings: Pick<CloudSettings, 'endpoint' | 'region' | 'accessKeyId' | 'secretAccessKey' | 'forcePathStyle'>,
+  timeouts: { connectionTimeout: number; requestTimeout: number; socketTimeout: number } = S3_TIMEOUTS
+): S3Client {
+  return new S3Client({
+    endpoint: settings.endpoint,
+    region: settings.region,
+    // Path-style (`<endpoint>/<bucket>/<key>`) is what R2 and MinIO expect and
+    // AWS still accepts; S3_FORCE_PATH_STYLE=false for a virtual-host-only provider.
+    forcePathStyle: settings.forcePathStyle,
+    credentials: { accessKeyId: settings.accessKeyId, secretAccessKey: settings.secretAccessKey },
+    // Without these the SDK waits forever on a half-open socket.
+    requestHandler: { ...timeouts, throwOnRequestTimeout: true },
+    maxAttempts: 3,
+  })
+}
+
+/** The object every connect writes, under the key prefix: proves the bucket,
+ *  the endpoint and the keys with the one permission the studio needs anyway.
+ *  Never an image id (`.txt`), so `/api/image` can never serve it. */
 export const BUCKET_PROBE_KEY = 'inkdesk-bucket-check.txt'
 
 const MONGO_UNREACHABLE =
-  'The studio couldn’t reach its MongoDB. Check MONGODB_URI (and that the database lets this machine in), then reload.'
+  'The studio couldn’t reach its MongoDB. Check MONGODB_URI (or DB_URL) and that the database lets this machine in, then reload.'
 const MONGO_REFUSED =
-  'The studio reached its MongoDB, but that user can’t read and write the MONGODB_DB database. Give the user readWrite on it (in Atlas: Database Access), then reload.'
+  'The studio reached its MongoDB, but that user can’t read and write the MONGODB_DB (or DB_DATABASE) database. Give the user readWrite on it, then reload.'
 const BUCKET_UNREACHABLE =
-  'The studio couldn’t write to its bucket. Check S3_ENDPOINT, S3_REGION, S3_BUCKET and the S3 keys (and that the bucket exists), then reload.'
+  'The studio couldn’t write to its bucket. Check S3_ENDPOINT, S3_REGION, S3_BUCKET_PROJECT_FILES (or S3_BUCKET) and the S3 keys (and that the bucket exists), then reload.'
 
 type Pending = { settings: string; cloud: Promise<Cloud> }
 
@@ -80,20 +172,31 @@ function unreachable(which: 'mongo' | 'mongo-refused' | 'bucket', cause: unknown
 
 function asProviderError(err: unknown): unknown {
   const which = (err as { unreachable?: string } | null)?.unreachable
-  if (which === 'mongo') return new ProviderError(MONGO_UNREACHABLE, 'config', (err as Error).cause)
-  if (which === 'mongo-refused') return new ProviderError(MONGO_REFUSED, 'config', (err as Error).cause)
-  if (which === 'bucket') return new ProviderError(BUCKET_UNREACHABLE, 'config', (err as Error).cause)
-  return err
+  const sentence = which === 'mongo' ? MONGO_UNREACHABLE : which === 'mongo-refused' ? MONGO_REFUSED : which === 'bucket' ? BUCKET_UNREACHABLE : null
+  // `unreachable` rides along, so the health check can tell which half failed.
+  return sentence ? Object.assign(new ProviderError(sentence, 'config', (err as Error).cause), { unreachable: which }) : err
+}
+
+/** The mapped settings, or the config sentence naming what is missing or malformed. */
+function settingsOrRefuse(): CloudSettings {
+  const missing = missingCloudEnv()
+  if (missing.length > 0) throw new ProviderError(missingCloudSentence(missing), 'config')
+  try {
+    return cloudSettings()
+  } catch (err) {
+    if (err instanceof ConfigError) throw new ProviderError(err.message, 'config')
+    throw err
+  }
 }
 
 async function cloud(): Promise<Cloud> {
-  const missing = missingCloudEnv()
-  if (missing.length > 0) throw new ProviderError(missingCloudSentence(missing), 'config')
-  const settings = CLOUD_ENV.map((name) => process.env[name] ?? '').join('\n')
+  const current = settingsOrRefuse()
+  // Kept in memory only, never printed: it carries the credentials.
+  const settings = JSON.stringify(current)
   let entry = g.__inkdeskCloud
   if (entry?.settings !== settings) {
     const retired = entry
-    const pending = connect(process.env as Record<string, string>)
+    const pending = connect(current)
     entry = { settings, cloud: pending }
     g.__inkdeskCloud = entry
     pending.catch(() => {
@@ -116,28 +219,26 @@ export function mongoHost(uri: string): string {
 }
 
 /** Where the connection points, for the terminal: hosts and names, never credentials. */
-function describe(env: Record<string, string>): string {
-  let bucketHost = env.S3_ENDPOINT
+function describe(settings: CloudSettings): string {
+  let bucketHost = settings.endpoint
   try {
-    bucketHost = new URL(env.S3_ENDPOINT).host
+    bucketHost = new URL(settings.endpoint).host
   } catch {}
-  return `MongoDB “${env.MONGODB_DB}” on ${mongoHost(env.MONGODB_URI)} · bucket “${env.S3_BUCKET}” at ${bucketHost}`
+  const outputs = settings.outputsBucket === settings.projectFilesBucket ? '' : `, outputs “${settings.outputsBucket}”`
+  return `MongoDB “${settings.mongoDb}” on ${mongoHost(settings.mongoUrl)} · bucket “${settings.projectFilesBucket}”${outputs} under ${settings.keyPrefix} at ${bucketHost}`
 }
 
-async function connect(env: Record<string, string>): Promise<Cloud> {
+/** The listing's sort, indexed so the dashboard never scans the collection. */
+const UPDATED_INDEX = { 'project.updatedAt': -1 } as const
+
+async function connect(settings: CloudSettings): Promise<Cloud> {
   let client: MongoClient | undefined
   try {
     // Inside the try: a malformed URI throws from the constructor. The URI
     // itself is never repeated anywhere — it carries the password.
-    client = new MongoClient(env.MONGODB_URI, {
-      // An absent field stays absent, as it does in the JSON file —
-      // `bubble: undefined` and `bubble: null` mean different things.
-      ignoreUndefined: true,
-      // Ten seconds unless the URI chooses its own.
-      ...(/[?&]serverSelectionTimeoutMS=/i.test(env.MONGODB_URI) ? {} : { serverSelectionTimeoutMS: 10_000 }),
-    })
+    client = new MongoClient(settings.mongoUrl, mongoOptions(settings.mongoUrl))
     await client.connect()
-    await client.db(env.MONGODB_DB).command({ ping: 1 })
+    await client.db(settings.mongoDb).command({ ping: 1 })
   } catch (err) {
     await client?.close().catch(() => {})
     throw unreachable('mongo', err)
@@ -146,38 +247,53 @@ async function connect(env: Record<string, string>): Promise<Cloud> {
     // A ping needs no privileges. A read and a write do — and a user with
     // rights on some other database is a common Atlas mistake, found here
     // rather than by the write after a paid image.
-    const db = client.db(env.MONGODB_DB)
+    const db = client.db(settings.mongoDb)
     await db.collection<ProjectDoc>('projects').findOne({ _id: '' }, { projection: { _id: 1 } })
     await db.collection<{ _id: string; at: string }>('connect_check').updateOne({ _id: 'last' }, { $set: { at: new Date().toISOString() } }, { upsert: true })
   } catch (err) {
     await client.close().catch(() => {})
     throw unreachable(isRefusal(err) ? 'mongo-refused' : 'mongo', err)
   }
-  const s3 = new S3Client({
-    endpoint: env.S3_ENDPOINT,
-    region: env.S3_REGION,
-    // Path-style (`<endpoint>/<bucket>/<key>`) is what R2 and MinIO expect
-    // and AWS still accepts, so one setting serves all three.
-    forcePathStyle: true,
-    credentials: { accessKeyId: env.S3_ACCESS_KEY_ID, secretAccessKey: env.S3_SECRET_ACCESS_KEY },
-  })
+  // Idempotent; a user without createIndex still gets a working (slower) desk.
+  await client
+    .db(settings.mongoDb)
+    .collection<ProjectDoc>('projects')
+    .createIndex(UPDATED_INDEX)
+    .catch((err: unknown) => console.warn('[store] the listing index couldn’t be created:', err instanceof Error ? err.message : err))
+  const s3 = s3Client(settings)
+  const bucket = settings.projectFilesBucket
+  const probeKey = settings.keyPrefix + BUCKET_PROBE_KEY
   try {
     // A wrong bucket or key found here costs nothing; found by `putBlob`, it
     // would be found after an image was already paid for. A write, not
     // HeadBucket: that needs ListBucket, which a bucket-scoped key may lack.
-    await s3.send(
-      new PutObjectCommand({ Bucket: env.S3_BUCKET, Key: BUCKET_PROBE_KEY, Body: 'Ink Desk keeps its images in this bucket.\n', ContentType: 'text/plain' })
-    )
+    await s3.send(new PutObjectCommand({ Bucket: bucket, Key: probeKey, Body: 'Ink Desk keeps its images in this bucket.\n', ContentType: 'text/plain' }))
     // And back: a key that can write but not read would store every image
     // and serve none.
-    await s3.send(new GetObjectCommand({ Bucket: env.S3_BUCKET, Key: BUCKET_PROBE_KEY }))
+    const probe = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: probeKey }))
+    // Read to the end, so the socket goes back to the pool — bounded, or a
+    // stalled bucket would hold every request waiting on this connect.
+    if (probe.Body) await new Response(idleLimited(probe.Body.transformToWebStream() as ReadableStream<Uint8Array>)).arrayBuffer()
   } catch (err) {
     s3.destroy()
     await client.close().catch(() => {})
     throw unreachable('bucket', err)
   }
-  console.log(`[store] cloud: ${describe(env)}`)
-  return { client, projects: client.db(env.MONGODB_DB).collection<ProjectDoc>('projects'), s3, bucket: env.S3_BUCKET }
+  console.log(`[store] cloud: ${describe(settings)}`)
+  return {
+    client,
+    projects: client.db(settings.mongoDb).collection<ProjectDoc>('projects'),
+    s3,
+    bucket,
+    outputsBucket: settings.outputsBucket,
+    prefix: settings.keyPrefix,
+  }
+}
+
+/** Both buckets and the key prefix, as the store uses them — for the scripts and the slices that write outputs. */
+export async function cloudBuckets(): Promise<{ projectFiles: string; outputs: string; prefix: string }> {
+  const { bucket, outputsBucket, prefix } = await cloud()
+  return { projectFiles: bucket, outputs: outputsBucket, prefix }
 }
 
 async function close(c: Cloud): Promise<void> {
@@ -227,10 +343,10 @@ function plain(project: Project): Project {
   return JSON.parse(JSON.stringify(project)) as Project
 }
 
+/** The document's project, or the calm 500 for one that can't be read (CR-14). */
 function checked(doc: ProjectDoc): Project {
-  if (doc.project?.version !== 2) {
-    throw new Error(`projects/${doc._id} is version ${String(doc.project?.version)}; this build reads version 2.`)
-  }
+  const problem = projectProblem(doc.project)
+  if (problem) throw unreadableProject(doc._id, problem)
   return doc.project
 }
 
@@ -319,14 +435,54 @@ function updateProject(id: string, fn: (project: Project) => Project): Promise<P
   return result
 }
 
+/**
+ * Only the fields `summarize()` reads (CR-12, SEC-12): a dashboard load never
+ * pulls a scenario, a plan or a panel's dialogue out of the database. Arrays
+ * keep their length, so the page and panel counts are still right.
+ */
+export const SUMMARY_PROJECTION = {
+  _id: 1,
+  rev: 1,
+  'project.id': 1,
+  'project.version': 1,
+  'project.title': 1,
+  'project.stylePresetId': 1,
+  'project.station': 1,
+  'project.usage.images': 1,
+  'project.usage.costUsd': 1,
+  'project.createdAt': 1,
+  'project.updatedAt': 1,
+  'project.chapters.cover.versions.imageId': 1,
+  'project.chapters.cover.currentVersion': 1,
+  'project.chapters.pages.panels.versions.imageId': 1,
+  'project.chapters.pages.panels.currentVersion': 1,
+  'project.library.characters.id': 1,
+  'project.library.characters.name': 1,
+  'project.library.characters.role': 1,
+  'project.library.characters.locked': 1,
+  'project.library.characters.sheetImageId': 1,
+  'project.library.characters.source': 1,
+} as const
+
+/** A ceiling on one listing; the dashboard has no pages yet, and this is far past what it shows. */
+export const LIST_LIMIT = 500
+
 async function listProjects(): Promise<ProjectSummary[]> {
+  const docs = await mongo((projects) =>
+    projects.find({}, { projection: SUMMARY_PROJECTION }).sort(UPDATED_INDEX).limit(LIST_LIMIT).toArray()
+  )
+  if (docs.length === LIST_LIMIT) console.warn(`[store] the desk lists its newest ${LIST_LIMIT} projects; older ones are not shown`)
   const summaries: ProjectSummary[] = []
-  for (const doc of await mongo((projects) => projects.find({}).toArray())) {
+  for (const doc of docs) {
     try {
       summaries.push(summarize(checked(doc)))
     } catch (err) {
-      // One unreadable project never takes the desk down with it.
-      console.warn(`[store] projects/${doc._id} couldn’t be read; skipped:`, err instanceof Error ? err.message : err)
+      // One unreadable project never takes the desk down with it, and is never
+      // hidden (CR-14): a "can't be read" card. `checked` has already named it
+      // in the terminal; anything it missed is named here.
+      if (!(err instanceof Refused)) console.warn(`[store] projects/${doc._id} couldn’t be read:`, err instanceof Error ? err.message : err)
+      const at = (doc.project as Partial<Project> | null | undefined)?.updatedAt
+      summaries.push(unreadableSummary(doc._id, typeof at === 'string' ? at : new Date(0).toISOString()))
     }
   }
   return summaries.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0))
@@ -353,19 +509,20 @@ async function putBlob(bytes: Buffer, mediaType: string, kind: BlobKind): Promis
     )
   }
   const id = `${kind}-${crypto.randomUUID()}.${ext}`
-  const { s3, bucket } = await cloud()
-  await s3.send(new PutObjectCommand({ Bucket: bucket, Key: id, Body: bytes, ContentType: mediaType }))
+  const { s3, bucket, prefix } = await cloud()
+  await s3.send(new PutObjectCommand({ Bucket: bucket, Key: prefix + id, Body: bytes, ContentType: mediaType }))
   return id
 }
 
 async function getBlob(id: string): Promise<{ bytes: Buffer; mediaType: string } | null> {
   if (!isImageId(id)) return null
-  const { s3, bucket } = await cloud()
+  const { s3, bucket, prefix } = await cloud()
   try {
-    const object = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: id }))
+    const object = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: prefix + id }))
     if (!object.Body) return null
     // The id's extension is the media type, exactly as on the local desk.
-    return { bytes: Buffer.from(await object.Body.transformToByteArray()), mediaType: mediaTypeOf(id) }
+    const body = idleLimited(object.Body.transformToWebStream() as ReadableStream<Uint8Array>)
+    return { bytes: Buffer.from(await new Response(body).arrayBuffer()), mediaType: mediaTypeOf(id) }
   } catch (err) {
     // Only a missing *object* is "no such image". A missing bucket or a
     // refused key is a 404 or 403 too, and must not make every image on the
@@ -375,7 +532,57 @@ async function getBlob(id: string): Promise<{ bytes: Buffer; mediaType: string }
   }
 }
 
-export const cloudStore: Store = { listProjects, migrateLegacy, readProject, createProject, updateProject, putBlob, getBlob }
+/** The image as a stream straight from the bucket, never buffered whole (CR-17). */
+async function openBlob(id: string): Promise<BlobStream | null> {
+  if (!isImageId(id)) return null
+  const { s3, bucket, prefix } = await cloud()
+  try {
+    const object = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: prefix + id }))
+    if (!object.Body) return null
+    const body = idleLimited(object.Body.transformToWebStream() as ReadableStream<Uint8Array>)
+    return { body, bytes: object.ContentLength ?? null, mediaType: mediaTypeOf(id) }
+  } catch (err) {
+    if (isMissingObject(err)) return null
+    throw err
+  }
+}
+
+/** One answer within `ms`, or 'down'. */
+function within(ms: number, probe: (signal: AbortSignal) => Promise<unknown>): Promise<Check> {
+  const signal = AbortSignal.timeout(ms)
+  return Promise.race([
+    probe(signal).then((): Check => 'ok', (): Check => 'down'),
+    new Promise<Check>((resolve) => signal.addEventListener('abort', () => resolve('down'), { once: true })),
+  ])
+}
+
+/**
+ * The health check's view: MongoDB answers a ping and the bucket answers for
+ * the probe object, each within `timeoutMs`. Never throws, never says why —
+ * the terminal has the cause.
+ */
+async function health(timeoutMs: number): Promise<StoreHealth> {
+  let c: Cloud
+  try {
+    c = await new Promise<Cloud>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('cloud storage: still connecting')), timeoutMs)
+      cloud().then(resolve, reject).finally(() => clearTimeout(timer))
+    })
+  } catch (err) {
+    // A connect that failed on the bucket got past MongoDB first.
+    const which = (err as { unreachable?: string } | null)?.unreachable
+    console.warn('[health] cloud storage:', err instanceof Error ? err.message : err)
+    return { mongo: which === 'bucket' ? 'ok' : 'down', bucket: 'down' }
+  }
+  const db = c.client.db(c.projects.dbName)
+  const [mongo, bucket] = await Promise.all([
+    within(timeoutMs, () => db.command({ ping: 1 })),
+    within(timeoutMs, (abortSignal) => c.s3.send(new HeadObjectCommand({ Bucket: c.bucket, Key: c.prefix + BUCKET_PROBE_KEY }), { abortSignal })),
+  ])
+  return { mongo, bucket }
+}
+
+export const cloudStore: Store = { listProjects, migrateLegacy, readProject, createProject, updateProject, putBlob, getBlob, openBlob, health }
 
 /** Only a missing *object* is "no such image" — exported so `check:store` can
  *  hold it to real errors from a real bucket. */

@@ -192,6 +192,9 @@ export type ProjectSummary = {
   characters: LibraryCharacter[]
   createdAt: string
   updatedAt: string
+  /** A project whose stored copy can't be read (CR-14): listed so it isn't
+   *  lost from sight, with its id and when it last changed; the rest is empty. */
+  unreadable?: true
 }
 
 /** One locked character as the global library shows it: read-only. */
@@ -211,7 +214,7 @@ export type Desk = {
   title: string
   stylePresetId: StylePresetId
   pageCount: number
-  serverRunId: string
+  // No serverRunId: it says when the server restarted, and the browser never needed it (SEC-11).
   station: Station
   pitch: Pitch
   synopsis: Synopsis | null
@@ -262,7 +265,6 @@ export type PageSummary = {
 export type Chapter = Desk
 
 export function emptyDesk(
-  serverRunId: string,
   address: PageAddress = { projectId: '', chapterId: '', pageIndex: 0 },
   title = '',
   stylePresetId: StylePresetId = DEFAULT_STYLE_PRESET_ID
@@ -273,7 +275,6 @@ export function emptyDesk(
     title,
     stylePresetId,
     pageCount: 1,
-    serverRunId,
     station: 'story',
     pitch: { text: '', genre: '', tone: '' },
     synopsis: null,

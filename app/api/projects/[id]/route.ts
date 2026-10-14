@@ -1,6 +1,7 @@
 // GET a project's desk · POST an edit (typing, chips, accept, navigation,
 // card text, Lock). The only writer besides the generation routes. The desk is
 // the open page of the project — see `lib/chapter.ts`.
+import { parseJson } from '@/lib/body'
 import { assertEditAllowed } from '@/lib/cast'
 import { demoteStale, openRef, read, toDesk, update } from '@/lib/chapter'
 import { errorResponse, Refused } from '@/lib/errors'
@@ -8,7 +9,7 @@ import { gates } from '@/lib/gates'
 import { imageConfig } from '@/lib/image-provider'
 import { applyPatch, assertPageExists, assertStoryEditable, type ChapterPatch } from '@/lib/patch'
 import { assertPlanEdit } from '@/lib/plan'
-import { ChapterPatchSchema } from '@/lib/schemas'
+import { ChapterPatchSchema, PATCH_LIMIT_BYTES } from '@/lib/schemas'
 import { findPanel } from '@/lib/script'
 import { singletons } from '@/lib/singleton'
 import { store } from '@/lib/store'
@@ -43,13 +44,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
 export async function POST(req: Request, { params }: Params) {
   const { id } = await params
-  const parsed = ChapterPatchSchema.safeParse(await req.json().catch(() => null))
-  if (!parsed.success) {
-    return Response.json({ error: 'That edit couldn’t be read.' }, { status: 400 })
-  }
-  const patch: ChapterPatch = parsed.data
-
   try {
+    // Sized for a whole scenario; every other route takes 64 KB.
+    const patch: ChapterPatch = await parseJson(req, ChapterPatchSchema, PATCH_LIMIT_BYTES, 'That edit couldn’t be read.')
     // Panel edits are written to the page they were made on (`at`), which
     // may no longer be the open page by the time they land — another tab, or
     // a page switch still in flight. Everything else on the desk is

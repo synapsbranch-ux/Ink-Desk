@@ -5,6 +5,7 @@
 // already inking, or already waiting for a slot, is refused.
 import { pageAt, read } from '@/lib/chapter'
 import { errorResponse, Refused } from '@/lib/errors'
+import { assertGenerationEnabled } from '@/lib/generation'
 import { isQueued, queuePanel } from '@/lib/panels'
 import { findPanel } from '@/lib/script'
 
@@ -14,10 +15,10 @@ const CALM = 'The panel couldn’t start inking just now. Try again in a moment.
 
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string; n: string; i: string }> }) {
   const { id, n, i } = await params
-  const index = /^[0-3]$/.test(i) ? Number(i) : -1
-  if (index < 0) return Response.json({ error: 'There is no such panel.' }, { status: 404 })
-
   try {
+    assertGenerationEnabled()
+    const index = /^[0-3]$/.test(i) ? Number(i) : -1
+    if (index < 0) throw new Refused('There is no such panel.', 404)
     const addr = await pageAt(id, /^\d+$/.test(n) ? Number(n) : -1)
     const panel = findPanel(await read(id, addr), index)
     if (panel.status === 'inking') throw new Refused(`Panel ${index + 1} is already inking.`)

@@ -2,7 +2,10 @@
 // arrival order, and a key that is already waiting or running is not added a
 // second time — so `POST /api/panels/start` can be called again after a reload
 // without doubling a generation. Each job owns its own failure handling; a
-// rejection that escapes is logged, never thrown into the pump.
+// rejection that escapes is logged, never thrown into the pump. A job still
+// running past `ceilingMs` gives its slot and its key back (CR-6): whatever it
+// is stuck on can hold that one job, never the queue. By then the desk's
+// stale-inking floor has shown the panel as failed, so Try again works.
 // See `devpost/spec.md > Components > Panel Queue (lib/queue.ts)`.
 //
 // No Node imports: the one instance is pinned to `globalThis` in
@@ -21,26 +24,39 @@ export type Queue = {
   readonly concurrency: number
 }
 
-export function createQueue(concurrency: number): Queue {
+export function createQueue(concurrency: number, ceilingMs = Infinity): Queue {
   if (!Number.isInteger(concurrency) || concurrency < 1) {
     throw new Error(`PANEL_CONCURRENCY must be a whole number of at least 1, got ${String(concurrency)}`)
   }
 
   const waiting: { key: string; job: Job }[] = []
-  const active = new Set<string>()
+  // Each run holds a token, so a job the watchdog let go that ends later
+  // never frees the slot of a newer run under the same key.
+  const active = new Map<string, symbol>()
 
   function pump(): void {
     while (active.size < concurrency) {
       const next = waiting.shift()
       if (!next) return
-      active.add(next.key)
-      Promise.resolve()
+      const token = Symbol(next.key)
+      active.set(next.key, token)
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const ran = Promise.resolve()
         .then(next.job)
         .catch((err: unknown) => console.error(`[queue] ${next.key} failed outside its own handler:`, err))
-        .finally(() => {
-          active.delete(next.key)
-          pump()
-        })
+      const ceiling = Number.isFinite(ceilingMs)
+        ? new Promise<void>((resolve) => {
+            timer = setTimeout(() => {
+              console.error(`[queue] ${next.key} ran past ${ceilingMs} ms; its slot is freed`)
+              resolve()
+            }, ceilingMs)
+          })
+        : null
+      void (ceiling ? Promise.race([ran, ceiling]) : ran).finally(() => {
+        clearTimeout(timer)
+        if (active.get(next.key) === token) active.delete(next.key)
+        pump()
+      })
     }
   }
 
@@ -55,7 +71,7 @@ export function createQueue(concurrency: number): Queue {
     has(key) {
       return active.has(key) || waiting.some((w) => w.key === key)
     },
-    running: () => [...active],
+    running: () => [...active.keys()],
     waiting: () => waiting.map((w) => w.key),
   }
 }

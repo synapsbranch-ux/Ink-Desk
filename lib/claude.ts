@@ -2,6 +2,11 @@
 // token budget handed to `ask()` in `lib/llm.ts`, which owns the providers:
 // Claude first, the OpenRouter fallback when Claude cannot be used. See
 // `devpost/spec.md > Text Provider and the Terra Fallback (v2)`.
+//
+// Server only (SEC-15): importing this from a client component is a build
+// error. The checks run under tsx, where `scripts/server-only.mts` resolves the
+// package the way Next's server does.
+import 'server-only'
 import { ask, type AskImage, type TextMeter } from './llm'
 import { ProviderError } from './errors'
 import {

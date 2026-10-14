@@ -8,7 +8,7 @@
 import { connection } from 'next/server'
 import { Dashboard } from '@/components/Dashboard'
 import { listProjects, migrateLegacy } from '@/lib/chapter'
-import { ProviderError } from '@/lib/errors'
+import { configSentence, ProviderError } from '@/lib/errors'
 
 export default async function DeskPage() {
   await connection()
@@ -23,7 +23,7 @@ export default async function DeskPage() {
     // sentence, never a stack trace.
     if (!(err instanceof ProviderError && err.kind === 'config')) throw err
     console.error(`[desk] ${err.message}`, err.cause ?? '')
-    problem = err.message
+    problem = configSentence(err) // production names no variables (SEC-11)
     projects = []
   }
   // The panel quality is the server's setting; the dialog only prices it.

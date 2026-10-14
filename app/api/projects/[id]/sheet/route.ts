@@ -9,10 +9,12 @@
 // `reuseDna: true` is Redraw sheet: same words, new picture. Editing the look
 // retires the DNA (`lib/cast.ts`), so the next draw writes it fresh either way.
 // See `devpost/prd.md > Cast — Model Sheets` for why DNA-first is load-bearing.
+import { JSON_LIMIT_BYTES, parseJson } from '@/lib/body'
 import { assertUnlocked, attachSheet, findCharacter, setDna } from '@/lib/cast'
 import { read } from '@/lib/chapter'
 import { writeDna } from '@/lib/claude'
 import { errorResponse, Refused } from '@/lib/errors'
+import { assertGenerationEnabled } from '@/lib/generation'
 import { generateImage, imageConfig } from '@/lib/image-provider'
 import { updateCharging, saveImage } from '@/lib/images'
 import { textMeter } from '@/lib/llm'
@@ -27,11 +29,9 @@ const CALM = 'The sheet didn’t come back, the studio is busy. Try again in a m
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id: projectId } = await params
-  const parsed = SheetRequestSchema.safeParse(await req.json().catch(() => null))
-  if (!parsed.success) return Response.json({ error: 'That request couldn’t be read.' }, { status: 400 })
-  const { id, reuseDna = false } = parsed.data
-
   try {
+    assertGenerationEnabled()
+    const { id, reuseDna = false } = await parseJson(req, SheetRequestSchema, JSON_LIMIT_BYTES, 'That request couldn’t be read.')
     const current = await read(projectId)
     const synopsis = storyBrief(current)
     if (!synopsis) throw new Refused('Settle the story first.')

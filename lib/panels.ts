@@ -13,6 +13,11 @@
 // Since v2 every job is addressed by project / chapter / page, and the queue
 // key carries the address, so two pages — or two projects — can never dedupe
 // against each other.
+
+// Server only (SEC-15): importing this from a client component is a build
+// error. The checks run under tsx, where `scripts/server-only.mts` resolves the
+// package the way Next's server does.
+import 'server-only'
 import { read, update } from './chapter'
 import { ProviderError, Refused } from './errors'
 import { generateImage, imageConfig } from './image-provider'

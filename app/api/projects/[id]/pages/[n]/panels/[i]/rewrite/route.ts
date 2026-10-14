@@ -6,6 +6,7 @@
 import { pageAt, read } from '@/lib/chapter'
 import { rewritePanelVisuals } from '@/lib/claude'
 import { errorResponse, Refused } from '@/lib/errors'
+import { assertGenerationEnabled } from '@/lib/generation'
 import { updateCharging } from '@/lib/images'
 import { textMeter } from '@/lib/llm'
 import { isQueued, queuePanel } from '@/lib/panels'
@@ -18,10 +19,10 @@ const CALM = 'The panel couldn’t be rewritten just now. Try again in a moment.
 
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string; n: string; i: string }> }) {
   const { id, n, i } = await params
-  const index = /^[0-3]$/.test(i) ? Number(i) : -1
-  if (index < 0) return Response.json({ error: 'There is no such panel.' }, { status: 404 })
-
   try {
+    assertGenerationEnabled()
+    const index = /^[0-3]$/.test(i) ? Number(i) : -1
+    if (index < 0) throw new Refused('There is no such panel.', 404)
     const addr = await pageAt(id, /^\d+$/.test(n) ? Number(n) : -1)
     const desk = await read(id, addr)
     const panel = findPanel(desk, index)

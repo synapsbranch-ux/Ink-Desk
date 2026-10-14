@@ -13,12 +13,22 @@
 // wedges the chain nor corrupts the file; no temp file is left behind.
 //
 // The cloud half (slice 13, `spec.md > Storage Adapter (v2)`): the mode switch
-// and the missing-settings sentence, and the optimistic `rev` update against a
-// collection that loses races on purpose — always. Then, only when
-// `MONGODB_URI` is set (with `MONGODB_DB` and the `S3_*` variables), the same
-// rules against a real MongoDB and bucket: a scratch database named
-// `<MONGODB_DB>-check-<random>`, dropped at the end, and only the objects this
-// check wrote, deleted at the end. The bucket must already exist.
+// and the missing-settings sentence — each setting named by both names it
+// accepts (v3: `MONGODB_URI (or DB_URL)`) — and the optimistic `rev` update
+// against a collection that loses races on purpose — always. So are the v3
+// rules that need no server: an unreadable project is a calm 500 and a named
+// warning (CR-14), images stream (CR-17), and an S3 call on a socket that never
+// answers ends in time (CR-6).
+//
+// Then, only when a Mongo URL is set (MONGODB_URI or DB_URL, with the database
+// and the `S3_*` variables) AND `INKDESK_CHECK_CLOUD=yes` — a shell can carry
+// another app's DB_URL, and this check writes — the same rules against a real
+// MongoDB and bucket: a scratch database named `<database>-check-<random>`,
+// dropped at the end, and only the objects this check wrote, deleted at the
+// end. The buckets must already exist. Whichever name is in effect for a
+// setting is the one the check changes, so the learner's names are exercised
+// as they are.
+import './server-only.mts' // first: lets server modules load outside Next (SEC-15)
 import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -151,48 +161,100 @@ try {
   assert.equal(after.imageCount, 4)
   console.log('  ok  a failed update neither wedges the chain nor corrupts the file')
 
-  // 6. No torn file: the temp file never outlives a write.
+  // 6. No torn file: the temp file never outlives a write, and each update
+  //    keeps the version before it as project.json.bak (CR-14).
   for (const id of [a, b]) {
-    const files = await readdir(join(dir, 'projects', id))
-    assert.deepEqual(files, ['project.json'], `unexpected files left behind in ${id}: ${files.join(', ')}`)
+    const files = (await readdir(join(dir, 'projects', id))).sort()
+    assert.deepEqual(files, ['project.json', 'project.json.bak'], `unexpected files left behind in ${id}: ${files.join(', ')}`)
   }
-  console.log('  ok  only project.json in each project folder — no stray temp file')
+  const backup = JSON.parse(await readFile(join(dir, 'projects', a, 'project.json.bak'), 'utf8'))
+  assert.equal(backup.station, 'story', 'the backup is the version before the last update')
+  assert.equal((await read(a)).station, 'cast')
+  console.log('  ok  only project.json and its backup in each project folder — no stray temp file')
 
-  // 7. Nothing unreadable takes the desk down: a broken project is skipped
-  //    with a warning, a broken v1 file is left alone and named in a sentence,
-  //    and a garbage id is a 404 that never becomes a lock entry.
+  // 7. Nothing unreadable takes the desk down: a torn project.json opens
+  //    from its backup; a broken project with no good backup is listed as a
+  //    "can't be read" card with a warning, never hidden; a broken v1 file is
+  //    left alone and named in a sentence; and a garbage id is a 404 that
+  //    never becomes a lock entry.
   const quiet = console.warn
-  console.warn = () => {}
+  const warned: string[] = []
+  console.warn = (...args: unknown[]) => void warned.push(args.map(String).join(' '))
   try {
+    // A torn write (CR-14): project.json cut short, the backup intact.
+    const whole = await readFile(join(dir, 'projects', a, 'project.json'), 'utf8')
+    await writeFile(join(dir, 'projects', a, 'project.json'), whole.slice(0, 200))
+    const recovered = await read(a)
+    assert.equal(recovered.station, 'story', 'a torn project.json opens from its backup')
+    assert.ok(warned.some((line) => line.includes(a) && line.includes('project.json.bak')), 'and the terminal says so')
+    assert.equal((await listProjects()).find((p) => p.id === a)?.unreadable, undefined, 'it lists as itself, not as unreadable')
+    const healed = await update(a, (c) => ({ ...c, station: 'cast' }))
+    assert.equal(healed.station, 'cast')
+    assert.equal(JSON.parse(await readFile(join(dir, 'projects', a, 'project.json'), 'utf8')).station, 'cast', 'the next save writes project.json whole again')
+    assert.equal(JSON.parse(await readFile(join(dir, 'projects', a, 'project.json.bak'), 'utf8')).station, 'story', 'over the good backup, not the torn file')
+
     await mkdir(join(dir, 'projects', 'zzz-broken'), { recursive: true })
     await writeFile(join(dir, 'projects', 'zzz-broken', 'project.json'), '{ not json')
-    assert.equal((await listProjects()).length, 3, 'a broken project.json is skipped, the others still list')
+    const withBroken = await listProjects()
+    assert.equal(withBroken.length, 4, 'a broken project.json is listed, and the others still list')
+    const card = withBroken.find((p) => p.id === 'zzz-broken')
+    assert.equal(card?.unreadable, true, 'as a “can’t be read” card, never hidden')
+    assert.ok(card && !Number.isNaN(Date.parse(card.updatedAt)), 'dated by its folder')
+    assert.equal(withBroken.filter((p) => !p.unreadable).length, 3)
+    assert.ok(warned.some((line) => line.includes('zzz-broken')), 'the broken project is named in the terminal')
+    // Opening it (CR-14): one calm sentence with a way back, a 500 — never a crash, never the parser's words.
+    const { Refused: RefusedError } = await import('../lib/errors')
+    const { UNREADABLE_PROJECT } = await import('../lib/store/local')
+    const opened = await read('zzz-broken').then(
+      () => assert.fail('a broken project must not open'),
+      (err: unknown) => err
+    )
+    assert.ok(opened instanceof RefusedError && opened.status === 500, 'a broken project is a calm 500')
+    assert.equal(opened.message, UNREADABLE_PROJECT)
+    assert.match(UNREADABLE_PROJECT, /back to the desk/, 'with a way out')
+    await assert.rejects(update('zzz-broken', (c) => c), (err: unknown) => err instanceof RefusedError && err.status === 500, 'an update of it is the same 500')
+    assert.equal(await readFile(join(dir, 'projects', 'zzz-broken', 'project.json'), 'utf8'), '{ not json', 'and the file is left as it was')
+    await mkdir(join(dir, 'projects', 'zzz-shapeless'), { recursive: true })
+    await writeFile(join(dir, 'projects', 'zzz-shapeless', 'project.json'), JSON.stringify({ version: 2 }))
+    assert.equal((await listProjects()).filter((p) => p.unreadable).length, 2, 'valid JSON without a project’s shape is listed as unreadable too, not a crash')
+    await writeFile(join(dir, 'projects', 'zzz-shapeless', 'project.json.bak'), '{ also not json')
+    await assert.rejects(read('zzz-shapeless'), (err: unknown) => err instanceof RefusedError && err.status === 500, 'a broken backup is no way in either')
+    assert.ok(warned.some((line) => line.includes('zzz-shapeless')), 'and named')
+    await assert.rejects(read('zzz-shapeless'), (err: unknown) => err instanceof RefusedError && err.status === 500, 'and opening it is the same calm 500')
+    await rm(join(dir, 'projects', 'zzz-shapeless'), { recursive: true })
     await rm(join(dir, 'projects', 'v1-migrated.json'))
     await writeFile(join(dir, 'chapter.json'), '{ "version": 1, truncated')
     const outcome = await migrateLegacy()
     assert.equal(outcome.projectId, null)
     assert.match(outcome.problem ?? '', /chapter\.json/, 'the sentence names the file')
-    assert.equal((await listProjects()).length, 3, 'nothing was migrated from a broken v1 file')
+    assert.equal((await listProjects()).length, 4, 'nothing was migrated from a broken v1 file')
     assert.equal(await readFile(join(dir, 'chapter.json'), 'utf8'), '{ "version": 1, truncated', 'and it was left exactly as it was')
     await assert.rejects(update('../../etc', (c) => c), /no such project/)
     assert.equal(singletons.locks.has('../../etc'), false, 'a refused id never becomes a lock entry')
   } finally {
     console.warn = quiet
   }
-  console.log('  ok  a broken project is skipped, a broken v1 file is named and left alone, a garbage id is a 404')
+  console.log('  ok  a torn project opens from its backup; a broken one is a named “can’t be read” card, opening it a calm 500 with a way back; a broken v1 file is named and left alone; a garbage id is a 404')
 
   // 8. The switch: unset is local, a typo is refused by name, and cloud mode
   //    without its settings names exactly what is missing.
   const { CLOUD_ENV, missingCloudEnv, missingCloudSentence, storageMode } = await import('../lib/store/env')
+  const { CLOUD_VARIABLES } = await import('../lib/config')
   assert.equal(storageMode({}), 'local', 'unset means the local desk')
   assert.equal(storageMode({ INKDESK_STORAGE: ' cloud ' }), 'cloud')
   assert.throws(() => storageMode({ INKDESK_STORAGE: 'mongo' }), /"mongo".*"local".*"cloud"/)
-  const full = Object.fromEntries(CLOUD_ENV.map((name) => [name, 'x']))
+  const full = Object.fromEntries(CLOUD_VARIABLES.map((name) => [name, 'x']))
   assert.deepEqual(missingCloudEnv(full), [])
-  assert.deepEqual(missingCloudEnv({ ...full, MONGODB_DB: '', S3_BUCKET: '  ' }), ['MONGODB_DB', 'S3_BUCKET'], 'blank counts as missing')
-  assert.match(missingCloudSentence(['MONGODB_URI']), /MONGODB_URI is not set\. Add it to \.env, or set INKDESK_STORAGE=local/)
-  assert.match(missingCloudSentence(['S3_REGION', 'S3_BUCKET']), /S3_REGION, S3_BUCKET are not set/)
-  console.log('  ok  INKDESK_STORAGE: unset is local, a typo is refused, missing cloud settings are named')
+  assert.deepEqual(
+    missingCloudEnv({ ...full, MONGODB_DB: '', DB_DATABASE: undefined, S3_BUCKET_PROJECT_FILES: '  ', S3_BUCKET: '' }),
+    ['MONGODB_DB (or DB_DATABASE)', 'S3_BUCKET_PROJECT_FILES (or S3_BUCKET)'],
+    'blank counts as missing, under both names'
+  )
+  assert.deepEqual(missingCloudEnv({ ...full, MONGODB_URI: '', MONGODB_DB: ' ', S3_BUCKET_PROJECT_FILES: '' }), [], 'the learner’s names stand in: DB_URL, DB_DATABASE, S3_BUCKET')
+  assert.equal(CLOUD_ENV.length, 7, 'seven settings, as before')
+  assert.match(missingCloudSentence(['MONGODB_URI (or DB_URL)']), /MONGODB_URI \(or DB_URL\) is not set\. Add it to \.env, or set INKDESK_STORAGE=local/)
+  assert.match(missingCloudSentence(['S3_REGION', 'S3_BUCKET_PROJECT_FILES (or S3_BUCKET)']), /S3_REGION, S3_BUCKET_PROJECT_FILES \(or S3_BUCKET\) are not set/)
+  console.log('  ok  INKDESK_STORAGE: unset is local, a typo is refused, missing cloud settings are named by both their names')
 
   // 9. The rev contract, deterministically: a collection where another writer
   //    wins the first two races. `fn` runs again on what that writer left,
@@ -256,8 +318,113 @@ try {
   assert.equal(kept.doc.rev, 0, 'a throwing fn writes nothing')
   console.log(`  ok  rev: a lost race re-reads and re-runs fn, nothing is lost, and it gives up calmly after ${MAX_UPDATE_ATTEMPTS}`)
 
-  if (!process.env.MONGODB_URI) {
-    console.log('  --  the cloud half against a real MongoDB and bucket was skipped: MONGODB_URI is not set')
+  // 10. v3 without a server: images stream from disk (CR-17), a local desk's
+  //     health needs nothing, and S3 calls are bounded in time (CR-6) — an
+  //     endpoint that accepts the connection and never answers ends in an
+  //     error, not a hang. S3_FORCE_PATH_STYLE reaches the client.
+  const { localStore } = await import('../lib/store/local')
+  const { mongoOptions, s3Client, S3_TIMEOUTS, MONGO_TIMEOUTS } = await import('../lib/store/cloud')
+  const pngBytes = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex')
+  const streamedId = await localStore.putBlob(pngBytes, 'image/png', 'panel')
+  const streamed = await localStore.openBlob(streamedId)
+  assert.ok(streamed, 'a stored image opens as a stream')
+  assert.equal(streamed.bytes, pngBytes.length, 'with its size')
+  assert.equal(streamed.mediaType, 'image/png')
+  assert.ok(Buffer.from(await new Response(streamed.body).arrayBuffer()).equals(pngBytes), 'and the same bytes')
+  assert.equal(await localStore.openBlob(`panel-${crypto.randomUUID()}.png`), null, 'a missing image is null')
+  assert.equal(await localStore.openBlob('../chapter.json'), null, 'an unsafe id is null')
+  assert.deepEqual(await localStore.health(2000), { mongo: 'n/a', bucket: 'n/a' })
+  assert.deepEqual(mongoOptions('mongodb://h/'), { ignoreUndefined: true, ...MONGO_TIMEOUTS }, 'every Mongo timeout set')
+  assert.equal(mongoOptions('mongodb://h/?socketTimeoutMS=500').socketTimeoutMS, undefined, 'a URI’s own timeout wins')
+  assert.ok(S3_TIMEOUTS.requestTimeout > 0 && S3_TIMEOUTS.connectionTimeout > 0 && S3_TIMEOUTS.socketTimeout > 0)
+  const net = await import('node:net')
+  const held = new Set<import('node:net').Socket>()
+  const silent = net.createServer((sock) => void held.add(sock.on('error', () => {}))) // accepts, never answers
+  await new Promise<void>((resolve) => silent.listen(0, '127.0.0.1', resolve))
+  const silentPort = (silent.address() as import('node:net').AddressInfo).port
+  const { GetObjectCommand: Get } = await import('@aws-sdk/client-s3')
+  const stuck = s3Client(
+    { endpoint: `http://127.0.0.1:${silentPort}`, region: 'us-east-1', accessKeyId: 'check', secretAccessKey: 'check', forcePathStyle: true },
+    { connectionTimeout: 300, requestTimeout: 300, socketTimeout: 300 }
+  )
+  const began = Date.now()
+  await assert.rejects(stuck.send(new Get({ Bucket: 'b', Key: 'panel-x.png' })), 'a silent S3 endpoint is an error')
+  assert.ok(Date.now() - began < 5_000, `and it ends in time (${Date.now() - began} ms)`)
+  stuck.destroy()
+  for (const sock of held) sock.destroy()
+  await new Promise<void>((resolve) => silent.close(() => resolve()))
+  // A bucket that sends its headers and a few bytes, then stalls: the SDK's
+  // timers have stopped by then, so the body read is bounded on its own, and
+  // giving up lets the socket go.
+  const { idleLimited } = await import('../lib/store/cloud')
+  const http = await import('node:http')
+  let socketClosed = false
+  const stalling = http.createServer((_req, res) => {
+    res.socket?.on('close', () => void (socketClosed = true))
+    res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': '1000' })
+    res.write(Buffer.alloc(10)) // and never the rest
+  })
+  await new Promise<void>((resolve) => stalling.listen(0, '127.0.0.1', resolve))
+  const stallingPort = (stalling.address() as import('node:net').AddressInfo).port
+  const slow = s3Client({ endpoint: `http://127.0.0.1:${stallingPort}`, region: 'us-east-1', accessKeyId: 'check', secretAccessKey: 'check', forcePathStyle: true })
+  const half = await slow.send(new Get({ Bucket: 'b', Key: 'panel-x.png' }))
+  const stallBegan = Date.now()
+  await assert.rejects(
+    new Response(idleLimited(half.Body!.transformToWebStream() as ReadableStream<Uint8Array>, 300)).arrayBuffer(),
+    (err: Error) => err.name === 'TimeoutError',
+    'a body that stalls after its headers is an error'
+  )
+  assert.ok(Date.now() - stallBegan < 5_000, `and it ends in time (${Date.now() - stallBegan} ms)`)
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  assert.ok(socketClosed, 'and the stalled socket is let go')
+  slow.destroy()
+  stalling.closeAllConnections()
+  await new Promise<void>((resolve) => stalling.close(() => resolve()))
+  // A slow reader is not a stalled bucket: the clock runs only while waiting on the source.
+  const steady = new ReadableStream<Uint8Array>({ start: (c) => (c.enqueue(new Uint8Array([1])), c.enqueue(new Uint8Array([2])), c.close()) })
+  const steadyReader = idleLimited(steady, 50).getReader()
+  assert.deepEqual((await steadyReader.read()).value, new Uint8Array([1]))
+  await new Promise((resolve) => setTimeout(resolve, 150))
+  assert.deepEqual((await steadyReader.read()).value, new Uint8Array([2]), 'a pause on the reading side is not a stall')
+  const credentials = { region: 'auto', accessKeyId: 'check', secretAccessKey: 'check', endpoint: 'http://127.0.0.1:9' }
+  assert.equal(s3Client({ ...credentials, forcePathStyle: false }).config.forcePathStyle, false, 'S3_FORCE_PATH_STYLE=false reaches the client')
+  assert.equal(s3Client({ ...credentials, forcePathStyle: true }).config.forcePathStyle, true)
+  console.log('  ok  images stream with their size; a silent S3 endpoint, or a body that stalls after its headers, ends in an error in time; path style is honoured')
+
+  // 11. The image route (CR-17, SEC-05): streamed with an ETag and nosniff,
+  //     a 304 for a browser that already has it, a Content-Type only from the
+  //     allow-list, and a 404 for anything that isn't a stored image.
+  const imageRoute = await import('../app/api/image/[id]/route')
+  const get = (id: string, headers: Record<string, string> = {}) =>
+    imageRoute.GET(new Request(`http://desk.test/api/image/${encodeURIComponent(id)}`, { headers }), { params: Promise.resolve({ id }) })
+  const served = await get(streamedId)
+  assert.equal(served.status, 200)
+  assert.equal(served.headers.get('content-type'), 'image/png')
+  assert.equal(served.headers.get('content-length'), String(pngBytes.length))
+  assert.equal(served.headers.get('x-content-type-options'), 'nosniff')
+  assert.match(served.headers.get('cache-control') ?? '', /^private\b/)
+  const etag = served.headers.get('etag')
+  assert.ok(etag, 'an ETag')
+  assert.ok(Buffer.from(await served.arrayBuffer()).equals(pngBytes), 'the stored bytes')
+  const again = await get(streamedId, { 'if-none-match': etag })
+  assert.equal(again.status, 304, 'If-None-Match: a 304, no body')
+  assert.equal(await again.text(), '')
+  assert.equal((await get(streamedId, { 'if-none-match': `W/${etag}, "other"` })).status, 304, 'a weak or listed tag matches too')
+  assert.equal((await get(streamedId, { 'if-none-match': '"something-else"' })).status, 200)
+  for (const bad of ['../chapter.json', 'panel-x.gif', 'panel-x.svg', 'panel-x.html', `panel-${crypto.randomUUID()}.png`]) {
+    const res = await get(bad)
+    assert.equal(res.status, 404, `${bad} is a 404`)
+    assert.equal(res.headers.get('x-content-type-options'), 'nosniff')
+    assert.equal(res.headers.get('cache-control'), 'no-store', `${bad}: a 404 is never cached, so the image shows once it exists`)
+  }
+  assert.match(again.headers.get('cache-control') ?? '', /immutable/, 'the 304 keeps the long cache')
+  console.log('  ok  the image route streams with an ETag, answers If-None-Match with 304, serves png/jpeg/webp only, nosniff, private; a 404 is no-store')
+
+  const mongoUrlSet = Boolean(process.env.MONGODB_URI?.trim() || process.env.DB_URL?.trim())
+  if (!mongoUrlSet) {
+    console.log('  --  the cloud half against a real MongoDB and bucket was skipped: neither MONGODB_URI nor DB_URL is set')
+  } else if (process.env.INKDESK_CHECK_CLOUD !== 'yes') {
+    console.log('  --  the cloud half was skipped: a Mongo URL is set, but this check writes, so it runs only with INKDESK_CHECK_CLOUD=yes')
   } else {
     await cloudHalf()
   }
@@ -269,32 +436,39 @@ try {
 
 /**
  * The same store rules against a real MongoDB and S3-compatible bucket, on a
- * scratch database. Only reached when `MONGODB_URI` is set.
+ * scratch database. Only reached when a Mongo URL is set and
+ * `INKDESK_CHECK_CLOUD=yes`. Each setting is changed under whichever name is
+ * in effect — `DB_URL` when `MONGODB_URI` is blank — so the mapping is what
+ * the store reads, start to finish.
  */
 async function cloudHalf(): Promise<void> {
   const missing = (await import('../lib/store/env')).missingCloudEnv()
-  assert.deepEqual(missing, [], `the cloud half needs every cloud variable; missing: ${missing.join(', ')}`)
-  const realDb = process.env.MONGODB_DB as string
-  const scratchDb = `${realDb}-check-${crypto.randomUUID().slice(0, 8)}`
+  assert.deepEqual(missing, [], `the cloud half needs every cloud setting; missing: ${missing.join(', ')}`)
+  const { NAMES, cloudSettings } = await import('../lib/config')
+  const inEffect = (names: readonly string[]) => names.find((name) => process.env[name]?.trim()) as string
+  const URL_VAR = inEffect(NAMES.mongoUrl)
+  const DB_VAR = inEffect(NAMES.mongoDb)
+  const BUCKET_VAR = inEffect(NAMES.projectFilesBucket)
+  const settings = cloudSettings()
+  const realDb = process.env[DB_VAR] as string
+  const scratchDb = `${settings.mongoDb}-check-${crypto.randomUUID().slice(0, 8)}`
   const movedDb = `${scratchDb}-moved`
-  process.env.MONGODB_DB = scratchDb // read when the store connects, below
-  const { BUCKET_PROBE_KEY, cloudStore: cs, closeCloud, isMissingObject, isRefusal, mongoHost } = await import('../lib/store/cloud')
-  // Said before the first write, because the shell's S3_* win over .env.
-  console.log(`  ..  cloud half: scratch database “${scratchDb}” on ${mongoHost(process.env.MONGODB_URI as string)}; bucket “${process.env.S3_BUCKET}” at ${process.env.S3_ENDPOINT}`)
+  process.env[DB_VAR] = scratchDb // read when the store connects, below
+  const { BUCKET_PROBE_KEY, SUMMARY_PROJECTION, cloudBuckets, cloudStore: cs, closeCloud, isMissingObject, isRefusal, mongoHost, s3Client } = await import('../lib/store/cloud')
+  // Said before the first write, because the shell's variables win over .env.
+  console.log(
+    `  ..  cloud half (${URL_VAR}, ${DB_VAR}, ${BUCKET_VAR}): scratch database “${scratchDb}” on ${mongoHost(settings.mongoUrl)}; bucket “${settings.projectFilesBucket}”, outputs “${settings.outputsBucket}” at ${settings.endpoint}`
+  )
   const { Refused, ProviderError } = await import('../lib/errors')
   const { singletons } = await import('../lib/singleton')
   const { MongoClient, MongoServerError } = await import('mongodb')
   const net = await import('node:net')
-  const { S3Client, GetObjectCommand, DeleteObjectCommand } = await import('@aws-sdk/client-s3')
+  const { GetObjectCommand, DeleteObjectCommand, HeadObjectCommand } = await import('@aws-sdk/client-s3')
   const { migrateV1 } = await import('../lib/migrate')
-  const mongo = new MongoClient(process.env.MONGODB_URI as string)
-  const s3 = new S3Client({
-    endpoint: process.env.S3_ENDPOINT,
-    region: process.env.S3_REGION,
-    forcePathStyle: true,
-    credentials: { accessKeyId: process.env.S3_ACCESS_KEY_ID as string, secretAccessKey: process.env.S3_SECRET_ACCESS_KEY as string },
-  })
-  const bucket = process.env.S3_BUCKET as string
+  const { summarize, UNREADABLE_PROJECT } = await import('../lib/store/local')
+  const mongo = new MongoClient(settings.mongoUrl)
+  const s3 = s3Client(settings)
+  const bucket = settings.projectFilesBucket
   const written: string[] = []
   try {
     const db = mongo.db(scratchDb)
@@ -358,24 +532,47 @@ async function cloudHalf(): Promise<void> {
     assert.equal((await cs.updateProject('cloud-a', (p) => ({ ...p, station: 'reader' }))).station, 'reader')
     console.log('  ok  cloud: a failed update neither wedges the chain nor writes')
 
-    // c5. The listing: summaries newest first; an unreadable document is
-    //     skipped, not fatal; the v1 file is never migrated into the cloud.
+    // c5. The listing: summaries newest first; an unreadable document is a
+    //     "can't be read" card, not fatal, never hidden, and named; opening it
+    //     is the calm 500 (CR-14); the v1 file is never migrated into the cloud.
     await db.collection<{ _id: string; rev: number; project: unknown }>('projects').insertOne({ _id: 'zzz-broken', rev: 0, project: { version: 1 } })
+    await db.collection<{ _id: string; rev: number; project: unknown }>('projects').insertOne({ _id: 'zzz-shapeless', rev: 0, project: { version: 2, updatedAt: '2000-01-01' } })
     const quiet = console.warn
-    console.warn = () => {}
+    const warned: string[] = []
+    console.warn = (...args: unknown[]) => void warned.push(args.map(String).join(' '))
     let listed
     try {
       listed = await cs.listProjects()
+      for (const id of ['zzz-broken', 'zzz-shapeless']) {
+        await assert.rejects(cs.readProject(id), (err: unknown) => err instanceof Refused && err.status === 500 && err.message === UNREADABLE_PROJECT, `${id} opens as the calm 500`)
+      }
     } finally {
       console.warn = quiet
     }
-    assert.deepEqual(listed.map((p) => p.id), ['cloud-a', 'cloud-b'])
+    assert.deepEqual(listed.map((p) => p.id), ['cloud-a', 'cloud-b', 'zzz-shapeless', 'zzz-broken'])
+    assert.deepEqual(listed.map((p) => p.unreadable ?? false), [false, false, true, true], 'the broken documents are “can’t be read” cards')
+    assert.equal(listed[2].updatedAt, '2000-01-01', 'dated by the document where it can be')
+    assert.ok(['zzz-broken', 'zzz-shapeless'].every((id) => warned.some((line) => line.includes(id))), 'each broken document is named in the terminal')
     assert.equal(listed[0].thumbnailImageId, 'panel-0-v1.png')
     assert.deepEqual(await cs.migrateLegacy(), { projectId: null, problem: null })
-    console.log('  ok  cloud: listing newest first, a broken document skipped, no v1 migration into the cloud')
+    console.log('  ok  cloud: listing newest first, a broken document a named “can’t be read” card, opening it a calm 500; no v1 migration into the cloud')
+
+    // c5b. The listing reads summaries by projection (CR-12, SEC-12): what it
+    //      returns is exactly what the whole document summarizes to, and what
+    //      it pulls from MongoDB carries no story, plan or dialogue.
+    assert.deepEqual(listed[0], summarize(await cs.readProject('cloud-a')), 'the projected summary is the full summary')
+    assert.deepEqual(listed[1], summarize(await cs.readProject('cloud-b')))
+    const projected = await db.collection('projects').findOne({ _id: 'cloud-a' as never }, { projection: SUMMARY_PROJECTION })
+    const kept = Object.keys(projected?.project ?? {}).sort()
+    assert.deepEqual(kept, ['chapters', 'createdAt', 'id', 'library', 'station', 'stylePresetId', 'title', 'updatedAt', 'usage', 'version'], 'only the summary’s fields')
+    const projectedPanel = projected?.project.chapters[0].pages[0].panels[0]
+    assert.deepEqual(Object.keys(projectedPanel).sort(), ['currentVersion', 'versions'], 'no dialogue, action or bubble')
+    assert.deepEqual(Object.keys(projected?.project.library).sort(), ['characters'], 'no assets')
+    console.log('  ok  cloud: the dashboard reads summaries by projection — same summary, no story, plan or dialogue pulled')
 
     // c6. Blobs: the bytes and the media type come back exactly; unknown and
     //     unsafe ids are null; an unknown format is refused before upload.
+    //     They land in the project-files bucket, never in the outputs bucket.
     const png = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex')
     const id = await cs.putBlob(png, 'image/png', 'panel')
     written.push(id)
@@ -383,15 +580,36 @@ async function cloudHalf(): Promise<void> {
     const blob = await cs.getBlob(id)
     assert.ok(blob && blob.bytes.equals(png), 'identical bytes')
     assert.equal(blob?.mediaType, 'image/png')
-    const object = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: id }))
+    const object = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: settings.keyPrefix + id }))
+    await object.Body?.transformToByteArray()
     assert.equal(object.ContentType, 'image/png', 'the bucket knows the media type too')
+    // Under the key prefix (SEC-13), never at the root of a bucket that may be shared.
+    const atRoot = await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: id })).then(() => 'found', (err: { name?: string }) => err.name)
+    assert.equal(atRoot, 'NotFound', `the image is under ${settings.keyPrefix}, not at the bucket’s root`)
+    await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: settings.keyPrefix + BUCKET_PROBE_KEY }))
     const jpg = await cs.putBlob(Buffer.from('ffd8ffe0', 'hex'), 'image/jpeg', 'asset')
     written.push(jpg)
     assert.equal((await cs.getBlob(jpg))?.mediaType, 'image/jpeg')
     assert.equal(await cs.getBlob(`panel-${crypto.randomUUID()}.png`), null, 'a missing object is null')
     assert.equal(await cs.getBlob('../chapter.json'), null, 'an unsafe id never reaches the bucket')
     await assert.rejects(cs.putBlob(png, 'image/gif', 'panel'), (err: unknown) => err instanceof ProviderError)
-    console.log('  ok  cloud: blobs round-trip with their media type; missing and unsafe ids are null')
+    const stream = await cs.openBlob(id)
+    assert.ok(stream, 'an image opens as a stream from the bucket (CR-17)')
+    assert.equal(stream.bytes, png.length)
+    assert.equal(stream.mediaType, 'image/png')
+    assert.ok(Buffer.from(await new Response(stream.body).arrayBuffer()).equals(png), 'streamed bytes are the stored bytes')
+    assert.equal(await cs.openBlob(`panel-${crypto.randomUUID()}.png`), null, 'a missing object streams as null')
+    assert.deepEqual(
+      await cloudBuckets(),
+      { projectFiles: settings.projectFilesBucket, outputs: settings.outputsBucket, prefix: settings.keyPrefix },
+      'both buckets and the prefix, as mapped'
+    )
+    if (settings.outputsBucket !== settings.projectFilesBucket) {
+      const head = await s3.send(new HeadObjectCommand({ Bucket: settings.outputsBucket, Key: settings.keyPrefix + id })).then(() => 'found', (err: { name?: string }) => err.name)
+      assert.equal(head, 'NotFound', 'nothing is written to the outputs bucket yet')
+    }
+    assert.deepEqual(await cs.health(2000), { mongo: 'ok', bucket: 'ok' }, 'healthy, each check inside two seconds')
+    console.log('  ok  cloud: blobs round-trip and stream from the project-files bucket; the outputs bucket is untouched; health is ok')
 
     // c7. Bad settings are the one config sentence each, before anything is
     //     paid for: an unreachable or malformed MongoDB URI, a bucket that
@@ -399,26 +617,25 @@ async function cloudHalf(): Promise<void> {
     //     error on read is an error, never "no such image".
     const isConfig = (pattern: RegExp) => (err: unknown) =>
       err instanceof ProviderError && err.kind === 'config' && pattern.test(err.message) && !err.message.includes('mongodb://')
-    const good = { uri: process.env.MONGODB_URI, bucket: process.env.S3_BUCKET }
+    const good = { uri: process.env[URL_VAR], bucket: process.env[BUCKET_VAR] }
     try {
-      process.env.MONGODB_URI = 'mongodb://127.0.0.1:1/?serverSelectionTimeoutMS=500&connectTimeoutMS=500'
-      await assert.rejects(cs.listProjects(), isConfig(/MONGODB_URI/), 'unreachable')
-      process.env.MONGODB_URI = 'mongodb://user:p@ss@host/'
+      process.env[URL_VAR] = 'mongodb://127.0.0.1:1/?serverSelectionTimeoutMS=500&connectTimeoutMS=500'
+      await assert.rejects(cs.listProjects(), isConfig(/MONGODB_URI \(or DB_URL\)/), 'unreachable')
+      assert.deepEqual(await cs.health(2000), { mongo: 'down', bucket: 'down' }, 'health says down, and why only in the terminal')
+      process.env[URL_VAR] = 'mongodb://user:p@ss@host/'
       await assert.rejects(cs.readProject('cloud-a'), isConfig(/MONGODB_URI/), 'malformed — the constructor throws')
-      process.env.MONGODB_URI = good.uri
-      process.env.S3_BUCKET = `inkdesk-no-such-bucket-${crypto.randomUUID().slice(0, 8)}`
+      process.env[URL_VAR] = 'postgres://somewhere/'
+      await assert.rejects(cs.readProject('cloud-a'), isConfig(/MONGODB_URI \(or DB_URL\) must be a MongoDB connection string/), 'not a MongoDB address at all — refused by name before connecting')
+      process.env[URL_VAR] = good.uri
+      process.env[BUCKET_VAR] = `inkdesk-no-such-bucket-${crypto.randomUUID().slice(0, 8)}`
       await assert.rejects(cs.listProjects(), isConfig(/S3_BUCKET/), 'a missing bucket is refused at connect, not after a paid image')
+      assert.deepEqual(await cs.health(2000), { mongo: 'ok', bucket: 'down' }, 'health tells the bucket from the database')
     } finally {
-      process.env.MONGODB_URI = good.uri
-      process.env.S3_BUCKET = good.bucket
+      process.env[URL_VAR] = good.uri
+      process.env[BUCKET_VAR] = good.bucket
     }
     assert.equal((await cs.readProject('cloud-a')).title, 'for A', 'good settings again: the store reconnects')
-    const elsewhere = new S3Client({
-      endpoint: process.env.S3_ENDPOINT,
-      region: process.env.S3_REGION,
-      forcePathStyle: true,
-      credentials: { accessKeyId: process.env.S3_ACCESS_KEY_ID as string, secretAccessKey: process.env.S3_SECRET_ACCESS_KEY as string },
-    })
+    const elsewhere = s3Client(settings)
     // The classifier getBlob uses, held to real errors from this bucket: a
     // missing key is "no such image", a missing bucket is not.
     const errorOf = (p: Promise<unknown>) => p.then(() => assert.fail('expected the bucket to refuse'), (err: unknown) => err)
@@ -435,15 +652,15 @@ async function cloudHalf(): Promise<void> {
     assert.equal(isRefusal(new MongoServerError({ code: 11000, errmsg: 'duplicate key' })), false)
     assert.equal(mongoHost('mongodb+srv://alice:pa/ss@cluster0.x.mongodb.net/?retryWrites=true'), 'cluster0.x.mongodb.net', 'no part of a password is printed')
     assert.equal(await cs.getBlob(BUCKET_PROBE_KEY), null, 'the connect probe is never an image')
-    console.log('  ok  cloud: unreachable or malformed MONGODB_URI and a missing bucket are calm config sentences, before any spend')
+    console.log('  ok  cloud: unreachable, malformed or non-Mongo URLs and a missing bucket are calm config sentences naming both names, before any spend')
 
     // c8. Settings edited under a running server (.env reloaded): the next
     //     call goes to the new database, never on to the old one.
-    process.env.MONGODB_DB = movedDb
+    process.env[DB_VAR] = movedDb
     try {
       await assert.rejects(cs.readProject('cloud-a'), (err: unknown) => err instanceof Refused && err.status === 404, 'the moved database has no projects')
     } finally {
-      process.env.MONGODB_DB = scratchDb
+      process.env[DB_VAR] = scratchDb
     }
     assert.equal((await cs.readProject('cloud-a')).title, 'for A')
     console.log('  ok  cloud: changed settings reconnect instead of writing on to the old database')
@@ -451,8 +668,11 @@ async function cloudHalf(): Promise<void> {
     // c9. A connection lost after a good start — Atlas down, this machine
     //     dropped from the allowlist — is the same calm sentence, on a read
     //     and on an update. A proxy in front of MongoDB, cut after one read.
-    const target = new URL((process.env.MONGODB_URI as string).replace(/^mongodb(\+srv)?:/, 'http:'))
+    //     Then a connection that stays open and goes silent (CR-6): the
+    //     socket timeout ends the call in the same sentence, never a hang.
+    const target = new URL(settings.mongoUrl.replace(/^mongodb(\+srv)?:/, 'http:'))
     const sockets = new Set<import('node:net').Socket>()
+    let silent = false
     const proxy = net.createServer((client) => {
       const upstream = net.connect(Number(target.port || 27017), target.hostname)
       for (const sock of [client, upstream]) {
@@ -460,18 +680,27 @@ async function cloudHalf(): Promise<void> {
         sock.on('error', () => {})
         sock.on('close', () => sockets.delete(sock))
       }
-      client.pipe(upstream).pipe(client)
+      client.on('data', (chunk) => void (silent || upstream.write(chunk)))
+      upstream.on('data', (chunk) => void (silent || client.write(chunk)))
     })
     await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve))
     const port = (proxy.address() as import('node:net').AddressInfo).port
-    const viaProxy = !target.username && !(process.env.MONGODB_URI as string).startsWith('mongodb+srv:')
+    const viaProxy = !target.username && !settings.mongoUrl.startsWith('mongodb+srv:')
     if (!viaProxy) {
       proxy.close()
-      console.log('  --  cloud: the lost-connection case was skipped — it needs a plain mongodb:// URI without credentials')
+      console.log('  --  cloud: the lost-connection cases were skipped — they need a plain mongodb:// URL without credentials')
     } else {
-      process.env.MONGODB_URI = `mongodb://127.0.0.1:${port}/?directConnection=true&serverSelectionTimeoutMS=500&connectTimeoutMS=500`
       try {
+        process.env[URL_VAR] = `mongodb://127.0.0.1:${port}/?directConnection=true&serverSelectionTimeoutMS=500&connectTimeoutMS=500&socketTimeoutMS=500`
         assert.equal((await cs.readProject('cloud-a')).title, 'for A', 'through the proxy')
+        silent = true
+        const began = Date.now()
+        await assert.rejects(cs.readProject('cloud-a'), isConfig(/MONGODB_URI/), 'a read on a silent connection')
+        await assert.rejects(cs.updateProject('cloud-a', (p) => p), isConfig(/MONGODB_URI/), 'an update on a silent connection')
+        assert.ok(Date.now() - began < 10_000, `both ended in time (${Date.now() - began} ms)`)
+        silent = false
+        process.env[URL_VAR] = `mongodb://127.0.0.1:${port}/?directConnection=true&serverSelectionTimeoutMS=500&connectTimeoutMS=500`
+        assert.equal((await cs.readProject('cloud-a')).title, 'for A', 'through the proxy again')
         await new Promise<void>((resolve) => {
           proxy.close(() => resolve())
           for (const sock of sockets) sock.destroy()
@@ -479,20 +708,22 @@ async function cloudHalf(): Promise<void> {
         await assert.rejects(cs.readProject('cloud-a'), isConfig(/MONGODB_URI/), 'a read after the connection is lost')
         await assert.rejects(cs.updateProject('cloud-a', (p) => p), isConfig(/MONGODB_URI/), 'an update after the connection is lost')
       } finally {
-        process.env.MONGODB_URI = good.uri
+        process.env[URL_VAR] = good.uri
+        proxy.close()
+        for (const sock of sockets) sock.destroy()
       }
       assert.equal((await cs.readProject('cloud-a')).title, 'for A', 'back on the real address')
-      console.log('  ok  cloud: a connection lost after a good start is the calm sentence on reads and updates')
+      console.log('  ok  cloud: a connection lost, or gone silent, after a good start is the calm sentence on reads and updates — in time')
     }
   } finally {
     await closeCloud()
     const left: string[] = []
     for (const name of [scratchDb, movedDb]) await mongo.db(name).dropDatabase().catch(() => left.push(`database ${name}`))
     await mongo.close()
-    for (const key of written) await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: key })).catch(() => left.push(`object ${key}`))
+    for (const key of written.map((id) => settings.keyPrefix + id)) await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: key })).catch(() => left.push(`object ${key}`))
     s3.destroy()
     // Never silent: what couldn't be cleaned up is named, to delete by hand.
     if (left.length > 0) console.warn(`  !!  cloud half left behind (delete by hand): ${left.join(', ')}`)
-    process.env.MONGODB_DB = realDb
+    process.env[DB_VAR] = realDb
   }
 }

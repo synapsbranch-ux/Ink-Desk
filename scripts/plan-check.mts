@@ -16,6 +16,7 @@
 // keeps PANEL_CONCURRENCY across pages, and queue keys carry project, chapter
 // and page. A page's failure never touches another. The cover carries the
 // lead's sheet as its one reference, at 2:3, and never its title.
+import './server-only.mts' // first: lets server modules load outside Next (SEC-15)
 import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -49,7 +50,7 @@ const { SCENARIO_WHOLE_CHARS, SAMPLE_SCENARIO, storyBrief, storyReady } = await 
 const { STYLE_PRESETS } = await import('../lib/styles')
 const { Refused } = await import('../lib/errors')
 const { fitsVision, UPLOAD_LIMIT_BYTES } = await import('../lib/assets')
-const { updateCharging } = await import('../lib/images')
+const { readImage, updateCharging } = await import('../lib/images')
 const route = await import('../app/api/projects/[id]/route')
 
 import type { Desk, Project } from '../lib/types'
@@ -281,7 +282,8 @@ try {
     assert.ok(prompt.includes(STYLE_PRESETS['manhwa-colour'].label), 'the project’s style')
     assert.ok(prompt.includes('“Archive interior”'), 'the ticked reference is named')
     assert.equal(picturesIn(call[0]).length, 1, 'and travels as a picture')
-    assert.ok(picturesIn(call[0])[0].endsWith(mioSheet.toString('base64')), 'the reference’s own bytes')
+    // Uploads are re-encoded when stored (SEC-05): the call carries the stored copy.
+    assert.ok(picturesIn(call[0])[0].endsWith((await readImage(ref.asset.blobId))!.toString('base64')), 'the reference’s stored bytes')
     assert.equal(call[0].response_format.json_schema.name, 'plan')
 
     assert.ok(desk.plan, 'the plan is on the desk')

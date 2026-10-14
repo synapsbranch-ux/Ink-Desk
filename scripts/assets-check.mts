@@ -11,10 +11,18 @@
 // exact bytes. A locked imported card refuses everything. And the kernel
 // holds for an imported character: their panel's single reference is the
 // uploaded bytes. Nothing leaves this machine.
+//
+// Since v3 (slice 16, SEC-05) what is stored is the picture drawn again, not
+// the bytes as sent: GPS and every other tag are gone, a payload appended
+// after the image is gone, and a file that only claims to be a picture is
+// refused. SEC-11 and SEC-09 are checked here too: what the browser is told
+// when something fails, and the headers every response carries.
+import './server-only.mts' // first: lets server modules load outside Next (SEC-15)
 import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import sharp, { type Sharp } from 'sharp'
 
 const dir = await mkdtemp(join(tmpdir(), 'inkdesk-assets-'))
 process.env.INKDESK_DATA_DIR = dir
@@ -25,14 +33,17 @@ process.env.LLM_FALLBACK = 'always' // the text call goes through fetch, so it c
 
 // Imported after the env is set, because the store reads it at load.
 const { createProject, listProjects, read: readDesk, update: updateDesk } = await import('../lib/chapter')
-const { addAsset, assetName, checkUpload, findAsset, MAX_ASSETS, sniffImage, UPLOAD_LIMIT_BYTES } = await import('../lib/assets')
-const { readImage, saveAsset, saveImage } = await import('../lib/images')
+const { addAsset, assetName, checkUpload, findAsset, MAX_ASSETS, MAX_UPLOAD_SIDE, NOT_A_PICTURE, sniffImage, TOO_MANY_PIXELS, UPLOAD_LIMIT_BYTES } =
+  await import('../lib/assets')
+const { cleanUpload, readImage, saveAsset, saveImage } = await import('../lib/images')
 const { assertEditAllowed, attachSheet, importSheet, proposeCast, setDna } = await import('../lib/cast')
 const { applyPatch } = await import('../lib/patch')
 const { writeDnaFromPicture } = await import('../lib/claude')
 const { newScript, lockedPair } = await import('../lib/script')
 const { inkPanel } = await import('../lib/panels')
-const { Refused } = await import('../lib/errors')
+const { configSentence, errorResponse, ProviderError, Refused, UNAVAILABLE } = await import('../lib/errors')
+const { POST: uploadRoute } = await import('../app/api/projects/[id]/assets/route')
+const nextConfig = (await import('../next.config')).default
 
 import type { Chapter } from '../lib/types'
 
@@ -96,8 +107,12 @@ try {
   assert.equal(shelved.assets.length, 1)
   assert.ok(asset.id.startsWith('asset-') && asset.id.endsWith('.png'), asset.id)
   assert.equal(asset.blobId, asset.id)
-  assert.equal(asset.bytes, png.length)
-  assert.ok((await readImage(asset.blobId))?.equals(png), 'the stored bytes are the uploaded bytes')
+  const stored = (await readImage(asset.blobId))!
+  assert.ok(stored, 'the upload is stored')
+  assert.equal(asset.bytes, stored.length, 'the shelf records the stored size')
+  assert.equal(sniffImage(stored), 'image/png', 'a PNG is kept as a PNG')
+  const [inMeta, outMeta] = await Promise.all([sharp(png).metadata(), sharp(stored).metadata()])
+  assert.deepEqual([outMeta.width, outMeta.height], [inMeta.width, inMeta.height], 'the same picture, drawn again')
   assert.equal(shelved.imageCount, before.imageCount, 'an upload never counts as a generated image')
   assert.equal(shelved.costUsd, before.costUsd, 'and never costs anything')
   assert.deepEqual(findAsset(shelved, asset.id), asset)
@@ -121,12 +136,12 @@ try {
   console.log('  ok  importing makes the picture the sheet and retires the DNA; Lock waits for words')
 
   // 4. The DNA is written FROM the picture: the text model receives its exact bytes.
-  const dna = await writeDnaFromPicture(card, desk.synopsis!, { bytes: png, mediaType: 'image/png' })
+  const dna = await writeDnaFromPicture(card, desk.synopsis!, { bytes: stored, mediaType: 'image/png' })
   assert.equal(dna, PICTURE_DNA)
   const call = sent.find((s) => s.url.endsWith('/chat/completions'))!
   const content = (call.body.messages as { content: { type: string; image_url?: { url: string }; text?: string }[] }[])[0].content
   assert.equal(content[0].type, 'image_url')
-  assert.equal(content[0].image_url?.url, `data:image/png;base64,${png.toString('base64')}`, 'the picture’s own bytes')
+  assert.equal(content[0].image_url?.url, `data:image/png;base64,${stored.toString('base64')}`, 'the stored picture’s bytes')
   assert.equal(content[1].type, 'text')
   assert.match(content[1].text ?? '', /the picture wins/)
   assert.match(content[1].text ?? '', /Aya Kuroda/)
@@ -157,7 +172,7 @@ try {
   const imageCall = sent.filter((s) => s.url.endsWith('/images')).at(-1)!
   const refs = imageCall.body.input_references as { image_url: { url: string } }[]
   assert.equal(refs.length, 1, 'exactly one reference')
-  assert.equal(refs[0].image_url.url, `data:image/png;base64,${png.toString('base64')}`, 'the uploaded picture is the reference')
+  assert.equal(refs[0].image_url.url, `data:image/png;base64,${stored.toString('base64')}`, 'the uploaded picture, as stored, is the reference')
   assert.ok(String(imageCall.body.prompt).includes(PICTURE_DNA), 'with the DNA written from it, verbatim')
   assert.match(String(imageCall.body.prompt), /Full-colour manhwa/, 'in the project’s locked style')
   assert.equal((await read()).script![0].status, 'done')
@@ -170,6 +185,121 @@ try {
     [['Aya Kuroda', true], ['Ren Mori', false]]
   )
   console.log('  ok  the desk’s library lists both locked characters, imported and drawn')
+
+  // 8. SEC-05: only pixels are kept. A photo's GPS and camera tags are gone,
+  //    and its orientation is baked in rather than lost with the tag.
+  const MARKER = 'INKDESK-GPS-MARKER'
+  const tagged = (img: Sharp) =>
+    img.withExif({ IFD0: { Make: 'CheckCam' }, IFD3: { GPSMapDatum: MARKER, GPSLatitudeRef: 'N', GPSLatitude: '35/1 41/1 0/1' } })
+  const photo = await tagged(sharp({ create: { width: 60, height: 30, channels: 3, background: '#b33' } }))
+    .withMetadata({ orientation: 6 })
+    .jpeg()
+    .toBuffer()
+  assert.ok(photo.includes(MARKER) && (await sharp(photo).metadata()).exif, 'the test photo carries GPS')
+  const shelf2 = await createProject({ title: 'Uploads check', stylePresetId: 'manga-bw' })
+  const pid2 = shelf2.address.projectId
+  const { asset: photoAsset } = await saveAsset(pid2, photo, checkUpload(photo, 0), 'Holiday photo')
+  const cleanPhoto = (await readImage(photoAsset.blobId))!
+  const cleanMeta = await sharp(cleanPhoto).metadata()
+  assert.equal(cleanMeta.format, 'jpeg', 'a JPEG is kept as a JPEG')
+  assert.ok(!cleanPhoto.includes(MARKER) && !cleanPhoto.includes('CheckCam'), 'no GPS, no camera')
+  assert.equal(cleanMeta.exif, undefined, 'no EXIF at all')
+  assert.equal(cleanMeta.xmp, undefined, 'no XMP')
+  assert.equal(cleanMeta.icc, undefined, 'no ICC profile')
+  assert.equal(cleanMeta.orientation, undefined, 'no orientation tag…')
+  assert.deepEqual([cleanMeta.width, cleanMeta.height], [30, 60], '…because the turn is in the pixels')
+  const webp = await tagged(sharp({ create: { width: 20, height: 20, channels: 3, background: '#3b3' } })).webp().toBuffer()
+  assert.ok(webp.includes(MARKER))
+  const cleanWebp = await cleanUpload(webp, 'image/webp')
+  assert.ok(!cleanWebp.includes(MARKER) && sniffImage(cleanWebp) === 'image/webp', 'a WebP keeps its format and loses its tags')
+  console.log('  ok  an upload’s EXIF — GPS, camera, orientation — is gone; the picture is turned the way it was shot')
+
+  // 9. A payload after the image's end is never stored.
+  const small = await sharp({ create: { width: 16, height: 16, channels: 4, background: '#0000' } }).png().toBuffer()
+  const payload = Buffer.from('PK\u0003\u0004<html><script>alert(1)</script></html>INKDESK-PAYLOAD')
+  const smuggled = Buffer.concat([small, payload])
+  assert.equal(checkUpload(smuggled, 0), 'image/png', 'the first bytes alone would have kept it')
+  const { asset: smuggledAsset } = await saveAsset(pid2, smuggled, 'image/png', 'Innocent.png')
+  const cleanSmuggled = (await readImage(smuggledAsset.blobId))!
+  assert.ok(!cleanSmuggled.includes('INKDESK-PAYLOAD') && !cleanSmuggled.includes('<script>'), 'the payload is gone')
+  assert.ok(cleanSmuggled.subarray(-8).equals(small.subarray(-8)), 'the stored file ends at its IEND')
+  console.log('  ok  bytes appended after a PNG’s IEND are not stored')
+
+  // 10. Something that only says it is a picture is refused, with the shelf's sentence.
+  const upload = async (bytes: Uint8Array, name: string) => {
+    const form = new FormData()
+    form.set('file', new File([new Uint8Array(bytes)], name, { type: 'image/png' }))
+    const res = await uploadRoute(new Request('http://check/api', { method: 'POST', body: form }), { params: Promise.resolve({ id: pid2 }) })
+    return { status: res.status, body: (await res.json()) as { error?: string; assets?: unknown[] } }
+  }
+  const html = new TextEncoder().encode('<!doctype html><html><script>alert(document.cookie)</script></html>')
+  assert.deepEqual(await upload(html, 'cute-cat.png'), { status: 415, body: { error: NOT_A_PICTURE } }, 'HTML named .png is refused')
+  const fakeJpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.from('<html><script>alert(1)</script></html>')])
+  assert.deepEqual(await upload(fakeJpeg, 'photo.jpg'), { status: 415, body: { error: NOT_A_PICTURE } }, 'a JPEG header on HTML is refused')
+  const wide = await sharp({ create: { width: MAX_UPLOAD_SIDE + 1, height: 8, channels: 3, background: '#fff' } }).png().toBuffer()
+  assert.deepEqual(await upload(wide, 'banner.png'), { status: 413, body: { error: TOO_MANY_PIXELS } }, 'a side over the limit is refused')
+  // A small file that inflates into a huge bitmap is refused before it is decoded.
+  const bomb = await sharp({ create: { width: 6000, height: 6000, channels: 3, background: '#fff' } }).png({ compressionLevel: 9 }).toBuffer()
+  assert.ok(bomb.length < 200_000, `the bomb is small on disk (${bomb.length} bytes)`)
+  await assert.rejects(cleanUpload(bomb, 'image/png'), (e: unknown) => e instanceof Refused && e.message === TOO_MANY_PIXELS)
+  const ok = await upload(smuggled, 'again.png')
+  assert.equal(ok.status, 200, 'and a real picture still goes through the route')
+  assert.equal((await readDesk(pid2)).assets.length, 3, 'nothing refused reached the shelf')
+  console.log('  ok  HTML named .png, a JPEG header on HTML, an oversized side and a pixel bomb are each refused calmly')
+
+  // 11. SEC-11: the browser gets a sentence, never the cause.
+  const quiet = console.error
+  const logged: string[] = []
+  console.error = (...args: unknown[]) => void logged.push(args.map(String).join(' '))
+  try {
+    const leak = new ProviderError('busy', 'provider', 'HTTP 500 {"error":"openai/gpt-image-2.5-sunburst on openrouter.ai: /srv/app/lib/x.ts:12"}')
+    const res = errorResponse(leak, 'check', 'The sheet didn’t come back.')
+    assert.deepEqual(await res.json(), { error: 'The sheet didn’t come back.' })
+    const ref = res.headers.get('X-Error-Ref')
+    assert.match(ref ?? '', /^[0-9a-f]{8}$/, 'the response carries a reference…')
+    assert.ok(logged.some((l) => l.includes(`ref ${ref}`) && l.includes('gpt-image')), '…and the terminal has the cause under it')
+    const crash = errorResponse(new Error('ENOENT: /home/user/Ink-Desk/data/x.json'), 'check', 'Calm.')
+    assert.deepEqual(await crash.json(), { error: 'Calm.' })
+    assert.equal(crash.status, 500)
+    const config = new ProviderError('Add OPENROUTER_API_KEY to .env and restart the dev server.', 'config')
+    assert.match(configSentence(config), /OPENROUTER_API_KEY/, 'a development desk names the fix')
+    const env = process.env as Record<string, string | undefined>
+    const nodeEnv = env.NODE_ENV
+    env.NODE_ENV = 'production'
+    try {
+      assert.equal(configSentence(config), UNAVAILABLE)
+      const body = JSON.stringify(await errorResponse(config, 'check', 'Calm.').json())
+      assert.ok(!body.includes('OPENROUTER') && body.includes(UNAVAILABLE), 'production names no variable')
+    } finally {
+      if (nodeEnv === undefined) delete env.NODE_ENV
+      else env.NODE_ENV = nodeEnv
+    }
+  } finally {
+    console.error = quiet
+  }
+  console.log('  ok  errors reach the browser as sentences with a reference; config sentences stay in the terminal in production')
+
+  // 12. SEC-09: the headers on every response, and no X-Powered-By.
+  assert.equal(nextConfig.poweredByHeader, false)
+  const rules = await nextConfig.headers!()
+  const all = rules.find((r) => r.source === '/:path*')
+  assert.ok(all, 'one rule covers every path, pages and API alike')
+  const h = Object.fromEntries(all.headers.map((x) => [x.key, x.value]))
+  const csp = Object.fromEntries(h['Content-Security-Policy'].split('; ').map((d) => [d.split(' ')[0], d.split(' ').slice(1).join(' ')]))
+  assert.equal(csp['default-src'], "'self'")
+  assert.ok(csp['script-src'].startsWith("'self' 'unsafe-inline'"), 'scripts from this origin only')
+  assert.ok(!/https?:|\*/.test(csp['script-src']), 'no other host may serve a script')
+  assert.equal(csp['frame-ancestors'], "'none'")
+  assert.equal(csp['object-src'], "'none'")
+  assert.equal(csp['base-uri'], "'self'")
+  assert.equal(csp['form-action'], "'self'")
+  assert.equal(csp['connect-src'], "'self'")
+  assert.equal(h['X-Content-Type-Options'], 'nosniff')
+  assert.equal(h['Referrer-Policy'], 'strict-origin-when-cross-origin')
+  assert.equal(h['X-Frame-Options'], 'DENY')
+  assert.equal(h['Permissions-Policy'], 'camera=(), microphone=(), geolocation=()')
+  assert.equal(h['Strict-Transport-Security'], undefined, 'no HSTS outside production (it would pin localhost)')
+  console.log('  ok  every response carries the CSP, nosniff, frame denial, referrer and permissions policies; no X-Powered-By')
 
   console.log('\n  Reference shelf and import check passed.\n')
 } finally {

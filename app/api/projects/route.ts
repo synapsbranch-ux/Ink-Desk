@@ -4,6 +4,7 @@
 // synopsis starts a new chapter" reads in v2: a new project, the old one
 // untouched. See `devpost/prd.md > Dashboard` and `> New Project and Style
 // Presets`.
+import { JSON_LIMIT_BYTES, parseJson } from '@/lib/body'
 import { createProject, listProjects } from '@/lib/chapter'
 import { errorResponse } from '@/lib/errors'
 import { NewProjectSchema } from '@/lib/schemas'
@@ -19,12 +20,9 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const parsed = NewProjectSchema.safeParse(await req.json().catch(() => null))
-  if (!parsed.success) {
-    return Response.json({ error: 'A new project needs a title and a style.' }, { status: 400 })
-  }
   try {
-    return Response.json(await createProject(parsed.data))
+    const input = await parseJson(req, NewProjectSchema, JSON_LIMIT_BYTES, 'A new project needs a title and a style.')
+    return Response.json(await createProject(input))
   } catch (err) {
     return errorResponse(err, 'projects', 'The desk couldn’t start the new project.')
   }

@@ -1,10 +1,12 @@
 // Reroll one character: a fresh proposal from Claude replaces exactly that
 // card, with the other character held fixed in the prompt and untouched on
 // the desk. Text only — the sheet and DNA start over.
+import { JSON_LIMIT_BYTES, parseJson } from '@/lib/body'
 import { assertUnlocked, findCharacter, replaceCharacter } from '@/lib/cast'
 import { read } from '@/lib/chapter'
 import { rewriteCharacter } from '@/lib/claude'
 import { errorResponse, Refused } from '@/lib/errors'
+import { assertGenerationEnabled } from '@/lib/generation'
 import { updateCharging } from '@/lib/images'
 import { textMeter } from '@/lib/llm'
 import { RerollRequestSchema } from '@/lib/schemas'
@@ -16,11 +18,9 @@ const CALM = 'The studio couldn’t reroll that character just now. Try again in
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id: projectId } = await params
-  const parsed = RerollRequestSchema.safeParse(await req.json().catch(() => null))
-  if (!parsed.success) return Response.json({ error: 'That request couldn’t be read.' }, { status: 400 })
-  const { id } = parsed.data
-
   try {
+    assertGenerationEnabled()
+    const { id } = await parseJson(req, RerollRequestSchema, JSON_LIMIT_BYTES, 'That request couldn’t be read.')
     const current = await read(projectId)
     const synopsis = storyBrief(current)
     if (!synopsis) throw new Refused(current.storyMode === 'scenario' ? 'Save the scenario first.' : 'Accept a synopsis first.')

@@ -1,8 +1,10 @@
 // The storage seam (v2). One interface, chosen by `INKDESK_STORAGE`:
 //   • `local` (default) — files under `data/`, the way v1 worked. A clone runs
 //     with nothing but the two API keys.
-//   • `cloud` — MongoDB for project state and an S3-compatible bucket for
-//     images (slice 13, `cloud.ts`). Loaded on first use, so a local desk
+//   • `cloud` — MongoDB for project state and two S3-compatible buckets
+//     (slice 13, `cloud.ts`; two buckets since v3): project files — images and
+//     uploads — and outputs. The learner's variable names are mapped in
+//     `lib/config.ts`. Loaded on first use, so a local desk
 //     never loads either driver. Started without its settings, every call is
 //     refused with the sentence naming the missing variables — never a quiet
 //     fall back to the local desk. `instrumentation.ts` refuses the same thing
@@ -11,12 +13,24 @@
 //
 // The mode is read once, at module load, like `INKDESK_DATA_DIR`: the checks
 // set the environment before their first dynamic import.
+//
+// Server only (SEC-15): importing this from a client component is a build
+// error. The checks run under tsx, where `scripts/server-only.mts` resolves the
+// package the way Next's server does.
+import 'server-only'
 import { ProviderError } from '../errors'
 import { missingCloudEnv, missingCloudSentence, storageMode } from './env'
 import { localStore } from './local'
 import type { Project, ProjectSummary } from '../types'
 
 export type BlobKind = 'sheet' | 'panel' | 'cover' | 'asset'
+
+/** One stored image, ready to stream: never held whole in memory (CR-17). */
+export type BlobStream = { body: ReadableStream<Uint8Array>; bytes: number | null; mediaType: string }
+
+/** What `/api/health` reports for each outside system: `n/a` where the mode doesn't use it. */
+export type Check = 'ok' | 'down' | 'n/a'
+export type StoreHealth = { mongo: Check; bucket: Check }
 
 export interface Store {
   /** Every project on the desk, newest first. Runs the one-time v1 migration. */
@@ -33,6 +47,10 @@ export interface Store {
   /** Store one image; returns its id, `<kind>-<uuid>.<ext>`, extension from the media type. */
   putBlob(bytes: Buffer, mediaType: string, kind: BlobKind): Promise<string>
   getBlob(id: string): Promise<{ bytes: Buffer; mediaType: string } | null>
+  /** The same image as a stream, for the image route; null if there is no such image. */
+  openBlob(id: string): Promise<BlobStream | null>
+  /** Is everything this mode needs reachable, each answer within `timeoutMs`? Never throws. */
+  health(timeoutMs: number): Promise<StoreHealth>
 }
 
 function refusing(sentence: string): Store {
@@ -45,6 +63,8 @@ function refusing(sentence: string): Store {
     updateProject: refuse,
     putBlob: refuse,
     getBlob: refuse,
+    openBlob: refuse,
+    health: async () => ({ mongo: 'down', bucket: 'down' }),
   }
 }
 
@@ -59,6 +79,8 @@ function lazyCloud(): Store {
     updateProject: async (id, fn) => (await load()).updateProject(id, fn),
     putBlob: async (bytes, mediaType, kind) => (await load()).putBlob(bytes, mediaType, kind),
     getBlob: async (id) => (await load()).getBlob(id),
+    openBlob: async (id) => (await load()).openBlob(id),
+    health: async (timeoutMs) => (await load()).health(timeoutMs),
   }
 }
 

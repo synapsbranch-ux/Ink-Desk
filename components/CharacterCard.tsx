@@ -9,6 +9,8 @@
 import { useState } from 'react'
 import { GenerationStatus } from '@/components/GenerationStatus'
 import type { CharacterEdit } from '@/lib/patch'
+// The edit schema's own ceilings, so a long field stops at the box rather than failing the whole save.
+import { LOOK_MAX_CHARS, NAME_MAX_CHARS, ROLE_MAX_CHARS, TRAIT_MAX_CHARS, TRAITS_MAX } from '@/lib/schemas'
 import { SHEET_FRESH_STAGES, SHEET_STAGES, textStages } from '@/lib/stages'
 import type { Asset, Character } from '@/lib/types'
 
@@ -134,6 +136,7 @@ export function CharacterCard({ index, character: c, state, onEdit, onCommit, on
               <input
                 className="cast-name"
                 value={c.name}
+                maxLength={NAME_MAX_CHARS}
                 onChange={(e) => onEdit(c.id, { name: e.target.value })}
                 aria-label="Name"
                 disabled={working}
@@ -141,6 +144,7 @@ export function CharacterCard({ index, character: c, state, onEdit, onCommit, on
               <input
                 className="cast-role"
                 value={c.role}
+                maxLength={ROLE_MAX_CHARS}
                 onChange={(e) => onEdit(c.id, { role: e.target.value })}
                 aria-label="Role"
                 placeholder="Their part in the story"
@@ -231,6 +235,7 @@ export function CharacterCard({ index, character: c, state, onEdit, onCommit, on
             className="input cast-look"
             rows={3}
             value={c.look}
+            maxLength={LOOK_MAX_CHARS}
             onChange={(e) => onEdit(c.id, { look: e.target.value })}
             aria-label="Look"
             disabled={working}
@@ -303,7 +308,9 @@ export function CharacterCard({ index, character: c, state, onEdit, onCommit, on
 /**
  * Traits as one comma-separated line, committed on blur or Enter rather than
  * per keystroke, so typing a comma doesn't save a half-written list. The
- * parent re-keys it when the traits change underneath (a reroll).
+ * parent re-keys it when the traits change underneath (a reroll). At most
+ * `TRAITS_MAX`, each cut to `TRAIT_MAX_CHARS`: the schema refuses more, and
+ * the field shows what was kept.
  */
 function TraitsField({
   initial,
@@ -318,8 +325,10 @@ function TraitsField({
   const commit = () => {
     const traits = draft
       .split(',')
-      .map((t) => t.trim())
+      .map((t) => t.trim().slice(0, TRAIT_MAX_CHARS).trim())
       .filter(Boolean)
+      .slice(0, TRAITS_MAX)
+    setDraft(traits.join(', '))
     if (traits.join('\u0000') !== initial.join('\u0000')) onCommit(traits)
   }
   return (
@@ -335,6 +344,7 @@ function TraitsField({
         }
       }}
       placeholder="three short traits, separated by commas"
+      title={`Up to ${TRAITS_MAX} traits`}
       aria-label="Traits"
       disabled={disabled}
     />

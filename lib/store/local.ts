@@ -2,6 +2,7 @@
 // store had, per project.
 //
 //   data/projects/<id>/project.json      one project, written whole
+//   data/projects/<id>/project.json.bak  the version before the last write
 //   data/projects/v1-migrated.json       the marker: the v1 desk was migrated once
 //   data/images/<kind>-<uuid>.<ext>      every image, sheets and panels alike
 //   data/chapter.json                    the v1 desk, read once, never modified
@@ -14,13 +15,27 @@
 //      read-modify-write never interleaves. Two projects never wait on each
 //      other; two panels of one page finishing together never erase each
 //      other.
+//
+// A project file that can't be read (CR-14) — a torn write, a crash before the
+// disk caught up — opens from its backup, with a warning. With no good backup
+// either, the dashboard shows it as a "can't be read" card, and opening it
+// answers one calm sentence with a way back — never a crash, never hidden, and
+// both files are left exactly as they are.
+
+// Server only (SEC-15): importing this from a client component is a build
+// error. The checks run under tsx, where `scripts/server-only.mts` resolves the
+// package the way Next's server does.
+import 'server-only'
+import { createReadStream } from 'node:fs'
 import { mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { Readable } from 'node:stream'
 import { ProviderError, Refused } from '../errors'
 import { isChapterV1, migrateV1 } from '../migrate'
 import { singletons } from '../singleton'
+import { DEFAULT_STYLE_PRESET_ID } from '../styles'
 import type { Project, ProjectSummary } from '../types'
-import type { BlobKind, Store } from './index'
+import type { BlobKind, BlobStream, Store, StoreHealth } from './index'
 
 // Overridable so the acceptance checks can run against a scratch folder.
 // Read at module load, like v1: set the env before the first import.
@@ -100,18 +115,94 @@ async function exists(path: string): Promise<boolean> {
 
 // --- Projects -----------------------------------------------------------------
 
-async function readProject(id: string): Promise<Project> {
-  const raw = await readJson(join(projectDir(id), 'project.json'))
-  if (raw === null) throw new Refused('There is no such project.', 404)
-  const project = raw as Project
-  if (project.version !== 2) {
-    throw new Error(`${join(projectDir(id), 'project.json')} is version ${String(project.version)}; this build reads version 2.`)
-  }
-  return project
+/** What opening a damaged project says, in both stores: the cause goes to the terminal. */
+export const UNREADABLE_PROJECT =
+  'This project couldn’t be read, so it can’t open. It has been left exactly as it is — go back to the desk to open another project.'
+
+/** Why a stored value can't be opened as a version-2 project, or null if it can. Shared with the cloud store. */
+export function projectProblem(raw: unknown): string | null {
+  const project = raw as Partial<Project> | null
+  if (typeof project !== 'object' || project === null) return 'not a project object'
+  if (project.version !== 2) return `version ${String(project.version)}; this build reads version 2`
+  if (!Array.isArray(project.chapters) || !Array.isArray(project.library?.characters)) return 'it is missing its chapters or its library'
+  return null
 }
 
-async function writeProject(project: Project): Promise<void> {
-  await writeAtomic(projectDir(project.id), 'project.json', project)
+/** A project that exists but can't be read: a 500 with the calm sentence, the cause logged by id. */
+export function unreadableProject(id: string, cause: string): Refused {
+  console.warn(`[store] projects/${id} couldn’t be read: ${cause}`)
+  return new Refused(UNREADABLE_PROJECT, 500)
+}
+
+/** The dashboard's card for a project that can't be read: its id and when it last changed. Shared with the cloud store. */
+export function unreadableSummary(id: string, updatedAt: string): ProjectSummary {
+  return {
+    id,
+    title: id,
+    stylePresetId: DEFAULT_STYLE_PRESET_ID,
+    station: 'story',
+    images: 0,
+    costUsd: 0,
+    pageCount: 0,
+    pagesInked: 0,
+    thumbnailImageId: null,
+    characters: [],
+    createdAt: updatedAt,
+    updatedAt,
+    unreadable: true,
+  }
+}
+
+const PROJECT_FILE = 'project.json'
+const BACKUP_FILE = 'project.json.bak'
+
+type Loaded = { project: Project } | { problem: string } | null
+
+/** One stored copy: the project, why it can't be opened, or null when the file isn't there. */
+async function readCopy(path: string): Promise<Loaded> {
+  let raw: unknown
+  try {
+    raw = await readJson(path)
+  } catch (err) {
+    if (err instanceof SyntaxError) return { problem: `not valid JSON (${err.message})` }
+    throw err
+  }
+  if (raw === null) return null
+  const problem = projectProblem(raw)
+  return problem ? { problem } : { project: raw as Project }
+}
+
+// Named once per project per process: the desk polls, and the terminal
+// shouldn't scroll with the same line until the next save heals the file.
+const openedFromBackup = new Set<string>()
+
+/** The project file, else the backup the last write kept (CR-14). */
+async function loadProject(id: string): Promise<Loaded> {
+  const dir = projectDir(id)
+  const main = await readCopy(join(dir, PROJECT_FILE))
+  if (main === null || 'project' in main) return main
+  const backup = await readCopy(join(dir, BACKUP_FILE))
+  if (backup === null || !('project' in backup)) return { problem: `${PROJECT_FILE}: ${main.problem}` }
+  if (!openedFromBackup.has(id)) {
+    openedFromBackup.add(id)
+    console.warn(`[store] projects/${id}/${PROJECT_FILE} couldn’t be read (${main.problem}); opened from ${BACKUP_FILE}, and the next save writes it again`)
+  }
+  return backup
+}
+
+async function readProject(id: string): Promise<Project> {
+  const loaded = await loadProject(id)
+  if (loaded === null) throw new Refused('There is no such project.', 404)
+  if ('problem' in loaded) throw unreadableProject(id, loaded.problem)
+  return loaded.project
+}
+
+/** Write `project`, keeping `previous` — read good just now — as the backup first. */
+async function writeProject(project: Project, previous?: Project): Promise<void> {
+  const dir = projectDir(project.id)
+  if (previous) await writeAtomic(dir, BACKUP_FILE, previous)
+  await writeAtomic(dir, PROJECT_FILE, project)
+  openedFromBackup.delete(project.id)
 }
 
 async function createProject(project: Project): Promise<void> {
@@ -138,7 +229,7 @@ function updateProject(id: string, fn: (project: Project) => Project): Promise<P
       serverRunId: singletons.serverRunId,
       updatedAt: new Date().toISOString(),
     }
-    await writeProject(next) // tmp + rename
+    await writeProject(next, current) // backup, then tmp + rename
     return next
   }
   const previous = singletons.locks.get(id) ?? Promise.resolve()
@@ -187,15 +278,14 @@ export async function migrateLegacy(): Promise<{ projectId: string | null; probl
   try {
     raw = await readJson(V1_FILE)
   } catch (err) {
-    const problem = `${V1_FILE} couldn’t be read as a desk (${err instanceof Error ? err.message : String(err)}). It was left as it is; fix or move it to migrate it.`
-    console.warn(`[store] ${problem}`)
-    return { projectId: null, problem }
+    // The dashboard shows the sentence; the path and the parser's words stay in the log (SEC-11).
+    console.warn(`[store] ${V1_FILE} couldn’t be read as a desk:`, err instanceof Error ? err.message : String(err))
+    return { projectId: null, problem: 'The old chapter.json couldn’t be read as a desk. It was left as it is; fix or move it to migrate it.' }
   }
   if (raw === null) return { projectId: null, problem: null }
   if (!isChapterV1(raw)) {
-    const problem = `${V1_FILE} is not a version-1 desk. It was left as it is, nothing migrated.`
-    console.warn(`[store] ${problem}`)
-    return { projectId: null, problem }
+    console.warn(`[store] ${V1_FILE} is not a version-1 desk; left as it is, nothing migrated.`)
+    return { projectId: null, problem: 'The old chapter.json is not a version-1 desk. It was left as it is, nothing migrated.' }
   }
   const ids = { projectId: `v1-${crypto.randomUUID().slice(0, 8)}`, chapterId: crypto.randomUUID() }
   const project = migrateV1(raw, ids, singletons.serverRunId, new Date().toISOString(), 'chapter.json')
@@ -217,16 +307,26 @@ async function listProjects(): Promise<ProjectSummary[]> {
   const summaries: ProjectSummary[] = []
   for (const id of entries) {
     if (!isProjectId(id)) continue // the marker file, a stray .tmp, anything else
-    let raw: unknown
+    // One unreadable project never takes the desk down with it, and is never
+    // hidden: it gets a "can't be read" card dated by its folder.
+    let loaded: Loaded
     try {
-      raw = await readJson(join(PROJECTS_DIR, id, 'project.json'))
+      loaded = await loadProject(id)
     } catch (err) {
-      // One unreadable project never takes the desk down with it.
-      console.warn(`[store] projects/${id}/project.json couldn’t be read; skipped:`, err instanceof Error ? err.message : err)
-      continue
+      loaded = { problem: err instanceof Error ? err.message : String(err) }
     }
-    if (raw === null || (raw as Project).version !== 2) continue
-    summaries.push(summarize(raw as Project))
+    if (loaded === null) continue // a folder without its file
+    if ('project' in loaded) {
+      try {
+        summaries.push(summarize(loaded.project))
+        continue
+      } catch (err) {
+        loaded = { problem: err instanceof Error ? err.message : String(err) }
+      }
+    }
+    console.warn(`[store] projects/${id} couldn’t be read; listed as unreadable: ${loaded.problem}`)
+    const changed = await stat(join(PROJECTS_DIR, id)).then((info) => info.mtime, () => new Date(0))
+    summaries.push(unreadableSummary(id, changed.toISOString()))
   }
   return summaries.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0))
 }
@@ -258,4 +358,22 @@ async function getBlob(id: string): Promise<{ bytes: Buffer; mediaType: string }
   }
 }
 
-export const localStore: Store = { listProjects, migrateLegacy, readProject, createProject, updateProject, putBlob, getBlob }
+/** The image as a stream from disk, with its size — never read whole (CR-17). */
+async function openBlob(id: string): Promise<BlobStream | null> {
+  if (!isImageId(id)) return null
+  try {
+    const { size } = await stat(imagePath(id))
+    const body = Readable.toWeb(createReadStream(imagePath(id))) as ReadableStream<Uint8Array>
+    return { body, bytes: size, mediaType: mediaTypeOf(id) }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw err
+  }
+}
+
+/** A local desk needs no database and no bucket. */
+async function health(): Promise<StoreHealth> {
+  return { mongo: 'n/a', bucket: 'n/a' }
+}
+
+export const localStore: Store = { listProjects, migrateLegacy, readProject, createProject, updateProject, putBlob, getBlob, openBlob, health }

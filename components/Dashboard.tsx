@@ -93,6 +93,25 @@ export function Dashboard({ projects, notice = null, panelQuality }: Props) {
             ) : (
               <ul className="project-grid" aria-label="Projects">
                 {projects.map((p) => {
+                  if (p.unreadable) {
+                    // Never hidden (CR-14): opening it says what happened and leads back here.
+                    return (
+                      <li key={p.id} className="project-card card">
+                        <Link href={`/p/${p.id}`} className="project-link" aria-label={`Project ${p.id} can’t be read`}>
+                          <div className="project-thumb is-pencil">
+                            <span className="project-thumb-label">Can’t be read</span>
+                          </div>
+                          <div className="project-body">
+                            <div className="project-title">This project can’t be read</div>
+                            <div className="project-meta">
+                              <span>It was left exactly as it is.</span>
+                              <span>{p.id}</span>
+                            </div>
+                          </div>
+                        </Link>
+                      </li>
+                    )
+                  }
                   const preset = stylePreset(p.stylePresetId)
                   return (
                     <li key={p.id} className="project-card card">

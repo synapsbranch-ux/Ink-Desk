@@ -11,6 +11,11 @@
 //
 //   LLM_FALLBACK        auto (default) · always (skip Claude) · never
 //   LLM_FALLBACK_MODEL  default openai/gpt-5.6-terra
+//
+// Server only (SEC-15): importing this from a client component is a build
+// error. The checks run under tsx, where `scripts/server-only.mts` resolves the
+// package the way Next's server does.
+import 'server-only'
 import Anthropic, { APIConnectionError, APIError } from '@anthropic-ai/sdk'
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod'
 import { z } from 'zod'

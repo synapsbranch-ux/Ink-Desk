@@ -6,6 +6,7 @@ import { proposeCast } from '@/lib/cast'
 import { read } from '@/lib/chapter'
 import { writeCast } from '@/lib/claude'
 import { errorResponse, Refused } from '@/lib/errors'
+import { assertGenerationEnabled } from '@/lib/generation'
 import { updateCharging } from '@/lib/images'
 import { textMeter } from '@/lib/llm'
 import { storyBrief } from '@/lib/story'
@@ -17,6 +18,7 @@ const CALM = 'The studio couldn’t propose a cast just now. Try again in a mome
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   try {
+    assertGenerationEnabled()
     // Checked before the call so a refused request costs nothing; the same
     // rules run again inside the lock, where they are authoritative.
     const current = await read(id)

@@ -6,6 +6,7 @@
 import { read } from '@/lib/chapter'
 import { isCoverQueued, queueCover } from '@/lib/director'
 import { errorResponse, Refused } from '@/lib/errors'
+import { assertGenerationEnabled } from '@/lib/generation'
 import { lockedPair } from '@/lib/script'
 
 export const runtime = 'nodejs'
@@ -15,6 +16,7 @@ const CALM = 'The cover couldn’t start inking just now. Try again in a moment.
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   try {
+    assertGenerationEnabled()
     // Checked before queuing so a refusal is a sentence, not a silent no-op;
     // `markCoverInking` runs the same rules inside the lock.
     const desk = await read(id)

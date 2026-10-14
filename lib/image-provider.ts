@@ -9,6 +9,12 @@
 //   • the reference travels as a base64 data URI inside the JSON body;
 //   • the response is `b64_json` plus a `media_type`, never a URL;
 //   • `usage.cost` is the real price of the call, logged every time.
+//
+// Server only (SEC-15): importing this from a client component is a build
+// error. The checks run under tsx, where `scripts/server-only.mts` resolves the
+// package the way Next's server does.
+import 'server-only'
+import { generationTimeoutMs } from './config'
 import { ProviderError } from './errors'
 
 const API = 'https://openrouter.ai/api/v1/images'
@@ -30,7 +36,9 @@ export type GeneratedImage = {
   ms: number
 }
 
-/** Read at call time, so a `.env` edit needs only a dev-server restart. */
+/** Read at call time, so a `.env` edit needs only a dev-server restart. The
+ *  timeout is validated (CR-15): a blank value is the default, a malformed
+ *  one a `ConfigError` naming it — never `NaN` handed to `AbortSignal`. */
 export function imageConfig() {
   return {
     model: process.env.IMAGE_MODEL ?? 'openai/gpt-image-2.5-sunburst',
@@ -41,7 +49,7 @@ export function imageConfig() {
     panelQuality: process.env.IMAGE_PANEL_QUALITY ?? 'low',
     /** The cover (slice 11): portrait, at the panel quality. */
     coverAspect: process.env.IMAGE_COVER_ASPECT ?? '2:3',
-    timeoutMs: Number(process.env.GENERATION_TIMEOUT_MS ?? 360000),
+    timeoutMs: generationTimeoutMs(),
   }
 }
 

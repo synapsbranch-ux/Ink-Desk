@@ -10,6 +10,7 @@
 // every edit on the server, not only in the UI; a changed look retires the
 // DNA. The two Claude calls and the OpenRouter call are exercised live
 // through the routes — this covers what sits between them.
+import './server-only.mts' // first: lets server modules load outside Next (SEC-15)
 import assert from 'node:assert/strict'
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -160,7 +161,7 @@ try {
   // 8. Nothing left behind but the projects and the images folder (v2 layout).
   const files = (await readdir(dir)).sort()
   assert.deepEqual(files, ['images', 'projects'], `unexpected files left behind: ${files.join(', ')}`)
-  assert.deepEqual(await readdir(join(dir, 'projects', pid)), ['project.json'], 'no stray temp file in the project')
+  assert.deepEqual((await readdir(join(dir, 'projects', pid))).sort(), ['project.json', 'project.json.bak'], 'the project and its backup, no stray temp file')
   console.log('  ok  only projects/ and images/ on disk, no temp file')
 
   console.log('\n  Cast station acceptance check passed.\n')

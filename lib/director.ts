@@ -9,6 +9,11 @@
 // the queue's key (project : chapter : page : panel) keeps two pages from
 // ever deduping against each other. The cover is one more queued job, keyed
 // project : chapter : cover.
+
+// Server only (SEC-15): importing this from a client component is a build
+// error. The checks run under tsx, where `scripts/server-only.mts` resolves the
+// package the way Next's server does.
+import 'server-only'
 import { read, update, updatePages } from './chapter'
 import { summarizeScenario, writeChapterPlan } from './claude'
 import { ProviderError, Refused } from './errors'

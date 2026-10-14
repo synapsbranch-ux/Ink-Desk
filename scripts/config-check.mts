@@ -1,0 +1,285 @@
+// Slice 16's configuration rules (`devpost/spec.md > Environment and
+// Configuration (v3)`, `> Config and Boot (v3)`), with `fetch` stubbed —
+// nothing outside this machine is called, and no database or bucket either:
+//
+//   npm run check:config
+//
+// The learner's variable names are mapped, never renamed: each fallback
+// (DB_URL, DB_DATABASE, S3_BUCKET, the outputs bucket, S3_PUBLIC_ENDPOINT,
+// S3_FORCE_PATH_STYLE) is taken only when the preferred name is unset or
+// blank. A missing or malformed setting is refused in one sentence that names
+// it by both its names — and never repeats a value, even a secret-looking one.
+// Numbers are validated (CR-15): blank is the default, anything else out of
+// range is refused by name. GENERATION_ENABLED is on in development and off in
+// production unless set. `instrumentation.ts` refuses to boot on a bad
+// setting; `/api/health` answers 200 or 503 in the same shape, with nothing
+// internal in it. `.env.example` documents every name, with no values.
+import './server-only.mts' // first: lets server modules load outside Next (SEC-15)
+import assert from 'node:assert/strict'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+const dir = await mkdtemp(join(tmpdir(), 'inkdesk-config-'))
+process.env.INKDESK_DATA_DIR = dir
+process.env.INKDESK_STORAGE = 'local' // this check never opens a database or a bucket
+for (const name of ['GENERATION_ENABLED', 'PANEL_CONCURRENCY', 'GENERATION_TIMEOUT_MS']) delete process.env[name]
+// Nothing here may reach the network; a call would fail the check loudly.
+globalThis.fetch = (async (input: unknown) => {
+  throw new Error(`config-check: unexpected network call to ${String(input)}`)
+}) as typeof fetch
+
+// Loaded dynamically, like every other check, after the env is set.
+const config = await import('../lib/config')
+const { ConfigError, cloudSettings, parseConfig, appConfig, generationEnabled, panelConcurrency, generationTimeoutMs, missingCloud, CLOUD_VARIABLES } = config
+
+type Env = Record<string, string | undefined>
+const refusal = (fn: () => unknown): InstanceType<typeof ConfigError> => {
+  try {
+    fn()
+  } catch (err) {
+    assert.ok(err instanceof ConfigError, `expected a ConfigError, got ${String(err)}`)
+    return err
+  }
+  return assert.fail('expected the settings to be refused')
+}
+
+// A full cloud environment under the preferred names, and the same under the
+// learner's names. Values are placeholders; nothing connects.
+const preferred: Env = {
+  INKDESK_STORAGE: 'cloud',
+  MONGODB_URI: 'mongodb://preferred-host:27017/',
+  MONGODB_DB: 'preferred_db',
+  S3_ENDPOINT: 'https://s3.preferred.example',
+  S3_REGION: 'auto',
+  S3_BUCKET_PROJECT_FILES: 'preferred-files',
+  S3_ACCESS_KEY_ID: 'id',
+  S3_SECRET_ACCESS_KEY: 'secret',
+}
+const learner: Env = {
+  INKDESK_STORAGE: 'cloud',
+  MONGODB_URI: '',
+  DB_URL: 'mongodb://learner-host:27017/',
+  MONGODB_DB: '',
+  DB_DATABASE: 'learner_db',
+  S3_ENDPOINT: 'https://s3.learner.example',
+  S3_REGION: 'auto',
+  S3_BUCKET_PROJECT_FILES: 'learner-files',
+  S3_BUCKET_COMPILE_OUTPUTS: 'learner-outputs',
+  S3_BUCKET: '',
+  S3_ACCESS_KEY_ID: 'id',
+  S3_SECRET_ACCESS_KEY: 'secret',
+}
+
+try {
+  // 1. The mapping, one fallback at a time.
+  const p = cloudSettings(preferred)
+  assert.equal(p.mongoUrl, 'mongodb://preferred-host:27017/')
+  assert.equal(p.mongoDb, 'preferred_db')
+  assert.equal(p.projectFilesBucket, 'preferred-files')
+  assert.equal(p.outputsBucket, 'preferred-files', 'no outputs bucket: the project-files bucket')
+  assert.equal(p.publicEndpoint, 'https://s3.preferred.example', 'no S3_PUBLIC_ENDPOINT: S3_ENDPOINT')
+  assert.equal(p.forcePathStyle, true, 'S3_FORCE_PATH_STYLE defaults to true')
+  const l = cloudSettings(learner)
+  assert.equal(l.mongoUrl, 'mongodb://learner-host:27017/', 'MONGODB_URI blank: DB_URL')
+  assert.equal(l.mongoDb, 'learner_db', 'MONGODB_DB blank: DB_DATABASE')
+  assert.equal(l.projectFilesBucket, 'learner-files')
+  assert.equal(l.outputsBucket, 'learner-outputs', 'S3_BUCKET_COMPILE_OUTPUTS is the outputs bucket')
+  const both = cloudSettings({ ...learner, MONGODB_URI: 'mongodb://wins/', MONGODB_DB: 'wins', S3_BUCKET: 'loses' })
+  assert.equal(both.mongoUrl, 'mongodb://wins/', 'both set: MONGODB_URI wins over DB_URL')
+  assert.equal(both.mongoDb, 'wins', 'both set: MONGODB_DB wins over DB_DATABASE')
+  assert.equal(both.projectFilesBucket, 'learner-files', 'both set: S3_BUCKET_PROJECT_FILES wins over S3_BUCKET')
+  const unsetPreferred = { ...learner }
+  delete unsetPreferred.MONGODB_URI
+  delete unsetPreferred.MONGODB_DB
+  assert.equal(cloudSettings(unsetPreferred).mongoUrl, 'mongodb://learner-host:27017/', 'MONGODB_URI unset: DB_URL')
+  assert.equal(cloudSettings(unsetPreferred).mongoDb, 'learner_db', 'MONGODB_DB unset: DB_DATABASE')
+  const oldBucket = cloudSettings({ ...preferred, S3_BUCKET_PROJECT_FILES: '  ', S3_BUCKET: 'v2-bucket' })
+  assert.equal(oldBucket.projectFilesBucket, 'v2-bucket', 'S3_BUCKET_PROJECT_FILES blank: S3_BUCKET, the v2 name')
+  assert.equal(oldBucket.outputsBucket, 'v2-bucket', 'and the outputs bucket follows it')
+  assert.equal(cloudSettings({ ...preferred, S3_PUBLIC_ENDPOINT: 'https://files.example' }).publicEndpoint, 'https://files.example')
+  assert.equal(cloudSettings({ ...preferred, S3_FORCE_PATH_STYLE: 'false' }).forcePathStyle, false)
+  assert.equal(cloudSettings({ ...preferred, S3_FORCE_PATH_STYLE: 'true' }).forcePathStyle, true)
+  assert.equal(cloudSettings({ ...preferred, S3_FORCE_PATH_STYLE: '' }).forcePathStyle, true, 'blank is the default')
+  // SEC-13: Ink Desk writes under a folder of the bucket, never at its root.
+  assert.equal(cloudSettings(preferred).keyPrefix, 'inkdesk/', 'S3_KEY_PREFIX defaults to inkdesk/')
+  assert.equal(cloudSettings({ ...preferred, S3_KEY_PREFIX: 'apps/inkdesk/' }).keyPrefix, 'apps/inkdesk/')
+  for (const bad of ['/', 'inkdesk', '/inkdesk/', '../x/', 'a//b/', 'in kdesk/']) {
+    assert.match(refusal(() => cloudSettings({ ...preferred, S3_KEY_PREFIX: bad })).message, /S3_KEY_PREFIX must be a folder name ending in a slash/, `S3_KEY_PREFIX=${bad}`)
+  }
+  assert.equal(parseConfig(learner).cloud?.mongoDb, 'learner_db', 'the whole config maps the same way')
+  assert.equal(parseConfig({}).storage, 'local')
+  assert.equal(parseConfig({}).cloud, null, 'a local desk reads no cloud setting')
+  assert.equal(parseConfig({ DB_URL: 'not even a url' }).storage, 'local', 'and refuses none: another app’s DB_URL in the shell is not ours to judge')
+  console.log('  ok  the mapping: DB_URL, DB_DATABASE, S3_BUCKET, the outputs bucket, S3_PUBLIC_ENDPOINT and S3_FORCE_PATH_STYLE each fall back only when the preferred name is unset or blank; keys go under S3_KEY_PREFIX (inkdesk/), never the root')
+
+  // 2. Missing settings: every one named, by both names where two are accepted.
+  const nothing = refusal(() => parseConfig({ INKDESK_STORAGE: 'cloud' }))
+  for (const name of [
+    'MONGODB_URI (or DB_URL) is not set',
+    'MONGODB_DB (or DB_DATABASE) is not set',
+    'S3_ENDPOINT is not set',
+    'S3_REGION is not set',
+    'S3_BUCKET_PROJECT_FILES (or S3_BUCKET) is not set',
+    'S3_ACCESS_KEY_ID is not set',
+    'S3_SECRET_ACCESS_KEY is not set',
+  ]) {
+    assert.ok(nothing.message.includes(name), `the sentence names “${name}”`)
+  }
+  assert.equal(nothing.problems.length, 7, 'every problem, not the first')
+  assert.match(nothing.message, /^The studio’s settings need fixing — .* — so set them in \.env \(or the host’s variables\) and restart\.$/)
+  assert.equal(nothing.message.match(/\.(\s|$)/g)?.length, 1, 'one sentence')
+  assert.deepEqual(missingCloud({ ...learner, DB_URL: ' ' }), ['MONGODB_URI (or DB_URL)'], 'blank under both names is missing')
+  assert.match(refusal(() => cloudSettings({ ...preferred, S3_REGION: '' })).message, /S3_REGION is not set — so set it in/, 'one problem: “it”')
+  console.log('  ok  missing settings: all seven named in one sentence, the mapped ones by both names')
+
+  // 3. Never a value: secret-looking values, malformed and well-formed, never
+  //    reach the sentence — not whole, not in part.
+  const secrets = {
+    DB_URL: 'postgres://admin:Sup3r-S3cret-Pw@db.internal.example:5432/prod',
+    DB_DATABASE: 'prod/../db',
+    S3_ENDPOINT: 'ftp://r2-account-1234567890abcdef.example',
+    S3_PUBLIC_ENDPOINT: 'gopher://public-host-0987654321.example',
+    S3_REGION: 'auto',
+    S3_BUCKET_PROJECT_FILES: '!!zq-hidden-7781!!',
+    S3_BUCKET_COMPILE_OUTPUTS: '_x_',
+    S3_ACCESS_KEY_ID: 'AKIAEXAMPLEKEYID12345',
+    S3_SECRET_ACCESS_KEY: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+    S3_FORCE_PATH_STYLE: 'maybe-with-a-token-abc123',
+    GENERATION_ENABLED: 'sk-or-v1-0000000000000000000000000000000000',
+    PANEL_CONCURRENCY: 'sk-ant-api03-zzzzzzzz',
+    GENERATION_TIMEOUT_MS: '6m-and-a-secret-xyz',
+  }
+  const leaked = refusal(() => parseConfig({ INKDESK_STORAGE: 'cloud', MONGODB_URI: '', ...secrets }))
+  for (const [name, value] of Object.entries(secrets)) {
+    const pieces = [value, ...value.split(/[^A-Za-z0-9]+/).filter((piece) => piece.length >= 6)]
+    for (const piece of pieces) assert.ok(!leaked.message.includes(piece), `${name}'s value (or a piece of it) is not in the sentence`)
+  }
+  for (const name of [
+    'MONGODB_URI (or DB_URL) must be',
+    'MONGODB_DB (or DB_DATABASE) must be',
+    'S3_ENDPOINT must be',
+    'S3_PUBLIC_ENDPOINT must be',
+    'S3_BUCKET_PROJECT_FILES (or S3_BUCKET) must be',
+    'S3_BUCKET_COMPILE_OUTPUTS must be',
+    'S3_FORCE_PATH_STYLE must be true or false',
+    'GENERATION_ENABLED must be true or false',
+    'PANEL_CONCURRENCY must be',
+    'GENERATION_TIMEOUT_MS must be',
+  ]) {
+    assert.ok(leaked.message.includes(name), `the sentence names “${name}”`)
+  }
+  assert.ok(!leaked.message.includes('S3_ACCESS_KEY_ID') && !leaked.message.includes('S3_SECRET_ACCESS_KEY'), 'well-formed keys are not problems')
+  const unparsable = refusal(() => cloudSettings({ ...preferred, MONGODB_URI: 'mongodb://user:pa ss@host/' }))
+  assert.ok(!unparsable.message.includes('pa ss') && !unparsable.message.includes('user:'), 'a URL with a password is never echoed')
+  console.log('  ok  never a value: thirteen secret-looking values refused by name, and no piece of any of them in the sentence')
+
+  // 4. Numbers (CR-15): blank is the default, the range is enforced, the
+  //    getters other modules read agree with the boot check.
+  assert.equal(panelConcurrency({}), 2)
+  assert.equal(panelConcurrency({ PANEL_CONCURRENCY: '' }), 2, 'an empty value is the default, never 0')
+  assert.equal(panelConcurrency({ PANEL_CONCURRENCY: ' 8 ' }), 8)
+  assert.equal(panelConcurrency({ PANEL_CONCURRENCY: '1' }), 1)
+  for (const bad of ['0', '9', '2.5', '-1', 'two', '1e1', '0x2']) {
+    assert.match(refusal(() => panelConcurrency({ PANEL_CONCURRENCY: bad })).message, /PANEL_CONCURRENCY must be a whole number from 1 to 8/, `PANEL_CONCURRENCY=${bad}`)
+    refusal(() => parseConfig({ PANEL_CONCURRENCY: bad }))
+  }
+  assert.equal(generationTimeoutMs({}), 360_000)
+  assert.equal(generationTimeoutMs({ GENERATION_TIMEOUT_MS: '' }), 360_000)
+  assert.equal(generationTimeoutMs({ GENERATION_TIMEOUT_MS: '30000' }), 30_000)
+  assert.equal(generationTimeoutMs({ GENERATION_TIMEOUT_MS: '900000' }), 900_000)
+  for (const bad of ['6m', '29999', '900001', 'NaN', '360000.5', '-360000']) {
+    assert.match(refusal(() => generationTimeoutMs({ GENERATION_TIMEOUT_MS: bad })).message, /GENERATION_TIMEOUT_MS must be a whole number of milliseconds from 30000 to 900000/, `GENERATION_TIMEOUT_MS=${bad}`)
+  }
+  const numbers = parseConfig({ PANEL_CONCURRENCY: '3', GENERATION_TIMEOUT_MS: '120000' })
+  assert.equal(numbers.panelConcurrency, 3)
+  assert.equal(numbers.generationTimeoutMs, 120_000)
+  console.log('  ok  numbers: blank is the default; out of range, fractional or non-numeric is refused by name (PANEL_CONCURRENCY 1–8, GENERATION_TIMEOUT_MS 30000–900000)')
+
+  // 5. The generation flag.
+  assert.equal(generationEnabled({}), true, 'development, unset: on')
+  assert.equal(generationEnabled({ NODE_ENV: 'development' }), true)
+  assert.equal(generationEnabled({ NODE_ENV: 'production' }), false, 'production, unset: off')
+  assert.equal(generationEnabled({ NODE_ENV: 'production', GENERATION_ENABLED: '' }), false, 'production, blank: off')
+  assert.equal(generationEnabled({ NODE_ENV: 'production', GENERATION_ENABLED: 'true' }), true, 'production, opened on purpose')
+  assert.equal(generationEnabled({ NODE_ENV: 'development', GENERATION_ENABLED: 'false' }), false, 'development, closed on purpose')
+  assert.equal(generationEnabled({ GENERATION_ENABLED: 'yes' }), false, 'a value it doesn’t know keeps the studio closed')
+  assert.equal(parseConfig({ NODE_ENV: 'production' }).generationEnabled, false)
+  assert.match(refusal(() => parseConfig({ GENERATION_ENABLED: 'yes' })).message, /GENERATION_ENABLED must be true or false/, 'and is refused at boot')
+  console.log('  ok  GENERATION_ENABLED: on in development, off in production, true/false honoured, anything else closed and refused at boot')
+
+  // 6. appConfig: memoised per set of values; INKDESK_STORAGE typos refused.
+  const first = appConfig()
+  assert.equal(appConfig(), first, 'the same object while nothing changes')
+  process.env.PANEL_CONCURRENCY = '4'
+  assert.equal(appConfig().panelConcurrency, 4, 'a changed value is read again')
+  process.env.PANEL_CONCURRENCY = 'many'
+  assert.throws(() => appConfig(), ConfigError)
+  delete process.env.PANEL_CONCURRENCY
+  assert.match(refusal(() => parseConfig({ INKDESK_STORAGE: 'mongo' })).message, /INKDESK_STORAGE must be local \(the default\) or cloud/)
+  assert.ok(!refusal(() => parseConfig({ INKDESK_STORAGE: 'mongo' })).message.includes('mongo '), 'the typo itself is not repeated')
+  console.log('  ok  appConfig is validated once per set of values; a storage typo is refused by name')
+
+  // 7. Boot: instrumentation refuses a bad setting with the sentence, in the
+  //    Node runtime only.
+  const { register } = await import('../instrumentation')
+  const said = console.log
+  console.log = () => {}
+  try {
+    process.env.NEXT_RUNTIME = 'nodejs'
+    await register()
+    process.env.GENERATION_TIMEOUT_MS = '6m'
+    await assert.rejects(register(), (err: unknown) => err instanceof ConfigError && /GENERATION_TIMEOUT_MS must be/.test(err.message) && !err.message.includes('6m'))
+    process.env.NEXT_RUNTIME = 'edge'
+    await register() // not the Node runtime: nothing to validate there
+  } finally {
+    console.log = said
+    delete process.env.GENERATION_TIMEOUT_MS
+    delete process.env.NEXT_RUNTIME
+  }
+  console.log('  ok  boot: instrumentation refuses a bad setting with the sentence, and only in the Node runtime')
+
+  // 8. /api/health: 200 with the shape and nothing internal; 503 in the same
+  //    shape when a setting is wrong; never cached.
+  const health = await import('../app/api/health/route')
+  const quiet = console.error
+  console.error = () => {}
+  try {
+    const okRes = await health.GET()
+    assert.equal(okRes.status, 200)
+    assert.equal(okRes.headers.get('cache-control'), 'no-store')
+    const okBody = await okRes.json()
+    assert.deepEqual(okBody, { status: 'ok', storage: 'local', checks: { mongo: 'n/a', bucket: 'n/a' }, generation: 'on' })
+    process.env.GENERATION_ENABLED = 'false'
+    assert.equal((await (await health.GET()).json()).generation, 'off', 'the flag is reported')
+    process.env.GENERATION_ENABLED = 'sideways'
+    const badRes = await health.GET()
+    assert.equal(badRes.status, 503, 'a bad setting is not healthy')
+    const badBody = await badRes.json()
+    assert.deepEqual(Object.keys(badBody).sort(), ['checks', 'generation', 'status', 'storage'], 'the same shape')
+    assert.equal(badBody.status, 'down')
+    assert.equal(badBody.generation, 'off')
+    assert.ok(!JSON.stringify(badBody).includes('sideways') && !JSON.stringify(badBody).includes('GENERATION_ENABLED'), 'no internals in the answer')
+  } finally {
+    console.error = quiet
+    delete process.env.GENERATION_ENABLED
+  }
+  console.log('  ok  /api/health: 200 { status, storage, checks, generation } with no internals, 503 in the same shape, no-store')
+
+  // 9. .env.example documents every name of the mapping and the flag, and
+  //    carries no value for any of them.
+  const example = await readFile(new URL('../.env.example', import.meta.url), 'utf8')
+  for (const name of [...CLOUD_VARIABLES, 'GENERATION_ENABLED', 'INKDESK_STORAGE', 'PANEL_CONCURRENCY', 'GENERATION_TIMEOUT_MS']) {
+    assert.ok(new RegExp(`\\b${name}\\b`).test(example), `.env.example names ${name}`)
+  }
+  for (const name of [...CLOUD_VARIABLES, 'GENERATION_ENABLED']) {
+    for (const line of example.split('\n').filter((row) => new RegExp(`^#?\\s*${name}=`).test(row))) {
+      assert.match(line, new RegExp(`^#?\\s*${name}=$`), `.env.example gives ${name} no value`)
+    }
+  }
+  console.log('  ok  .env.example documents every name — both names of each mapped setting — and gives none of them a value')
+
+  console.log('\n  Config check passed.\n')
+} finally {
+  await rm(dir, { recursive: true, force: true })
+}

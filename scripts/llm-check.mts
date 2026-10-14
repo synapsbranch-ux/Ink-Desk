@@ -11,6 +11,7 @@
 // refused by the schema, retried once, and never written to the desk.
 // `LLM_FALLBACK=never` gives the calm config sentence; a Claude 400 is not
 // covered by the fallback.
+import './server-only.mts' // first: lets server modules load outside Next (SEC-15)
 import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'

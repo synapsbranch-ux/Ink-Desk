@@ -21,6 +21,8 @@
     "check:llm": "tsx scripts/llm-check.mts",
     "check:plan": "tsx scripts/plan-check.mts",
     "check:demo-timeline": "tsx scripts/demo-timeline-check.mts",
+    "check:config": "tsx scripts/config-check.mts",
+    "check:hardening": "tsx scripts/hardening-check.mts",
     "video:capture": "npm --prefix video run capture --",
     "video:narrate": "npm --prefix video run narrate --",
     "video:render": "npm --prefix video run render",

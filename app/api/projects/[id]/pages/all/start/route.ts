@@ -6,6 +6,7 @@
 import { read } from '@/lib/chapter'
 import { startAll } from '@/lib/director'
 import { errorResponse } from '@/lib/errors'
+import { assertGenerationEnabled } from '@/lib/generation'
 
 export const runtime = 'nodejs'
 
@@ -14,6 +15,7 @@ const CALM = 'The chapter couldn’t start inking just now. Try again in a momen
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   try {
+    assertGenerationEnabled()
     const { written, queued } = await startAll(id)
     if (written.length > 0) console.log(`[chapter] wrote page ${written.map((n) => n + 1).join(', ')} from the plan`)
     if (queued.length > 0) console.log(`[chapter] queued ${queued.join(', ')}`)

@@ -8,6 +8,7 @@
 import { pageAt, read } from '@/lib/chapter'
 import { startPage } from '@/lib/director'
 import { errorResponse } from '@/lib/errors'
+import { assertGenerationEnabled } from '@/lib/generation'
 
 export const runtime = 'nodejs'
 
@@ -16,6 +17,7 @@ const CALM = 'The page couldn’t start inking just now. Try again in a moment.'
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string; n: string }> }) {
   const { id, n } = await params
   try {
+    assertGenerationEnabled()
     const addr = await pageAt(id, /^\d+$/.test(n) ? Number(n) : -1)
     const queued = await startPage(addr)
     if (queued.length > 0) console.log(`[p${addr.pageIndex + 1}] queued panel ${queued.map((i) => i + 1).join(', ')}`)

@@ -11,6 +11,7 @@
 // still `inking` after a server restart or past the generation timeout is
 // stale and demoted to failed. Nothing leaves this machine: `fetch` is a
 // scripted stub.
+import './server-only.mts' // first: lets server modules load outside Next (SEC-15)
 import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'

@@ -13,6 +13,7 @@
 // opens only when all four have art. OpenRouter is replaced by a stub `fetch`
 // that holds each request until this check releases it, so the order the
 // panels finish in is the check's to choose.
+import './server-only.mts' // first: lets server modules load outside Next (SEC-15)
 import assert from 'node:assert/strict'
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -137,7 +138,28 @@ try {
     console.error = quiet
     assert.throws(() => createQueue(0), /PANEL_CONCURRENCY/)
     assert.equal(singletons.queue.concurrency, 2, 'the process queue reads PANEL_CONCURRENCY')
-    console.log('  ok  the queue runs two at a time, dedupes keys, and finishes out of order')
+    // The watchdog (CR-6): a job stuck past the ceiling gives back its slot
+    // and its key, and when it does end, it never frees a newer run's slot.
+    console.error = () => {}
+    try {
+      const w = createQueue(1, 60)
+      const stuck = deferred<void>()
+      const ran: string[] = []
+      w.enqueue('stuck', () => stuck.promise)
+      w.enqueue('next', async () => void ran.push('next'))
+      await until('the watchdog to free the slot', () => ran.includes('next'), 2_000)
+      const second = deferred<void>()
+      assert.equal(w.enqueue('stuck', () => second.promise), true, 'the stuck key can be queued again (Try again)')
+      await until('the new run to start', () => w.running().includes('stuck'))
+      stuck.resolve() // the old run ends at last
+      await tick()
+      assert.deepEqual(w.running(), ['stuck'], 'the old run ending does not free the new run’s slot')
+      second.resolve()
+      await until('the queue to drain', () => w.running().length === 0)
+    } finally {
+      console.error = quiet
+    }
+    console.log('  ok  the queue runs two at a time, dedupes keys, finishes out of order, and frees a stuck slot at its ceiling')
   }
 
   // 2. The desk: an accepted synopsis, two characters, two locked sheets. Two images.
@@ -394,7 +416,7 @@ try {
   // 8. Nothing left behind but the projects and the images folder (v2 layout).
   const files = (await readdir(dir)).sort()
   assert.deepEqual(files, ['images', 'projects'], `unexpected files left behind: ${files.join(', ')}`)
-  assert.deepEqual(await readdir(join(dir, 'projects', pid)), ['project.json'], 'no stray temp file in the project')
+  assert.deepEqual((await readdir(join(dir, 'projects', pid))).sort(), ['project.json', 'project.json.bak'], 'the project and its backup, no stray temp file')
   console.log('  ok  only projects/ and images/ on disk, no temp file')
 
   console.log('\n  Storyboard acceptance check passed.\n')

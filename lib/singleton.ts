@@ -5,6 +5,7 @@
 // four generations instead of two. `globalThis` survives both.
 // See `devpost/spec.md > Components > Singletons and the Dev Server`.
 import { randomUUID } from 'node:crypto'
+import { generationTimeoutMs, panelConcurrency } from './config'
 import { createQueue, type Queue } from './queue'
 
 type InkDeskGlobals = {
@@ -23,5 +24,8 @@ const g = globalThis as typeof globalThis & { __inkdesk?: InkDeskGlobals }
 export const singletons: InkDeskGlobals = (g.__inkdesk ??= {
   serverRunId: randomUUID(),
   locks: new Map(),
-  queue: createQueue(Number(process.env.PANEL_CONCURRENCY ?? 2)),
+  // Validated in `lib/config.ts` (CR-15): a blank value is the default, not 0.
+  // The ceiling (CR-6) is past a job's own retried image call, so it only
+  // ever frees a slot that something stuck is holding.
+  queue: createQueue(panelConcurrency(), 2 * generationTimeoutMs() + 60_000),
 })

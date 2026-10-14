@@ -2213,6 +2213,17 @@ From the measured punch list at 390 and 768 px (`devpost/security-report.md > Ap
 
 `GET /api/health` — 200 with `{web: ok, mongo, redis, worker}` (the worker writes a heartbeat key every 15 s); Railway deploys on it; a status line appears in the app when Redis or the worker is down. `pino` structured logs with a redaction list (keys, tokens, emails, prompts), request ids; error tracking only if the learner adds a service (open question).
 
+### As built — slice 16 (2026-10-14)
+
+- **Config:** `lib/config.ts` maps the learner's names exactly as the table above says; `lib/boot.ts`, called from `instrumentation.ts`, validates at start and in production exits with the one sentence. `GENERATION_ENABLED` unset means on in development and **off in production**.
+- **Bucket keys** all live under **`S3_KEY_PREFIX`** (default `inkdesk/`, never the bucket root) — added after the review found Ink Desk writing at the root of a bucket that may be shared. The key layouts in *Store v3* sit under it.
+- **Signed URLs** are not used yet: `S3_PUBLIC_ENDPOINT` is mapped, the presigner arrives with ownership (slice 19); images still stream through `/api/image/[id]` (now with an ETag, 304, `no-store` on every non-200, and an idle-read limit so a stalled bucket stream fails in 30 s).
+- **Local store:** each save writes the last good copy to `project.json.bak` first (git-ignored); an unreadable project opens from it, or shows as an "unreadable" card on the dashboard.
+- **`server-only`** is imported by every secret-reading module; the `check:*` scripts load `scripts/server-only.mts` first so they keep running under `tsx`.
+- **`check:store`'s cloud half** runs only with `INKDESK_CHECK_CLOUD=yes`, because this environment carries a real `DB_URL` that a check must never write to.
+- **Bodies:** `lib/body.ts` caps every route (64 KB JSON; the project edit sized to the scenario's limit; uploads at the 3.75 MB limit plus multipart room), counting a chunked stream as it arrives.
+- **CSP:** `'unsafe-inline'` for scripts until `proxy.ts` can set a nonce (slice 19); `'unsafe-eval'` in development only.
+
 ## Verified for v3 (2026-10-14)
 
 **OpenRouter video** (docs at `openrouter.ai/docs` — video generation guides and API reference; `GET /api/v1/videos/models`, 30 models):

@@ -7,9 +7,11 @@
 // alone, and accepting it starts a new project (`POST /api/projects` with the
 // story), the old one untouched. See `devpost/prd.md > States and
 // Boundaries` and `> Screens and Layout` (back-navigation rules).
+import { JSON_LIMIT_BYTES, parseJson } from '@/lib/body'
 import { read, update } from '@/lib/chapter'
 import { writeSynopsis } from '@/lib/claude'
 import { errorResponse, Refused } from '@/lib/errors'
+import { assertGenerationEnabled } from '@/lib/generation'
 import { chargeText } from '@/lib/images'
 import { textMeter } from '@/lib/llm'
 import { SynopsisRequestSchema } from '@/lib/schemas'
@@ -20,13 +22,14 @@ const CALM = 'The studio couldn’t write a synopsis just now. Try again in a mo
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const parsed = SynopsisRequestSchema.safeParse(await req.json().catch(() => null))
-  if (!parsed.success) {
-    return Response.json({ error: 'Write a pitch and pick a genre and a tone first.' }, { status: 400 })
-  }
-  const { pitch, genre, tone } = parsed.data
-
   try {
+    assertGenerationEnabled()
+    const { pitch, genre, tone } = await parseJson(
+      req,
+      SynopsisRequestSchema,
+      JSON_LIMIT_BYTES,
+      'Write a pitch and pick a genre and a tone first.'
+    )
     const existing = await read(id)
     if (existing.storyMode === 'scenario' && existing.cast.length === 0) {
       throw new Refused('This project tells its story as a scenario. Switch to Pitch on the Story station to pitch instead.')

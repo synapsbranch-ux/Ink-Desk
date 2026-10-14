@@ -7,6 +7,7 @@
 import { pageAt, read } from '@/lib/chapter'
 import { writePageScript } from '@/lib/claude'
 import { errorResponse, Refused } from '@/lib/errors'
+import { assertGenerationEnabled } from '@/lib/generation'
 import { updateCharging } from '@/lib/images'
 import { textMeter } from '@/lib/llm'
 import type { LockedCharacter } from '@/lib/prompts'
@@ -20,6 +21,7 @@ const CALM = 'The page script didn’t come back, the studio is busy. Try again 
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string; n: string }> }) {
   const { id, n } = await params
   try {
+    assertGenerationEnabled()
     const addr = await pageAt(id, /^\d+$/.test(n) ? Number(n) : -1)
     // Checked before the call so a refused request costs nothing; `newScript`
     // runs the same rules again inside the lock, where they are authoritative.

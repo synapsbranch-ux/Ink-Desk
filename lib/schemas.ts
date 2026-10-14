@@ -133,6 +133,30 @@ export const ScenarioSummarySchema = z.object({
 })
 
 // --- Request bodies (what the browser sends) --------------------------------
+//
+// Every string and list here has a ceiling and every object is closed, so a
+// request can neither pad a prompt (cost) nor bloat the project document
+// (memory, Mongo's 16 MB) — SEC-03, CR-5. The ceilings sit well above what
+// the studio itself sends; the body cap in `lib/body.ts` bounds the rest.
+
+/** The story's words. A pitch is a paragraph; a synopsis is three to five sentences. */
+export const PITCH_MAX_CHARS = 4000
+export const CHIP_MAX_CHARS = 60
+export const SYNOPSIS_TITLE_MAX_CHARS = 200
+export const SYNOPSIS_BODY_MAX_CHARS = 4000
+
+/** A character card's words, and its traits: at most six, each a word or two. */
+export const NAME_MAX_CHARS = 80
+export const ROLE_MAX_CHARS = 120
+export const LOOK_MAX_CHARS = 1500
+export const TRAITS_MAX = 6
+export const TRAIT_MAX_CHARS = 60
+
+/** Ids the desk mints: uuids for characters, `asset-<uuid>.png` for shelf pictures. */
+const IdSchema = z
+  .string()
+  .max(128)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*(?:\.[a-z0-9]{1,5})?$/i)
 
 /** Rewrite panel: only the visuals come back. No dialogue, no DNA, by shape. */
 export const PanelRewriteSchema = z.object({
@@ -147,10 +171,10 @@ export const StationSchema = z.enum(['story', 'cast', 'director', 'storyboard', 
 /** One card's edit. `locked: true` is the Lock click; there is no unlock. */
 const CharacterEditSchema = z
   .object({
-    name: z.string(),
-    role: z.string(),
-    traits: z.array(z.string()),
-    look: z.string(),
+    name: z.string().max(NAME_MAX_CHARS),
+    role: z.string().max(ROLE_MAX_CHARS),
+    traits: z.array(z.string().max(TRAIT_MAX_CHARS)).max(TRAITS_MAX),
+    look: z.string().max(LOOK_MAX_CHARS),
     locked: z.literal(true),
   })
   .partial()
@@ -185,6 +209,13 @@ const PlanLineEditSchema = z
 /** The longest scenario the desk keeps; past `SCENARIO_WHOLE_CHARS` it is summarized before planning. */
 export const SCENARIO_MAX_CHARS = 100_000
 
+/**
+ * The edit route's body cap: room for a whole scenario at three UTF-8 bytes
+ * a character (CJK text), plus everything else one merged edit can carry.
+ * Every other JSON route takes `JSON_LIMIT_BYTES` (`lib/body.ts`).
+ */
+export const PATCH_LIMIT_BYTES = SCENARIO_MAX_CHARS * 3 + 64 * 1024
+
 export const ChapterPatchSchema = z
   .object({
     station: StationSchema.optional(),
@@ -194,7 +225,7 @@ export const ChapterPatchSchema = z
       .object({
         text: z.string().max(SCENARIO_MAX_CHARS),
         notes: z.string().max(5000),
-        referenceAssetIds: z.array(z.string().min(1).max(200)).max(24),
+        referenceAssetIds: z.array(IdSchema).max(24),
         /** "Use this scenario" — there is no un-save, as there is no un-accept. */
         saved: z.literal(true),
       })
@@ -221,51 +252,87 @@ export const ChapterPatchSchema = z
     page: z.number().int().min(0).max(PAGE_COUNT_MAX - 1).optional(),
     /** The page the `panels` edits were made on. */
     at: z.number().int().min(0).max(PAGE_COUNT_MAX - 1).optional(),
-    pitch: z.object({ text: z.string(), genre: z.string(), tone: z.string() }).partial().optional(),
-    synopsis: z
-      .object({ title: z.string(), body: z.string(), accepted: z.boolean() })
+    pitch: z
+      .object({
+        text: z.string().max(PITCH_MAX_CHARS),
+        genre: z.string().max(CHIP_MAX_CHARS),
+        tone: z.string().max(CHIP_MAX_CHARS),
+      })
       .partial()
+      .strict()
       .optional(),
-    /** Keyed by character id. */
-    cast: z.record(z.string(), CharacterEditSchema).optional(),
+    synopsis: z
+      .object({
+        title: z.string().max(SYNOPSIS_TITLE_MAX_CHARS),
+        body: z.string().max(SYNOPSIS_BODY_MAX_CHARS),
+        accepted: z.boolean(),
+      })
+      .partial()
+      .strict()
+      .optional(),
+    /** Keyed by character id — a chapter has two. */
+    cast: z
+      .record(IdSchema, CharacterEditSchema)
+      .refine((cast) => Object.keys(cast).length <= 2)
+      .optional(),
     /** Keyed by panel index, "0"–"3". */
     panels: z.record(z.string().regex(/^[0-3]$/), PanelEditSchema).optional(),
   })
   .strict()
 
-export const SynopsisRequestSchema = z.object({
-  pitch: z.string().trim().min(1),
-  genre: z.string().min(1),
-  tone: z.string().min(1),
-})
+export const SynopsisRequestSchema = z
+  .object({
+    pitch: z.string().max(PITCH_MAX_CHARS).trim().min(1),
+    genre: z.string().min(1).max(CHIP_MAX_CHARS),
+    tone: z.string().min(1).max(CHIP_MAX_CHARS),
+  })
+  .strict()
 
 /** A new project (`POST /api/projects`): a title and a locked style preset.
  *  With a story — the v2 form of "accepting a new synopsis starts a new
  *  chapter" — it wakes with that synopsis accepted. */
-export const NewProjectSchema = z.object({
-  title: z.string().trim().min(1).max(120),
-  stylePresetId: z.enum(STYLE_PRESET_IDS),
-  story: z
-    .object({
-      pitch: z.object({ text: z.string().trim().min(1), genre: z.string().min(1), tone: z.string().min(1) }),
-      synopsis: z.object({ title: z.string().trim().min(1), body: z.string().trim().min(1) }),
-    })
-    .optional(),
-})
+export const NewProjectSchema = z
+  .object({
+    title: z.string().max(120).trim().min(1),
+    stylePresetId: z.enum(STYLE_PRESET_IDS),
+    story: z
+      .object({
+        pitch: z
+          .object({
+            text: z.string().max(PITCH_MAX_CHARS).trim().min(1),
+            genre: z.string().min(1).max(CHIP_MAX_CHARS),
+            tone: z.string().min(1).max(CHIP_MAX_CHARS),
+          })
+          .strict(),
+        synopsis: z
+          .object({
+            title: z.string().max(SYNOPSIS_TITLE_MAX_CHARS).trim().min(1),
+            body: z.string().max(SYNOPSIS_BODY_MAX_CHARS).trim().min(1),
+          })
+          .strict(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict()
 
-export const RerollRequestSchema = z.object({ id: z.string().min(1) })
+export const RerollRequestSchema = z.object({ id: IdSchema }).strict()
 
-export const SheetRequestSchema = z.object({
-  id: z.string().min(1),
-  /** Redraw: keep the DNA on the card. Draw / after a look edit: write it fresh. */
-  reuseDna: z.boolean().optional(),
-})
+export const SheetRequestSchema = z
+  .object({
+    id: IdSchema,
+    /** Redraw: keep the DNA on the card. Draw / after a look edit: write it fresh. */
+    reuseDna: z.boolean().optional(),
+  })
+  .strict()
 
 /** Write the chapter plan. `replace` is "Ask the Director again" — only while no page is written. */
-export const PlanRequestSchema = z.object({
-  pageCount: z.number().int().min(PAGE_COUNT_MIN).max(PAGE_COUNT_MAX),
-  replace: z.boolean().optional(),
-})
+export const PlanRequestSchema = z
+  .object({
+    pageCount: z.number().int().min(PAGE_COUNT_MIN).max(PAGE_COUNT_MAX),
+    replace: z.boolean().optional(),
+  })
+  .strict()
 
 /** Import reference: this card's sheet becomes that shelf asset. */
-export const ImportRequestSchema = z.object({ id: z.string().min(1), assetId: z.string().min(1) })
+export const ImportRequestSchema = z.object({ id: IdSchema, assetId: IdSchema }).strict()

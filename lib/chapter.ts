@@ -4,6 +4,11 @@
 // projected from a project and written back into it, inside the store's
 // per-project lock. Nothing here computes a field; it only moves them.
 // See `devpost/spec.md > Data Model (v2)` and `> Storage Adapter (v2)`.
+
+// Server only (SEC-15): importing this from a client component is a build
+// error. The checks run under tsx, where `scripts/server-only.mts` resolves the
+// package the way Next's server does.
+import 'server-only'
 import { Refused } from './errors'
 import { coverIsStale, markCoverFailed, pageSummaries } from './plan'
 import { markFailed, staleInkingIndices } from './script'
@@ -33,7 +38,6 @@ export function toDesk(p: Project, ref: PageRef): Desk {
     title: p.title,
     stylePresetId: p.stylePresetId,
     pageCount: chapter.pages.length,
-    serverRunId: p.serverRunId,
     station: p.station,
     pitch: p.story.pitch,
     synopsis: p.story.synopsis,
