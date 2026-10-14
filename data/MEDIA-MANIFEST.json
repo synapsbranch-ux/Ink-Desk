@@ -1,0 +1,1055 @@
+{
+  "updatedAt": "2026-10-14T20:09:42.099Z",
+  "objects": [
+    {
+      "key": "inkdesk/archive/video/out/inkdesk-demo-final-720p.mp4",
+      "sha256": "49993768371dbaa6e98a0b3732677ef118861bc0f78d2e974fc0439cc419faa8",
+      "bytes": 1481467,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/inkdesk-demo-review-720p.mp4",
+      "sha256": "f807030fa48972f79b907ae2a9b0f74bc7e796c746b92ed07911cb887564b30f",
+      "bytes": 8969872,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/inkdesk-demo.mp4",
+      "sha256": "32b3987dd7757fc59cd0cd5bc4adeec0592e9d378c1d5e22eacadcbe7920def3",
+      "bytes": 41875131,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/look/intro-090.png",
+      "sha256": "112f9d4dc99b958105992959c0aca2c11bf70b3fd5ff8b542f8beafd9b9e3790",
+      "bytes": 424452,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/look/intro-280.png",
+      "sha256": "12a8d35bda9a4bb036b86cb297f282013e946030be0e37d4f784a4540c14ce1f",
+      "bytes": 671256,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/look/intro-345.png",
+      "sha256": "2cf6ac91db54a9054a833bb48bde7c5ee80da182a45c5de6b039e0fb948ba0e2",
+      "bytes": 649794,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/look/intro-470-fixed.png",
+      "sha256": "c0e0717339e7b68b7da7847cc55d9be9bb6d13b2e32b217b533c221cf18e2d89",
+      "bytes": 666946,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/look/intro-470.png",
+      "sha256": "ef4e5c2aac399f6f82cab31d62b95ea4b42c1ac1f8920b0f8fe3a8f631d20bcc",
+      "bytes": 665597,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/look/money-8panels-cover-200.png",
+      "sha256": "1cf0b1b3ed52e13808ca544797d412ce8b13224b65fc1ee9309c41f354d349b5",
+      "bytes": 1950106,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/look/money-8panels-cover-410.png",
+      "sha256": "ba02575da594230b85ac7e65d4bce3e525c136c265415b263e4fe7e8adb6715f",
+      "bytes": 1895312,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/look/money-standin-060.png",
+      "sha256": "1e179c1a3418b28d01f27d351a2b747790d55b51fdc7be0897948acb52a5679d",
+      "bytes": 1454599,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/look/money-standin-170.png",
+      "sha256": "6dffccfdcb6b2b109d6bd0388b79a723360d71fcd3cb1abb30e7624fa37d54c1",
+      "bytes": 1738294,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/look/money-standin-410.png",
+      "sha256": "3ea29c7ffb5ffa12261ccf33ff84ef6aace02c7c0fda489faa7b464805a4a913",
+      "bytes": 1682662,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/look/motion-1070-capture-moneyshot.png",
+      "sha256": "2d78f4456a9b468627c053ce1198e17f22de50a99eff1a68742d098d6bc73c34",
+      "bytes": 1719808,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/look/outro-160.png",
+      "sha256": "b2f0b78381c18c68cbbc8ceb55eea287f84b74c76550b0dee6ba4af216164115",
+      "bytes": 521972,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/look/section-045.png",
+      "sha256": "2929e76bc683a014a1146b0367c15d41e6915c4fcf45408063ae401cec052f96",
+      "bytes": 495728,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/look/wipe-03.png",
+      "sha256": "aa449f0ffb02cbd896ce8be56982682809098cd592a8cf30fc0e21e79c7a6a1b",
+      "bytes": 300354,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/look/wipe-09.png",
+      "sha256": "b4046ba35b968c46e3f3ff2e37d403a5230ebd2affb09342822b1ded267ee48a",
+      "bytes": 34428,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/look/wipe-14.png",
+      "sha256": "db71b2d2f253c2403079422edb0c9b28c77d118d7ce1061ac55a57c32a6e9575",
+      "bytes": 302516,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/method-180.png",
+      "sha256": "2a8b01c7a792eb555594fb582c7136abbc08f240e3df3c390330a8353abbccd1",
+      "bytes": 516259,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/method-250.png",
+      "sha256": "aefc5c7e4d52a1b908a8b98d3c5fb5026c59654437923a6561556e1bb432a7ba",
+      "bytes": 554232,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/method-300.png",
+      "sha256": "16c280953935c1ff622556edd87eeb70437a1a6c2f57d114fded3fdb4513b292",
+      "bytes": 557686,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/method-400.png",
+      "sha256": "72b5f954db1d3cc1e7eebfac51ea37681dc5874c7234a5c6c23d768dd95c8f34",
+      "bytes": 558988,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/method-412.png",
+      "sha256": "bb1b907c57d756eb0c2b77960a2089b3477484349afa38ef15047dc7b25031b9",
+      "bytes": 558951,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/method-60.png",
+      "sha256": "bce75aeccb6199225c4c81a7d3a1a3b0e790c028e046a51518ec05ec97bc6710",
+      "bytes": 362064,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/method-check.mp4",
+      "sha256": "4714f7f9b0898fef15dd33298011b7a6d39ebbe29befd4d89e6012525aa080eb",
+      "bytes": 770080,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/motion-draft.mp4",
+      "sha256": "ca9ee93bc1a363bbede57696ad1fd9554622c2728beb14efd5f18bccce804825",
+      "bytes": 11507127,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/music/composed-excerpt-60s-to-90s.mp3",
+      "sha256": "2b5f9736617050fd87edf4be423f925906c4a6b938a837127ca40f3f005fe1b0",
+      "bytes": 686725,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/music/composed-full.mp3",
+      "sha256": "077793dbfe08fcd97b0ee17a28a002d230d54b9b695fc2c5a8f914f14e7474fc",
+      "bytes": 3915337,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/music/lyria-3-clip-sample.mp3",
+      "sha256": "8829e083e85dde17b676308de5a3f3b44162d4638a1c9c86bc9f7d8ed06c2cca",
+      "bytes": 744657,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/music/lyria-3-pro-2026-10-14.mp3",
+      "sha256": "e464f417e83efaef8d38ed8ab51cf79085266ed645a72003f1433687a60ad24b",
+      "bytes": 4207240,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/music/lyria-3-pro-2026-10-14.txt",
+      "sha256": "2abd40577584b6a547eff48325ab398abe1562205d1542ed65d99d65184295fd",
+      "bytes": 191,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/music/lyria-3-pro-preview-2026-10-14-03-22-03.mp3",
+      "sha256": "17e6cd84ea6722011cd3cd47ee7c01ef9eb324dc800bad04b8e337a920dc1e32",
+      "bytes": 4212256,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/music/lyria-3-pro-preview-2026-10-14-03-22-03.txt",
+      "sha256": "6f4a94db9ad14a5f7033f82c7c97deb1c1ab90e54614f625424e67cc0755e9fd",
+      "bytes": 201,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/music/track.wav",
+      "sha256": "ebe2dcbe62ae4fddaee05b3d54406accf52f7e525cd06fd0f9837e2c3ab7ec63",
+      "bytes": 31311044,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/props.json",
+      "sha256": "36efc243983fd99d7c10e08a268155c30490356c07bc12c66f1081b03cfe01a4",
+      "bytes": 21247,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/review-demo-method-2.png",
+      "sha256": "e1b80357bd2654e0e793543bf3ba4b1578b0f3a89d621e5bb5ec707ebf071278",
+      "bytes": 379575,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/review-demo-method-3.png",
+      "sha256": "4f5ac3f245f152f44fbf3d1b81d55417a266021f37b0087a180c3af4d3adafd0",
+      "bytes": 584473,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/review-demo-method.png",
+      "sha256": "71416ae3bbe2be123027b94a094d20100f2643137f879bed10f126322882d73d",
+      "bytes": 541506,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/review-method-120.png",
+      "sha256": "24eed364b3b7a97f23f5247693a69f0ffa695d3aee5d94a07fffe6b1b48a0b60",
+      "bytes": 473182,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/review-method-200.png",
+      "sha256": "f4ad12b60fdffe6170a2e16fefd1e9e514f18bc045abfca9a631a8799a3adbdb",
+      "bytes": 522704,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/review-method-260.png",
+      "sha256": "bc7ca998674364a01949243cd57a0638660aa4e0d20d30d14b43036b862f0429",
+      "bytes": 547834,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/review-method-30.png",
+      "sha256": "788d5587ecefc199540c8d5885c113163e916f058c9a1169a351830eb5447a1d",
+      "bytes": 362428,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/review-method-330.png",
+      "sha256": "b72a19977fa2c19dead4174a964f6b81aa4fea3b164a8d66ca2311996291088a",
+      "bytes": 559079,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/review-method-405.png",
+      "sha256": "1f73525b3123ae9f0bad7020c0b033209251f0f7713fe6b970473826fadc66dd",
+      "bytes": 557580,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/review-method-414.png",
+      "sha256": "6f4c376e90cfca883754e2597bdc1cd7245c195a6bc08196c9b35f477a441343",
+      "bytes": 557672,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/still-test.png",
+      "sha256": "c8126edf073bc87ec34d8462973a56bbb514315e1e1fd7bde0d4566761d7a878",
+      "bytes": 378801,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/voices/adam.mp3",
+      "sha256": "85059f9dc38a3c83a56520ad14f7dde0b039f7430a84fc2a8efbe1ff394149af",
+      "bytes": 47273,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/voices/alice.mp3",
+      "sha256": "bb91ccee88382092eacd5938fd762a2c6759b970dc2d892552270fc211cd4b7a",
+      "bytes": 48527,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/voices/bella.mp3",
+      "sha256": "6cc25de8b95989af646cf974a089b3819574e9aea5799f970050998d8454deb9",
+      "bytes": 46019,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/voices/bill.mp3",
+      "sha256": "8b17d278618428610c92f472c236cda40f21e026a9f8ddd46944c8b83c07c0d6",
+      "bytes": 49781,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/voices/brian.mp3",
+      "sha256": "2adffc29720e7a145e49655b59b435db5305f03b50b2eeca70fe996dfe4b58b5",
+      "bytes": 43511,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/voices/charlie.mp3",
+      "sha256": "9e5bac4a4e4b47b95464d2b95bd47d80bc6c9360ff72509b4fb411be5729b987",
+      "bytes": 46019,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/voices/daniel.mp3",
+      "sha256": "a9d5ad2082b1943cb4aa88fd89e72a5fd8cc9d9ba72a43ecbf29dbb304b0457e",
+      "bytes": 51035,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/voices/george.mp3",
+      "sha256": "c07f850712a35efcb73907b9691542004047e86cc9935ec7532b07ef590713e1",
+      "bytes": 47273,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/voices/jessica.mp3",
+      "sha256": "55089f95f3f010c280d6ac65874fec9c268384126489467e61d9e0c510e8652d",
+      "bytes": 44765,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/voices/roger.mp3",
+      "sha256": "439bf7680cc962d19bd4081da8a1cb61aabdab166fbba041154cfeabeb23bd6c",
+      "bytes": 47273,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/voices/samples.json",
+      "sha256": "f773be6148f77ada9becdfc2fe189c7e57e4fcd2fb37534495a5a4c4f273fb4f",
+      "bytes": 354,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/voices/sarah.mp3",
+      "sha256": "c87e41236bb2840ed40594a68b04d4e9af3e0def59fdf93bfe3fc4b7ff3ce83a",
+      "bytes": 47273,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/out/voices/will.mp3",
+      "sha256": "bfdd11f511d48b5e0af11884950a2411cfc3376814c20cf225724ac95c13c57f",
+      "bytes": 46019,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/public/capture/chapter.pdf",
+      "sha256": "e4dd95f166cfae54c7f3cf5266dbec86abbd93bb4520a1103b963d5e15cdff7a",
+      "bytes": 5464058,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/public/capture/footage.mp4",
+      "sha256": "ddbff2387a28dce9ff5d7622e185b0a3656dd88908309721f93745290dfe0290",
+      "bytes": 120317520,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/public/capture/footage.webm",
+      "sha256": "99a3f686b48bc6ae492f98ad96edb354b0f9aebe637c920786313e064878f752",
+      "bytes": 25390606,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/public/capture/stills/asset-e5fdc016-e389-4907-8247-bbb5528d6995.png",
+      "sha256": "d1714ed2eec480069153351567412a50d98472bb7f7aec9d8b7c450749e37f2c",
+      "bytes": 3155539,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/public/capture/stills/cover-789cfb9f-aa27-4494-bc32-bb9447a7109c.png",
+      "sha256": "a5273b97f7be60fd960597953a9b757702f7e628a80aa99da8d3ce95a06332e6",
+      "bytes": 3400822,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/public/capture/stills/panel-31447479-a3b6-4adc-a53d-f8727c87708f.png",
+      "sha256": "1f5d84a209f700e7900f1b89f35a31b78a03769317f923ffa4f46222b343355a",
+      "bytes": 3631210,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/public/capture/stills/panel-56f0eefc-cd2f-4b0c-a343-eb6bdde86e5c.png",
+      "sha256": "5b4009c4d8ca7db19496453b7078769f32a6380b01a58900a8d93bfd6f41220d",
+      "bytes": 1976387,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/public/capture/stills/panel-ae8b66e3-3455-4593-a016-4b10d220b5be.png",
+      "sha256": "8f0105c478013d84ec9c3f081d57d37fb94735c70c1c9932e22e16beef8ac35e",
+      "bytes": 3642058,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/public/capture/stills/panel-b7aefa77-6112-46e0-8ce7-8a2f7d9991f7.png",
+      "sha256": "02d76b9ff01c74a285cc5baf9a3bf7c46f8696f89d5646e034020096bf8f3278",
+      "bytes": 3466656,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/public/capture/stills/panel-c74d4630-bf4e-47df-a449-ff60230d7438.png",
+      "sha256": "418c5d6c563805ecc2b0642cea30f1d65d1cfee9c516831969644bb3a3e48701",
+      "bytes": 2158233,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/public/capture/stills/panel-e63e6024-6b37-4c3e-ac42-0167ec9085d8.png",
+      "sha256": "ad0d55ffebf9514db45553874664301ee0971bfffb4e1ba89e20ce9cdb1aec20",
+      "bytes": 2134222,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/public/music/track.mp3",
+      "sha256": "e464f417e83efaef8d38ed8ab51cf79085266ed645a72003f1433687a60ad24b",
+      "bytes": 4207240,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/public/narration/dashboard-16c824a553e8b2.mp3",
+      "sha256": "f869aaab1fe8c59383175dd7bca29819ddbad225e1c1f364216188659e5848ab",
+      "bytes": 200156,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/public/narration/director-1edc3ea847ab75.mp3",
+      "sha256": "834e38cf28a2372ea2699c969be92cb9b1241c3da4c26d0d1fe661018de5bae2",
+      "bytes": 270036,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/public/narration/intro-1f34826c11fefc.mp3",
+      "sha256": "c53cc9fa32f45f17fd32ffc0055b2b106713ebc8a6576fb9cd88517f499a87b7",
+      "bytes": 191993,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/public/narration/library-098e204f5cff59.mp3",
+      "sha256": "60c235674f735d81a21e8b191b727d874c723b0d2bb006ed4a45523f6ad0fe63",
+      "bytes": 275916,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/public/narration/manifest.json",
+      "sha256": "f3c221420105a5550fd7944e75b387f1974758f913cad0402e4ad7f9a28ef2fe",
+      "bytes": 1431,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/public/narration/method-07cb17acd84378.mp3",
+      "sha256": "449bbb22fea8b3b599567854b8eef9000548637949bbc453c2aa67d33d4b0218",
+      "bytes": 180167,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/public/narration/moneyshot-0d13c2074cb6b4.mp3",
+      "sha256": "edf8cf0c0492f92876533b2ac92d0f2e798853d2d43d2df330194f0d1a9b5514",
+      "bytes": 155338,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/public/narration/outro-186c68400af507.mp3",
+      "sha256": "ea88c77cc6b1db847c910e505ebe18f860d65b6894774904c5cf449ea276a85d",
+      "bytes": 91543,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/public/narration/pages-09b5f6a6474223.mp3",
+      "sha256": "c10b7b5654f2c8722391abc2f9bf698955847fc6a10c387e60c93548e7cd5893",
+      "bytes": 389954,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/public/narration/reader-0aef1cc3242dfc.mp3",
+      "sha256": "f6c7720cb8bfc023e00277fb4b64d5b3064819f0cfdea42f486264274ffa8623",
+      "bytes": 144285,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/public/placeholder/panel-b06aea54-3251-4f05-a3c6-dd27bda440f6.png",
+      "sha256": "8c07155e6794942e4e222fe582074bd18ef96da49eab220547c6cb8b6ac249d5",
+      "bytes": 2453927,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/public/placeholder/panel-d8521f25-c110-4fd0-b744-fd71aad7cf15.png",
+      "sha256": "9d9b93c9339d12c0cccb751c2cbbf005a67fc5aa45b32b4220b66f18fd45de05",
+      "bytes": 3564374,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/video/public/placeholder/sheet-b22b9b91-b855-46df-b214-8d88bee9deb3.png",
+      "sha256": "d253f90411a08e440997955eac246336b506f8f11f3cca8177f80c2fb8fd8c0c",
+      "bytes": 2834658,
+      "bucket": "outputs"
+    },
+    {
+      "key": "inkdesk/archive/data/filming-2026-10-14/images/asset-e5fdc016-e389-4907-8247-bbb5528d6995.png",
+      "sha256": "d1714ed2eec480069153351567412a50d98472bb7f7aec9d8b7c450749e37f2c",
+      "bytes": 3155539,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/filming-2026-10-14/images/cover-789cfb9f-aa27-4494-bc32-bb9447a7109c.png",
+      "sha256": "a5273b97f7be60fd960597953a9b757702f7e628a80aa99da8d3ce95a06332e6",
+      "bytes": 3400822,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/filming-2026-10-14/images/panel-31447479-a3b6-4adc-a53d-f8727c87708f.png",
+      "sha256": "1f5d84a209f700e7900f1b89f35a31b78a03769317f923ffa4f46222b343355a",
+      "bytes": 3631210,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/filming-2026-10-14/images/panel-37d18845-d0e9-426e-9ff2-f7c40b0e10ee.png",
+      "sha256": "b0590fcc6f42d971680d5fe112a5bcb2f97e01c1d582ca7e04dec3ad9c0bbcf9",
+      "bytes": 2362412,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/filming-2026-10-14/images/panel-56f0eefc-cd2f-4b0c-a343-eb6bdde86e5c.png",
+      "sha256": "5b4009c4d8ca7db19496453b7078769f32a6380b01a58900a8d93bfd6f41220d",
+      "bytes": 1976387,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/filming-2026-10-14/images/panel-7c34bc7b-5030-49ef-a0ac-9cf941e97989.png",
+      "sha256": "fb0b58b630e2077f9b46da8dafb98c2317b7b016f496928bf4012221c63b301b",
+      "bytes": 2160748,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/filming-2026-10-14/images/panel-87b8222e-f067-4927-9525-aabaa500a1b3.png",
+      "sha256": "74fea654d715df9d088ae73737a816795422d43093428c375c810fc5c88f02aa",
+      "bytes": 3592139,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/filming-2026-10-14/images/panel-9173912d-9fa1-4d8f-9dc3-781e34e48868.png",
+      "sha256": "ba040484f197de9add442f930fc772d029df0c36254ef78db9c274c9798d4122",
+      "bytes": 2092177,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/filming-2026-10-14/images/panel-9587cd2d-9bd0-4598-898b-3988bf71c931.png",
+      "sha256": "48299b07a25d66d02d9ed269a757601d67ffb73f2f9bb29f4bdd1bfc63e1abe8",
+      "bytes": 3381161,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/filming-2026-10-14/images/panel-ae8b66e3-3455-4593-a016-4b10d220b5be.png",
+      "sha256": "8f0105c478013d84ec9c3f081d57d37fb94735c70c1c9932e22e16beef8ac35e",
+      "bytes": 3642058,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/filming-2026-10-14/images/panel-b7aefa77-6112-46e0-8ce7-8a2f7d9991f7.png",
+      "sha256": "02d76b9ff01c74a285cc5baf9a3bf7c46f8696f89d5646e034020096bf8f3278",
+      "bytes": 3466656,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/filming-2026-10-14/images/panel-b94e2d76-b97c-4c37-87cb-435e34efccb4.png",
+      "sha256": "e52345a334ba4bcee2e18af7ca819c23fa501f6109cbabe0bc2435d6a0dac724",
+      "bytes": 2113099,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/filming-2026-10-14/images/panel-c1ead1c6-4f84-40a3-aa3e-759e511c6d38.png",
+      "sha256": "6d85d4a2e50b5866ae2e0d61b4aa7a11b82fdcb9c4b7147ac19dfb955c2fd75b",
+      "bytes": 3430869,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/filming-2026-10-14/images/panel-c74d4630-bf4e-47df-a449-ff60230d7438.png",
+      "sha256": "418c5d6c563805ecc2b0642cea30f1d65d1cfee9c516831969644bb3a3e48701",
+      "bytes": 2158233,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/filming-2026-10-14/images/panel-e63e6024-6b37-4c3e-ac42-0167ec9085d8.png",
+      "sha256": "ad0d55ffebf9514db45553874664301ee0971bfffb4e1ba89e20ce9cdb1aec20",
+      "bytes": 2134222,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/filming-2026-10-14/images/sheet-a03e86ae-6db3-42d7-aaee-cef8bdad1614.png",
+      "sha256": "ed076cf54cd0a5f5dc03c2996514a01c7fcbdcc24eccc48e3234a277d80c7653",
+      "bytes": 2798961,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/filming-2026-10-14/projects/17638779-4ed3-4af0-9e78-23f812b563e8/project.json",
+      "sha256": "5daa05a6a44f139a3efbc61ed19583399b27dae0799aafaa9cb72beaca5d3e6c",
+      "bytes": 30125,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/images/742f951d-ad72-4307-8910-f1a4ece7631d.png",
+      "sha256": "a77b73bc6d39fc166a158c225c4c290c18bebf67de613216317ddb5dfee87c2e",
+      "bytes": 3020431,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/images/9d26d039-2170-4be3-958f-18a193cefac7.png",
+      "sha256": "d3c5a56e436a3460ae6dec547f8e132e85d0af641deafcd8d2529414de3a3239",
+      "bytes": 2792548,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/images/ccfa58a3-336d-422a-a050-2e4cf706dc31.png",
+      "sha256": "7224a600a16e886da6e35a0783191a3f567759f61c65010079b45bf7276a55ec",
+      "bytes": 3390960,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/images/panel-04d98c86-d6f1-4a35-b2ff-ca9bffb33902.png",
+      "sha256": "4aa5a9659a60f9ec5370f3df5482e2e7340f27945a8fd75476a7768d54bd0845",
+      "bytes": 2593935,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/images/panel-108567dd-de51-4731-8f33-d1b12449f417.png",
+      "sha256": "215f4414e7174d9e30280cf215fa65d86d9e1e657135153c73b768fe2a17e45f",
+      "bytes": 2309636,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/images/panel-504afa33-b52d-4d1a-8103-67e0d2fe56b5.png",
+      "sha256": "6049d60061dee54ced5999d99df29c6b2c139387c3708d354cb85ca8edbeea90",
+      "bytes": 3417231,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/images/panel-74312f2f-fa2d-4c91-a11c-f9ceae0777b8.png",
+      "sha256": "a69c155cecd3e91a4271d1cc3d733bcaacbc8e90c9c6029a72b00de60fcd3bae",
+      "bytes": 2666035,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/images/panel-968a12eb-886f-4df5-a6df-21757bf34f5e.png",
+      "sha256": "4790f565f4bb81fc5c0ce1941904ec7f2cbdab6865c44ef49daf366f3cf18df5",
+      "bytes": 3583061,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/images/panel-b06aea54-3251-4f05-a3c6-dd27bda440f6.png",
+      "sha256": "8c07155e6794942e4e222fe582074bd18ef96da49eab220547c6cb8b6ac249d5",
+      "bytes": 2453927,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/images/panel-d811c65f-474b-49e4-ba68-63457efa9ea9.png",
+      "sha256": "2944bb39329bb766e7fba68d0bebd623dcbae869a504ab42180b0fa60b94db1f",
+      "bytes": 3759876,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/images/panel-d8521f25-c110-4fd0-b744-fd71aad7cf15.png",
+      "sha256": "9d9b93c9339d12c0cccb751c2cbbf005a67fc5aa45b32b4220b66f18fd45de05",
+      "bytes": 3564374,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/images/panel-f9d809e2-60d0-4794-993f-f9d3cb2cd538.png",
+      "sha256": "6afbbe21b56ac308ebd3f542794c58e5d89336254508285d9e53c4ceb01e28f1",
+      "bytes": 2394483,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/images/sheet-2f52b164-a997-4905-8830-494520960700.png",
+      "sha256": "43e04b367af4867b464010861f79588a855ebaaf009decc4c36bd38cc8b37f9a",
+      "bytes": 2666897,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/images/sheet-b22b9b91-b855-46df-b214-8d88bee9deb3.png",
+      "sha256": "d253f90411a08e440997955eac246336b506f8f11f3cca8177f80c2fb8fd8c0c",
+      "bytes": 2834658,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/0-sheet.png",
+      "sha256": "d1714ed2eec480069153351567412a50d98472bb7f7aec9d8b7c450749e37f2c",
+      "bytes": 3155539,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/1-close.png",
+      "sha256": "f3ac6a161e9fb3fab33013a32245d779738d73372e9e2377bfaca2158d9d4a51",
+      "bytes": 2231002,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/2-wide.png",
+      "sha256": "49672aa48b158ec067c96210617a164f5b2cc296b44576439deaece6d4ad965f",
+      "bytes": 3753650,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/canary-2026-10-14/0-sheet.png",
+      "sha256": "117d1bfcdbe224908c8bef61d0dbc925a8456f765c02249dfb9caa3c0a968e8c",
+      "bytes": 3245351,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/canary-2026-10-14/1-close.png",
+      "sha256": "6693ecd055d010bc551a6234db36f7bd97759f49fc8784ff1e49c0cd4bef4e29",
+      "bytes": 2283201,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/canary-2026-10-14/2-wide.png",
+      "sha256": "21a091eaf1f8e74c9fd689469f9132d32178c2ef0a6c99b2c4b522f72a6522ee",
+      "bytes": 3791881,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/canary-2026-10-14/index.html",
+      "sha256": "dd2c374924a95d0652de4af366fda34e523ace1a40f7dc88e72f2f68427ec44d",
+      "bytes": 2393,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/canary-2026-10-14/manifest.json",
+      "sha256": "c20f1b8fc963688990fd13249a728a44ae695d646d713185e8d7a94ca331e526",
+      "bytes": 1621,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/index.html",
+      "sha256": "0338825e71d3e2dc28d178ca2a80cfc34b3b01b83302befa18fda57bb53504ec",
+      "bytes": 2396,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/manifest.json",
+      "sha256": "e8d633066bf8de6a844ec8909824917f68391b115647ee2875831fb8f5c02151",
+      "bytes": 1587,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/motion/A-close.mp4",
+      "sha256": "9e95ec3280283873f77d02a19f1044c809efcd91c579a2e169c687a0de7e9ee0",
+      "bytes": 5286145,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/motion/A-medium.mp4",
+      "sha256": "72deacd6b6984c8926f817ad4774598d6d0d8cdd155332e613cb8bae5a519e8a",
+      "bytes": 3111633,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/motion/A-wide.mp4",
+      "sha256": "d9d812eb3602a2bfb211e7a3b04cac0b5eb3a9a6b6d1c6558174a9230bafe00d",
+      "bytes": 7493457,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/motion/B-close.mp4",
+      "sha256": "9ef9a5269621b34ccfe207cf6f18bcf14def9547b68c0fb0fa0f16c758dbf6b0",
+      "bytes": 4342055,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/motion/B-medium.mp4",
+      "sha256": "ff78105fd003f96137b2c7b57b84e600be2fba27226f3b6bf6272cfdfb61cbb1",
+      "bytes": 2948932,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/motion/B-wide.mp4",
+      "sha256": "e87ceef4aa7c42a4297e4b57f6efacf626790be7fd89351e51c76d6f666cd727",
+      "bytes": 5750261,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/motion/frames/A-close-first.jpg",
+      "sha256": "348505a30e129ecc4e865918d74a5efbd1d01f6a8e0781a37025e79771d8006a",
+      "bytes": 267131,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/motion/frames/A-close-last.jpg",
+      "sha256": "93b9b86dac3ce2f0762e69ab4444e63bfe48bb5a94b657c170659c1052204126",
+      "bytes": 215351,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/motion/frames/A-close-middle.jpg",
+      "sha256": "07f44c76fbaefef6f95d7ce4eb5f410c3d2c375d5058dfd9406c25e0173e97f0",
+      "bytes": 209329,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/motion/frames/A-medium-first.jpg",
+      "sha256": "378e201109f2093404ed568d0d515e1f02a6a8742f8029e98ea15c77a418775c",
+      "bytes": 235803,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/motion/frames/A-medium-last.jpg",
+      "sha256": "bead19fa6739785aa4beb2f7f60ffb619675ee589595fe4ccf69743021565687",
+      "bytes": 220561,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/motion/frames/A-medium-middle.jpg",
+      "sha256": "458d91913cb8c189ea43431afa381d4a21367536d8f691465d947ca595c96e83",
+      "bytes": 210651,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/motion/frames/A-wide-first.jpg",
+      "sha256": "9a9e722dfa68e1e0878cfb7b90a4260f32519ae1fee764167eea5f80ac5cb675",
+      "bytes": 349172,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/motion/frames/A-wide-last.jpg",
+      "sha256": "bcecf8820aacdd3356709ff67e3d10568c98e4dfec06bbd937f0e91581275ea5",
+      "bytes": 218123,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/motion/frames/A-wide-middle.jpg",
+      "sha256": "a8da9df786d6dd4eacb01fb1d6428c514adc48fba7820351a48c373119f152c5",
+      "bytes": 144255,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/motion/frames/B-close-first.jpg",
+      "sha256": "2b0854ddeef6ddf2bd245b707c6545d520825a7ef12b6bdab5d47aca050a97b8",
+      "bytes": 250739,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/motion/frames/B-close-last.jpg",
+      "sha256": "3d6b90dd99a369bd0fd170a70aaf31d5a0ac9ace64af11ef6dc32d7d3b48d199",
+      "bytes": 203449,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/motion/frames/B-close-middle.jpg",
+      "sha256": "5cd1f67635ef3a6df476bd3bf492fb827313dbd92b19f68d275631b30073046c",
+      "bytes": 201048,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/motion/frames/B-medium-first.jpg",
+      "sha256": "ab699cd5b0f22628f44ee233f291955c4d175c01d3b857bf7dafc5d53d0c026f",
+      "bytes": 231361,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/motion/frames/B-medium-last.jpg",
+      "sha256": "4cdf435a65cdbfddd550bc2299ad6991612516ebe3e5161dea93c5e0551985bc",
+      "bytes": 221262,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/motion/frames/B-medium-middle.jpg",
+      "sha256": "c7192f6997dc145f61eb34d003aeac17e5d2df08903760b97226725e71e21968",
+      "bytes": 220541,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/motion/frames/B-wide-first.jpg",
+      "sha256": "bca9da564e1ac9b21818a3074ec390063daaed5dd1aec93c1e05e53628eade63",
+      "bytes": 318702,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/motion/frames/B-wide-last.jpg",
+      "sha256": "43b1946a60c1b0f2cc69ba4b03dac71798b47a1719dcd69b7dd63a43917c45ba",
+      "bytes": 139145,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/motion/frames/B-wide-middle.jpg",
+      "sha256": "07f5f5dfdc9228bef218d853ebe9fc0dca4e790160a0f69abd79ed0e43f55e87",
+      "bytes": 190622,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/motion/index.html",
+      "sha256": "0f1cbddaef34f30f915d4fb70553a373f85121b6aae6e2df6b75346ad7707f17",
+      "bytes": 17029,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/motion/inputs/close.jpg",
+      "sha256": "690eebcb313a9a80d30ef00bc3e8f14fc9fa5d5023b208baf8e97368f8223d9c",
+      "bytes": 369999,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/motion/inputs/medium.jpg",
+      "sha256": "e547a50a006061df7aff80a0680fcfbe69de97d1a17d4f2d7a6eaf8c3be15843",
+      "bytes": 316190,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/motion/inputs/medium.png",
+      "sha256": "36913352f1b7946036cda5ef5e5600c9286592356e809423ccf736e06cb2a489",
+      "bytes": 2153106,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/motion/inputs/sheet.jpg",
+      "sha256": "bb7e3dfacd72a2abb162f5d1ebdfd0f2dd4eeb77770e53c437bb88dd6b07787a",
+      "bytes": 505775,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/motion/inputs/wide.jpg",
+      "sha256": "b9fb3b4666fa857c1d2c877b338602bb2da3671901aa696a8183906a12395c15",
+      "bytes": 576252,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/motion/jobs.json",
+      "sha256": "d27effe7a21e9c1125368a45c197ed46453cb59c0ac1b87d100d4b2609657ee4",
+      "bytes": 12769,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/motion/manifest.json",
+      "sha256": "2a6ae51ba2b7ddcfb924584ee112366d61d14655fa6620619a116a3626cb6bd4",
+      "bytes": 16900,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/refs/manifest.json",
+      "sha256": "4dc5c44a1d4387066d4382966c049d9b48e78d9ec58cf23fe2df30da777d3564",
+      "bytes": 1644,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/refs/setting-ref.png",
+      "sha256": "8c87c8fa1a9ccf6309d96ef7aff7da2213c161cc42d89c7c0b4ca37adc09350a",
+      "bytes": 3749182,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/refs/style-ref.png",
+      "sha256": "2b1c2fc2428114419594585c96fb37024be5d6452cd80e51f4accee2bff25162",
+      "bytes": 3402012,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/setting-ref/0-sheet.png",
+      "sha256": "c228f075a0d303653851e96c8a5bf58f322106750c12fcaad24c98521b2e7ae9",
+      "bytes": 3223596,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/setting-ref/1-wide.png",
+      "sha256": "343b1a366960b3bc7540768cb9a9f7967018c35c35b29fa3bbd56dd16f509911",
+      "bytes": 3560920,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/setting-ref/2-medium.png",
+      "sha256": "1999ff3181b47caee5eaf8f9d96d660ff7ff48dfe2770ee7153e9679770188d7",
+      "bytes": 2406465,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/setting-ref/3-close.png",
+      "sha256": "3379c02a929de1012c0ecd8e7082eed7da7b24d6f5d1e8b637964ff69168889e",
+      "bytes": 2072386,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/setting-ref/index.html",
+      "sha256": "c4199a4aaff0f1a68352d74ca6e99ad1758aab7620c7b48e378143cad6880d28",
+      "bytes": 2500,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/setting-ref/manifest.json",
+      "sha256": "0c7a52778e38bf24fb8069d7bf1339fab114c5b5eb4cec9f4f08b741d0380b2d",
+      "bytes": 9852,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/setting-ref/ref.png",
+      "sha256": "8c87c8fa1a9ccf6309d96ef7aff7da2213c161cc42d89c7c0b4ca37adc09350a",
+      "bytes": 3749182,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/style-ref/0-sheet.png",
+      "sha256": "d65fa229da3a4d38fb209bf5332ab6b6d66921ec6ca880b85f88d3d50e5cce51",
+      "bytes": 2865545,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/style-ref/1-wide.png",
+      "sha256": "dde8d50d9d51b6e94613106bd41d5f33b6ac7c3f49305b66809b414ff2dc0c64",
+      "bytes": 3400054,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/style-ref/2-medium.png",
+      "sha256": "85ccea7682dd2c26658c2e627f358c1efaae508e24fba77d466b329e0ba5e526",
+      "bytes": 2141378,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/style-ref/3-close.png",
+      "sha256": "5f287fb24c6c7b24af778319245ee30b92fe5eea8a8ccdd3d2c64e5ee01af53c",
+      "bytes": 2079329,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/style-ref/index.html",
+      "sha256": "62616e2404203cfdc235813ea4a72e14e4a032d2ec25ba9c417d365beae004b8",
+      "bytes": 2455,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/style-ref/manifest.json",
+      "sha256": "103473ba6a77aa80f1d86bd8b849058fe792a8aa1373c8addf703b88404d33cc",
+      "bytes": 9658,
+      "bucket": "project-files"
+    },
+    {
+      "key": "inkdesk/archive/data/kernel-test/style-ref/ref.png",
+      "sha256": "2b1c2fc2428114419594585c96fb37024be5d6452cd80e51f4accee2bff25162",
+      "bytes": 3402012,
+      "bucket": "project-files"
+    }
+  ]
+}
