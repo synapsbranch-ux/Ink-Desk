@@ -7,6 +7,8 @@
 // alone, and accepting it starts a new project (`POST /api/projects` with the
 // story), the old one untouched. See `devpost/prd.md > States and
 // Boundaries` and `> Screens and Layout` (back-navigation rules).
+import { ownedProject } from '@/lib/auth/access'
+import { requireUser } from '@/lib/auth/session'
 import { JSON_LIMIT_BYTES, parseJson } from '@/lib/body'
 import { read, update } from '@/lib/chapter'
 import { writeSynopsis } from '@/lib/claude'
@@ -23,6 +25,8 @@ const CALM = 'The studio couldn’t write a synopsis just now. Try again in a mo
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   try {
+    const userId = await requireUser(req)
+    await ownedProject(userId, id) // before the flag, the body or any provider: someone else's project is a 404
     assertGenerationEnabled()
     const { pitch, genre, tone } = await parseJson(
       req,

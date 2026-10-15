@@ -166,7 +166,7 @@ const planOut = (a: string, b: string, count: number) => {
 
 /** A project with a saved scenario, two characters locked with real sheets. */
 async function lockedProject(title: string, scenarioText = SAMPLE_SCENARIO): Promise<{ pid: string; ids: [string, string] }> {
-  const first = await createProject({ title, stylePresetId: 'manhwa-colour' })
+  const first = await createProject({ title, stylePresetId: 'manhwa-colour' }, 'local')
   const pid = first.address.projectId
   const up = (fn: (d: Desk) => Desk) => updateDesk(pid, fn)
   await up((d) => applyPatch(d, { storyMode: 'scenario', scenario: { text: scenarioText, notes: 'Quiet, a little magical.' } }))
@@ -233,7 +233,7 @@ try {
 
   // 3. Scenario mode, the gates, the frozen words. -----------------------------------------
   {
-    const fresh = await createProject({ title: 'Gates', stylePresetId: 'manga-bw' })
+    const fresh = await createProject({ title: 'Gates', stylePresetId: 'manga-bw' }, 'local')
     let d: Desk = fresh
     assert.equal(gates(d).cast.open, false)
     d = applyPatch(d, { storyMode: 'scenario', scenario: { text: '  ' } })
@@ -447,7 +447,7 @@ try {
     assert.equal(desk.cover?.versions.length, 1)
     assert.equal(plan.currentCoverImageId(desk.cover), desk.cover?.versions[0].imageId)
     assert.ok(desk.cover?.versions[0].imageId.startsWith('cover-'))
-    const summary = (await store.listProjects()).find((s) => s.id === pid)
+    const summary = (await store.listProjects('local')).find((s) => s.id === pid)
     assert.equal(summary?.thumbnailImageId, desk.cover?.versions[0].imageId, 'the dashboard card shows the cover')
 
     // Redraw that fails: recorded as failed, the art and the title kept.
@@ -545,7 +545,7 @@ try {
     assert.equal((await post(pid, { panels: { '0': { dialogue: 'x' } }, at: 5 })).status, 404, 'a page the chapter doesn’t have')
 
     // A stale tab still in Scenario can't settle a project that is in Pitch.
-    const pitchy = await createProject({ title: 'Pitchy', stylePresetId: 'manga-bw' })
+    const pitchy = await createProject({ title: 'Pitchy', stylePresetId: 'manga-bw' }, 'local')
     const refused = await post(pitchy.address.projectId, { scenario: { text: 'A story.', saved: true } })
     assert.equal(refused.status, 409)
     assert.match(((await refused.json()) as { error: string }).error, /Switch to Scenario/)

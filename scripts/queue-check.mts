@@ -157,7 +157,7 @@ const line = (characterId: string, n: number) => ({
 
 /** A project with both characters locked and a four-panel page, ready to ink. */
 async function lockedPage(title: string) {
-  const first = await createProject({ title, stylePresetId: 'manga-bw' })
+  const first = await createProject({ title, stylePresetId: 'manga-bw' }, 'local')
   const pid = first.address.projectId
   const addr = first.address
   await updateDesk(pid, (c) => ({ ...c, synopsis }), addr)
@@ -322,7 +322,7 @@ try {
     ok('a page inks through BullMQ: four records done, each picture attached once, the claim released, cost counted once')
 
     // A sheet is a job too: the words are reused, the picture drawn by the worker.
-    const s = await createProject({ title: 'Sheet', stylePresetId: 'manga-bw' })
+    const s = await createProject({ title: 'Sheet', stylePresetId: 'manga-bw' }, 'local')
     await updateDesk(s.address.projectId, (c) => ({ ...c, synopsis }), s.address)
     const cast = await updateDesk(s.address.projectId, (c) => proposeCast(c, kaito, mio), s.address)
     const [who] = cast.cast

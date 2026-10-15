@@ -5,6 +5,8 @@
 // `GET /api/projects/[id]` to watch them arrive. Safe to call again after a
 // reload — a written page is not rewritten and a queued panel is skipped.
 // See `lib/director.ts` and `lib/panels.ts`.
+import { ownedProject } from '@/lib/auth/access'
+import { requireUser } from '@/lib/auth/session'
 import { pageAt } from '@/lib/chapter'
 import { startPage } from '@/lib/director'
 import { errorResponse } from '@/lib/errors'
@@ -15,9 +17,11 @@ export const runtime = 'nodejs'
 
 const CALM = 'The page couldn’t start inking just now. Try again in a moment.'
 
-export async function POST(_req: Request, { params }: { params: Promise<{ id: string; n: string }> }) {
+export async function POST(req: Request, { params }: { params: Promise<{ id: string; n: string }> }) {
   const { id, n } = await params
   try {
+    const userId = await requireUser(req)
+    await ownedProject(userId, id) // before the flag, the body or any provider: someone else's project is a 404
     assertGenerationEnabled()
     const addr = await pageAt(id, /^\d+$/.test(n) ? Number(n) : -1)
     const queued = await startPage(addr)

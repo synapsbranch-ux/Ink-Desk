@@ -2,6 +2,8 @@
 // when the Library opens with nothing proposed yet; after that, Reroll. The
 // story is the accepted synopsis (Pitch) or the saved scenario (Scenario,
 // slice 11) — `storyBrief` reads either.
+import { ownedProject } from '@/lib/auth/access'
+import { requireUser } from '@/lib/auth/session'
 import { proposeCast } from '@/lib/cast'
 import { read } from '@/lib/chapter'
 import { writeCast } from '@/lib/claude'
@@ -15,9 +17,11 @@ export const runtime = 'nodejs'
 
 const CALM = 'The studio couldn’t propose a cast just now. Try again in a moment.'
 
-export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   try {
+    const userId = await requireUser(req)
+    await ownedProject(userId, id) // before the flag, the body or any provider: someone else's project is a 404
     assertGenerationEnabled()
     // Checked before the call so a refused request costs nothing; the same
     // rules run again inside the lock, where they are authoritative.

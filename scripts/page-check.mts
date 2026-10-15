@@ -44,7 +44,7 @@ const { Refused } = await import('../lib/errors')
 import type { Chapter, Project } from '../lib/types'
 
 // One project on the scratch desk (v2); every call below is addressed to its one page.
-const first = await createProject({ title: 'Page check', stylePresetId: 'manga-bw' })
+const first = await createProject({ title: 'Page check', stylePresetId: 'manga-bw' }, 'local')
 const pid = first.address.projectId
 const addr = first.address
 const read = () => readDesk(pid, addr)

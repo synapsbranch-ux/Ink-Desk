@@ -3,6 +3,8 @@
 // queued in page order: page 1's, then page 2's, and so on, `PANEL_CONCURRENCY`
 // at a time across the queue. Idempotent. A static `all` segment, matched
 // before `pages/[n]`, whose own route only takes digits.
+import { ownedProject } from '@/lib/auth/access'
+import { requireUser } from '@/lib/auth/session'
 import { startAll } from '@/lib/director'
 import { errorResponse } from '@/lib/errors'
 import { assertGenerationEnabled } from '@/lib/generation'
@@ -12,9 +14,11 @@ export const runtime = 'nodejs'
 
 const CALM = 'The chapter couldn’t start inking just now. Try again in a moment.'
 
-export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   try {
+    const userId = await requireUser(req)
+    await ownedProject(userId, id) // before the flag, the body or any provider: someone else's project is a 404
     assertGenerationEnabled()
     const { written, queued } = await startAll(id)
     if (written.length > 0) console.log(`[chapter] wrote page ${written.map((n) => n + 1).join(', ')} from the plan`)

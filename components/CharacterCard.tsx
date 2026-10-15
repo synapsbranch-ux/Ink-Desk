@@ -8,6 +8,7 @@
 // see `devpost/spec.md > Components > Cast Station and Character Card`.
 import { useState } from 'react'
 import { GenerationStatus } from '@/components/GenerationStatus'
+import { useImageUrl } from '@/components/project-image'
 import type { CharacterEdit } from '@/lib/patch'
 // The edit schema's own ceilings, so a long field stops at the box rather than failing the whole save.
 import { LOOK_MAX_CHARS, NAME_MAX_CHARS, ROLE_MAX_CHARS, TRAIT_MAX_CHARS, TRAITS_MAX } from '@/lib/schemas'
@@ -39,6 +40,7 @@ type Props = {
 
 export function CharacterCard({ index, character: c, state, onEdit, onCommit, onReroll, onDraw, onLock, assets, onImport }: Props) {
   const { busy, notice } = state
+  const imageSrc = useImageUrl()
   const working = busy !== null
   const hasDna = Boolean(c.dna)
   const hasSheet = Boolean(c.sheetImageId)
@@ -178,7 +180,7 @@ export function CharacterCard({ index, character: c, state, onEdit, onCommit, on
           ) : c.sheetImageId ? (
             <div className="sheet-art">
               {/* eslint-disable-next-line @next/next/no-img-element -- served by our own route as final bytes; next/image would re-encode the art every panel is compared against */}
-              <img src={`/api/image/${c.sheetImageId}`} alt={`${c.name}’s model sheet`} />
+              <img src={imageSrc(c.sheetImageId)} alt={`${c.name}’s model sheet`} />
             </div>
           ) : (
             <div className="sheet-art sheet-empty">

@@ -2,12 +2,15 @@
 
 // The desk's front door (v2): project cards, New project, the library shelf
 // (empty until slice 10), and the budget readout. Implements
-// `devpost/prd.md > Dashboard`.
+// `devpost/prd.md > Dashboard`. Since slice 19 everything here is the signed-in
+// person's own — the page lists only their projects — and every picture is
+// asked for under its project's address.
 import Image from 'next/image'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { useState } from 'react'
 import { NewProjectDialog } from '@/components/NewProjectDialog'
+import { imageUrl } from '@/lib/image-url'
 import { stylePreset } from '@/lib/styles'
 import type { ProjectSummary, Station } from '@/lib/types'
 
@@ -28,9 +31,11 @@ type Props = {
   notice?: string | null
   /** The configured panel quality, for the New-project dialog's one-line estimate. */
   panelQuality: string
+  /** The account menu (`components/AuthControls.tsx`), rendered on the server; nothing on a desk without accounts. */
+  account?: React.ReactNode
 }
 
-export function Dashboard({ projects, notice = null, panelQuality }: Props) {
+export function Dashboard({ projects, notice = null, panelQuality, account = null }: Props) {
   // `/?new=1` opens the dialog straight away — the reader's "New project…" door.
   const search = useSearchParams()
   const [creating, setCreating] = useState(search.get('new') === '1')
@@ -61,6 +66,7 @@ export function Dashboard({ projects, notice = null, panelQuality }: Props) {
           <button type="button" className="btn btn-stamp" onClick={() => setCreating(true)}>
             New project
           </button>
+          {account}
         </div>
       </header>
 
@@ -119,7 +125,7 @@ export function Dashboard({ projects, notice = null, panelQuality }: Props) {
                         <div className={`project-thumb${p.thumbnailImageId ? '' : ' is-pencil'}`}>
                           {p.thumbnailImageId ? (
                             // eslint-disable-next-line @next/next/no-img-element -- generated art, served by id
-                            <img src={`/api/image/${p.thumbnailImageId}`} alt="" />
+                            <img src={imageUrl(p.id, p.thumbnailImageId)} alt="" />
                           ) : (
                             <span className="project-thumb-label">No art yet</span>
                           )}
@@ -164,7 +170,7 @@ export function Dashboard({ projects, notice = null, panelQuality }: Props) {
                     <Link href={`/p/${project.id}`} className="library-link" title={`Open ${project.title}`}>
                       <div className="library-sheet">
                         {/* eslint-disable-next-line @next/next/no-img-element -- the locked sheet, served by id */}
-                        <img src={`/api/image/${c.sheetImageId}`} alt={`${c.name}’s locked sheet`} />
+                        <img src={imageUrl(c.projectId, c.sheetImageId)} alt={`${c.name}’s locked sheet`} />
                       </div>
                       <div className="library-body">
                         <span className="library-name">{c.name}</span>

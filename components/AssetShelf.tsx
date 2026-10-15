@@ -11,6 +11,7 @@
 // capped at `maxSelected`, and the same upload control (with its rights
 // notice), so a storyteller can shelve pictures before the Library opens.
 import { useRef, useState } from 'react'
+import { useImageUrl } from '@/components/project-image'
 import { MAX_ASSETS, RIGHTS_NOTICE, sniffImage, UPLOAD_LIMIT_BYTES } from '@/lib/assets'
 import type { Asset } from '@/lib/types'
 
@@ -36,6 +37,7 @@ type Props = {
 }
 
 export function AssetShelf({ assets, uploading, notice, onUpload, onNotice, title, lede, selection }: Props) {
+  const imageSrc = useImageUrl()
   const input = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
   const full = assets.length >= MAX_ASSETS
@@ -110,7 +112,7 @@ export function AssetShelf({ assets, uploading, notice, onUpload, onNotice, titl
             ) : (
               <figure key={a.id} className="asset-tile">
                 {/* eslint-disable-next-line @next/next/no-img-element -- the stored bytes, served by id */}
-                <img src={`/api/image/${a.blobId}`} alt={a.name} />
+                <img src={imageSrc(a.blobId)} alt={a.name} />
                 <figcaption title={a.name}>{a.name}</figcaption>
               </figure>
             )
@@ -131,6 +133,7 @@ export function AssetShelf({ assets, uploading, notice, onUpload, onNotice, titl
 
 /** One shelf picture with its tick box: the whole tile is the label, the box is always visible. */
 function SelectableTile({ asset, selection }: { asset: Asset; selection: ShelfSelection }) {
+  const imageSrc = useImageUrl()
   const ticked = selection.selected.includes(asset.id)
   const full = !ticked && selection.selected.length >= selection.max
   const locked = Boolean(selection.lockedReason)
@@ -141,7 +144,7 @@ function SelectableTile({ asset, selection }: { asset: Asset; selection: ShelfSe
       title={full ? `The Director reads at most ${selection.max} references. Untick one first.` : undefined}
     >
       {/* eslint-disable-next-line @next/next/no-img-element -- the stored bytes, served by id */}
-      <img src={`/api/image/${asset.blobId}`} alt="" />
+      <img src={imageSrc(asset.blobId)} alt="" />
       <span className="asset-tick">
         <input
           type="checkbox"

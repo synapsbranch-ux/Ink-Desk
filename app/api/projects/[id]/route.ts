@@ -1,6 +1,8 @@
 // GET a project's desk · POST an edit (typing, chips, accept, navigation,
 // card text, Lock). The only writer besides the generation routes. The desk is
 // the open page of the project — see `lib/chapter.ts`.
+import { ownedProject } from '@/lib/auth/access'
+import { requireUser } from '@/lib/auth/session'
 import { parseJson } from '@/lib/body'
 import { assertEditAllowed } from '@/lib/cast'
 import { demoteStale, openRef, read, toDesk, update } from '@/lib/chapter'
@@ -17,15 +19,16 @@ export const runtime = 'nodejs'
 
 type Params = { params: Promise<{ id: string }> }
 
-export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, { params }: Params) {
   const { id } = await params
   try {
+    // Someone else's project is a 404, word for word the missing one's (slice 19).
+    const project = await ownedProject(await requireUser(req), id)
     // The reader of the desk enforces the floor: a panel on any page — or the
     // cover — still `inking` that no live job holds (its job ended, was let go
     // as dead, or never existed) comes back as `failed` with Try again; nothing
     // spins forever, on the open page or off it, and nothing alive is demoted
     // because a different web instance answered the poll (CR-1, CR-13).
-    const project = await store.readProject(id)
     const { activity, live } = await projectActivity(id)
     const maxAge = maxRunMs()
     const first = demoteStale(project, live, maxAge)
@@ -53,6 +56,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 export async function POST(req: Request, { params }: Params) {
   const { id } = await params
   try {
+    const owned = await ownedProject(await requireUser(req), id) // before the body is read
     // Sized for a whole scenario; every other route takes 64 KB.
     const patch: ChapterPatch = await parseJson(req, ChapterPatchSchema, PATCH_LIMIT_BYTES, 'That edit couldn’t be read.')
     // Panel edits are written to the page they were made on (`at`), which
@@ -61,7 +65,7 @@ export async function POST(req: Request, { params }: Params) {
     // project- or chapter-level and the same from any page's view.
     const at =
       patch.panels && patch.at !== undefined
-        ? { chapterId: (await store.readProject(id)).chapters[0]?.id ?? '', pageIndex: patch.at }
+        ? { chapterId: owned.chapters[0]?.id ?? '', pageIndex: patch.at }
         : undefined
     const written = await update(id, (c) => {
       // Once the cast exists, the story is frozen on this path too — a stale

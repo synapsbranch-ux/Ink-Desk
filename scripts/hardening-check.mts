@@ -60,6 +60,7 @@ globalThis.fetch = (async (input: RequestInfo | URL) => {
 const schemas = await import('../lib/schemas')
 const { JSON_LIMIT_BYTES } = await import('../lib/body')
 const { GENERATION_CLOSED } = await import('../lib/generation')
+const { generationEnabled } = await import('../lib/config')
 const { UPLOAD_LIMIT_BYTES } = await import('../lib/assets')
 const { SAMPLE_PITCH } = await import('../lib/prompts')
 const { SAMPLE_SCENARIO, SAMPLE_SCENARIO_NOTES } = await import('../lib/story')
@@ -385,14 +386,13 @@ try {
   assert.equal((await call(desk.GET, new Request('http://check/api'), { id: pid })).status, 200)
   assert.equal((await call(projects.POST, post({ title: 'Still open', stylePresetId: 'manga-bw' }))).status, 200)
   delete env.GENERATION_ENABLED
-  env.NODE_ENV = 'production'
-  await closedEverywhere('GENERATION_ENABLED unset in production')
-  env.GENERATION_ENABLED = 'true'
-  const open = await call(routes.cast.POST, post({}), { id: pid })
-  assert.notEqual(open.status, 503, 'GENERATION_ENABLED=true opens it in production')
-  delete env.GENERATION_ENABLED
-  delete env.NODE_ENV
-  ok(`GENERATION_ENABLED=false, or unset in production → 503 on all ${paid.length} paid routes, body unread, no provider call; edits stay open`)
+  // Slice 19: production always signs in through Clerk, before the flag is
+  // read, and Clerk only runs inside Next — so the routes are not called in
+  // production here (check:ownership holds the sign-in order, in test mode). The flag’s
+  // production default is held directly.
+  assert.equal(generationEnabled({ NODE_ENV: 'production' }), false, 'GENERATION_ENABLED unset is closed in production')
+  assert.equal(generationEnabled({ NODE_ENV: 'production', GENERATION_ENABLED: 'true' }), true, 'GENERATION_ENABLED=true opens it in production')
+  ok(`GENERATION_ENABLED=false → 503 on all ${paid.length} paid routes, body unread, no provider call; unset in production is closed; edits stay open`)
 
   console.log('\n  Request hardening check passed.\n')
 } finally {

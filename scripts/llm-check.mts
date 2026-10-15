@@ -234,7 +234,7 @@ try {
 
   // 8. A malformed fallback reply: refused, retried once, never written. -----
   delete process.env.ANTHROPIC_API_KEY
-  const project = await createProject({ title: 'LLM check', stylePresetId: 'manga-bw' })
+  const project = await createProject({ title: 'LLM check', stylePresetId: 'manga-bw' }, 'local')
   const pid = project.address.projectId
   const projectFile = join(dir, 'projects', pid, 'project.json')
   const before = await readFile(projectFile, 'utf8')

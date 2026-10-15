@@ -35,9 +35,11 @@ type Props = {
   gates: Gates
   saveState: SaveState
   onGo: (station: Station) => void
+  /** The account menu, from the page; nothing on a desk without accounts. */
+  account?: React.ReactNode
 }
 
-export function StationRail({ chapter, gates, saveState, onGo }: Props) {
+export function StationRail({ chapter, gates, saveState, onGo, account = null }: Props) {
   const title = chapter.title.trim() || chapter.synopsis?.title.trim() || 'Untitled project'
   const page = chapter.address.pageIndex + 1
   // The open page's panels, once it is written; the chapter's pages, once there is a plan.
@@ -75,6 +77,7 @@ export function StationRail({ chapter, gates, saveState, onGo }: Props) {
           <span className={`save-label is-${saveState}`} aria-live="polite">
             {SAVE_LABEL[saveState]}
           </span>
+          {account}
         </div>
       </header>
 

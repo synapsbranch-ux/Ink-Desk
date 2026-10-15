@@ -15,6 +15,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { CoverCard } from '@/components/CoverCard'
 import { GenerationStatus } from '@/components/GenerationStatus'
 import { PagePlanCard } from '@/components/PagePlanCard'
+import { useImageUrl } from '@/components/project-image'
 import { StationFooter } from '@/components/StationFooter'
 import { coverJob } from '@/lib/activity'
 import { estimateLine } from '@/lib/cost'
@@ -112,6 +113,7 @@ function BeforePlan({
   onWritePlan: (pageCount: number, replace: boolean) => void
 }) {
   const [pageCount, setPageCount] = useState(PAGE_COUNT_DEFAULT)
+  const imageSrc = useImageUrl()
   const scenario = chapter.storyMode === 'scenario' ? chapter.scenario : null
   const refs = scenario
     ? chapter.assets.filter((a) => scenario.referenceAssetIds.includes(a.id)).map((a) => a.name)
@@ -154,7 +156,7 @@ function BeforePlan({
               <figure key={c.id} className="plan-cast-member">
                 {c.sheetImageId && (
                   // eslint-disable-next-line @next/next/no-img-element -- the locked sheet, served by id
-                  <img src={`/api/image/${c.sheetImageId}`} alt={`${c.name}’s locked sheet`} />
+                  <img src={imageSrc(c.sheetImageId)} alt={`${c.name}’s locked sheet`} />
                 )}
                 <figcaption>
                   <span className="library-name">{c.name}</span>

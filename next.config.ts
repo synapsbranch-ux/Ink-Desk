@@ -1,4 +1,5 @@
 import type { NextConfig } from 'next'
+import { authMode, frontendApiOf, publishableKeyOf } from './lib/auth/config'
 
 // Kept small. The studio is a client-rendered page over a handful of Node
 // route handlers — see `devpost/spec.md > Components > Singletons and the Dev
@@ -19,14 +20,36 @@ const production = process.env.NODE_ENV === 'production'
 // script-src. Dev adds 'unsafe-eval' because React's dev build uses eval for
 // its error stacks; production never does. Clerk's hosts and the bucket's
 // signed-URL host join the list when those features land.
+//
+// Slice 19 kept 'unsafe-inline': the nonce policy moves to `proxy.ts` in
+// slice 23, with the rest of the after-audit. What slice 19 adds is Clerk, in
+// clerk mode only — its Frontend API host (read from the publishable key, so
+// the key must be set when the app is BUILT: these headers are fixed at
+// build time) for its script, its API calls, its images and its frames;
+// img.clerk.com for avatars; Cloudflare's Turnstile (challenges.cloudflare.com),
+// which is Clerk's bot protection on sign-up; and blob: workers, which
+// Clerk's session refresh uses. With sign-in off the policy is unchanged.
+function clerkHost(): string | null {
+  try {
+    return authMode() === 'clerk' ? frontendApiOf(publishableKeyOf()) : null
+  } catch {
+    // A mode production refuses: the boot stops the server with the sentence.
+    return null
+  }
+}
+const clerk = clerkHost()
+const fapi = clerk ? ` https://${clerk}` : ''
+const turnstile = clerk ? ' https://challenges.cloudflare.com' : ''
+
 const csp = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${dev ? " 'unsafe-eval'" : ''}`,
+  `script-src 'self' 'unsafe-inline'${dev ? " 'unsafe-eval'" : ''}${fapi}${turnstile}`,
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
+  `img-src 'self' data: blob:${fapi}${clerk ? ' https://img.clerk.com' : ''}`,
   "font-src 'self' data:",
-  "connect-src 'self'",
+  `connect-src 'self'${fapi}`,
   "media-src 'self' blob:",
+  ...(clerk ? [`frame-src 'self'${fapi}${turnstile}`, "worker-src 'self' blob:"] : []),
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",

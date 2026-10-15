@@ -7,6 +7,8 @@
 // If (b) fails the picture stays and the card says so; calling this again
 // with the same asset is "Reread picture". Lock applies the v1 rule
 // unchanged. See `devpost/prd.md > Library — Characters, Imported or Generated`.
+import { ownedProject } from '@/lib/auth/access'
+import { requireUser } from '@/lib/auth/session'
 import { JSON_LIMIT_BYTES, parseJson } from '@/lib/body'
 import { assertUnlocked, findCharacter, importSheet, setDna } from '@/lib/cast'
 import { read, update } from '@/lib/chapter'
@@ -26,6 +28,8 @@ const CALM = 'The picture couldn’t be read just now. Try again in a moment.'
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id: projectId } = await params
   try {
+    const userId = await requireUser(req)
+    await ownedProject(userId, projectId) // before the flag, the body or any provider: someone else's project is a 404
     assertGenerationEnabled()
     const { id, assetId } = await parseJson(req, ImportRequestSchema, JSON_LIMIT_BYTES, 'That request couldn’t be read.')
     const current = await read(projectId)

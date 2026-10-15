@@ -1,19 +1,36 @@
 // The Node half of `instrumentation.ts`, in its own module so the Edge build
 // never sees `process.exit` (Next compiles the hook for both runtimes).
 import 'server-only'
-import { ConfigError, appConfig } from './config'
+import { isProduction } from './auth/config'
+import { ConfigError, appConfig, authSettings } from './config'
 
 export function boot() {
   try {
-    const config = appConfig()
-    console.log(`[config] storage: ${config.storage} · queue: ${config.queue.mode} · generation: ${config.generationEnabled ? 'on' : 'off'}`)
+    // Sign-in (slice 19) is checked beside the rest, so production refuses
+    // INKDESK_AUTH=off or test, and Clerk without its keys, in the same one
+    // sentence as every other problem.
+    const problems: string[] = []
+    const read = <T,>(fn: () => T): T | null => {
+      try {
+        return fn()
+      } catch (err) {
+        if (!(err instanceof ConfigError)) throw err
+        problems.push(...err.problems)
+        return null
+      }
+    }
+    const config = read(appConfig)
+    const auth = read(() => authSettings())
+    if (!config || !auth) throw new ConfigError(problems)
+    console.log(`[config] storage: ${config.storage} · queue: ${config.queue.mode} · generation: ${config.generationEnabled ? 'on' : 'off'} · sign-in: ${auth.mode}`)
     if (config.queue.mode === 'inline') void sweepInlineJobs()
     else if (config.queue.redisUrl) void warmRedis()
   } catch (err) {
     // Next keeps a server whose hook failed listening, answering 500 to
     // everything. In production that must be a stopped process instead, so
-    // the host sees a failed deploy and keeps the last good one.
-    if (err instanceof ConfigError && process.env.NODE_ENV === 'production') {
+    // the host sees a failed deploy and keeps the last good one — whatever
+    // NODE_ENV it was started with, short of development (S19-SEC-1).
+    if (err instanceof ConfigError && isProduction()) {
       console.error(`[config] ${err.message}`)
       process.exit(1)
     }

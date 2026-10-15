@@ -16,11 +16,19 @@
 // own state, derives "Drawing…", "Inking…" and a failed sheet's sentence from
 // it — never from a request being open — and polls only while something is
 // active. See `devpost/spec.md > Queue and Worker (v3)`.
+//
+// Slice 19: every request goes through `apiFetch` — a lapsed session goes to
+// sign-in, and a project that is not (or no longer) this person's turns the
+// studio into the not-found page. Pictures are asked for under the project's
+// address, which `ProjectProvider` hands to every card.
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { apiFetch, PROJECT_GONE_EVENT } from '@/components/api-fetch'
 import { CastStation } from '@/components/CastStation'
 import { IDLE_CARD, type CardState } from '@/components/CharacterCard'
+import { DeskNotice } from '@/components/DeskNotice'
 import { DirectorStation, type Starting } from '@/components/DirectorStation'
+import { ProjectProvider } from '@/components/project-image'
 import { ReaderStation } from '@/components/ReaderStation'
 import { StationRail, type SaveState } from '@/components/StationRail'
 import { StoryStation, type SynopsisDraft } from '@/components/StoryStation'
@@ -43,7 +51,7 @@ const UNREACHABLE = 'The studio couldn’t be reached. Is the dev server running
 type Reply = Chapter | { error: string } | { draft: SynopsisDraft }
 
 async function postJson(url: string, body: unknown): Promise<{ ok: boolean; status: number; data: Reply }> {
-  const res = await fetch(url, {
+  const res = await apiFetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -51,9 +59,27 @@ async function postJson(url: string, body: unknown): Promise<{ ok: boolean; stat
   return { ok: res.ok, status: res.status, data: (await res.json()) as Reply }
 }
 
-export function Studio({ projectId }: { projectId: string }) {
+type Props = {
+  projectId: string
+  /** The account menu (`components/AuthControls.tsx`), rendered on the server; nothing on a desk without accounts. */
+  account?: React.ReactNode
+}
+
+export function Studio({ projectId, account = null }: Props) {
   const router = useRouter()
   const api = `/api/projects/${projectId}`
+
+  // A reply that says this project is not the caller's (or is gone): the
+  // not-found page, never an empty desk that would refuse every click.
+  const [gone, setGone] = useState(false)
+  useEffect(() => {
+    const onGone = (e: Event) => {
+      const url = (e as CustomEvent<string>).detail
+      if (url === api || url.startsWith(`${api}/`)) setGone(true)
+    }
+    window.addEventListener(PROJECT_GONE_EVENT, onGone)
+    return () => window.removeEventListener(PROJECT_GONE_EVENT, onGone)
+  }, [api])
 
   const [chapter, setChapter] = useState<Chapter | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('saved')
@@ -116,15 +142,19 @@ export function Studio({ projectId }: { projectId: string }) {
   )
 
   useEffect(() => {
-    fetch(api)
-      .then((r) => r.json())
-      .then((c: Chapter) => absorb(c))
+    apiFetch(api)
+      .then(async (r) => {
+        const data = (await r.json()) as Chapter | { error: string }
+        // A refusal is its sentence (a 401 is already on its way to sign-in, a 404 to the not-found page).
+        if (!r.ok || !('version' in data)) setNotice('error' in data ? data.error : 'The desk couldn’t be opened just now.')
+        else absorb(data)
+      })
       .catch(() => setNotice('The desk couldn’t be opened. Is the dev server running?'))
   }, [api, absorb])
 
   /** After a refused save, the browser's optimistic copy is wrong: re-read. */
   const refresh = useCallback(async () => {
-    const res = await fetch(api)
+    const res = await apiFetch(api)
     if (res.ok) absorb((await res.json()) as Chapter)
   }, [api, absorb])
 
@@ -360,7 +390,7 @@ export function Studio({ projectId }: { projectId: string }) {
       try {
         const form = new FormData()
         form.append('file', file)
-        const res = await fetch(`${api}/assets`, { method: 'POST', body: form })
+        const res = await apiFetch(`${api}/assets`, { method: 'POST', body: form })
         const data = (await res.json()) as Reply
         if (!res.ok || !('version' in data)) {
           setUploadNotice('error' in data ? data.error : 'The reference couldn’t be put on the shelf just now.')
@@ -570,7 +600,7 @@ export function Studio({ projectId }: { projectId: string }) {
     reading.current = true
     const seen = epoch.current
     try {
-      const res = await fetch(api, { signal: AbortSignal.timeout(POLL_TIMEOUT_MS) })
+      const res = await apiFetch(api, { signal: AbortSignal.timeout(POLL_TIMEOUT_MS) })
       if (!res.ok) return
       const desk = (await res.json()) as Chapter
       // A reply that landed while this read was on the wire is newer than it.
@@ -614,6 +644,8 @@ export function Studio({ projectId }: { projectId: string }) {
     return () => clearInterval(timer)
   }, [queueDown, live, poll])
 
+  if (gone) return <DeskNotice heading="There is no such page on the desk." />
+
   if (!chapter) {
     return (
       <div className="studio">
@@ -626,104 +658,106 @@ export function Studio({ projectId }: { projectId: string }) {
   const queueLine = queueNotice(activity)
 
   return (
-    <div className="studio">
-      <StationRail chapter={chapter} gates={g} saveState={saveState} onGo={goTo} />
-      {queueLine && (
-        <p className="studio-queue notice" role="status">
-          {queueLine}
-        </p>
-      )}
-      {refusal && (
-        <div className="studio-refusal notice" role="alert">
-          <span>{refusal}</span>
-          <button type="button" className="btn btn-secondary" onClick={() => setRefusal(null)}>
-            Dismiss
-          </button>
-        </div>
-      )}
-      {chapter.station === 'story' ? (
-        <StoryStation
-          chapter={chapter}
-          gates={g}
-          pending={pending}
-          notice={notice}
-          draft={draft}
-          onEdit={edit}
-          onCommit={commit}
-          onPitch={(p) => void pitch(p)}
-          onDraftChange={setDraft}
-          onAcceptNewStory={acceptNewStory}
-          onNewProject={newProject}
-          uploading={uploading}
-          uploadNotice={uploadNotice}
-          onUpload={(f) => void upload(f)}
-          onUploadNotice={setUploadNotice}
-          onGoCast={() => goTo('cast')}
-        />
-      ) : chapter.station === 'cast' ? (
-        <CastStation
-          chapter={chapter}
-          gates={g}
-          proposing={proposing}
-          proposeNotice={proposeNotice}
-          cards={cardViews}
-          onPropose={propose}
-          onEdit={editCard}
-          onCommit={commitCard}
-          onReroll={reroll}
-          onDraw={draw}
-          onLock={lock}
-          onImport={importSheet}
-          uploading={uploading}
-          uploadNotice={uploadNotice}
-          onUpload={(f) => void upload(f)}
-          onUploadNotice={setUploadNotice}
-          onGoDirector={() => goTo('director')}
-        />
-      ) : chapter.station === 'director' ? (
-        <DirectorStation
-          chapter={chapter}
-          gates={g}
-          planning={planning}
-          planNotice={planNotice}
-          starting={starting}
-          startNotice={startNotice}
-          coverBusy={coverBusy}
-          coverNotice={coverNotice}
-          activity={activity}
-          onEdit={edit}
-          onCommit={commit}
-          onWritePlan={(n, replace) => void writePlan(n, replace)}
-          onStartPage={(n) => void startPage(n, true)}
-          onStartAll={() => void startAll()}
-          onGenerateCover={() => void generateCover()}
-          onGoPage={() => goTo('storyboard')}
-        />
-      ) : chapter.station === 'storyboard' ? (
-        <StoryboardStation
-          key={chapter.address.pageIndex}
-          chapter={chapter}
-          gates={g}
-          scripting={scripting}
-          scriptNotice={scriptNotice}
-          activity={activity}
-          onWriteScript={writeScript}
-          onStartPanels={startPanels}
-          panelsStarting={panelsStarting}
-          panelNotice={panelNotice}
-          onPanelEdit={editPanel}
-          panelBusy={panelBusy}
-          onRedraw={redrawPanel}
-          onRewrite={rewritePanel}
-          onPickPage={pickPage}
-          onGeneratePage={() => void startPage(page, false)}
-          starting={starting === page}
-          startNotice={startNotice}
-          onGoReader={() => goTo('reader')}
-        />
-      ) : (
-        <ReaderStation chapter={chapter} onGoStoryboard={() => goTo('storyboard')} onNewProject={newProject} />
-      )}
-    </div>
+    <ProjectProvider value={projectId}>
+      <div className="studio">
+        <StationRail chapter={chapter} gates={g} saveState={saveState} onGo={goTo} account={account} />
+        {queueLine && (
+          <p className="studio-queue notice" role="status">
+            {queueLine}
+          </p>
+        )}
+        {refusal && (
+          <div className="studio-refusal notice" role="alert">
+            <span>{refusal}</span>
+            <button type="button" className="btn btn-secondary" onClick={() => setRefusal(null)}>
+              Dismiss
+            </button>
+          </div>
+        )}
+        {chapter.station === 'story' ? (
+          <StoryStation
+            chapter={chapter}
+            gates={g}
+            pending={pending}
+            notice={notice}
+            draft={draft}
+            onEdit={edit}
+            onCommit={commit}
+            onPitch={(p) => void pitch(p)}
+            onDraftChange={setDraft}
+            onAcceptNewStory={acceptNewStory}
+            onNewProject={newProject}
+            uploading={uploading}
+            uploadNotice={uploadNotice}
+            onUpload={(f) => void upload(f)}
+            onUploadNotice={setUploadNotice}
+            onGoCast={() => goTo('cast')}
+          />
+        ) : chapter.station === 'cast' ? (
+          <CastStation
+            chapter={chapter}
+            gates={g}
+            proposing={proposing}
+            proposeNotice={proposeNotice}
+            cards={cardViews}
+            onPropose={propose}
+            onEdit={editCard}
+            onCommit={commitCard}
+            onReroll={reroll}
+            onDraw={draw}
+            onLock={lock}
+            onImport={importSheet}
+            uploading={uploading}
+            uploadNotice={uploadNotice}
+            onUpload={(f) => void upload(f)}
+            onUploadNotice={setUploadNotice}
+            onGoDirector={() => goTo('director')}
+          />
+        ) : chapter.station === 'director' ? (
+          <DirectorStation
+            chapter={chapter}
+            gates={g}
+            planning={planning}
+            planNotice={planNotice}
+            starting={starting}
+            startNotice={startNotice}
+            coverBusy={coverBusy}
+            coverNotice={coverNotice}
+            activity={activity}
+            onEdit={edit}
+            onCommit={commit}
+            onWritePlan={(n, replace) => void writePlan(n, replace)}
+            onStartPage={(n) => void startPage(n, true)}
+            onStartAll={() => void startAll()}
+            onGenerateCover={() => void generateCover()}
+            onGoPage={() => goTo('storyboard')}
+          />
+        ) : chapter.station === 'storyboard' ? (
+          <StoryboardStation
+            key={chapter.address.pageIndex}
+            chapter={chapter}
+            gates={g}
+            scripting={scripting}
+            scriptNotice={scriptNotice}
+            activity={activity}
+            onWriteScript={writeScript}
+            onStartPanels={startPanels}
+            panelsStarting={panelsStarting}
+            panelNotice={panelNotice}
+            onPanelEdit={editPanel}
+            panelBusy={panelBusy}
+            onRedraw={redrawPanel}
+            onRewrite={rewritePanel}
+            onPickPage={pickPage}
+            onGeneratePage={() => void startPage(page, false)}
+            starting={starting === page}
+            startNotice={startNotice}
+            onGoReader={() => goTo('reader')}
+          />
+        ) : (
+          <ReaderStation chapter={chapter} onGoStoryboard={() => goTo('storyboard')} onNewProject={newProject} />
+        )}
+      </div>
+    </ProjectProvider>
   )
 }

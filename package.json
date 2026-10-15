@@ -26,6 +26,8 @@
     "check:hardening": "tsx scripts/hardening-check.mts",
     "check:queue": "tsx scripts/queue-check.mts",
     "check:activity": "tsx scripts/activity-check.mts",
+    "check:auth": "tsx scripts/auth-check.mts",
+    "check:ownership": "tsx scripts/ownership-check.mts",
     "video:capture": "npm --prefix video run capture --",
     "video:narrate": "npm --prefix video run narrate --",
     "video:render": "npm --prefix video run render",
@@ -36,6 +38,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",
     "@aws-sdk/client-s3": "3.1151.0",
+    "@clerk/nextjs": "7.9.14",
     "bullmq": "6.3.12",
     "ioredis": "5.11.1",
     "mongodb": "7.7.0",

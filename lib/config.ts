@@ -25,6 +25,7 @@
 // package the way Next's server does.
 import 'server-only'
 import { z } from 'zod'
+import { authMode, authProblems, type AuthMode } from './auth/config'
 
 type Env = Record<string, string | undefined>
 
@@ -349,4 +350,27 @@ export function appConfig(): AppConfig {
   const key = JSON.stringify(READ.map((name) => process.env[name] ?? null))
   if (memo?.key !== key) memo = { key, config: parseConfig(process.env) }
   return memo.config
+}
+
+// --- Sign-in (v3, slice 19) -----------------------------------------------------
+//
+// INKDESK_AUTH and Clerk's variables; the rules live in `lib/auth/config.ts`
+// (the proxy and the CSP read them too, and cannot load a server-only module).
+// Kept out of `parseConfig` on purpose: the worker never signs anyone in, and
+// a web service's boot asks for them on its own (`lib/boot.ts`).
+//
+//   INKDESK_AUTH                       clerk | off | test; unset = clerk in production, off elsewhere
+//   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY  else CLERK_PUBLISHABLE_KEY (mapped, not renamed)
+//   CLERK_SECRET_KEY                   required in clerk mode
+//   CLERK_JWT_KEY                      optional: sessions verified with no network call
+//   CLERK_WEBHOOK_SIGNING_SECRET       optional at boot; the webhook refuses without it
+//   APP_URL, NEXT_PUBLIC_APP_URL       the trusted origins; APP_URL required in production
+
+export type AuthSettings = { mode: AuthMode }
+
+/** The sign-in settings from `env`, or a `ConfigError` naming every problem — production refuses off, test, and clerk without its keys. */
+export function authSettings(env: Env = process.env): AuthSettings {
+  const problems = authProblems(env)
+  if (problems.length > 0) throw new ConfigError(problems)
+  return { mode: authMode(env) }
 }

@@ -1,6 +1,8 @@
 // Reroll one character: a fresh proposal from Claude replaces exactly that
 // card, with the other character held fixed in the prompt and untouched on
 // the desk. Text only — the sheet and DNA start over.
+import { ownedProject } from '@/lib/auth/access'
+import { requireUser } from '@/lib/auth/session'
 import { JSON_LIMIT_BYTES, parseJson } from '@/lib/body'
 import { assertUnlocked, findCharacter, replaceCharacter } from '@/lib/cast'
 import { read } from '@/lib/chapter'
@@ -19,6 +21,8 @@ const CALM = 'The studio couldn’t reroll that character just now. Try again in
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id: projectId } = await params
   try {
+    const userId = await requireUser(req)
+    await ownedProject(userId, projectId) // before the flag, the body or any provider: someone else's project is a 404
     assertGenerationEnabled()
     const { id } = await parseJson(req, RerollRequestSchema, JSON_LIMIT_BYTES, 'That request couldn’t be read.')
     const current = await read(projectId)

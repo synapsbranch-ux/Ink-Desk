@@ -1,5 +1,7 @@
 import type { Metadata } from 'next'
 import { Comic_Neue, Cormorant_Garamond, Lora } from 'next/font/google'
+import { ClerkProvider } from '@clerk/nextjs'
+import { providerKey, SIGN_IN_PATH, SIGN_UP_PATH } from '@/lib/auth/config'
 import './globals.css'
 
 // The three faces from `devpost/spec.md > Look and Feel`, exposed as CSS
@@ -35,10 +37,36 @@ export const metadata: Metadata = {
     'An AI manga creator studio: pitch a story, lock your cast, and watch a four-panel page ink in with your characters drawn consistently.',
 }
 
+/**
+ * Clerk's provider, in clerk mode only (slice 19): a desk with sign-in off, or
+ * in test mode, never loads Clerk. The publishable key is passed explicitly,
+ * because the learner's host names it CLERK_PUBLISHABLE_KEY and the SDK reads
+ * only NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY. A clerk mode with no key, or a mode
+ * production refuses, renders the page bare and never throws — `next build`
+ * prerenders this with whatever a development .env says, and the boot refuses
+ * such a server when it starts.
+ */
+function withAuth(children: React.ReactNode): React.ReactNode {
+  const publishableKey = providerKey()
+  if (!publishableKey) return children
+  return (
+    <ClerkProvider
+      publishableKey={publishableKey}
+      signInUrl={SIGN_IN_PATH}
+      signUpUrl={SIGN_UP_PATH}
+      afterSignOutUrl={SIGN_IN_PATH}
+      // The paper look: the one brand red, the body face, square corners.
+      appearance={{ variables: { colorPrimary: '#b5382e', fontFamily: 'var(--font-body), Georgia, serif', borderRadius: '2px' } }}
+    >
+      {children}
+    </ClerkProvider>
+  )
+}
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${heading.variable} ${body.variable} ${lettering.variable}`}>
-      <body>{children}</body>
+      <body>{withAuth(children)}</body>
     </html>
   )
 }

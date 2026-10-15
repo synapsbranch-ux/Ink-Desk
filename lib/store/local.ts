@@ -6,6 +6,7 @@
 //   data/projects/v1-migrated.json       the marker: the v1 desk was migrated once
 //   data/images/<kind>-<uuid>.<ext>      every image, sheets and panels alike
 //   data/jobs/<id>.json                  one job record each (v3, slice 18)
+//   data/users/<id>.json                 one account each, from Clerk's webhook (v3, slice 19)
 //   data/chapter.json                    the v1 desk, read once, never modified
 //
 // Two guarantees, for two different problems (see `devpost/spec.md >
@@ -35,13 +36,14 @@ import { createReadStream } from 'node:fs'
 import { mkdir, open, readdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
+import { authMode } from '../auth/config'
 import { ProviderError, Refused } from '../errors'
 import { isChapterV1, migrateV1 } from '../migrate'
-import { BUSY, isActive, type JobRecord } from '../queue/jobs'
+import { BUSY, LOCAL_OWNER, isActive, type JobRecord } from '../queue/jobs'
 import { singletons } from '../singleton'
 import { DEFAULT_STYLE_PRESET_ID } from '../styles'
 import type { Project, ProjectSummary } from '../types'
-import type { BlobKind, BlobStream, JobFilter, JobStore, Store, StoreHealth } from './index'
+import type { BlobKind, BlobStream, Claim, JobFilter, JobStore, ProjectOwner, Store, StoreHealth, UserRecord, UserStore } from './index'
 import { withFileLock } from './lock'
 
 // Overridable so the acceptance checks can run against a scratch folder.
@@ -50,6 +52,7 @@ export const DATA_DIR = process.env.INKDESK_DATA_DIR ?? 'data'
 export const PROJECTS_DIR = join(DATA_DIR, 'projects')
 export const IMAGES_DIR = join(DATA_DIR, 'images')
 export const JOBS_DIR = join(DATA_DIR, 'jobs')
+export const USERS_DIR = join(DATA_DIR, 'users')
 const V1_FILE = join(DATA_DIR, 'chapter.json')
 const V1_MARKER = join(PROJECTS_DIR, 'v1-migrated.json')
 
@@ -61,6 +64,27 @@ const PROJECT_ID = /^[a-z0-9][a-z0-9-]{0,63}$/
 export function isProjectId(id: string): boolean {
   return PROJECT_ID.test(id)
 }
+
+/** Whose a project is: a project written before accounts is `local`'s (slice 19). Shared with the cloud store. */
+export function ownerOf(project: Pick<Project, 'ownerId'>): string {
+  return project.ownerId ?? LOCAL_OWNER
+}
+
+/** The project with the owner it was read with — no edit can change it (slice 19). */
+export function keepOwner(next: Project, current: Project): Project {
+  const kept = { ...next }
+  if (current.ownerId === undefined) delete kept.ownerId
+  else kept.ownerId = current.ownerId
+  return kept
+}
+
+/** Is this project free to claim: no owner, or the desk-without-accounts owner. */
+export function claimable(ownerId: string | null | undefined): boolean {
+  return ownerId === undefined || ownerId === null || ownerId === LOCAL_OWNER
+}
+
+/** The sentence for a claim on a project somebody else owns. Shared with the cloud store. */
+export const OWNED_BY_ANOTHER = 'That project already has an owner; it was left as it is.'
 
 function projectDir(id: string): string {
   if (!isProjectId(id)) throw new Refused('There is no such project.', 404)
@@ -260,7 +284,7 @@ function updateProject(id: string, fn: (project: Project) => Project): Promise<P
     withFileLock(projectLock(id), async () => {
       const current = await readProject(id) // fresh read, inside both locks
       const next: Project = {
-        ...fn(current),
+        ...keepOwner(fn(current), current), // the owner is set once, at creation
         id, // the id is the folder; a change here would be a different project
         serverRunId: singletons.serverRunId,
         updatedAt: new Date().toISOString(),
@@ -293,7 +317,7 @@ export function summarize(p: Project): ProjectSummary {
     thumbnailImageId: cover ?? firstInked?.versions[firstInked.currentVersion]?.imageId ?? null,
     characters: p.library.characters
       .filter((c) => c.locked && c.sheetImageId)
-      .map((c) => ({ id: c.id, name: c.name, role: c.role, sheetImageId: c.sheetImageId as string, imported: c.source === 'imported' })),
+      .map((c) => ({ projectId: p.id, id: c.id, name: c.name, role: c.role, sheetImageId: c.sheetImageId as string, imported: c.source === 'imported' })),
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
   }
@@ -309,6 +333,9 @@ export function summarize(p: Project): ProjectSummary {
  * Modes (v2)`).
  */
 export async function migrateLegacy(): Promise<{ projectId: string | null; problem: string | null }> {
+  // The v1 desk was one person's; on a studio with accounts it would land as
+  // `local`'s, which nobody signed in can open — `claim-projects` hands it over instead.
+  if (authMode() !== 'off') return { projectId: null, problem: null }
   if (await exists(V1_MARKER)) return { projectId: null, problem: null }
   let raw: unknown
   try {
@@ -336,18 +363,48 @@ export async function migrateLegacy(): Promise<{ projectId: string | null; probl
   })
 }
 
-async function listProjects(): Promise<ProjectSummary[]> {
-  await migrateLegacy()
-  let entries: string[]
+/**
+ * Whose an unreadable project is, as far as either copy still says: a project
+ * that can't be opened is still listed for its owner (CR-14), and for nobody
+ * else. Where neither copy names one, it is `local`'s.
+ */
+async function rawOwner(id: string): Promise<string> {
+  for (const file of [PROJECT_FILE, BACKUP_FILE]) {
+    const raw = await readJson(join(PROJECTS_DIR, id, file)).catch(() => null)
+    const owner = (raw as { ownerId?: unknown } | null)?.ownerId
+    if (typeof owner === 'string') return owner
+  }
+  return LOCAL_OWNER
+}
+
+/** Whose one project is, even when it can't be read; null when its folder holds neither copy. */
+async function projectOwner(id: string): Promise<string | null> {
+  if (!isProjectId(id)) return null
+  const dir = projectDir(id)
+  if (!(await exists(join(dir, PROJECT_FILE))) && !(await exists(join(dir, BACKUP_FILE)))) return null
+  return rawOwner(id)
+}
+
+/** Every project folder's id, in no order — the marker file, a lock or a stray temp file are not projects. */
+async function projectIds(): Promise<string[]> {
   try {
-    entries = await readdir(PROJECTS_DIR)
+    return (await readdir(PROJECTS_DIR)).filter(isProjectId)
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return []
     throw err
   }
+}
+
+/**
+ * The caller's projects (slice 19). A local desk has no index: every project
+ * is read and the others are skipped — fine for one person's folder, which is
+ * the only thing a local desk is (production runs on the cloud store, SEC-12).
+ */
+async function listProjects(ownerId: string): Promise<ProjectSummary[]> {
+  await migrateLegacy()
+  const entries = await projectIds()
   const summaries: ProjectSummary[] = []
   for (const id of entries) {
-    if (!isProjectId(id)) continue // the marker file, a stray .tmp, anything else
     // One unreadable project never takes the desk down with it, and is never
     // hidden: it gets a "can't be read" card dated by its folder.
     let loaded: Loaded
@@ -358,6 +415,7 @@ async function listProjects(): Promise<ProjectSummary[]> {
     }
     if (loaded === null) continue // a folder without its file
     if ('project' in loaded) {
+      if (ownerOf(loaded.project) !== ownerId) continue // someone else's: not even its id is listed
       try {
         summaries.push(summarize(loaded.project))
         continue
@@ -365,11 +423,36 @@ async function listProjects(): Promise<ProjectSummary[]> {
         loaded = { problem: err instanceof Error ? err.message : String(err) }
       }
     }
+    if ((await rawOwner(id)) !== ownerId) continue
     console.warn(`[store] projects/${id} couldn’t be read; listed as unreadable: ${loaded.problem}`)
     const changed = await stat(join(PROJECTS_DIR, id)).then((info) => info.mtime, () => new Date(0))
     summaries.push(unreadableSummary(id, changed.toISOString()))
   }
   return summaries.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0))
+}
+
+/** Every project and its owner, for the claim script. An unreadable project is named with the owner its file still states. */
+async function projectOwners(): Promise<ProjectOwner[]> {
+  const owners: ProjectOwner[] = []
+  for (const id of await projectIds()) {
+    const loaded = await loadProject(id).catch((err: unknown) => ({ problem: String(err) }))
+    if (loaded === null) continue
+    if ('project' in loaded) owners.push({ id, title: loaded.project.title, ownerId: loaded.project.ownerId ?? null })
+    else owners.push({ id, title: id, ownerId: await rawOwner(id).then((o) => (o === LOCAL_OWNER ? null : o)) })
+  }
+  return owners.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+}
+
+/** Give an unowned project to `ownerId`, under the project's own lock — the one write that may set an owner after creation. */
+async function claimProject(id: string, ownerId: string): Promise<Claim> {
+  if (!isProjectId(id)) throw new Refused('There is no such project.', 404)
+  return withFileLock(projectLock(id), async () => {
+    const current = await readProject(id)
+    if (current.ownerId === ownerId) return 'already-theirs'
+    if (!claimable(current.ownerId)) throw new Refused(OWNED_BY_ANOTHER)
+    await writeProject({ ...current, ownerId, serverRunId: singletons.serverRunId, updatedAt: new Date().toISOString() }, current)
+    return 'claimed'
+  })
 }
 
 // --- Jobs -----------------------------------------------------------------------
@@ -521,6 +604,61 @@ const jobs: JobStore = {
   },
 }
 
+// --- Users ----------------------------------------------------------------------
+//
+// One file per account, `data/users/<id>.json`, written whole (temp, fsync,
+// rename) under that account's lock — Clerk may deliver one event twice, or
+// two at once.
+
+/** A user id is a filename: Clerk's ids (`user_…`) pass, a path never does. */
+const USER_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
+
+export function isUserId(id: string): boolean {
+  return typeof id === 'string' && USER_ID.test(id)
+}
+
+/** The sentence for an id that cannot be an account. Shared with the cloud store. */
+export const NOT_A_USER = 'That is not an account id.'
+
+const userLock = (id: string) => join(USERS_DIR, `.${id}.lock`)
+
+/** Pure, shared with the cloud store: the record after an upsert. A deleted account stays deleted and keeps no email. */
+export function upserted(current: UserRecord | null, user: { id: string; email: string; createdAt: string }, now: string): UserRecord {
+  if (current?.deletedAt) return current
+  if (current && current.email === user.email) return current // a replay changes nothing, not even the time
+  return { id: user.id, email: user.email, createdAt: current?.createdAt ?? user.createdAt, updatedAt: now, deletedAt: null }
+}
+
+/** Pure, shared with the cloud store: the record after a deletion. Deleting twice keeps the first time. */
+export function deleted(current: UserRecord | null, id: string, now: string): UserRecord {
+  if (current?.deletedAt) return current
+  return { id, email: '', createdAt: current?.createdAt ?? now, updatedAt: now, deletedAt: now }
+}
+
+async function readUser(id: string): Promise<UserRecord | null> {
+  const raw = (await readJson(join(USERS_DIR, `${id}.json`))) as UserRecord | null
+  return raw && raw.id === id ? raw : null
+}
+
+/** Read → change → write one account, under its lock. */
+function changeUser(id: string, fn: (current: UserRecord | null) => UserRecord): Promise<UserRecord> {
+  if (!isUserId(id)) return Promise.reject(new Refused(NOT_A_USER, 400))
+  return withFileLock(userLock(id), async () => {
+    const current = await readUser(id)
+    const next = fn(current)
+    if (next !== current) await writeAtomic(USERS_DIR, `${id}.json`, next)
+    return next
+  })
+}
+
+const users: UserStore = {
+  upsert: (user) => changeUser(user.id, (current) => upserted(current, user, new Date().toISOString())),
+  async get(id) {
+    return isUserId(id) ? readUser(id) : null
+  },
+  markDeleted: (id) => changeUser(id, (current) => deleted(current, id, new Date().toISOString())),
+}
+
 // --- Blobs ----------------------------------------------------------------------
 
 async function putBlob(bytes: Buffer, mediaType: string, kind: BlobKind): Promise<string> {
@@ -576,4 +714,20 @@ async function health(): Promise<StoreHealth> {
   return { mongo: 'n/a', bucket: 'n/a' }
 }
 
-export const localStore: Store = { listProjects, migrateLegacy, readProject, createProject, updateProject, putBlob, getBlob, openBlob, deleteBlob, jobs, health }
+export const localStore: Store = {
+  listProjects,
+  migrateLegacy,
+  readProject,
+  createProject,
+  updateProject,
+  projectOwners,
+  projectOwner,
+  claimProject,
+  putBlob,
+  getBlob,
+  openBlob,
+  deleteBlob,
+  jobs,
+  users,
+  health,
+}

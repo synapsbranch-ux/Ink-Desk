@@ -3,6 +3,8 @@
 // is queued to redraw from the same locked sheet. A refusal is a wording
 // problem, not a waiting problem, so it gets its own button and its own
 // route. See `devpost/spec.md > Important Failure Modes`.
+import { ownedProject } from '@/lib/auth/access'
+import { requireUser } from '@/lib/auth/session'
 import { pageAt, read } from '@/lib/chapter'
 import { rewritePanelVisuals } from '@/lib/claude'
 import { errorResponse, Refused } from '@/lib/errors'
@@ -11,7 +13,6 @@ import { updateCharging } from '@/lib/images'
 import { textMeter } from '@/lib/llm'
 import { isQueued, queuePanel } from '@/lib/panels'
 import { assertCanEnqueue } from '@/lib/queue/enqueue'
-import { LOCAL_OWNER } from '@/lib/queue/jobs'
 import { readWithActivity } from '@/lib/queue/status'
 import { PANEL_LAYOUT } from '@/lib/prompts'
 import { applyRewrite, findPanel } from '@/lib/script'
@@ -20,9 +21,11 @@ export const runtime = 'nodejs'
 
 const CALM = 'The panel couldn’t be rewritten just now. Try again in a moment.'
 
-export async function POST(_req: Request, { params }: { params: Promise<{ id: string; n: string; i: string }> }) {
+export async function POST(req: Request, { params }: { params: Promise<{ id: string; n: string; i: string }> }) {
   const { id, n, i } = await params
   try {
+    const userId = await requireUser(req)
+    await ownedProject(userId, id) // before the flag, the body or any provider: someone else's project is a 404
     assertGenerationEnabled()
     const index = /^[0-3]$/.test(i) ? Number(i) : -1
     if (index < 0) throw new Refused('There is no such panel.', 404)
@@ -38,7 +41,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
 
     // Ask whether the queue will take the panel BEFORE paying Claude to rephrase it: a refusal after the
     // rewrite would leave a rephrased panel that can only be drawn by paying again.
-    await assertCanEnqueue(LOCAL_OWNER)
+    await assertCanEnqueue(userId)
 
     const meter = textMeter()
     const visuals = await rewritePanelVisuals(panel, PANEL_LAYOUT[index], character, meter)

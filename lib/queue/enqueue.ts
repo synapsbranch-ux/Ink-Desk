@@ -23,7 +23,7 @@ import { Refused } from '../errors'
 import { singletons } from '../singleton'
 import { store } from '../store'
 import { creditsBreakerOpen } from './breaker'
-import { ABANDONED, BUSY, KEEP_FINISHED_MS, PAUSED, TOO_MANY, abandon, finish, newJob, priorityFor, type JobRecord, type NewJob } from './jobs'
+import { ABANDONED, BUSY, KEEP_FINISHED_MS, LOCAL_OWNER, PAUSED, TOO_MANY, abandon, finish, newJob, priorityFor, type JobRecord, type NewJob } from './jobs'
 import { within } from './redis'
 import { addToQueue } from './queues'
 import { isJobLive } from './status'
@@ -79,8 +79,21 @@ function prune(): void {
   })
 }
 
-export async function enqueueJob(input: NewJob): Promise<Enqueued> {
+/**
+ * Whose the job is (slice 19): the owner of the project it draws for. The
+ * engines that queue work (`lib/panels.ts`, `lib/sheet.ts`, `lib/director.ts`)
+ * pass `local` because they only know a project id; the route has already
+ * checked the caller owns that project, so the project's owner is the caller.
+ * An explicit owner is kept as given.
+ */
+async function ownerFor(input: NewJob): Promise<string> {
+  if (input.ownerId !== LOCAL_OWNER) return input.ownerId
+  return (await store.readProject(input.projectId)).ownerId ?? LOCAL_OWNER
+}
+
+export async function enqueueJob(request: NewJob): Promise<Enqueued> {
   const settings = queueSettings()
+  const input: NewJob = { ...request, ownerId: await ownerFor(request) }
 
   const existing = await activeJob(input.key)
   if (existing) return { job: existing, created: false }

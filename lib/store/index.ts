@@ -69,18 +69,51 @@ export interface JobStore {
   pruneJobs(finishedBefore: string): Promise<number>
 }
 
+/** One account as the app records it (v3, slice 19), written by Clerk's webhook. */
+export type UserRecord = {
+  /** Clerk's user id. */
+  id: string
+  email: string
+  createdAt: string
+  updatedAt: string
+  /** Set once the account is deleted; a deleted account is never brought back by a late or replayed event. */
+  deletedAt: string | null
+}
+
+/** The account records — `users` in Mongo, `data/users/` on a local desk. */
+export interface UserStore {
+  /** Write the account, or refresh its email. Running it twice is the same as once; a deleted account stays deleted. */
+  upsert(user: { id: string; email: string; createdAt: string }): Promise<UserRecord>
+  get(id: string): Promise<UserRecord | null>
+  /** Mark the account deleted (its email is let go). One never seen is recorded as deleted, so its creation arriving late cannot revive it. */
+  markDeleted(id: string): Promise<UserRecord>
+}
+
+/** A project and whose it is, for `scripts/claim-projects.mts` only — never a listing anyone sees. */
+export type ProjectOwner = { id: string; title: string; ownerId: string | null }
+
+/** What `claimProject` did: gave the project its owner, or found it already theirs. */
+export type Claim = 'claimed' | 'already-theirs'
+
 export interface Store {
-  /** Every project on the desk, newest first. Runs the one-time v1 migration. */
-  listProjects(): Promise<ProjectSummary[]>
+  /** The caller's projects, newest first — a project with no owner counts as
+   *  `local`. On a desk without accounts, runs the one-time v1 migration first. */
+  listProjects(ownerId: string): Promise<ProjectSummary[]>
   /** The one-time v1 migration on its own: the project it made, or the
    *  sentence that says why the v1 file was left alone. Nulls when there is
    *  nothing to migrate. */
   migrateLegacy(): Promise<{ projectId: string | null; problem: string | null }>
   readProject(id: string): Promise<Project>
-  /** Refuses if the id exists. */
+  /** Refuses if the id exists. The project's `ownerId` is whatever the caller set. */
   createProject(project: Project): Promise<void>
-  /** Read → `fn` → write, serialized per project, atomic on disk. */
+  /** Read → `fn` → write, serialized per project, atomic on disk. `fn` cannot change the id or the owner. */
   updateProject(id: string, fn: (project: Project) => Project): Promise<Project>
+  /** Every project and its owner — for the claim script. */
+  projectOwners(): Promise<ProjectOwner[]>
+  /** Whose one project is, from whatever of it can still be read (`local` when nothing names an owner); null when there is no such project. For `ownedProject`'s answer to a project that can't be read. */
+  projectOwner(id: string): Promise<string | null>
+  /** Give a project with no owner (or `local`) to `ownerId`; refuses a project someone else owns. */
+  claimProject(id: string, ownerId: string): Promise<Claim>
   /** Store one image; returns its id, `<kind>-<uuid>.<ext>`, extension from the media type. */
   putBlob(bytes: Buffer, mediaType: string, kind: BlobKind): Promise<string>
   getBlob(id: string): Promise<{ bytes: Buffer; mediaType: string } | null>
@@ -90,6 +123,8 @@ export interface Store {
   deleteBlob(id: string): Promise<void>
   /** The job records. */
   jobs: JobStore
+  /** The account records. */
+  users: UserStore
   /** Is everything this mode needs reachable, each answer within `timeoutMs`? Never throws. */
   health(timeoutMs: number): Promise<StoreHealth>
 }
@@ -102,11 +137,15 @@ function refusing(sentence: string): Store {
     readProject: refuse,
     createProject: refuse,
     updateProject: refuse,
+    projectOwners: refuse,
+    projectOwner: refuse,
+    claimProject: refuse,
     putBlob: refuse,
     getBlob: refuse,
     openBlob: refuse,
     deleteBlob: refuse,
     jobs: { insertJob: refuse, getJob: refuse, updateJob: refuse, listJobs: refuse, pruneJobs: refuse },
+    users: { upsert: refuse, get: refuse, markDeleted: refuse },
     health: async () => ({ mongo: 'down', bucket: 'down' }),
   }
 }
@@ -115,11 +154,14 @@ function refusing(sentence: string): Store {
 function lazyCloud(): Store {
   const load = () => import('./cloud').then((m) => m.cloudStore)
   return {
-    listProjects: async () => (await load()).listProjects(),
+    listProjects: async (ownerId) => (await load()).listProjects(ownerId),
     migrateLegacy: async () => (await load()).migrateLegacy(),
     readProject: async (id) => (await load()).readProject(id),
     createProject: async (project) => (await load()).createProject(project),
     updateProject: async (id, fn) => (await load()).updateProject(id, fn),
+    projectOwners: async () => (await load()).projectOwners(),
+    projectOwner: async (id) => (await load()).projectOwner(id),
+    claimProject: async (id, ownerId) => (await load()).claimProject(id, ownerId),
     putBlob: async (bytes, mediaType, kind) => (await load()).putBlob(bytes, mediaType, kind),
     getBlob: async (id) => (await load()).getBlob(id),
     openBlob: async (id) => (await load()).openBlob(id),
@@ -130,6 +172,11 @@ function lazyCloud(): Store {
       updateJob: async (id, fn) => (await load()).jobs.updateJob(id, fn),
       listJobs: async (filter) => (await load()).jobs.listJobs(filter),
       pruneJobs: async (before) => (await load()).jobs.pruneJobs(before),
+    },
+    users: {
+      upsert: async (user) => (await load()).users.upsert(user),
+      get: async (id) => (await load()).users.get(id),
+      markDeleted: async (id) => (await load()).users.markDeleted(id),
     },
     health: async (timeoutMs) => (await load()).health(timeoutMs),
   }

@@ -6,8 +6,11 @@
 // `devpost/spec.md > Components > Image Writer (lib/images.ts)`.
 //
 // The extension comes from `media_type`, never a hardcoded `.png`, and it is
-// part of the id — so `/api/image/<id>` knows the Content-Type without
+// part of the id — so the image route knows the Content-Type without
 // opening the file. An unrecognised media type is a hard failure, not a guess.
+// Since slice 19 the browser asks for an image under its project's address
+// (`lib/image-url.ts`), and the route checks the owner before `imageResponse`
+// streams a byte.
 //
 // Server only (SEC-15): importing this from a client component is a build
 // error. The checks run under tsx, where `scripts/server-only.mts` resolves the
@@ -20,8 +23,70 @@ import { addAsset, checkUpload, MAX_UPLOAD_SIDE, NOT_A_PICTURE, TOO_MANY_PIXELS,
 import { Refused } from './errors'
 import type { JobRun } from './queue/run'
 import type { Asset, Desk, PageRef } from './types'
+import { isImageId, mediaTypeOf } from './store/local'
 
-export { isImageId, mediaTypeOf } from './store/local'
+export { isImageId, mediaTypeOf }
+
+const SERVED = new Set(['image/png', 'image/jpeg', 'image/webp'])
+
+/** On the image and its 304: an id's bytes never change. */
+const IMAGE_HEADERS = {
+  'Cache-Control': 'private, max-age=31536000, immutable',
+  'X-Content-Type-Options': 'nosniff',
+} as const
+
+/** On every non-200: never kept, so the image shows once the store has it again, and a refusal is not cached. */
+export const IMAGE_MISSING_HEADERS = {
+  'Cache-Control': 'no-store',
+  'X-Content-Type-Options': 'nosniff',
+} as const
+
+/** The 404 every image route gives — for an id that is malformed, missing, or not the caller's. */
+export function imageNotFound(): Response {
+  return new Response('Not found', { status: 404, headers: IMAGE_MISSING_HEADERS })
+}
+
+/** True when the browser's If-None-Match already names this image. */
+function fresh(header: string | null, etag: string): boolean {
+  if (!header) return false
+  return header === '*' || header.split(',').some((tag) => tag.trim().replace(/^W\//, '') === etag)
+}
+
+/**
+ * One stored image as a response, for a caller already allowed to see it.
+ * Streamed, never held whole in memory (CR-17). An id is written once and
+ * never changes — a redraw gets a new one — so the id is the ETag, and a
+ * browser that already has the image gets a 304 without the store being asked.
+ * The Content-Type comes only from the id's extension, and only for the three
+ * formats the studio keeps; `nosniff` stops a browser guessing otherwise (SEC-05).
+ */
+export async function imageResponse(req: Request, id: string): Promise<Response> {
+  // The id is checked before anything else, so a path like `../chapter.json`
+  // is a 404 rather than a file read.
+  const mediaType = isImageId(id) ? mediaTypeOf(id) : null
+  if (!mediaType || !SERVED.has(mediaType)) return imageNotFound()
+  const etag = `"${id}"`
+  if (fresh(req.headers.get('if-none-match'), etag)) return new Response(null, { status: 304, headers: { ...IMAGE_HEADERS, ETag: etag } })
+
+  let blob
+  try {
+    blob = await store.openBlob(id)
+  } catch (err) {
+    // A bucket or a disk that can't be read: the panel shows its broken-image
+    // state, and the cause goes to the terminal.
+    console.error(`[image] ${id} couldn’t be read:`, err instanceof Error ? err.message : err)
+    return new Response('Unavailable', { status: 502, headers: IMAGE_MISSING_HEADERS })
+  }
+  if (!blob) return imageNotFound()
+  return new Response(blob.body, {
+    headers: {
+      ...IMAGE_HEADERS,
+      'Content-Type': mediaType,
+      ...(blob.bytes !== null ? { 'Content-Length': String(blob.bytes) } : {}),
+      ETag: etag,
+    },
+  })
+}
 
 /**
  * Write one generated image and record it on a project's desk. `attach`

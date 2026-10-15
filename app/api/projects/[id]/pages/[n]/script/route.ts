@@ -4,6 +4,8 @@
 // checked afterwards. (The Director's chapter plan replaces this entry point
 // in slice 11: with a plan, a page is written from it by `pages/[n]/start`,
 // and this route refuses rather than letting two scripts disagree.)
+import { ownedProject } from '@/lib/auth/access'
+import { requireUser } from '@/lib/auth/session'
 import { pageAt, read } from '@/lib/chapter'
 import { writePageScript } from '@/lib/claude'
 import { errorResponse, Refused } from '@/lib/errors'
@@ -18,9 +20,11 @@ export const runtime = 'nodejs'
 
 const CALM = 'The page script didn’t come back, the studio is busy. Try again in a moment.'
 
-export async function POST(_req: Request, { params }: { params: Promise<{ id: string; n: string }> }) {
+export async function POST(req: Request, { params }: { params: Promise<{ id: string; n: string }> }) {
   const { id, n } = await params
   try {
+    const userId = await requireUser(req)
+    await ownedProject(userId, id) // before the flag, the body or any provider: someone else's project is a 404
     assertGenerationEnabled()
     const addr = await pageAt(id, /^\d+$/.test(n) ? Number(n) : -1)
     // Checked before the call so a refused request costs nothing; `newScript`

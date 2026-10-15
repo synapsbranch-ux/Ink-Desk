@@ -30,7 +30,7 @@ const { Refused } = await import('../lib/errors')
 import type { Chapter } from '../lib/types'
 
 // One project on the scratch desk (v2); every call below is addressed to it.
-const pid = (await createProject({ title: 'Cast check', stylePresetId: 'manga-bw' })).address.projectId
+const pid = (await createProject({ title: 'Cast check', stylePresetId: 'manga-bw' }, 'local')).address.projectId
 const read = () => readDesk(pid)
 const update = (fn: (c: Chapter) => Chapter) => updateDesk(pid, fn)
 

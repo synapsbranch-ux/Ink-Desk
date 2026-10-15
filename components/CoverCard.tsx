@@ -12,6 +12,7 @@
 // Implements `devpost/prd.md > The Director — Chapter Plan and Cover`.
 import { useState } from 'react'
 import { GenerationStatus } from '@/components/GenerationStatus'
+import { useImageUrl } from '@/components/project-image'
 import { inFlight } from '@/lib/activity'
 import { perImage, usd } from '@/lib/cost'
 import type { ChapterPatch } from '@/lib/patch'
@@ -40,6 +41,7 @@ const FAILED: Partial<Record<CoverState['status'], string>> = {
 
 export function CoverCard({ cover, panelQuality, busy, job, notice, onEdit, onCommit, onGenerate }: Props) {
   const imageId = currentCoverImageId(cover)
+  const imageSrc = useImageUrl()
   const versions = cover.versions
   const cv = cover.currentVersion
   const inking = inFlight(cover.status, job)
@@ -80,7 +82,7 @@ export function CoverCard({ cover, panelQuality, busy, job, notice, onEdit, onCo
             key={imageId}
             ref={bind}
             className={`cover-art${showArt ? '' : ' is-loading'}`}
-            src={`/api/image/${imageId}`}
+            src={imageSrc(imageId)}
             alt="The chapter’s cover art"
             onLoad={() => setLoaded(imageId)}
           />

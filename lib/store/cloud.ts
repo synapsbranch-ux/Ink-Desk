@@ -5,6 +5,7 @@
 //
 //   MongoDB  <database>.projects   { _id: <project id>, rev: n, project: Project }
 //   MongoDB  <database>.jobs       { _id: <job id>, rev: n, activeKey?: <key>, ...the job's fields } (v3, slice 18)
+//   MongoDB  <database>.users      { _id: <Clerk user id>, email, createdAt, updatedAt, deletedAt } (v3, slice 19)
 //   bucket   <project-files bucket>/<prefix><kind>-<uuid>.<ext>   the same ids the local store writes,
 //            under S3_KEY_PREFIX (default `inkdesk/`), never at the bucket's root (SEC-13)
 //
@@ -30,8 +31,8 @@
 //      it. The job records (`jobs`) follow the same rule, plus a unique sparse
 //      index on `activeKey` so two racing inserts for one key cannot both win.
 //
-// The browser still only ever sees `/api/image/<id>`; the bucket is never
-// public.
+// The browser still only ever sees `/api/projects/<id>/image/<imageId>` (owner
+// checked, slice 19); the bucket is never public.
 
 // Server only (SEC-15): importing this from a client component is a build
 // error. The checks run under tsx, where `scripts/server-only.mts` resolves the
@@ -41,22 +42,42 @@ import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectComm
 import { MongoClient, MongoNetworkError, MongoServerError, MongoServerSelectionError, type Collection, type Db, type Filter, type MongoClientOptions } from 'mongodb'
 import { ConfigError, cloudSettings, type CloudSettings } from '../config'
 import { ProviderError, Refused } from '../errors'
-import { BUSY, isActive, type JobRecord } from '../queue/jobs'
+import { BUSY, LOCAL_OWNER, isActive, type JobRecord } from '../queue/jobs'
 import { singletons } from '../singleton'
 import type { Project, ProjectSummary } from '../types'
 import { missingCloudEnv, missingCloudSentence } from './env'
-import { JOB_LIST_LIMIT, isImageId, isProjectId, mediaTypeOf, projectProblem, summarize, unreadableProject, unreadableSummary } from './local'
-import type { BlobKind, BlobStream, Check, JobFilter, JobStore, Store, StoreHealth } from './index'
+import {
+  JOB_LIST_LIMIT,
+  NOT_A_USER,
+  OWNED_BY_ANOTHER,
+  claimable,
+  deleted,
+  isImageId,
+  isProjectId,
+  isUserId,
+  keepOwner,
+  mediaTypeOf,
+  projectProblem,
+  summarize,
+  unreadableProject,
+  unreadableSummary,
+  upserted,
+} from './local'
+import type { BlobKind, BlobStream, Check, Claim, JobFilter, JobStore, ProjectOwner, Store, StoreHealth, UserRecord, UserStore } from './index'
 
 export type ProjectDoc = { _id: string; rev: number; project: Project }
 
 /** A job as stored: its record without `id` (that is `_id`), a `rev`, and `activeKey` — the job's key while it is queued or running, ABSENT once it ends. */
 export type JobDoc = { _id: string; rev: number; activeKey?: string } & Omit<JobRecord, 'id'>
 
+/** An account as stored: its record, with the id as `_id`. */
+export type UserDoc = { _id: string } & Omit<UserRecord, 'id'>
+
 type Cloud = {
   client: MongoClient
   projects: Collection<ProjectDoc>
   jobs: Collection<JobDoc>
+  users: Collection<UserDoc>
   s3: S3Client
   /** Images and uploads. */
   bucket: string
@@ -146,7 +167,7 @@ export function s3Client(
 
 /** The object every connect writes, under the key prefix: proves the bucket,
  *  the endpoint and the keys with the one permission the studio needs anyway.
- *  Never an image id (`.txt`), so `/api/image` can never serve it. */
+ *  Never an image id (`.txt`), so no image route can ever serve it. */
 export const BUCKET_PROBE_KEY = 'inkdesk-bucket-check.txt'
 
 const MONGO_UNREACHABLE =
@@ -236,6 +257,18 @@ function describe(settings: CloudSettings): string {
 /** The listing's sort, indexed so the dashboard never scans the collection. */
 const UPDATED_INDEX = { 'project.updatedAt': -1 } as const
 
+/** The dashboard's query since slice 19 — one owner's projects, newest first — served by one index (SEC-12). */
+const OWNER_INDEX = { 'project.ownerId': 1, 'project.updatedAt': -1 } as const
+
+/**
+ * The projects `ownerId` owns. A project written before accounts has no owner
+ * and counts as `local`'s; `$in` with null matches a missing field, so the
+ * owner index still serves it.
+ */
+export function ownerFilter(ownerId: string): Filter<ProjectDoc> {
+  return ownerId === LOCAL_OWNER ? { 'project.ownerId': { $in: [LOCAL_OWNER, null] } } : { 'project.ownerId': ownerId }
+}
+
 /**
  * The `jobs` indexes, made once per connection and idempotent. The unique
  * sparse `activeKey` is what lets two racing inserts for one key have exactly
@@ -287,6 +320,11 @@ async function connect(settings: CloudSettings): Promise<Cloud> {
     .collection<ProjectDoc>('projects')
     .createIndex(UPDATED_INDEX)
     .catch((err: unknown) => console.warn('[store] the listing index couldn’t be created:', err instanceof Error ? err.message : err))
+  await client
+    .db(settings.mongoDb)
+    .collection<ProjectDoc>('projects')
+    .createIndex(OWNER_INDEX, { name: 'owner_updatedAt' })
+    .catch((err: unknown) => console.warn('[store] the owner index couldn’t be created:', err instanceof Error ? err.message : err))
   await ensureJobIndexes(client.db(settings.mongoDb))
   const s3 = s3Client(settings)
   const bucket = settings.projectFilesBucket
@@ -312,6 +350,7 @@ async function connect(settings: CloudSettings): Promise<Cloud> {
     client,
     projects: client.db(settings.mongoDb).collection<ProjectDoc>('projects'),
     jobs: client.db(settings.mongoDb).collection<JobDoc>('jobs'),
+    users: client.db(settings.mongoDb).collection<UserDoc>('users'),
     s3,
     bucket,
     outputsBucket: settings.outputsBucket,
@@ -367,6 +406,10 @@ function mongo<T>(op: (projects: Collection<ProjectDoc>) => Promise<T>): Promise
 
 function mongoJobs<T>(op: (jobs: Collection<JobDoc>) => Promise<T>): Promise<T> {
   return mongoCall((c) => op(c.jobs))
+}
+
+function mongoUsers<T>(op: (users: Collection<UserDoc>) => Promise<T>): Promise<T> {
+  return mongoCall((c) => op(c.users))
 }
 
 // --- Projects -------------------------------------------------------------------
@@ -455,8 +498,9 @@ export async function revUpdate(
     async () => {
       const doc = await projects.findOne({ _id: id }) // fresh read, inside the lock
       if (!doc) throw noSuchProject()
+      const current = checked(doc)
       const next = plain({
-        ...fn(checked(doc)),
+        ...keepOwner(fn(current), current), // the owner is set once, at creation
         id, // the id is the document's key; a change here would be a different project
         serverRunId: singletons.serverRunId,
         updatedAt: new Date().toISOString(),
@@ -538,9 +582,9 @@ export const SUMMARY_PROJECTION = {
 /** A ceiling on one listing; the dashboard has no pages yet, and this is far past what it shows. */
 export const LIST_LIMIT = 500
 
-async function listProjects(): Promise<ProjectSummary[]> {
+async function listProjects(ownerId: string): Promise<ProjectSummary[]> {
   const docs = await mongo((projects) =>
-    projects.find({}, { projection: SUMMARY_PROJECTION }).sort(UPDATED_INDEX).limit(LIST_LIMIT).toArray()
+    projects.find(ownerFilter(ownerId), { projection: SUMMARY_PROJECTION }).sort(UPDATED_INDEX).limit(LIST_LIMIT).toArray()
   )
   if (docs.length === LIST_LIMIT) console.warn(`[store] the desk lists its newest ${LIST_LIMIT} projects; older ones are not shown`)
   const summaries: ProjectSummary[] = []
@@ -566,6 +610,105 @@ async function listProjects(): Promise<ProjectSummary[]> {
  */
 async function migrateLegacy(): Promise<{ projectId: string | null; problem: string | null }> {
   return { projectId: null, problem: null }
+}
+
+/** Every project and its owner, for the claim script: three fields each, never the whole document. */
+async function projectOwners(): Promise<ProjectOwner[]> {
+  const docs = await mongo((projects) =>
+    projects.find({}, { projection: { _id: 1, 'project.title': 1, 'project.ownerId': 1 } }).sort({ _id: 1 }).toArray()
+  )
+  return docs.map((doc) => {
+    const project = doc.project as Partial<Project> | undefined
+    return { id: doc._id, title: typeof project?.title === 'string' ? project.title : doc._id, ownerId: project?.ownerId ?? null }
+  })
+}
+
+/** Whose one project is, read by projection alone, so a document that fails the project check still names its owner. */
+async function projectOwner(id: string): Promise<string | null> {
+  if (!isProjectId(id)) return null
+  const doc = await mongo((projects) => projects.findOne({ _id: id }, { projection: { _id: 1, 'project.ownerId': 1 } }))
+  if (!doc) return null
+  const owner = (doc.project as Partial<Project> | undefined)?.ownerId
+  return typeof owner === 'string' ? owner : LOCAL_OWNER
+}
+
+/** Give an unowned project to `ownerId` in one conditional write: two claims racing cannot both win. */
+async function claimProject(id: string, ownerId: string): Promise<Claim> {
+  if (!isProjectId(id)) throw noSuchProject()
+  const won = await mongo((projects) =>
+    projects.findOneAndUpdate(
+      { _id: id, 'project.ownerId': { $in: [LOCAL_OWNER, null] } },
+      { $set: { 'project.ownerId': ownerId, 'project.updatedAt': new Date().toISOString() }, $inc: { rev: 1 } },
+      { projection: { _id: 1 } }
+    )
+  )
+  if (won) return 'claimed'
+  const doc = await mongo((projects) => projects.findOne({ _id: id }, { projection: { _id: 1, 'project.ownerId': 1 } }))
+  if (!doc) throw noSuchProject()
+  const current = (doc.project as Partial<Project> | undefined)?.ownerId
+  if (current === ownerId) return 'already-theirs'
+  if (claimable(current)) throw new ProviderError('The desk is busy with another change to this project.', 'provider', `projects/${id}: the claim lost a race it should have won`)
+  throw new Refused(OWNED_BY_ANOTHER)
+}
+
+// --- Users ------------------------------------------------------------------------
+//
+// One document per account. Each write is one conditional update, so a late or
+// replayed `user.created` can never bring back an account already deleted, and
+// two deliveries of one event leave one document.
+
+const fromUserDoc = (doc: UserDoc): UserRecord => ({ id: doc._id, email: doc.email, createdAt: doc.createdAt, updatedAt: doc.updatedAt, deletedAt: doc.deletedAt ?? null })
+
+async function readUser(id: string): Promise<UserRecord | null> {
+  const doc = await mongoUsers((users) => users.findOne({ _id: id }))
+  return doc ? fromUserDoc(doc) : null
+}
+
+const users: UserStore = {
+  async upsert(user) {
+    if (!isUserId(user.id)) throw new Refused(NOT_A_USER, 400)
+    const current = await readUser(user.id)
+    const now = new Date().toISOString()
+    const next = upserted(current, user, now)
+    if (next === current) return current
+    try {
+      // Only an account not deleted: a deletion that landed since the read wins.
+      await mongoUsers((collection) =>
+        collection.updateOne(
+          { _id: user.id, deletedAt: null },
+          { $set: { email: next.email, updatedAt: now }, $setOnInsert: { createdAt: next.createdAt } },
+          { upsert: true }
+        )
+      )
+    } catch (err) {
+      // The filter missed a deleted account and the upsert met its `_id`: it stays deleted.
+      if (!(err instanceof MongoServerError && err.code === 11000)) throw err
+    }
+    return (await readUser(user.id)) ?? next
+  },
+
+  async get(id) {
+    return isUserId(id) ? readUser(id) : null
+  },
+
+  async markDeleted(id) {
+    if (!isUserId(id)) throw new Refused(NOT_A_USER, 400)
+    const now = new Date().toISOString()
+    const next = deleted(null, id, now)
+    try {
+      await mongoUsers((collection) =>
+        collection.updateOne(
+          { _id: id, deletedAt: null },
+          { $set: { email: '', updatedAt: now, deletedAt: now }, $setOnInsert: { createdAt: now } },
+          { upsert: true }
+        )
+      )
+    } catch (err) {
+      // Already deleted: the first deletion's time stands.
+      if (!(err instanceof MongoServerError && err.code === 11000)) throw err
+    }
+    return (await readUser(id)) ?? next
+  },
 }
 
 // --- Jobs -------------------------------------------------------------------------
@@ -796,7 +939,23 @@ async function health(timeoutMs: number): Promise<StoreHealth> {
   return { mongo, bucket }
 }
 
-export const cloudStore: Store = { listProjects, migrateLegacy, readProject, createProject, updateProject, putBlob, getBlob, openBlob, deleteBlob, jobs, health }
+export const cloudStore: Store = {
+  listProjects,
+  migrateLegacy,
+  readProject,
+  createProject,
+  updateProject,
+  projectOwners,
+  projectOwner,
+  claimProject,
+  putBlob,
+  getBlob,
+  openBlob,
+  deleteBlob,
+  jobs,
+  users,
+  health,
+}
 
 /** Only a missing *object* is "no such image" — exported so `check:store` can
  *  hold it to real errors from a real bucket. */

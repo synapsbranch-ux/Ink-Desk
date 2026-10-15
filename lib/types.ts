@@ -175,6 +175,12 @@ export type Project = {
   updatedAt: string
   /** Set on the project the v1 desk migrated into. */
   migratedFrom?: string
+  /** Whose project it is (v3, slice 19): the Clerk user id, or `local` on a
+   *  desk without accounts. Absent on a project written before accounts, which
+   *  counts as `local` — so only a desk running with `INKDESK_AUTH=off` opens
+   *  it until `scripts/claim-projects.mts` gives it an owner. Set once, at
+   *  creation; no edit changes it. */
+  ownerId?: string
 }
 
 /** What the dashboard lists — derived from the project file, never stored. */
@@ -200,6 +206,8 @@ export type ProjectSummary = {
 
 /** One locked character as the global library shows it: read-only. */
 export type LibraryCharacter = {
+  /** The project it belongs to — its sheet is served under that project's address (slice 19). */
+  projectId: string
   id: string
   name: string
   role: string

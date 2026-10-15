@@ -40,3 +40,7 @@ next-env.d.ts
 /data/jobs/
 /data/**/*.lock
 /data/**/*.lock.d/
+
+# Clerk's keyless development keys (slice 19): written by the SDK when it runs
+# with no keys, and they are credentials.
+.clerk/

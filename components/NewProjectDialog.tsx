@@ -8,6 +8,7 @@
 // `devpost/prd.md > New Project and Style Presets`.
 import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
+import { apiFetch } from '@/components/api-fetch'
 import { estimateChapterUsd, usd } from '@/lib/cost'
 import { PAGE_COUNT_DEFAULT } from '@/lib/schemas'
 import { DEFAULT_STYLE_PRESET_ID, STYLE_PRESETS, STYLE_PRESET_IDS, type StylePresetId } from '@/lib/styles'
@@ -32,7 +33,7 @@ export function NewProjectDialog({ panelQuality, onClose }: { panelQuality: stri
     setBusy(true)
     setNotice(null)
     try {
-      const res = await fetch('/api/projects', {
+      const res = await apiFetch('/api/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: trimmed, stylePresetId: preset }),

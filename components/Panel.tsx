@@ -13,6 +13,7 @@
 // `devpost/spec.md > Components > Storyboard Station and Panel`.
 import { useState } from 'react'
 import { GenerationStatus } from '@/components/GenerationStatus'
+import { useImageUrl } from '@/components/project-image'
 import { PencilPlaceholder } from '@/components/PencilPlaceholder'
 import { SpeechBubble } from '@/components/SpeechBubble'
 import { inFlight, isIdleBlank } from '@/lib/activity'
@@ -60,6 +61,7 @@ export function Panel({
   onRewrite,
 }: Props) {
   const imageId = panel ? currentImageId(panel) : null
+  const imageSrc = useImageUrl()
 
   // Ids whose art has been on screen before — present at mount, stepped back
   // to, or already revealed. Only a never-seen id plays the ink-in, so the
@@ -129,7 +131,7 @@ export function Panel({
           key={imageId}
           ref={bind}
           className={`panel-art${showArt ? '' : ' is-loading'}${revealing ? ' is-inking' : ''}`}
-          src={`/api/image/${imageId}`}
+          src={imageSrc(imageId)}
           alt={character ? `${character.name}, ${slot.shot}` : `Panel ${n}`}
           onLoad={onLoad}
           onAnimationEnd={() => {

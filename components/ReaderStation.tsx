@@ -20,6 +20,7 @@
 // `> Export (v2) — PNG and PDF`; see `devpost/spec.md > Reader and Exports (v2)`.
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { PencilPlaceholder } from '@/components/PencilPlaceholder'
+import { useImageUrl } from '@/components/project-image'
 import { bubbleLayout, tailPath } from '@/lib/bubble'
 import { downloadBlob, ExportError, exportCoverPng, exportFilename, exportPdf, exportPng } from '@/lib/export'
 import { PANEL_LAYOUT } from '@/lib/prompts'
@@ -55,6 +56,7 @@ type Exporting = 'pdf' | `png:${number}` | null
 
 export function ReaderStation({ chapter, onGoStoryboard, onNewProject }: Props) {
   const mode = readingMode(chapter.stylePresetId)
+  const projectId = chapter.address.projectId
   const vertical = mode === 'vertical'
   // Manga reads right to left; the toggle is v1's, kept for a left-to-right read.
   const [rtl, setRtl] = useState(true)
@@ -103,9 +105,9 @@ export function ReaderStation({ chapter, onGoStoryboard, onNewProject }: Props) 
     if (!e || !isReadable(e)) return
     void run(`png:${i}`, async () =>
       e.kind === 'cover'
-        ? { blob: await exportCoverPng(e.imageId as string, e.title), filename: exportFilename(title, 'cover') }
+        ? { blob: await exportCoverPng(projectId, e.imageId as string, e.title), filename: exportFilename(title, 'cover') }
         : {
-            blob: await exportPng(e.panels, direction, pages.length > 1 ? e.index : undefined),
+            blob: await exportPng(projectId, e.panels, direction, pages.length > 1 ? e.index : undefined),
             filename: exportFilename(title, pages.length > 1 || cover ? `page-${e.index + 1}` : undefined),
           }
     )
@@ -113,7 +115,7 @@ export function ReaderStation({ chapter, onGoStoryboard, onNewProject }: Props) 
 
   const exportChapter = () =>
     void run('pdf', async () => ({
-      blob: await exportPdf(entries, direction, title),
+      blob: await exportPdf(projectId, entries, direction, title),
       filename: exportFilename(title, undefined, 'pdf'),
     }))
 
@@ -428,6 +430,7 @@ const directionClass = (d: PageDirection) => (d === 'rtl' ? ' is-rtl' : d === 'v
 
 /** The cover as the reader shows it: the art, the title lettered over it. */
 function ReaderCover({ title, imageId, playing }: { title: string; imageId: string | null; playing: boolean }) {
+  const imageSrc = useImageUrl()
   return (
     <figure
       className={`cover-frame reader-cover${imageId ? ' is-inked' : ''}${playing ? '' : ' is-waiting'}`}
@@ -435,7 +438,7 @@ function ReaderCover({ title, imageId, playing }: { title: string; imageId: stri
     >
       {imageId ? (
         // eslint-disable-next-line @next/next/no-img-element -- served by our own route as final bytes; the cover being read
-        <img className="cover-art" src={`/api/image/${imageId}`} alt="The chapter’s cover" />
+        <img className="cover-art" src={imageSrc(imageId)} alt="The chapter’s cover" />
       ) : (
         <div className="cover-pencil sketch is-still">
           <span className="pencil-label">No cover yet — the Director draws it.</span>
@@ -460,6 +463,7 @@ function ReaderPage({
   direction: PageDirection
   playing: boolean
 }) {
+  const imageSrc = useImageUrl()
   return (
     <section
       className={`page reader-page${directionClass(direction)}${playing ? '' : ' is-waiting'}`}
@@ -483,7 +487,7 @@ function ReaderPage({
               // eslint-disable-next-line @next/next/no-img-element -- served by our own route as final bytes; the page being read
               <img
                 className="panel-art reader-reveal"
-                src={`/api/image/${imageId}`}
+                src={imageSrc(imageId)}
                 alt={character ? `${character.name}, ${slot.shot}` : `Panel ${slot.index + 1}`}
               />
             )}

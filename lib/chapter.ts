@@ -174,22 +174,30 @@ export async function pageAt(projectId: string, n: number): Promise<PageAddress>
 }
 
 /**
- * A new project on the desk, with its locked style. With a story it wakes
- * with that synopsis already accepted — the v2 form of v1's "accepting a new
- * synopsis starts a new chapter": the old project stays exactly as it is.
+ * A new project on the desk, with its locked style, owned by `ownerId` — the
+ * signed-in caller, or `local` on a desk without accounts (slice 19). With a
+ * story it wakes with that synopsis already accepted — the v2 form of v1's
+ * "accepting a new synopsis starts a new chapter": the old project stays
+ * exactly as it is.
  */
-export async function createProject(input: {
-  title: string
-  stylePresetId: StylePresetId
-  story?: { pitch: Pitch; synopsis: { title: string; body: string } }
-}): Promise<Desk> {
-  const project = emptyProject({
-    id: crypto.randomUUID(),
-    chapterId: crypto.randomUUID(),
-    title: input.title.trim(),
-    stylePresetId: input.stylePresetId,
-    serverRunId: singletons.serverRunId,
-  })
+export async function createProject(
+  input: {
+    title: string
+    stylePresetId: StylePresetId
+    story?: { pitch: Pitch; synopsis: { title: string; body: string } }
+  },
+  ownerId: string
+): Promise<Desk> {
+  const project: Project = {
+    ...emptyProject({
+      id: crypto.randomUUID(),
+      chapterId: crypto.randomUUID(),
+      title: input.title.trim(),
+      stylePresetId: input.stylePresetId,
+      serverRunId: singletons.serverRunId,
+    }),
+    ownerId,
+  }
   const withStory: Project = input.story
     ? {
         ...project,
@@ -204,8 +212,9 @@ export async function createProject(input: {
   return toDesk(withStory, openRef(withStory))
 }
 
-export function listProjects(): Promise<ProjectSummary[]> {
-  return store.listProjects()
+/** The caller's projects, newest first — never anyone else's (slice 19). */
+export function listProjects(ownerId: string): Promise<ProjectSummary[]> {
+  return store.listProjects(ownerId)
 }
 
 /** The v1 migration's outcome, for the dashboard's one sentence when the v1 file can't be read. */

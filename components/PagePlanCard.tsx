@@ -9,6 +9,7 @@
 // n"; an unwritten one offers "Generate page n" with its own estimate.
 // Implements `devpost/prd.md > The Director — Chapter Plan and Cover`.
 import { pageStatus } from '@/components/PageSwitcher'
+import { useImageUrl } from '@/components/project-image'
 import { pageJobCount } from '@/lib/activity'
 import { estimatePageUsd, usd } from '@/lib/cost'
 import { assertPageDrawable, type PlanLineEdit } from '@/lib/plan'
@@ -156,6 +157,7 @@ function MiniPage({
   cast: Character[]
   lines: PlanPage['panels']
 }) {
+  const imageSrc = useImageUrl()
   const art = (slot: PanelSlot): string | null => {
     const panel = openPanels?.[slot.index]
     if (panel) return currentImageId(panel)
@@ -171,7 +173,7 @@ function MiniPage({
           <div key={slot.index} className={`mini-panel panel-${slot.shape}${imageId ? ' is-inked' : ''}`}>
             {imageId ? (
               // eslint-disable-next-line @next/next/no-img-element -- generated art, served by id
-              <img src={`/api/image/${imageId}`} alt="" />
+              <img src={imageSrc(imageId)} alt="" />
             ) : (
               <svg className={`pencil-figure is-${slot.stance}`} viewBox="0 0 100 100" preserveAspectRatio="xMidYMax meet">
                 <circle cx="50" cy="24" r="15" />

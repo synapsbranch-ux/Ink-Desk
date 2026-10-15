@@ -65,7 +65,7 @@ import type { DrawContext, ExportPanel, PageGeometry, Rect } from '../lib/export
 import type { Chapter, Panel } from '../lib/types'
 
 // One project on the scratch desk (v2); the "new project" checks make more.
-const pid = (await createProject({ title: 'Export check', stylePresetId: 'manga-bw' })).address.projectId
+const pid = (await createProject({ title: 'Export check', stylePresetId: 'manga-bw' }, 'local')).address.projectId
 const read = () => readDesk(pid)
 const update = (fn: (c: Chapter) => Chapter) => updateDesk(pid, fn)
 
@@ -320,7 +320,7 @@ await check('freeze: with a cast on the desk, pitch and synopsis patches are ref
 // --- New projects (v2: nothing is ever cleared; a new story is a new project) ----
 
 await check('new project: a fresh project opens at first use, in its locked style', async () => {
-  const fresh = await createProject({ title: 'Blank', stylePresetId: 'manhwa-colour' })
+  const fresh = await createProject({ title: 'Blank', stylePresetId: 'manhwa-colour' }, 'local')
   const base = emptyChapter()
   assert.deepEqual(
     { ...fresh, address: base.address, title: '', stylePresetId: base.stylePresetId, updatedAt: 'x' },
@@ -339,7 +339,7 @@ await check('new project: accepting a new synopsis wakes a NEW project with it, 
     pitch: { text: 'a new courier', genre: 'Romance', tone: 'Hopeful' },
     synopsis: { title: 'Postmarked Tomorrow', body: 'Letters that haven’t been written yet.' },
   }
-  const fresh = await createProject({ title: story.synopsis.title, stylePresetId: old.stylePresetId, story })
+  const fresh = await createProject({ title: story.synopsis.title, stylePresetId: old.stylePresetId, story }, 'local')
   assert.notEqual(fresh.address.projectId, old.address.projectId, 'a different project')
   assert.equal(fresh.synopsis?.accepted, true)
   assert.equal(fresh.synopsis?.title, story.synopsis.title)
@@ -554,7 +554,7 @@ await check('reading order: manga presets page right to left, manhwa scrolls', (
 
 // A three-page chapter on the real store: page 1 inked, page 2 half inked,
 // page 3 written but blank, and a cover — the reader's view from every page.
-const v2 = (await createProject({ title: 'Chapter check', stylePresetId: 'manga-bw' })).address
+const v2 = (await createProject({ title: 'Chapter check', stylePresetId: 'manga-bw' }, 'local')).address
 const inkedPage = (tag: string) => [0, 1, 2, 3].map((i) => panelFor(i as 0 | 1 | 2 | 3, { versions: [{ imageId: `${tag}-${i}.png`, createdAt: 'x' }] }))
 const blankPanel = (i: 0 | 1 | 2 | 3) => panelFor(i, { versions: [], status: 'empty' })
 await store.updateProject(v2.projectId, (p) => ({

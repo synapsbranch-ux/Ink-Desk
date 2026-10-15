@@ -17,7 +17,9 @@
 // the fonts, the canvas itself).
 // See `devpost/spec.md > Components > Reader Station`, `> The Page Layout`
 // and `> Reader and Exports (v2)`.
+import { apiFetch } from '../components/api-fetch'
 import { bubbleLayout, tailPath } from './bubble'
+import { imageUrl } from './image-url'
 import type { PageDirection, ReaderEntry } from './reader'
 import { currentImageId } from './script'
 import type { BubbleLayout, Panel } from './types'
@@ -450,9 +452,11 @@ async function loadFont(weight: number, px: number, family: string): Promise<voi
   await document.fonts.ready
 }
 
-/** One stored image, decoded. `what` names it in the sentence if it can't be read. */
-async function decode(imageId: string, what: string): Promise<ImageBitmap> {
-  const res = await fetch(`/api/image/${imageId}`)
+/** One stored image, decoded. `what` names it in the sentence if it can't be read.
+ *  Asked for under its project's address (slice 19), same-origin, so the
+ *  session cookie rides along; a lapsed session goes to sign-in. */
+async function decode(projectId: string, imageId: string, what: string): Promise<ImageBitmap> {
+  const res = await apiFetch(imageUrl(projectId, imageId))
   if (!res.ok) throw new ExportError(`${what} couldn’t be read from the desk.`)
   return await createImageBitmap(await res.blob())
 }
@@ -481,7 +485,7 @@ function encode(canvas: HTMLCanvasElement, type: 'image/png' | 'image/jpeg' = 'i
  * load Comic Neue, draw. `page` names it in a sentence ("Page 2, panel 3…")
  * when the chapter has more than one.
  */
-async function renderPage(panels: Panel[], direction: PageDirection, page?: number): Promise<HTMLCanvasElement> {
+async function renderPage(projectId: string, panels: Panel[], direction: PageDirection, page?: number): Promise<HTMLCanvasElement> {
   const geom = pageGeometry(EXPORT_WIDTH, direction)
   const where = (i: number) => (page === undefined ? `Panel ${i + 1}` : `Page ${page + 1}, panel ${i + 1}`)
 
@@ -490,7 +494,7 @@ async function renderPage(panels: Panel[], direction: PageDirection, page?: numb
       // The displayed version — the one on the page — never blindly the newest.
       const id = currentImageId(panel)
       if (!id) throw new ExportError(`${where(panel.index)} has no art to export yet.`)
-      const bitmap = await decode(id, `${where(panel.index)}’s art`)
+      const bitmap = await decode(projectId, id, `${where(panel.index)}’s art`)
       return { panel, image: { width: bitmap.width, height: bitmap.height, source: bitmap } }
     })
   )
@@ -505,9 +509,9 @@ async function renderPage(panels: Panel[], direction: PageDirection, page?: numb
 }
 
 /** The cover composited onto a canvas, its title lettered in Cormorant Garamond. */
-async function renderCover(imageId: string | null, title: string): Promise<HTMLCanvasElement> {
+async function renderCover(projectId: string, imageId: string | null, title: string): Promise<HTMLCanvasElement> {
   const geom = coverGeometry(EXPORT_WIDTH)
-  const bitmap = imageId ? await decode(imageId, 'The cover’s art') : null
+  const bitmap = imageId ? await decode(projectId, imageId, 'The cover’s art') : null
   const headingFamily = fontVar('--font-heading', "'Cormorant Garamond', Georgia, serif")
   await loadFont(600, geom.title.fontSize, headingFamily)
   const { canvas, ctx } = canvasOf(geom.width, geom.height)
@@ -517,13 +521,13 @@ async function renderCover(imageId: string | null, title: string): Promise<HTMLC
 }
 
 /** Build one page's PNG in the browser. */
-export async function exportPng(panels: Panel[], direction: PageDirection, page?: number): Promise<Blob> {
-  return await encode(await renderPage(panels, direction, page))
+export async function exportPng(projectId: string, panels: Panel[], direction: PageDirection, page?: number): Promise<Blob> {
+  return await encode(await renderPage(projectId, panels, direction, page))
 }
 
 /** Build the cover's PNG in the browser. */
-export async function exportCoverPng(imageId: string, title: string): Promise<Blob> {
-  return await encode(await renderCover(imageId, title))
+export async function exportCoverPng(projectId: string, imageId: string, title: string): Promise<Blob> {
+  return await encode(await renderCover(projectId, imageId, title))
 }
 
 /**
@@ -533,16 +537,16 @@ export async function exportCoverPng(imageId: string, title: string): Promise<Bl
  * One page at a time, each canvas released before the next, so a six-page
  * chapter never holds six full-size canvases at once.
  */
-export async function exportPdf(entries: readonly ReaderEntry[], direction: PageDirection, title: string): Promise<Blob> {
+export async function exportPdf(projectId: string, entries: readonly ReaderEntry[], direction: PageDirection, title: string): Promise<Blob> {
   const pages: PdfPage[] = []
   for (const entry of entries) {
     const canvas =
       entry.kind === 'cover'
         ? entry.imageId
-          ? await renderCover(entry.imageId, entry.title)
+          ? await renderCover(projectId, entry.imageId, entry.title)
           : null
         : entry.complete
-          ? await renderPage(entry.panels, direction, entry.index)
+          ? await renderPage(projectId, entry.panels, direction, entry.index)
           : null
     if (!canvas) continue
     const bytes = new Uint8Array(await (await encode(canvas, 'image/jpeg', PDF_JPEG_QUALITY)).arrayBuffer())

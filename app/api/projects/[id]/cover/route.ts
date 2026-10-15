@@ -3,6 +3,8 @@
 // Director's brief, in the project's style. A job (slice 18): queued and
 // answered at once; the poll watches it land. The title is lettered by the app over the art and is
 // never part of the request. See `lib/director.ts > inkCover`.
+import { ownedProject } from '@/lib/auth/access'
+import { requireUser } from '@/lib/auth/session'
 import { read } from '@/lib/chapter'
 import { isCoverQueued, queueCover } from '@/lib/director'
 import { errorResponse, Refused } from '@/lib/errors'
@@ -14,9 +16,11 @@ export const runtime = 'nodejs'
 
 const CALM = 'The cover couldn’t start inking just now. Try again in a moment.'
 
-export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   try {
+    const userId = await requireUser(req)
+    await ownedProject(userId, id) // before the flag, the body or any provider: someone else's project is a 404
     assertGenerationEnabled()
     // Checked before queuing so a refusal is a sentence, not a silent no-op;
     // `markCoverInking` runs the same rules inside the lock.

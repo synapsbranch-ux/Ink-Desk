@@ -47,7 +47,7 @@ const nextConfig = (await import('../next.config')).default
 
 import type { Chapter } from '../lib/types'
 
-const first = await createProject({ title: 'Assets check', stylePresetId: 'manhwa-colour' })
+const first = await createProject({ title: 'Assets check', stylePresetId: 'manhwa-colour' }, 'local')
 const pid = first.address.projectId
 const addr = first.address
 const read = () => readDesk(pid, addr)
@@ -179,7 +179,7 @@ try {
   console.log('  ok  an imported character’s panel carries the uploaded bytes as its one reference, and her DNA verbatim')
 
   // 7. The desk's library lists locked characters, imported or drawn.
-  const summary = (await listProjects()).find((p) => p.id === pid)!
+  const summary = (await listProjects('local')).find((p) => p.id === pid)!
   assert.deepEqual(
     summary.characters.map((c) => [c.name, c.imported]),
     [['Aya Kuroda', true], ['Ren Mori', false]]
@@ -196,7 +196,7 @@ try {
     .jpeg()
     .toBuffer()
   assert.ok(photo.includes(MARKER) && (await sharp(photo).metadata()).exif, 'the test photo carries GPS')
-  const shelf2 = await createProject({ title: 'Uploads check', stylePresetId: 'manga-bw' })
+  const shelf2 = await createProject({ title: 'Uploads check', stylePresetId: 'manga-bw' }, 'local')
   const pid2 = shelf2.address.projectId
   const { asset: photoAsset } = await saveAsset(pid2, photo, checkUpload(photo, 0), 'Holiday photo')
   const cleanPhoto = (await readImage(photoAsset.blobId))!

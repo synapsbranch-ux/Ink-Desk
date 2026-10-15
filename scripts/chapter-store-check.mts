@@ -112,7 +112,7 @@ try {
   // 1. The v1 desk migrates once, whole, and the v1 file is never touched.
   const v1Bytes = JSON.stringify(v1, null, 2)
   await writeFile(join(dir, 'chapter.json'), v1Bytes)
-  const listed = await listProjects()
+  const listed = await listProjects('local')
   assert.equal(listed.length, 1, 'one project after the migration')
   const migrated = await read(listed[0].id)
   assert.equal(migrated.title, 'Return to Sender', 'the synopsis title names the project')
@@ -130,7 +130,7 @@ try {
   assert.equal(await readFile(join(dir, 'chapter.json'), 'utf8'), v1Bytes, 'the v1 file is byte-identical')
   assert.deepEqual((await readdir(dir)).sort(), ['chapter.json', 'projects'])
   assert.ok((await readdir(join(dir, 'projects'))).includes('v1-migrated.json'), 'the marker exists')
-  assert.equal((await listProjects()).length, 1, 'a second listing does not migrate it twice')
+  assert.equal((await listProjects('local')).length, 1, 'a second listing does not migrate it twice')
   // The pure mapping, directly: ids and run stamp are the caller's.
   const pure = migrateV1(v1, { projectId: 'p', chapterId: 'c' }, 'run', at)
   assert.equal(pure.chapters[0].pages[0].panels.length, 4)
@@ -138,8 +138,8 @@ try {
   console.log('  ok  the v1 desk migrated into one project, whole, once; chapter.json untouched')
 
   // 2. Two projects, two locks: same-tick updates land in their own files.
-  const a = (await createProject({ title: 'A', stylePresetId: 'manga-bw' })).address.projectId
-  const b = (await createProject({ title: 'B', stylePresetId: 'manhwa-colour' })).address.projectId
+  const a = (await createProject({ title: 'A', stylePresetId: 'manga-bw' }, 'local')).address.projectId
+  const b = (await createProject({ title: 'B', stylePresetId: 'manhwa-colour' }, 'local')).address.projectId
   assert.notEqual(a, b)
   await Promise.all([
     update(a, (c) => ({ ...c, pitch: { ...c.pitch, text: 'for A' } })),
@@ -148,7 +148,7 @@ try {
   assert.equal((await read(a)).pitch.text, 'for A')
   assert.equal((await read(b)).pitch.text, 'for B')
   assert.equal((await read(b)).stylePresetId, 'manhwa-colour')
-  assert.equal((await listProjects()).length, 3)
+  assert.equal((await listProjects('local')).length, 3)
   await assert.rejects(read('nope'), /no such project/)
   await assert.rejects(read('../etc'), /no such project/, 'a path is never a project id')
   console.log('  ok  two projects update independently; an unknown or unsafe id is a 404')
@@ -211,7 +211,7 @@ try {
     const recovered = await read(a)
     assert.equal(recovered.station, 'story', 'a torn project.json opens from its backup')
     assert.ok(warned.some((line) => line.includes(a) && line.includes('project.json.bak')), 'and the terminal says so')
-    assert.equal((await listProjects()).find((p) => p.id === a)?.unreadable, undefined, 'it lists as itself, not as unreadable')
+    assert.equal((await listProjects('local')).find((p) => p.id === a)?.unreadable, undefined, 'it lists as itself, not as unreadable')
     const healed = await update(a, (c) => ({ ...c, station: 'cast' }))
     assert.equal(healed.station, 'cast')
     assert.equal(JSON.parse(await readFile(join(dir, 'projects', a, 'project.json'), 'utf8')).station, 'cast', 'the next save writes project.json whole again')
@@ -219,7 +219,7 @@ try {
 
     await mkdir(join(dir, 'projects', 'zzz-broken'), { recursive: true })
     await writeFile(join(dir, 'projects', 'zzz-broken', 'project.json'), '{ not json')
-    const withBroken = await listProjects()
+    const withBroken = await listProjects('local')
     assert.equal(withBroken.length, 4, 'a broken project.json is listed, and the others still list')
     const card = withBroken.find((p) => p.id === 'zzz-broken')
     assert.equal(card?.unreadable, true, 'as a “can’t be read” card, never hidden')
@@ -240,7 +240,7 @@ try {
     assert.equal(await readFile(join(dir, 'projects', 'zzz-broken', 'project.json'), 'utf8'), '{ not json', 'and the file is left as it was')
     await mkdir(join(dir, 'projects', 'zzz-shapeless'), { recursive: true })
     await writeFile(join(dir, 'projects', 'zzz-shapeless', 'project.json'), JSON.stringify({ version: 2 }))
-    assert.equal((await listProjects()).filter((p) => p.unreadable).length, 2, 'valid JSON without a project’s shape is listed as unreadable too, not a crash')
+    assert.equal((await listProjects('local')).filter((p) => p.unreadable).length, 2, 'valid JSON without a project’s shape is listed as unreadable too, not a crash')
     await writeFile(join(dir, 'projects', 'zzz-shapeless', 'project.json.bak'), '{ also not json')
     await assert.rejects(read('zzz-shapeless'), (err: unknown) => err instanceof RefusedError && err.status === 500, 'a broken backup is no way in either')
     assert.ok(warned.some((line) => line.includes('zzz-shapeless')), 'and named')
@@ -251,7 +251,7 @@ try {
     const outcome = await migrateLegacy()
     assert.equal(outcome.projectId, null)
     assert.match(outcome.problem ?? '', /chapter\.json/, 'the sentence names the file')
-    assert.equal((await listProjects()).length, 4, 'nothing was migrated from a broken v1 file')
+    assert.equal((await listProjects('local')).length, 4, 'nothing was migrated from a broken v1 file')
     assert.equal(await readFile(join(dir, 'chapter.json'), 'utf8'), '{ "version": 1, truncated', 'and it was left exactly as it was')
     await assert.rejects(update('../../etc', (c) => c), /no such project/)
     assert.equal(singletons.locks.has('../../etc'), false, 'a refused id never becomes a lock entry')
@@ -782,7 +782,7 @@ async function cloudHalf(): Promise<void> {
     console.warn = (...args: unknown[]) => void warned.push(args.map(String).join(' '))
     let listed
     try {
-      listed = await cs.listProjects()
+      listed = await cs.listProjects('local')
       for (const id of ['zzz-broken', 'zzz-shapeless']) {
         await assert.rejects(cs.readProject(id), (err: unknown) => err instanceof Refused && err.status === 500 && err.message === UNREADABLE_PROJECT, `${id} opens as the calm 500`)
       }
@@ -860,7 +860,7 @@ async function cloudHalf(): Promise<void> {
     const good = { uri: process.env[URL_VAR], bucket: process.env[BUCKET_VAR] }
     try {
       process.env[URL_VAR] = 'mongodb://127.0.0.1:1/?serverSelectionTimeoutMS=500&connectTimeoutMS=500'
-      await assert.rejects(cs.listProjects(), isConfig(/MONGODB_URI \(or DB_URL\)/), 'unreachable')
+      await assert.rejects(cs.listProjects('local'), isConfig(/MONGODB_URI \(or DB_URL\)/), 'unreachable')
       assert.deepEqual(await cs.health(2000), { mongo: 'down', bucket: 'down' }, 'health says down, and why only in the terminal')
       process.env[URL_VAR] = 'mongodb://user:p@ss@host/'
       await assert.rejects(cs.readProject('cloud-a'), isConfig(/MONGODB_URI/), 'malformed — the constructor throws')
@@ -868,7 +868,7 @@ async function cloudHalf(): Promise<void> {
       await assert.rejects(cs.readProject('cloud-a'), isConfig(/MONGODB_URI \(or DB_URL\) must be a MongoDB connection string/), 'not a MongoDB address at all — refused by name before connecting')
       process.env[URL_VAR] = good.uri
       process.env[BUCKET_VAR] = `inkdesk-no-such-bucket-${crypto.randomUUID().slice(0, 8)}`
-      await assert.rejects(cs.listProjects(), isConfig(/S3_BUCKET/), 'a missing bucket is refused at connect, not after a paid image')
+      await assert.rejects(cs.listProjects('local'), isConfig(/S3_BUCKET/), 'a missing bucket is refused at connect, not after a paid image')
       assert.deepEqual(await cs.health(2000), { mongo: 'ok', bucket: 'down' }, 'health tells the bucket from the database')
     } finally {
       process.env[URL_VAR] = good.uri
