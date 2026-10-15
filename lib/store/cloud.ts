@@ -283,6 +283,8 @@ async function ensureJobIndexes(db: Db): Promise<void> {
     { key: { ownerId: 1, status: 1 }, options: { name: 'ownerId_status' } },
     { key: { projectId: 1, status: 1 }, options: { name: 'projectId_status' } },
     { key: { status: 1, updatedAt: 1 }, options: { name: 'status_updatedAt' } },
+    // The reconciler's sweep for ended jobs whose reservation was never settled (slice 20).
+    { key: { reservation: 1, status: 1 }, options: { name: 'reservation_status' } },
   ] as const
   await Promise.all(
     indexes.map(({ key, options }) =>
@@ -790,6 +792,7 @@ function jobQuery(filter: JobFilter): Filter<JobDoc> {
   if (filter.status !== undefined) query.status = { $in: [...filter.status] }
   if (filter.key !== undefined) query.key = filter.key
   if (filter.updatedSince !== undefined) query.updatedAt = { $gte: filter.updatedSince }
+  if (filter.reservation !== undefined) query.reservation = filter.reservation
   return query
 }
 

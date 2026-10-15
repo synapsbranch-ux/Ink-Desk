@@ -6,7 +6,7 @@
 // for one that does not exist (SEC-06); a signed-out one gets the 401 first.
 import { authMode } from '@/lib/auth/config'
 import { requireUser } from '@/lib/auth/session'
-import { Refused } from '@/lib/errors'
+import { Refused, refusalResponse } from '@/lib/errors'
 import { IMAGE_MISSING_HEADERS, imageNotFound, imageResponse } from '@/lib/images'
 
 export const runtime = 'nodejs'
@@ -15,7 +15,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   try {
     await requireUser(req)
   } catch (err) {
-    if (err instanceof Refused) return Response.json({ error: err.message }, { status: err.status, headers: IMAGE_MISSING_HEADERS })
+    if (err instanceof Refused) return refusalResponse(err, IMAGE_MISSING_HEADERS)
     throw err
   }
   if (authMode() !== 'off') return imageNotFound()

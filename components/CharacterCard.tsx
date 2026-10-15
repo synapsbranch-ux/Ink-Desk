@@ -6,9 +6,17 @@
 // saying what each does or why it's disabled. A locked card is read-only
 // and wears the stamp. Implements `devpost/prd.md > Cast — Model Sheets`;
 // see `devpost/spec.md > Components > Cast Station and Character Card`.
+//
+// Slice 20: Draw sheet and Redraw sheet take an image of today's allowance;
+// Reroll and the import take a paid text call. A button that cannot be pressed
+// for a limit says so in its caption (short) and in a line above the actions
+// (the full sentence with the reset time) — visible without hover — and the
+// card never shows a raw error. See `devpost/prd.md > Limits and Usage (v3)`.
 import { useState } from 'react'
 import { GenerationStatus } from '@/components/GenerationStatus'
 import { useImageUrl } from '@/components/project-image'
+import { SpendNote } from '@/components/SpendNote'
+import { useSpend } from '@/lib/limits/use-usage'
 import type { CharacterEdit } from '@/lib/patch'
 // The edit schema's own ceilings, so a long field stops at the box rather than failing the whole save.
 import { LOOK_MAX_CHARS, NAME_MAX_CHARS, ROLE_MAX_CHARS, TRAIT_MAX_CHARS, TRAITS_MAX } from '@/lib/schemas'
@@ -41,6 +49,9 @@ type Props = {
 export function CharacterCard({ index, character: c, state, onEdit, onCommit, onReroll, onDraw, onLock, assets, onImport }: Props) {
   const { busy, notice } = state
   const imageSrc = useImageUrl()
+  // A sheet is one picture (and a text call for its DNA); a reroll or an import is a text call.
+  const drawSpend = useSpend({ images: 1, text: true })
+  const textSpend = useSpend({ text: true })
   const working = busy !== null
   const hasDna = Boolean(c.dna)
   const hasSheet = Boolean(c.sheetImageId)
@@ -62,23 +73,29 @@ export function CharacterCard({ index, character: c, state, onEdit, onCommit, on
     kind: 'ghost' | 'secondary' | 'primary'
     onClick: () => void
     disabled: boolean
-    caption: string
+    caption: string | null
+    /** What this button spends, for its title; the lock spends nothing. */
+    spend?: { blocked: boolean; reason: string | null }
   }[] = [
     {
       key: 'reroll',
       label: busy === 'rerolling' ? 'Rerolling…' : 'Reroll',
       kind: 'ghost',
       onClick: () => onReroll(c.id),
-      disabled: working || c.locked,
-      caption: 'A fresh proposal for this slot — new look, same name.',
+      disabled: working || c.locked || textSpend.blocked,
+      caption: textSpend.blocked ? textSpend.short : 'A fresh proposal for this slot — new look, same name.',
+      spend: textSpend,
     },
     {
       key: 'draw',
       label: busy === 'drawing' ? 'Drawing…' : 'Draw sheet',
       kind: 'secondary',
       onClick: () => onDraw(c.id, false),
-      disabled: working || c.locked,
-      caption: imported
+      disabled: working || c.locked || drawSpend.blocked,
+      spend: drawSpend,
+      caption: drawSpend.blocked
+        ? drawSpend.short
+        : imported
         ? 'Draws a sheet from the look instead of your picture.'
         : hasDna
         ? 'Rereads the look, writes fresh DNA, draws again.'
@@ -92,8 +109,11 @@ export function CharacterCard({ index, character: c, state, onEdit, onCommit, on
           label: busy === 'importing' ? 'Reading…' : 'Reread picture',
           kind: 'secondary',
           onClick: () => sheetAsset && onImport(c.id, sheetAsset.id),
-          disabled: working || c.locked || !sheetAsset,
-          caption: hasDna
+          disabled: working || c.locked || !sheetAsset || textSpend.blocked,
+          spend: textSpend,
+          caption: textSpend.blocked
+            ? textSpend.short
+            : hasDna
             ? 'Your picture is the sheet — Claude reads it again and rewrites the DNA.'
             : 'Claude writes the DNA from your picture.',
         }
@@ -102,8 +122,11 @@ export function CharacterCard({ index, character: c, state, onEdit, onCommit, on
       label: busy === 'redrawing' ? 'Redrawing…' : 'Redraw sheet',
       kind: 'secondary',
       onClick: () => onDraw(c.id, true),
-      disabled: working || c.locked || !hasDna,
-      caption: !hasDna
+      disabled: working || c.locked || !hasDna || drawSpend.blocked,
+      spend: drawSpend,
+      caption: drawSpend.blocked && hasDna
+        ? drawSpend.short
+        : !hasDna
         ? hasSheet
           ? 'Disabled — the DNA was retired with the old look. Use Draw sheet.'
           : 'Disabled — draw the sheet first. Redraw reuses its DNA.'
@@ -272,7 +295,8 @@ export function CharacterCard({ index, character: c, state, onEdit, onCommit, on
               <button
                 type="button"
                 className="btn btn-secondary"
-                disabled={working || !chosen}
+                disabled={working || !chosen || textSpend.blocked}
+                title={textSpend.blocked ? (textSpend.reason ?? undefined) : undefined}
                 onClick={() => onImport(c.id, chosen)}
               >
                 {busy === 'importing' ? 'Reading…' : 'Use as sheet'}
@@ -290,13 +314,20 @@ export function CharacterCard({ index, character: c, state, onEdit, onCommit, on
       )}
 
       <footer className="cast-card-foot">
+        {!c.locked && <SpendNote spend={drawSpend.blocked ? drawSpend : textSpend} />}
         <div className="card-actions" role="group" aria-label={`Actions for ${c.name}`}>
           {actions.map((a) => (
             <div key={a.key} className="card-action">
-              <button type="button" className={`btn btn-${a.kind}`} onClick={a.onClick} disabled={a.disabled}>
+              <button
+                type="button"
+                className={`btn btn-${a.kind}`}
+                onClick={a.onClick}
+                disabled={a.disabled}
+                title={a.spend?.blocked ? (a.spend.reason ?? undefined) : undefined}
+              >
                 {a.label}
               </button>
-              {!c.locked && <span className="action-caption">{a.caption}</span>}
+              {!c.locked && <span className={`action-caption${a.spend?.blocked ? ' is-blocked' : ''}`}>{a.caption}</span>}
             </div>
           ))}
         </div>

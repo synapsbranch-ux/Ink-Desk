@@ -9,12 +9,18 @@
 // Since slice 18 a panel is waiting or inking when it says `inking` OR a job
 // on the queue targets it; a blank panel nothing is drawing shows as blank,
 // with a Draw panel button, instead of "Pencilling…" for ever (CR-9).
+// Slice 20: every button here that draws (Draw panel, Redraw panel, Try again,
+// Rewrite panel) takes one image of today's allowance. When it cannot be
+// drawn the button is shut, its title and the bar's note say why in a few
+// words (visible without hover), and the page's banner carries the full
+// sentence with the reset time (`StoryboardStation`).
 // Implements `devpost/prd.md > Storyboard — The Main Studio`; see
 // `devpost/spec.md > Components > Storyboard Station and Panel`.
 import { useState } from 'react'
 import { GenerationStatus } from '@/components/GenerationStatus'
 import { useImageUrl } from '@/components/project-image'
 import { PencilPlaceholder } from '@/components/PencilPlaceholder'
+import { useSpend } from '@/lib/limits/use-usage'
 import { SpeechBubble } from '@/components/SpeechBubble'
 import { inFlight, isIdleBlank } from '@/lib/activity'
 import type { PanelEdit } from '@/lib/patch'
@@ -62,6 +68,8 @@ export function Panel({
 }: Props) {
   const imageId = panel ? currentImageId(panel) : null
   const imageSrc = useImageUrl()
+  // One picture, whichever repair: a rewrite rephrases, then redraws.
+  const spend = useSpend({ images: 1 })
 
   // Ids whose art has been on screen before — present at mount, stepped back
   // to, or already revealed. Only a never-seen id plays the ink-in, so the
@@ -167,7 +175,8 @@ export function Panel({
           visible and labelled, never hover-only (the 5b rule). */}
       {panel && (hasArt || failed || idle) && (
         <div className="panel-bar">
-          {failed && hasArt && <span className="panel-bar-note">{label}</span>}
+          {failed && hasArt && !spend.blocked && <span className="panel-bar-note">{label}</span>}
+          {spend.blocked && !inking && <span className="panel-bar-note is-blocked">{spend.short}</span>}
           <div className="panel-bar-actions">
             {versions.length >= 2 && (
               <div className="stepper" role="group" aria-label={`Panel ${n} versions`}>
@@ -198,8 +207,8 @@ export function Panel({
               <button
                 type="button"
                 className="btn btn-panel"
-                disabled={busy !== null}
-                title="Draw this panel from the same locked sheet."
+                disabled={busy !== null || spend.blocked}
+                title={spend.blocked ? (spend.reason ?? undefined) : 'Draw this panel from the same locked sheet.'}
                 onClick={() => onRedraw(panel.index)}
               >
                 {busy === 'redraw' ? 'Queuing…' : 'Draw panel'}
@@ -208,8 +217,12 @@ export function Panel({
               <button
                 type="button"
                 className="btn btn-panel"
-                disabled={busy !== null}
-                title="Claude rephrases only this panel’s action, camera and background — never the dialogue, never the DNA — then redraws."
+                disabled={busy !== null || spend.blocked}
+                title={
+                  spend.blocked
+                    ? (spend.reason ?? undefined)
+                    : 'Claude rephrases only this panel’s action, camera and background — never the dialogue, never the DNA — then redraws.'
+                }
                 onClick={() => onRewrite(panel.index)}
               >
                 {busy === 'rewrite' ? 'Rewriting…' : 'Rewrite panel'}
@@ -218,11 +231,13 @@ export function Panel({
               <button
                 type="button"
                 className="btn btn-panel"
-                disabled={inking || busy !== null}
+                disabled={inking || busy !== null || spend.blocked}
                 title={
                   inking
                     ? 'This panel is inking right now.'
-                    : failed
+                    : spend.blocked
+                      ? (spend.reason ?? undefined)
+                      : failed
                       ? 'Rerun the same request — same locked sheet, same DNA.'
                       : 'Draw this panel again from the same locked sheet. The current art stays until the new one lands.'
                 }

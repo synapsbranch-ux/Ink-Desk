@@ -9,12 +9,17 @@
 // kept, stepped with ‹ v / N ›. While inking, the pencil placeholder carries
 // the panel stage lines on the server's clock. Since slice 18 the cover is
 // inking when the desk says so OR a cover job is waiting or drawing.
-// Implements `devpost/prd.md > The Director — Chapter Plan and Cover`.
+// Slice 20: the cover is one image of today's allowance — the button says so,
+// and is shut, with the reason and the reset time beside it, when it cannot be
+// drawn. Implements `devpost/prd.md > The Director — Chapter Plan and Cover`.
 import { useState } from 'react'
 import { GenerationStatus } from '@/components/GenerationStatus'
 import { useImageUrl } from '@/components/project-image'
+import { SpendNote } from '@/components/SpendNote'
 import { inFlight } from '@/lib/activity'
 import { perImage, usd } from '@/lib/cost'
+import { usesLine } from '@/lib/limits/button'
+import { useUsage, useSpend } from '@/lib/limits/use-usage'
 import type { ChapterPatch } from '@/lib/patch'
 import { currentCoverImageId } from '@/lib/plan'
 import type { JobView } from '@/lib/queue/jobs'
@@ -42,6 +47,8 @@ const FAILED: Partial<Record<CoverState['status'], string>> = {
 export function CoverCard({ cover, panelQuality, busy, job, notice, onEdit, onCommit, onGenerate }: Props) {
   const imageId = currentCoverImageId(cover)
   const imageSrc = useImageUrl()
+  const spend = useSpend({ images: 1 })
+  const { usage } = useUsage()
   const versions = cover.versions
   const cv = cover.currentVersion
   const inking = inFlight(cover.status, job)
@@ -153,18 +160,25 @@ export function CoverCard({ cover, panelQuality, busy, job, notice, onEdit, onCo
         <button
           type="button"
           className={versions.length > 0 && !failed ? 'btn btn-secondary' : 'btn btn-primary'}
-          disabled={inking || busy || blankBrief}
+          disabled={inking || busy || blankBrief || spend.blocked}
+          aria-describedby={spend.blocked ? 'cover-reason' : undefined}
           title={
             blankBrief
               ? 'Write the cover brief first.'
-              : 'One image from the brief, the lead’s locked sheet and the project’s style. The current cover stays until the new one lands.'
+              : spend.blocked
+                ? (spend.reason ?? undefined)
+                : 'One image from the brief, the lead’s locked sheet and the project’s style. The current cover stays until the new one lands.'
           }
           onClick={onGenerate}
         >
           {busy ? 'Queuing…' : inking ? 'Inking…' : label}
         </button>
-        <span className="plan-page-estimate">≈ {usd(perImage(panelQuality).usd)} · 1 image</span>
+        <span className="plan-page-estimate">
+          ≈ {usd(perImage(panelQuality).usd)} · 1 image
+          {usesLine(usage, 1) && !spend.blocked ? ` · ${usesLine(usage, 1)}` : ''}
+        </span>
       </div>
+      <SpendNote spend={spend} id="cover-reason" />
       {failed && imageId && <p className="plan-page-blank">{failed} The cover above is the last one that landed.</p>}
       {notice && (
         <p className="notice" role="alert">

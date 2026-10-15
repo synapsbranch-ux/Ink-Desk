@@ -22,6 +22,7 @@ import { inkPanel } from '../panels'
 import { drawSheet } from '../sheet'
 import { store } from '../store'
 import { creditsBreakerOpen } from './breaker'
+import { endJob } from './ending'
 import { maxRunMs } from './status'
 import { LEASE_MS, LEASE_RENEW_MS, PAUSED, checkpoint, claim, finish, isActive, renew, type JobPayload, type JobRecord } from './jobs'
 import type { JobRun, Outcome } from './run'
@@ -133,7 +134,8 @@ async function work(job: JobRecord, run: JobRun): Promise<Outcome> {
   }
 }
 
-/** End the job. `finish` refuses a job that already ended (the web let it go as dead, say), and the first ending stands. */
+/** End the job, and settle or release what it held (slice 20). `finish` refuses a job that already ended (the web let it go as dead, say), and the first ending stands. */
 function end(job: JobRecord, result: Parameters<typeof finish>[1]): Promise<JobRecord | null> {
-  return store.jobs.updateJob(job.id, (j) => finish(j, result, new Date()))
+  // `endJob` settles the job's hold when this write ends it: done → its real cost; anything else → released.
+  return endJob(job.id, (j) => finish(j, result, new Date()))
 }

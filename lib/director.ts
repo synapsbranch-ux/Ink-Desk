@@ -47,12 +47,11 @@ function locked(c: Character): LockedCharacter {
  * nothing; `newPlan` runs the same rules again inside the lock. What the text
  * calls cost is added to the project's spend even when the plan itself fails.
  */
-export async function writePlan(projectId: string, pageCount: number, replace: boolean): Promise<Desk> {
+export async function writePlan(projectId: string, pageCount: number, replace: boolean, meter: { costUsd: number } = textMeter()): Promise<Desk> {
   const desk = await read(projectId)
   const [lead, counterpart] = assertPlanWritable(desk, replace)
   if (!storyBrief(desk)) throw new Refused(desk.storyMode === 'scenario' ? 'Save the scenario first.' : 'Accept a synopsis first.')
 
-  const meter = textMeter()
   try {
     const source = await planSource(desk, meter)
     const references = await planReferences(desk)
@@ -204,6 +203,7 @@ export async function inkCover(projectId: string, run: JobRun = adhocRun()): Pro
   }
 
   let stored = run.resultImageId !== null
+  let billed = 0 // what the provider billed for a picture it answered with, if the bucket or the store then fails (see lib/panels.ts)
   const tracked: JobRun = {
     ...run,
     checkpoint: async (imageId, cost) => {
@@ -238,6 +238,7 @@ export async function inkCover(projectId: string, run: JobRun = adhocRun()): Pro
       references: [{ bytes: sheet, mediaType: mediaTypeOf(lead.sheetImageId) }],
       label: `cover · ${lead.name}`,
     })
+    billed = image.costUsd ?? 0
     await saveImage(projectId, 'cover', image.b64, image.mediaType, (d, imageId) => attachCoverVersion(d, imageId, new Date(), run.jobId), image.costUsd, undefined, tracked)
     return { outcome: 'done', costUsd: image.costUsd ?? 0 }
   } catch (err) {
@@ -248,6 +249,10 @@ export async function inkCover(projectId: string, run: JobRun = adhocRun()): Pro
     if (err instanceof ProviderError) console.error(`[cover] ${status}: ${err.message}`, err.cause ?? '')
     else console.error(`[cover] ${status}:`, err)
     await update(projectId, (d) => markCoverFailed(d, status, run.jobId)).catch((e: unknown) => console.error('[cover] could not record the failure:', e))
-    return { outcome: status, error: credits ? PAUSED : err instanceof ProviderError && err.kind !== 'provider' ? jobSentence(err, '') : undefined }
+    return {
+      outcome: status,
+      error: credits ? PAUSED : err instanceof ProviderError && err.kind !== 'provider' ? jobSentence(err, '') : undefined,
+      ...(billed > 0 ? { costUsd: run.costUsd + billed } : {}),
+    }
   }
 }

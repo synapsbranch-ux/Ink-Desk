@@ -34,6 +34,11 @@ export const QUEUE_OF: Record<JobKind, QueueName> = {
 
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed'
 
+export type ReservationState = 'none' | 'held' | 'settled'
+
+/** A record's reservation state; a record written before slice 20 has none. */
+export const reservationOf = (job: Pick<JobRecord, 'reservation'>): ReservationState => job.reservation ?? 'none'
+
 /** Why a finished job finished. `done` is the only success; the rest are `failed`. */
 export type JobOutcome = 'done' | 'failed' | 'refused' | 'skipped' | 'abandoned' | 'cancelled'
 
@@ -59,10 +64,22 @@ export type JobRecord = {
   outcome: JobOutcome | null
   /** How many times a worker has claimed it (a stalled job is claimed again). */
   attempts: number
-  /** What the limits layer reserved for it (slice 20); 0 until then. */
+  /** What the limits layer reserved for it (slice 20): the estimate held against the caps; 0 when nothing was. */
   reservedUsd: number
+  /**
+   * The limits layer's hold on this job (slice 20). `held` from the moment the
+   * reserve passed until the job's ending has been settled (or released) against
+   * the counters; `settled` after; `none` when nothing was reserved (limits off,
+   * or a record from before slice 20 — which has no such field). A job that
+   * ended while still `held` is one whose settle never landed: the reconciler
+   * sweeps it. Settle and release are idempotent per job id, so a crash between
+   * the ending and the settle is repaired, never doubled.
+   */
+  reservation: ReservationState
   /** What the provider billed, as far as this job knows. */
   costUsd: number
+  /** The cost already counted by an earlier job whose picture this one attaches (CR-16), so it is not counted twice. */
+  carriedUsd: number
   /** A sentence the browser may show; never internals. */
   error: string | null
   /** The checkpoint that makes a re-run free: once the picture is in the
@@ -102,7 +119,7 @@ export const SHOW_FAILED_MS = 10 * 60_000
 // --- The sentences --------------------------------------------------------------
 
 export const BUSY = 'The studio is busy — try again in a few minutes.'
-export const PAUSED = 'The studio has paused generation for now. Try again in a little while.'
+export const PAUSED = 'The studio has paused generation for now to keep its costs in check. Try again in a little while.'
 export const TOO_MANY = 'You already have a lot inking. Let some of it finish, then try again.'
 export const RESTARTED = 'The studio restarted before this finished. Try again.'
 export const ABANDONED = 'This one stopped before it finished. Try again.'
@@ -122,7 +139,7 @@ const iso = (d: Date) => d.toISOString()
 export const isActive = (job: Pick<JobRecord, 'status'>): boolean => job.status === 'queued' || job.status === 'running'
 
 export type NewJob = Pick<JobRecord, 'key' | 'ownerId' | 'projectId' | 'kind' | 'payload'> &
-  Partial<Pick<JobRecord, 'reservedUsd' | 'resultImageId' | 'costUsd'>>
+  Partial<Pick<JobRecord, 'reservedUsd' | 'reservation' | 'resultImageId' | 'costUsd'>>
 
 /** A job as it is written, before it is put on any queue. */
 export function newJob(input: NewJob, id: string, now = new Date()): JobRecord {
@@ -138,8 +155,11 @@ export function newJob(input: NewJob, id: string, now = new Date()): JobRecord {
     outcome: null,
     attempts: 0,
     reservedUsd: input.reservedUsd ?? 0,
+    reservation: input.reservation ?? 'none',
     // A picture an earlier job of this key paid for and never landed: this one attaches it.
     costUsd: input.costUsd ?? 0,
+    // That cost was counted when the earlier job ended; this one must not count it again.
+    carriedUsd: input.costUsd ?? 0,
     error: null,
     resultImageId: input.resultImageId ?? null,
     providerJobId: null,
@@ -166,6 +186,12 @@ export function claim(job: JobRecord, workerId: string, now: Date, leaseMs = LEA
     startedAt: job.startedAt ?? iso(now),
     updatedAt: iso(now),
   }
+}
+
+/** The reservation has been settled against the counters: the mark that keeps a second settle from being tried, and the reconciler from sweeping it again. */
+export function settled(job: JobRecord): JobRecord | null {
+  if (reservationOf(job) !== 'held') return null
+  return { ...job, reservation: 'settled' }
 }
 
 /** The worker is still alive: only the worker that holds a running job renews it. */

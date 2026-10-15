@@ -11,6 +11,7 @@ import { writePlan } from '@/lib/director'
 import { errorResponse } from '@/lib/errors'
 import { assertGenerationEnabled } from '@/lib/generation'
 import { takeSlot } from '@/lib/inflight'
+import { spendText } from '@/lib/limits/text'
 import { PlanRequestSchema } from '@/lib/schemas'
 
 export const runtime = 'nodejs'
@@ -29,7 +30,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     assertGenerationEnabled()
     const { pageCount, replace } = await parseJson(req, PlanRequestSchema, JSON_LIMIT_BYTES, 'A chapter plan has 3 to 6 pages.')
     release = takeSlot('plan', id, PLANS_AT_ONCE, 'The Director is already writing this project’s plan.')
-    return Response.json(await writePlan(id, pageCount, replace === true))
+    return Response.json(await spendText(userId, 'plan', (meter) => writePlan(id, pageCount, replace === true, meter)))
   } catch (err) {
     return errorResponse(err, 'plan', CALM)
   } finally {

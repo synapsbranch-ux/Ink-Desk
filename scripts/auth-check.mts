@@ -407,6 +407,24 @@ try {
     assert.ok((await store.users.get('user_alice1'))?.deletedAt, 'the account is marked deleted')
     assert.equal((await webhook.POST(signed(userEvent('user.created', 'user_alice1', 'alice@inkdesk.invalid')))).status, 200)
     assert.ok((await store.users.get('user_alice1'))?.deletedAt, 'and stays deleted')
+    // An address Clerk says is unverified is not a person's identity — the allowlist is matched against what is stored, so a stranger who typed
+    // an allowlisted address into a sign-up must not be recorded under it. Primary or not, the first verified address stands in; none leaves it blank.
+    const withAddresses = (id: string, primary: string | null, addresses: { id: string; email_address: string; verification?: { status: string; strategy: string } | null }[]) =>
+      JSON.stringify({ type: 'user.created', object: 'event', data: { id, object: 'user', created_at: Date.parse('2026-10-14T09:00:00Z'), primary_email_address_id: primary, email_addresses: addresses } })
+    const verified = { status: 'verified', strategy: 'email_code' }
+    const unverified = { status: 'unverified', strategy: 'email_code' }
+    assert.equal((await webhook.POST(signed(withAddresses('user_typed1', 'idn_1', [{ id: 'idn_1', email_address: 'judge@inkdesk.invalid', verification: unverified }])))).status, 200)
+    assert.equal((await store.users.get('user_typed1'))?.email, '', 'an unverified primary address is not recorded')
+    assert.equal(
+      (await webhook.POST(signed(withAddresses('user_typed2', null, [{ id: 'idn_1', email_address: 'judge@inkdesk.invalid', verification: unverified }, { id: 'idn_2', email_address: 'me@inkdesk.invalid', verification: verified }])))).status,
+      200
+    )
+    assert.equal((await store.users.get('user_typed2'))?.email, 'me@inkdesk.invalid', 'with no primary, the first address is not taken on faith: a verified one is')
+    assert.equal(
+      (await webhook.POST(signed(withAddresses('user_typed3', 'idn_2', [{ id: 'idn_1', email_address: 'old@inkdesk.invalid', verification: verified }, { id: 'idn_2', email_address: 'judge@inkdesk.invalid', verification: null }])))).status,
+      200
+    )
+    assert.equal((await store.users.get('user_typed3'))?.email, 'judge@inkdesk.invalid', 'a payload that says nothing about verification is taken as it is')
     // Something the studio does not subscribe to is acknowledged and ignored.
     const before = writes.length
     assert.equal((await webhook.POST(signed(JSON.stringify({ type: 'session.created', object: 'event', data: { id: 'sess_1' } })))).status, 200)

@@ -12,11 +12,15 @@
 //     brings it back and nothing is done here.
 //   • A job claimed `MAX_CLAIMS` times and still not finished is failed with a
 //     calm sentence instead of being put back for ever.
+//   • An ended job whose reservation was never settled (slice 20: a crash
+//     between its ending and the settle) is settled now — idempotently.
 //   • Records that finished long ago are pruned.
 // Nothing here ever draws or pays: it only moves records and queue entries.
 import 'server-only'
 import type { Job } from 'bullmq'
+import { sweepUnsettled } from '../limits/jobs'
 import { store } from '../store'
+import { endJob } from './ending'
 import { KEEP_FINISHED_MS, REQUEUE_AFTER_MS, TOO_MANY_RESTARTS, finish, leaseExpired, priorityFor, requeue, type JobRecord } from './jobs'
 import { bullQueue, addToQueue } from './queues'
 import { producerRedis, redisKey, within } from './redis'
@@ -26,10 +30,10 @@ export const MAX_CLAIMS = 6
 
 const IN_REDIS = new Set(['waiting', 'prioritized', 'delayed', 'active', 'waiting-children'])
 
-export type Reconciled = { requeued: number; failed: number; pruned: number; skipped: boolean }
+export type Reconciled = { requeued: number; failed: number; pruned: number; settled: number; skipped: boolean }
 
 export async function reconcileOnce(ownerTag: string, now = new Date()): Promise<Reconciled> {
-  const report: Reconciled = { requeued: 0, failed: 0, pruned: 0, skipped: false }
+  const report: Reconciled = { requeued: 0, failed: 0, pruned: 0, settled: 0, skipped: false }
   const redis = producerRedis()
   // One reconciler at a time across workers; the lock outlives one pass and no more.
   const got = await within(redis.set(redisKey('lock', 'reconcile'), ownerTag, 'EX', 55, 'NX'))
@@ -56,9 +60,11 @@ export async function reconcileOnce(ownerTag: string, now = new Date()): Promise
       console.warn(`[reconcile] ${job.kind} job ${job.id} could not be checked:`, err instanceof Error ? err.message : err)
     }
   }
+  // A job that ended while its hold was still `held` (a crash between the ending and the settle, a counter store that was down) is settled now.
+  report.settled = (await sweepUnsettled()).settled
   report.pruned = await store.jobs.pruneJobs(new Date(now.getTime() - KEEP_FINISHED_MS).toISOString())
-  if (report.requeued || report.failed || report.pruned) {
-    console.log(`[reconcile] put back ${report.requeued}, failed ${report.failed}, pruned ${report.pruned}`)
+  if (report.requeued || report.failed || report.pruned || report.settled) {
+    console.log(`[reconcile] put back ${report.requeued}, failed ${report.failed}, settled ${report.settled}, pruned ${report.pruned}`)
   }
   return report
 }
@@ -66,7 +72,7 @@ export async function reconcileOnce(ownerTag: string, now = new Date()): Promise
 /** Put one record's job back on its queue, or fail it if it has been claimed too many times. True if it was queued. */
 async function putBack(job: JobRecord, entry: Job | undefined, perOwner: Map<string, number>, report: Reconciled, now: Date): Promise<boolean> {
   if (job.attempts >= MAX_CLAIMS) {
-    await store.jobs.updateJob(job.id, (j) => finish(j, { outcome: 'failed', error: TOO_MANY_RESTARTS }, now))
+    await endJob(job.id, (j) => finish(j, { outcome: 'failed', error: TOO_MANY_RESTARTS }, now))
     report.failed++
     return false
   }

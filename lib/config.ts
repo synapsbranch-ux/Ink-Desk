@@ -25,7 +25,8 @@
 // package the way Next's server does.
 import 'server-only'
 import { z } from 'zod'
-import { authMode, authProblems, type AuthMode } from './auth/config'
+import { authMode, authProblems, isProduction, type AuthMode } from './auth/config'
+import type { PlanName, RateBucket } from './limits/rules'
 
 type Env = Record<string, string | undefined>
 
@@ -55,6 +56,11 @@ export const NAMES = {
   forcePathStyle: ['S3_FORCE_PATH_STYLE'],
   keyPrefix: ['S3_KEY_PREFIX'],
 } as const satisfies Record<string, readonly string[]>
+
+/** The Redis address, or null — read on its own, because the limits only need to know whether there is one and the queue's other problems are not theirs to throw. */
+export function redisUrl(env: Env = process.env): string | null {
+  return pick(env, REDIS_NAMES) ?? null
+}
 
 /** Redis — the queue's, not the store's; kept apart from `NAMES` so a change to it is not "a new database connection". */
 const REDIS_NAMES = ['REDIS_URL'] as const
@@ -194,6 +200,23 @@ const NUMBERS = {
   QUEUE_RETRY_BACKOFF_MS: { schema: wholeNumber(0, 60_000), fallback: 5_000, rule: 'a whole number of milliseconds from 0 to 60000' },
   WORKER_GRACE_MS: { schema: wholeNumber(0, 600_000), fallback: 90_000, rule: 'a whole number of milliseconds from 0 to 600000' },
   GENERATION_TIMEOUT_MS: { schema: wholeNumber(30_000, 900_000), fallback: 360_000, rule: 'a whole number of milliseconds from 30000 to 900000' },
+  // Limits (slice 20): the per-plan daily quotas, the request windows, the proxy.
+  QUOTA_FREE_IMAGES: { schema: wholeNumber(0, 100_000), fallback: 20, rule: 'a whole number from 0 to 100000' },
+  QUOTA_FREE_PROJECTS: { schema: wholeNumber(0, 1_000), fallback: 1, rule: 'a whole number from 0 to 1000' },
+  QUOTA_FREE_VIDEO_SECONDS: { schema: wholeNumber(0, 100_000), fallback: 15, rule: 'a whole number from 0 to 100000' },
+  QUOTA_FREE_AUDIO_CHARS: { schema: wholeNumber(0, 10_000_000), fallback: 2_000, rule: 'a whole number from 0 to 10000000' },
+  QUOTA_ALLOW_IMAGES: { schema: wholeNumber(0, 100_000), fallback: 150, rule: 'a whole number from 0 to 100000' },
+  QUOTA_ALLOW_PROJECTS: { schema: wholeNumber(0, 1_000), fallback: 10, rule: 'a whole number from 0 to 1000' },
+  QUOTA_ALLOW_VIDEO_SECONDS: { schema: wholeNumber(0, 100_000), fallback: 120, rule: 'a whole number from 0 to 100000' },
+  QUOTA_ALLOW_AUDIO_CHARS: { schema: wholeNumber(0, 10_000_000), fallback: 20_000, rule: 'a whole number from 0 to 10000000' },
+  RATE_TEXT_PER_MIN: { schema: wholeNumber(1, 100_000), fallback: 10, rule: 'a whole number from 1 to 100000' },
+  RATE_IMAGE_PER_MIN: { schema: wholeNumber(1, 100_000), fallback: 6, rule: 'a whole number from 1 to 100000' },
+  RATE_UPLOAD_PER_HOUR: { schema: wholeNumber(1, 100_000), fallback: 20, rule: 'a whole number from 1 to 100000' },
+  RATE_EDIT_PER_MIN: { schema: wholeNumber(1, 100_000), fallback: 120, rule: 'a whole number from 1 to 100000' },
+  RATE_READ_PER_MIN: { schema: wholeNumber(1, 100_000), fallback: 240, rule: 'a whole number from 1 to 100000' },
+  RATE_MEDIA_PER_MIN: { schema: wholeNumber(1, 1_000_000), fallback: 1_200, rule: 'a whole number from 1 to 1000000' },
+  RATE_ANON_PER_MIN: { schema: wholeNumber(1, 100_000), fallback: 60, rule: 'a whole number from 1 to 100000' },
+  TRUSTED_PROXY_HOPS: { schema: wholeNumber(0, 5), fallback: 1, rule: 'a whole number from 0 to 5' },
 } as const
 
 /** A number setting: blank means the default (CR-15 — an empty value is not 0). */
@@ -304,6 +327,174 @@ export function queueSettings(env: Env = process.env, role: 'web' | 'worker' = '
   }
 }
 
+// --- Limits (v3, slice 20) --------------------------------------------------------
+//
+// Quotas, request windows, spend caps and the kill switch. Read from the
+// environment on EVERY call, never memoised: the learner lowers
+// GLOBAL_DAILY_USD_CAP in Railway to 0.01 and generation pauses for everyone on
+// the next click, with no code path that remembers the old number. Blank means
+// the default (CR-15); a malformed value is refused at boot by name, never by
+// its value. See `devpost/spec.md > Limits, Quotas and the Kill Switch (v3)`.
+//
+//   INKDESK_LIMITS         on | off; unset = on whenever sign-in is on (clerk or
+//                          test) and in production, off only on a local desk
+//                          with INKDESK_AUTH=off. Production refuses off.
+//   ALLOWLIST_EMAILS       comma list, case-insensitive: these accounts get the
+//                          `allowlisted` plan (the local owner always does)
+//   GLOBAL_DAILY_USD_CAP   the studio's spend per UTC day, default 5 (0 = paused)
+//   GLOBAL_TOTAL_USD_CAP   optional: a cumulative ceiling across all days; unset
+//                          means none. The learner chooses it.
+//   QUOTA_FREE_* / QUOTA_ALLOW_*   IMAGES, PROJECTS, VIDEO_SECONDS, AUDIO_CHARS a day
+//   USER_DAILY_USD_FREE / USER_DAILY_USD_ALLOW   one person's spend a day
+//   RATE_*                 the request windows (text 10/min, image 6/min, upload
+//                          20/hour, edit 120/min, read 240/min; pictures served
+//                          1200/min; signed-out callers 60/min per client)
+//   TRUSTED_PROXY_HOPS     how many proxies in front of the app append to
+//                          X-Forwarded-For, default 1 (Railway's edge)
+//   CLIENT_IP_HEADER       x-forwarded-for (default) or x-real-ip: which header
+//                          names the client address (see lib/limits/requests.ts)
+
+/** Dollar amounts: a plain decimal with at most six places. */
+const dollars = (max: number) =>
+  z
+    .string()
+    .regex(/^\d+(\.\d{1,6})?$/)
+    .transform(Number)
+    .pipe(z.number().min(0).max(max))
+
+const DOLLARS = {
+  GLOBAL_DAILY_USD_CAP: { schema: dollars(100_000), fallback: 5, rule: 'a dollar amount like 5 or 0.25' },
+  GLOBAL_TOTAL_USD_CAP: { schema: dollars(10_000_000), fallback: null, rule: 'a dollar amount like 20 (or be left unset)' },
+  USER_DAILY_USD_FREE: { schema: dollars(100_000), fallback: 1, rule: 'a dollar amount like 1 or 0.5' },
+  USER_DAILY_USD_ALLOW: { schema: dollars(100_000), fallback: 10, rule: 'a dollar amount like 10' },
+} as const
+
+/** The limits settings that are not plain numbers. */
+const LIMIT_OTHER = ['INKDESK_LIMITS', 'ALLOWLIST_EMAILS', 'CLIENT_IP_HEADER'] as const
+
+function dollarProblem(env: Env, name: keyof typeof DOLLARS): string | null {
+  const raw = env[name]?.trim()
+  if (!raw) return null
+  return DOLLARS[name].schema.safeParse(raw).success ? null : `${name} must be ${DOLLARS[name].rule}`
+}
+
+function readDollars(env: Env, name: keyof typeof DOLLARS): number | null {
+  const raw = env[name]?.trim()
+  return raw && !dollarProblem(env, name) ? DOLLARS[name].schema.parse(raw) : DOLLARS[name].fallback
+}
+
+const EMAIL = z.string().regex(/^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/)
+
+/** The allowlist as a list of lower-cased addresses; `null` when an entry is not an address. */
+function readAllowlist(env: Env): string[] | null {
+  const raw = env.ALLOWLIST_EMAILS?.trim()
+  if (!raw) return []
+  const entries = raw.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean)
+  return entries.every((e) => EMAIL.safeParse(e).success) ? [...new Set(entries)] : null
+}
+
+/** Is the sign-in mode `off`? Never throws: an unreadable mode is the boot's to refuse, and counts as on here. */
+function signInIsOff(env: Env): boolean {
+  try {
+    return authMode(env) === 'off'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Are the limits on? INKDESK_LIMITS says; unset, they are on wherever sign-in
+ * is on and in production, and off only on a local desk with sign-in off, so a
+ * fresh clone and every check that predates accounts run untouched.
+ * Production never reads off, whatever the variable says — the boot refuses
+ * it, and this is the second lock.
+ */
+export function limitsEnabled(env: Env = process.env): boolean {
+  if (isProduction(env)) return true
+  const raw = env.INKDESK_LIMITS?.trim()
+  if (raw === 'on') return true
+  if (raw === 'off') return false
+  return !signInIsOff(env)
+}
+
+function limitsProblems(env: Env): string[] {
+  const problems: string[] = []
+  const raw = env.INKDESK_LIMITS?.trim()
+  if (raw && raw !== 'on' && raw !== 'off') problems.push('INKDESK_LIMITS must be on or off')
+  else if (raw === 'off' && isProduction(env)) problems.push('INKDESK_LIMITS must be on in production (off is for a local desk)')
+  const header = env.CLIENT_IP_HEADER?.trim()
+  if (header && header !== 'x-forwarded-for' && header !== 'x-real-ip') problems.push('CLIENT_IP_HEADER must be x-forwarded-for or x-real-ip')
+  if (readAllowlist(env) === null) problems.push('ALLOWLIST_EMAILS must be a comma-separated list of email addresses')
+  for (const name of Object.keys(DOLLARS) as (keyof typeof DOLLARS)[]) {
+    const problem = dollarProblem(env, name)
+    if (problem) problems.push(problem)
+  }
+  return problems
+}
+
+export type PlanLimits = {
+  image: number
+  project: number
+  videoSeconds: number
+  audioChars: number
+  /** One person's spend a UTC day, in dollars. */
+  dailyUsd: number
+}
+
+export type RateLimit = { limit: number; windowMs: number }
+
+export type LimitsSettings = {
+  enabled: boolean
+  /** Lower-cased addresses on the allowlisted plan. */
+  allowlist: readonly string[]
+  globalDailyUsd: number
+  /** Null: no cumulative cap. */
+  globalTotalUsd: number | null
+  plans: Record<PlanName, PlanLimits>
+  rates: Record<RateBucket, RateLimit>
+  /** Proxies in front of the app that append to X-Forwarded-For. */
+  trustedProxyHops: number
+  /** The header the client address is read from. */
+  clientIpHeader: 'x-forwarded-for' | 'x-real-ip'
+}
+
+const MINUTE = 60_000
+
+/** The limits from `env` (default: the process's), read fresh each time. Throws `ConfigError` naming every problem. */
+export function limitsSettings(env: Env = process.env): LimitsSettings {
+  const problems = limitsProblems(env)
+  for (const name of Object.keys(NUMBERS) as (keyof typeof NUMBERS)[]) {
+    if (/^(QUOTA_|RATE_|TRUSTED_)/.test(name)) {
+      const problem = numberProblem(env, name)
+      if (problem) problems.push(problem)
+    }
+  }
+  if (problems.length > 0) throw new ConfigError([...new Set(problems)])
+  const n = (name: keyof typeof NUMBERS) => readNumber(env, name)
+  const d = (name: keyof typeof DOLLARS) => readDollars(env, name)
+  return {
+    enabled: limitsEnabled(env),
+    allowlist: readAllowlist(env) ?? [],
+    globalDailyUsd: d('GLOBAL_DAILY_USD_CAP') as number,
+    globalTotalUsd: d('GLOBAL_TOTAL_USD_CAP'),
+    plans: {
+      free: { image: n('QUOTA_FREE_IMAGES'), project: n('QUOTA_FREE_PROJECTS'), videoSeconds: n('QUOTA_FREE_VIDEO_SECONDS'), audioChars: n('QUOTA_FREE_AUDIO_CHARS'), dailyUsd: d('USER_DAILY_USD_FREE') as number },
+      allowlisted: { image: n('QUOTA_ALLOW_IMAGES'), project: n('QUOTA_ALLOW_PROJECTS'), videoSeconds: n('QUOTA_ALLOW_VIDEO_SECONDS'), audioChars: n('QUOTA_ALLOW_AUDIO_CHARS'), dailyUsd: d('USER_DAILY_USD_ALLOW') as number },
+    },
+    rates: {
+      text: { limit: n('RATE_TEXT_PER_MIN'), windowMs: MINUTE },
+      image: { limit: n('RATE_IMAGE_PER_MIN'), windowMs: MINUTE },
+      upload: { limit: n('RATE_UPLOAD_PER_HOUR'), windowMs: 60 * MINUTE },
+      edit: { limit: n('RATE_EDIT_PER_MIN'), windowMs: MINUTE },
+      read: { limit: n('RATE_READ_PER_MIN'), windowMs: MINUTE },
+      media: { limit: n('RATE_MEDIA_PER_MIN'), windowMs: MINUTE },
+      anon: { limit: n('RATE_ANON_PER_MIN'), windowMs: MINUTE },
+    },
+    trustedProxyHops: n('TRUSTED_PROXY_HOPS'),
+    clientIpHeader: env.CLIENT_IP_HEADER?.trim() === 'x-real-ip' ? 'x-real-ip' : 'x-forwarded-for',
+  }
+}
+
 // --- The whole configuration ----------------------------------------------------
 
 export type AppConfig = {
@@ -314,9 +505,21 @@ export type AppConfig = {
   generationTimeoutMs: number
   generationEnabled: boolean
   queue: QueueSettings
+  limits: LimitsSettings
 }
 
-const READ = ['NODE_ENV', 'INKDESK_STORAGE', 'INKDESK_QUEUE', 'GENERATION_ENABLED', ...Object.keys(NUMBERS), ...CLOUD_VARIABLES, ...REDIS_NAMES]
+const READ = [
+  'NODE_ENV',
+  'INKDESK_STORAGE',
+  'INKDESK_QUEUE',
+  'INKDESK_AUTH',
+  'GENERATION_ENABLED',
+  ...Object.keys(NUMBERS),
+  ...LIMIT_OTHER,
+  ...Object.keys(DOLLARS),
+  ...CLOUD_VARIABLES,
+  ...REDIS_NAMES,
+]
 
 /** The configuration from `env`, or a `ConfigError` listing every problem. Pure. */
 export function parseConfig(env: Env = process.env, role: 'web' | 'worker' = 'web'): AppConfig {
@@ -332,7 +535,8 @@ export function parseConfig(env: Env = process.env, role: 'web' | 'worker' = 'we
   }
   // The queue's own numbers were just checked above; its mode and Redis here.
   for (const problem of queueProblems(env, role)) problems.push(problem)
-  if (problems.length > 0) throw new ConfigError(problems)
+  problems.push(...limitsProblems(env))
+  if (problems.length > 0) throw new ConfigError([...new Set(problems)])
   return {
     storage: storage as StorageMode,
     cloud: storage === 'cloud' ? cloudSettings(env) : null,
@@ -340,6 +544,7 @@ export function parseConfig(env: Env = process.env, role: 'web' | 'worker' = 'we
     generationTimeoutMs: generationTimeoutMs(env),
     generationEnabled: generationEnabled(env),
     queue: queueSettings(env, role),
+    limits: limitsSettings(env),
   }
 }
 

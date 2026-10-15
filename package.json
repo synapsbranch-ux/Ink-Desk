@@ -28,6 +28,7 @@
     "check:activity": "tsx scripts/activity-check.mts",
     "check:auth": "tsx scripts/auth-check.mts",
     "check:ownership": "tsx scripts/ownership-check.mts",
+    "check:limits": "tsx scripts/limits-check.mts",
     "video:capture": "npm --prefix video run capture --",
     "video:narrate": "npm --prefix video run narrate --",
     "video:render": "npm --prefix video run render",

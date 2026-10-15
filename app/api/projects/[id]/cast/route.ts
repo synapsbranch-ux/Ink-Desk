@@ -10,7 +10,7 @@ import { writeCast } from '@/lib/claude'
 import { errorResponse, Refused } from '@/lib/errors'
 import { assertGenerationEnabled } from '@/lib/generation'
 import { updateCharging } from '@/lib/images'
-import { textMeter } from '@/lib/llm'
+import { spendText } from '@/lib/limits/text'
 import { storyBrief } from '@/lib/story'
 
 export const runtime = 'nodejs'
@@ -30,9 +30,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (!story) throw new Refused(current.storyMode === 'scenario' ? 'Save the scenario first.' : 'Accept a synopsis first.')
     if (current.cast.length > 0) throw new Refused('The cast is already proposed. Reroll a character instead.')
 
-    const meter = textMeter()
-    const { first, second } = await writeCast(story, current.storyMode === 'scenario' ? 'scenario' : 'synopsis', meter)
-    const desk = await updateCharging(id, meter, (c) => proposeCast(c, first, second))
+    const desk = await spendText(userId, 'cast', async (meter) => {
+      const { first, second } = await writeCast(story, current.storyMode === 'scenario' ? 'scenario' : 'synopsis', meter)
+      return updateCharging(id, meter, (c) => proposeCast(c, first, second))
+    })
     return Response.json(desk)
   } catch (err) {
     return errorResponse(err, 'cast', CALM)

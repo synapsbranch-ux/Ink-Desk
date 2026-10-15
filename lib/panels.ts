@@ -97,6 +97,9 @@ export async function inkPanel(addr: PageAddress, index: number, run: JobRun = a
   // Once the picture is stored, a failure that is not a refusal is the store
   // hiccuping, not the picture failing: the job is tried again and attaches it.
   let stored = run.resultImageId !== null
+  // What the provider billed for a picture it has answered with: if the bucket or the store then fails, the job ends
+  // having paid for nothing it can show, and that money is still spent (SEC-02) — the ending must carry it.
+  let billed = 0
   const tracked: JobRun = {
     ...run,
     checkpoint: async (imageId, cost) => {
@@ -141,6 +144,7 @@ export async function inkPanel(addr: PageAddress, index: number, run: JobRun = a
       references: [{ bytes: sheet, mediaType: mediaTypeOf(character.sheetImageId) }],
       label: `${tag} · ${character.name} · ${slot.shot}`,
     })
+    billed = image.costUsd ?? 0
 
     await saveImage(
       addr.projectId,
@@ -163,6 +167,10 @@ export async function inkPanel(addr: PageAddress, index: number, run: JobRun = a
     await update(addr.projectId, (d) => markFailed(d, index, status, run.jobId), addr).catch((e: unknown) =>
       console.error(`[${tag}] could not record the failure:`, e)
     )
-    return { outcome: status, error: credits ? PAUSED : err instanceof ProviderError && err.kind !== 'provider' ? jobSentence(err, '') : undefined }
+    return {
+      outcome: status,
+      error: credits ? PAUSED : err instanceof ProviderError && err.kind !== 'provider' ? jobSentence(err, '') : undefined,
+      ...(billed > 0 ? { costUsd: run.costUsd + billed } : {}),
+    }
   }
 }

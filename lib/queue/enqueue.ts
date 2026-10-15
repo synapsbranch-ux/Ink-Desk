@@ -8,7 +8,15 @@
 // busy sentence and leaves nothing behind; and asking for work that is already
 // waiting or running hands back that job instead of a second paid one.
 //
+// Slice 20 puts the spend reservation between the checks and the write: after
+// the dedupe and the caps above, and BEFORE the record is written, the job's
+// picture is held against the person's quota and dollar cap and the studio's
+// caps (`lib/limits`), atomically — so a refusal leaves nothing behind and
+// parallel requests cannot over-spend. Every ending of the job settles or
+// releases the hold (`ending.ts`); a back-out here is one of those endings.
+//
 // Refusals, each one a calm sentence and a status the studio already shows:
+//   • the studio's daily/total cap, or the person's quota/dollar cap → 503 / 429
 //   • the credit breaker is open (a 402 was seen)            → 503
 //   • Redis is down, or not configured                       → 503
 //   • this person has `QUEUE_USER_INFLIGHT` jobs in flight   → 429  (SEC-08, CR-10)
@@ -20,9 +28,11 @@ import 'server-only'
 import { randomUUID } from 'node:crypto'
 import { queueSettings } from '../config'
 import { Refused } from '../errors'
+import { holdForJob, releaseUnlinked, sweepUnsettled } from '../limits/jobs'
 import { singletons } from '../singleton'
 import { store } from '../store'
 import { creditsBreakerOpen } from './breaker'
+import { endJob } from './ending'
 import { ABANDONED, BUSY, KEEP_FINISHED_MS, LOCAL_OWNER, PAUSED, TOO_MANY, abandon, finish, newJob, priorityFor, type JobRecord, type NewJob } from './jobs'
 import { within } from './redis'
 import { addToQueue } from './queues'
@@ -38,7 +48,7 @@ export async function activeJob(key: string): Promise<JobRecord | null> {
   if (!job) return null
   if (isJobLive(job)) return job
   const now = new Date()
-  const ended = await store.jobs.updateJob(job.id, (j) => (isJobLive(j, now) ? null : abandon(j, ABANDONED, now)))
+  const ended = await endJob(job.id, (j) => (isJobLive(j, now) ? null : abandon(j, ABANDONED, now)))
   return ended ? null : ((await store.jobs.getJob(job.id)) ?? null)
 }
 
@@ -55,7 +65,7 @@ export async function isQueued(key: string): Promise<boolean> {
  */
 export async function assertCanEnqueue(ownerId: string): Promise<void> {
   const settings = queueSettings()
-  if (await creditsBreakerOpen()) throw new Refused(PAUSED, 503)
+  if (await creditsBreakerOpen()) throw new Refused(PAUSED, 503, { code: 'paused' })
   if (settings.mode === 'bullmq' && !settings.redisUrl) throw new Refused(BUSY, 503)
   const mine = await store.jobs.listJobs({ ownerId, status: ACTIVE, limit: settings.userInflight + 1 })
   if (mine.length >= settings.userInflight) throw new Refused(TOO_MANY, 429)
@@ -63,17 +73,29 @@ export async function assertCanEnqueue(ownerId: string): Promise<void> {
   if (everyone.length >= settings.maxWaiting) throw new Refused(BUSY, 503)
 }
 
-/** The newest ended job for this key that paid for a picture and never landed it: its picture is what a new job should attach (CR-16). */
+/**
+ * The picture a new job of this key should attach (CR-16): the newest ended job for the key paid for one and never
+ * landed it. Only when that job is the newest ending of all — a later job that finished has attached it (or drawn
+ * another), and carrying the old picture on would turn every Redraw into a no-op that still takes a quota unit — and
+ * only while the picture is still in the bucket: a refused attach deletes it, and a job that carried a deleted
+ * picture's cost would draw a fresh one and count it as nothing.
+ */
 async function strandedPicture(key: string): Promise<Pick<NewJob, 'resultImageId' | 'costUsd'>> {
-  const [last] = await store.jobs.listJobs({ key, status: ['failed'], limit: 1 })
-  return last?.resultImageId ? { resultImageId: last.resultImageId, costUsd: last.costUsd } : {}
+  const [last] = await store.jobs.listJobs({ key, status: ['done', 'failed'], limit: 1 })
+  if (last?.status !== 'failed' || !last.resultImageId) return {}
+  if (!(await store.getBlob(last.resultImageId))) return {}
+  return { resultImageId: last.resultImageId, costUsd: last.costUsd }
 }
 
 let lastPrune = 0
-/** Old finished records are let go from the web side too (the inline queue has no worker to do it), at most every ten minutes. */
+/**
+ * Old finished records are let go from the web side too (the inline queue has no worker to do it), at most every
+ * ten minutes — and so is the sweep for ended jobs whose hold was never settled (slice 20), for the same reason.
+ */
 function prune(): void {
   if (Date.now() - lastPrune < 10 * 60_000) return
   lastPrune = Date.now()
+  void sweepUnsettled()
   store.jobs.pruneJobs(new Date(Date.now() - KEEP_FINISHED_MS).toISOString()).catch((err: unknown) => {
     console.warn('[queue] could not prune finished job records:', err instanceof Error ? err.message : err)
   })
@@ -100,9 +122,28 @@ export async function enqueueJob(request: NewJob): Promise<Enqueued> {
   await assertCanEnqueue(input.ownerId)
   prune()
 
+  // The hold comes after every check that needs no money and before the record: a refusal (the person's
+  // quota, their dollar cap, the studio's pause, a counter store that is down) leaves nothing behind. The id is
+  // made first because settle and release are idempotent on it. Everything the record needs that can be read is
+  // read first, so the only thing between the hold and the record is the write itself: a process that dies in
+  // that gap leaves a hold nothing tracks (a unit and an estimate until the day resets), and the gap is one write wide.
+  const id = randomUUID()
+  const stranded = await strandedPicture(input.key)
+  const hold = await holdForJob({ id, ownerId: input.ownerId, kind: input.kind })
+
   // Written before it is queued, so there is never a queued job without a record.
-  const inserted = await store.jobs.insertJob(newJob({ ...input, ...(await strandedPicture(input.key)) }, randomUUID(), new Date()))
-  if (!inserted.created) return inserted
+  let inserted: Enqueued
+  try {
+    inserted = await store.jobs.insertJob(newJob({ ...input, ...stranded, ...hold }, id, new Date()))
+  } catch (err) {
+    if (hold.reservation === 'held') await releaseUnlinked(id)
+    throw err
+  }
+  if (!inserted.created) {
+    // Another request took the key first: its job is the answer, and this hold backs nothing.
+    if (hold.reservation === 'held') await releaseUnlinked(id)
+    return inserted
+  }
   const job = inserted.job
 
   // The caps were checked before the insert, and requests racing each other all
@@ -112,7 +153,7 @@ export async function enqueueJob(request: NewJob): Promise<Enqueued> {
   const everyone = mine.length > settings.userInflight ? mine : await store.jobs.listJobs({ status: ACTIVE, limit: settings.maxWaiting + 2 })
   const overOwner = mine.length > settings.userInflight
   if (overOwner || everyone.length > settings.maxWaiting) {
-    await store.jobs.updateJob(job.id, (j) => finish(j, { outcome: 'cancelled', error: overOwner ? TOO_MANY : BUSY }, new Date())).catch(() => {})
+    await endJob(job.id, (j) => finish(j, { outcome: 'cancelled', error: overOwner ? TOO_MANY : BUSY }, new Date())).catch(() => {})
     throw new Refused(overOwner ? TOO_MANY : BUSY, overOwner ? 429 : 503)
   }
 
@@ -121,7 +162,7 @@ export async function enqueueJob(request: NewJob): Promise<Enqueued> {
   } catch (err) {
     // Not queued, so not coming: end the record, or the reconciler would put it
     // on the queue later and the person would be charged for a click that said "busy".
-    await store.jobs.updateJob(job.id, (j) => finish(j, { outcome: 'cancelled', error: BUSY }, new Date())).catch(() => {})
+    await endJob(job.id, (j) => finish(j, { outcome: 'cancelled', error: BUSY }, new Date())).catch(() => {})
     console.error('[queue] could not queue a job:', err instanceof Error ? err.message : err)
     throw err instanceof Refused ? err : new Refused(BUSY, 503)
   }

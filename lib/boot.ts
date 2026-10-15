@@ -22,7 +22,7 @@ export function boot() {
     const config = read(appConfig)
     const auth = read(() => authSettings())
     if (!config || !auth) throw new ConfigError(problems)
-    console.log(`[config] storage: ${config.storage} · queue: ${config.queue.mode} · generation: ${config.generationEnabled ? 'on' : 'off'} · sign-in: ${auth.mode}`)
+    console.log(`[config] storage: ${config.storage} · queue: ${config.queue.mode} · generation: ${config.generationEnabled ? 'on' : 'off'} · sign-in: ${auth.mode} · limits: ${config.limits.enabled ? 'on' : 'off'}`)
     if (config.queue.mode === 'inline') void sweepInlineJobs()
     else if (config.queue.redisUrl) void warmRedis()
   } catch (err) {
@@ -45,12 +45,16 @@ export function boot() {
  * Try again. (On the real queue the web service never does this — jobs
  * outlive it.)
  */
-async function sweepInlineJobs(): Promise<void> {
+export async function sweepInlineJobs(): Promise<void> {
   try {
     const { store } = await import('./store')
     const { KEEP_FINISHED_MS, RESTARTED, abandon } = await import('./queue/jobs')
+    const { endJob } = await import('./queue/ending')
+    const { sweepUnsettled } = await import('./limits/jobs')
     const left = await store.jobs.listJobs({ status: ['queued', 'running'], limit: 2_000 })
-    for (const job of left) await store.jobs.updateJob(job.id, (j) => abandon(j, RESTARTED, new Date()))
+    // Ended through `endJob`, so each one's hold (slice 20) is released with it.
+    for (const job of left) await endJob(job.id, (j) => abandon(j, RESTARTED, new Date()))
+    await sweepUnsettled()
     // The inline queue has no worker to prune finished records, so the start of the server does.
     await store.jobs.pruneJobs(new Date(Date.now() - KEEP_FINISHED_MS).toISOString())
     if (left.length > 0) console.warn(`[queue] ${left.length} job${left.length === 1 ? '' : 's'} from before this start were let go (inline queue)`)

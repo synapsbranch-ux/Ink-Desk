@@ -11,7 +11,7 @@ import { writePageScript } from '@/lib/claude'
 import { errorResponse, Refused } from '@/lib/errors'
 import { assertGenerationEnabled } from '@/lib/generation'
 import { updateCharging } from '@/lib/images'
-import { textMeter } from '@/lib/llm'
+import { spendText } from '@/lib/limits/text'
 import type { LockedCharacter } from '@/lib/prompts'
 import { lockedPair, newScript } from '@/lib/script'
 import type { Character } from '@/lib/types'
@@ -36,9 +36,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const [lead, counterpart] = lockedPair(current)
     if (current.script) throw new Refused('The page script is already written.')
 
-    const meter = textMeter()
-    const out = await writePageScript(synopsis, [locked(lead), locked(counterpart)], meter)
-    const desk = await updateCharging(id, meter, (c) => newScript(c, out), addr)
+    const desk = await spendText(userId, 'script', async (meter) => {
+      const out = await writePageScript(synopsis, [locked(lead), locked(counterpart)], meter)
+      return updateCharging(id, meter, (c) => newScript(c, out), addr)
+    })
     return Response.json(desk)
   } catch (err) {
     return errorResponse(err, 'script', CALM)

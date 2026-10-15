@@ -10,7 +10,7 @@ import { rewriteCharacter } from '@/lib/claude'
 import { errorResponse, Refused } from '@/lib/errors'
 import { assertGenerationEnabled } from '@/lib/generation'
 import { updateCharging } from '@/lib/images'
-import { textMeter } from '@/lib/llm'
+import { spendText } from '@/lib/limits/text'
 import { RerollRequestSchema } from '@/lib/schemas'
 import { storyBrief } from '@/lib/story'
 
@@ -32,9 +32,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const keep = current.cast.find((c) => c.id !== id)
     if (!keep) throw new Refused('The cast isn’t complete yet.')
 
-    const meter = textMeter()
-    const proposal = await rewriteCharacter(synopsis, keep, target, meter)
-    const desk = await updateCharging(projectId, meter, (c) => replaceCharacter(c, id, proposal))
+    const desk = await spendText(userId, 'reroll', async (meter) => {
+      const proposal = await rewriteCharacter(synopsis, keep, target, meter)
+      return updateCharging(projectId, meter, (c) => replaceCharacter(c, id, proposal))
+    })
     return Response.json(desk)
   } catch (err) {
     return errorResponse(err, 'cast/reroll', CALM)

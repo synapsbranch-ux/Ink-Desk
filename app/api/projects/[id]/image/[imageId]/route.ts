@@ -5,7 +5,7 @@
 // streams exactly as before: ETag, 304, `no-store` on every non-200, nosniff.
 import { assertImageInProject, ownedProject } from '@/lib/auth/access'
 import { requireUser } from '@/lib/auth/session'
-import { Refused } from '@/lib/errors'
+import { Refused, refusalResponse } from '@/lib/errors'
 import { IMAGE_MISSING_HEADERS, imageNotFound, imageResponse } from '@/lib/images'
 
 export const runtime = 'nodejs'
@@ -16,7 +16,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     const userId = await requireUser(req)
     assertImageInProject(await ownedProject(userId, id), imageId)
   } catch (err) {
-    if (err instanceof Refused && err.status === 401) return Response.json({ error: err.message }, { status: 401, headers: IMAGE_MISSING_HEADERS })
+    // A signed-out caller, or one asking faster than the picture window allows (slice 20): the sentence, not the missing-picture state.
+    if (err instanceof Refused && (err.status === 401 || err.status === 429)) return refusalResponse(err, IMAGE_MISSING_HEADERS)
     if (err instanceof Refused && err.status < 500) return imageNotFound()
     // A project that can't be read, a store that is down: the broken-image state, the cause in the terminal.
     console.error(`[image] ${id}/${imageId} couldn’t be checked:`, err instanceof Error ? err.message : err)

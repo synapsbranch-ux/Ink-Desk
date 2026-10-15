@@ -11,6 +11,7 @@
 // Clerk is loaded only in clerk mode, so the checks and a local desk never
 // load it.
 import 'server-only'
+import { limitsEnabled } from '../config'
 import { Refused } from '../errors'
 import { authMode } from './config'
 
@@ -52,9 +53,23 @@ export async function currentUser(req?: Request): Promise<string | null> {
   return userId ?? null
 }
 
-/** The caller's user id; a signed-out caller is refused with 401 and the one sentence. */
+/**
+ * The caller's user id; a signed-out caller is refused with 401 and the one
+ * sentence.
+ *
+ * Slice 20: this is also the ONE choke point for the request windows. A route
+ * handler passes its Request, and — when the limits are on — the caller's
+ * window for that kind of request is taken here, before the route does
+ * anything else, so no route has to remember (`lib/limits/requests.ts`). A
+ * signed-out caller takes no window: it gets the 401 and nothing else happens,
+ * which costs no store, no provider and no counter. The routes that have no
+ * signed-in person (a share view, a report) take a window keyed by the
+ * client's address themselves (`limitByAddress`). A page passes no Request and
+ * takes no window; with the limits off nothing is loaded or counted.
+ */
 export async function requireUser(req?: Request): Promise<string> {
   const userId = await currentUser(req)
   if (!userId) throw new Refused(SIGN_IN_SENTENCE, 401)
+  if (req !== undefined && limitsEnabled()) await (await import('../limits/requests')).limitRequest(req, userId)
   return userId
 }

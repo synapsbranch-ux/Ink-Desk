@@ -13,12 +13,18 @@
 // the draft Claude returns never touches the desk, and accepting it starts a
 // NEW project in the same style with that story (v2, slice 8) — this project
 // is never cleared. `devpost/prd.md > Screens and Layout (v2)`.
+//
+// Slice 20: pitching and rewriting are paid text calls, shut — with the
+// reason beside them — only while drawing is paused for everyone; accepting a
+// new story starts a project, which today's project allowance counts.
 import { useState } from 'react'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { GenerationStatus } from '@/components/GenerationStatus'
 import { ScenarioDesk } from '@/components/ScenarioDesk'
+import { SpendNote } from '@/components/SpendNote'
 import { StationFooter } from '@/components/StationFooter'
 import type { Gates } from '@/lib/gates'
+import { useSpend } from '@/lib/limits/use-usage'
 import type { ChapterPatch } from '@/lib/patch'
 import { GENRES, SAMPLE_PITCH, TONES } from '@/lib/prompts'
 // The request schemas' own ceilings, so a long field stops at the box rather than failing the whole save.
@@ -72,6 +78,9 @@ export function StoryStation({
   onGoCast,
 }: Props) {
   const { synopsis } = chapter
+  const textSpend = useSpend({ text: true })
+  const projectSpend = useSpend({ project: true })
+  const askWhy = textSpend.blocked ? (textSpend.reason ?? undefined) : undefined
   const accepted = synopsis?.accepted === true
   const castBuilt = chapter.cast.length > 0
   const scenarioMode = chapter.storyMode === 'scenario'
@@ -241,7 +250,8 @@ export function StoryStation({
                 type="button"
                 className="btn btn-primary btn-lg"
                 onClick={() => onPitch(pitch)}
-                disabled={!ready || pending}
+                disabled={!ready || pending || textSpend.blocked}
+                title={askWhy}
               >
                 {pending ? 'Pitching…' : castBuilt ? (draft ? 'Pitch it again' : 'Pitch a new story') : synopsis ? 'Pitch it again' : 'Pitch it to Claude'}
               </button>
@@ -254,6 +264,7 @@ export function StoryStation({
               </span>
             </div>
 
+            <SpendNote spend={textSpend} />
             {notice && (
               <div className="notice" role="alert">
                 {notice}
@@ -294,15 +305,26 @@ export function StoryStation({
                     type="button"
                     className="btn btn-primary btn-lg"
                     onClick={() => setConfirming(true)}
-                    disabled={draft.title.trim() === '' || draft.body.trim() === ''}
-                    title="Starts a new project with this story — it asks first. Nothing here is cleared."
+                    disabled={draft.title.trim() === '' || draft.body.trim() === '' || projectSpend.blocked}
+                    title={
+                      projectSpend.blocked
+                        ? (projectSpend.reason ?? undefined)
+                        : 'Starts a new project with this story — it asks first. Nothing here is cleared.'
+                    }
                   >
                     Accept — new project…
                   </button>
-                  <button type="button" className="btn btn-secondary" onClick={() => onPitch(pitch)} disabled={!ready}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => onPitch(pitch)}
+                    disabled={!ready || textSpend.blocked}
+                    title={askWhy}
+                  >
                     Rewrite
                   </button>
                 </div>
+                <SpendNote spend={projectSpend} />
               </article>
             ) : synopsis === null ? (
               <div className="synopsis-empty">
@@ -318,6 +340,7 @@ export function StoryStation({
                 onEdit={onEdit}
                 onCommit={onCommit}
                 onRewrite={() => onPitch(pitch)}
+                rewriteBlocked={askWhy}
               />
             )}
 
@@ -356,6 +379,7 @@ function CurrentSynopsis({
   onEdit,
   onCommit,
   onRewrite,
+  rewriteBlocked,
 }: {
   synopsis: Synopsis
   accepted: boolean
@@ -365,6 +389,8 @@ function CurrentSynopsis({
   onEdit: (patch: ChapterPatch) => void
   onCommit: (patch: ChapterPatch) => void
   onRewrite: () => void
+  /** Why Rewrite is shut for a limit (a paused studio), else undefined. */
+  rewriteBlocked: string | undefined
 }) {
   return (
     <article className="card synopsis-card">
@@ -411,7 +437,13 @@ function CurrentSynopsis({
               Accept
             </button>
           )}
-          <button type="button" className="btn btn-secondary" onClick={onRewrite} disabled={!ready || pending}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={onRewrite}
+            disabled={!ready || pending || rewriteBlocked !== undefined}
+            title={rewriteBlocked}
+          >
             Rewrite
           </button>
         </div>

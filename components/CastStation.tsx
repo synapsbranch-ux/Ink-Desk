@@ -9,7 +9,9 @@ import { useEffect, useRef } from 'react'
 import { AssetShelf } from '@/components/AssetShelf'
 import { CharacterCard, IDLE_CARD, type CardState } from '@/components/CharacterCard'
 import { GenerationStatus } from '@/components/GenerationStatus'
+import { SpendNote } from '@/components/SpendNote'
 import { StationFooter } from '@/components/StationFooter'
+import { useSpend } from '@/lib/limits/use-usage'
 import type { Gates } from '@/lib/gates'
 import { textStages } from '@/lib/stages'
 import type { CharacterEdit } from '@/lib/patch'
@@ -55,6 +57,8 @@ export function CastStation({
   onGoDirector,
 }: Props) {
   const empty = chapter.cast.length === 0
+  // Proposing the cast is a paid text call: shut while drawing is paused for everyone.
+  const textSpend = useSpend({ text: true })
 
   // Cast opens with nothing proposed exactly once per chapter: ask Claude on
   // arrival. A failure shows a sentence and a button rather than asking
@@ -94,12 +98,21 @@ export function CastStation({
             <GenerationStatus stages={textStages(chapter.storyMode === 'scenario' ? 'Claude is reading the scenario…' : 'Claude is reading the synopsis…')} />
           </div>
         ) : empty ? (
-          <div className="notice cast-notice" role="alert">
-            <span>{proposeNotice ?? 'No cast yet.'}</span>
-            <button type="button" className="btn btn-secondary" onClick={onPropose}>
-              Try again
-            </button>
-          </div>
+          <>
+            <div className="notice cast-notice" role="alert">
+              <span>{proposeNotice ?? 'No cast yet.'}</span>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={textSpend.blocked}
+                title={textSpend.blocked ? (textSpend.reason ?? undefined) : undefined}
+                onClick={onPropose}
+              >
+                Try again
+              </button>
+            </div>
+            <SpendNote spend={textSpend} />
+          </>
         ) : (
           <div className="cast-grid">
             {chapter.cast.map((c, i) => (

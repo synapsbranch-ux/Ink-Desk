@@ -16,7 +16,10 @@ import { PREFIX, producerRedis, redisKey, within } from './redis'
 export const BREAKER_MS = 10 * 60_000
 const KEY = redisKey('breaker', 'credits')
 
-type Pinned = { __inkdeskBreakerUntil?: number }
+/** A Redis that did not answer is not asked again for this long: the spend path asks the breaker on every hold. */
+const REDIS_RETRY_MS = 5_000
+
+type Pinned = { __inkdeskBreakerUntil?: number; __inkdeskBreakerRedisDownUntil?: number }
 const g = globalThis as typeof globalThis & Pinned
 
 /** Open the breaker for `BREAKER_MS`. Best effort on Redis: the local flag is set first and always. */
@@ -35,11 +38,13 @@ export async function tripCredits(): Promise<void> {
 export async function creditsBreakerOpen(): Promise<boolean> {
   if ((g.__inkdeskBreakerUntil ?? 0) > Date.now()) return true
   if (queueSettings().mode !== 'bullmq') return false
+  if ((g.__inkdeskBreakerRedisDownUntil ?? 0) > Date.now()) return false
   try {
     const open = (await within(producerRedis().exists(KEY))) === 1
     if (open) g.__inkdeskBreakerUntil = Date.now() + 30_000 // remember for a moment: no Redis round trip per poll
     return open
   } catch {
+    g.__inkdeskBreakerRedisDownUntil = Date.now() + REDIS_RETRY_MS
     return false
   }
 }
@@ -47,6 +52,7 @@ export async function creditsBreakerOpen(): Promise<boolean> {
 /** For the checks. */
 export function resetBreaker(): void {
   g.__inkdeskBreakerUntil = 0
+  g.__inkdeskBreakerRedisDownUntil = 0
 }
 
 export { PREFIX }

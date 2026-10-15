@@ -4,13 +4,19 @@
 // (empty until slice 10), and the budget readout. Implements
 // `devpost/prd.md > Dashboard`. Since slice 19 everything here is the signed-in
 // person's own — the page lists only their projects — and every picture is
-// asked for under its project's address.
+// asked for under its project's address. Since slice 20 the header carries the
+// quota meter and a link to the Usage page, and New project is shut — with the
+// reason and the reset time beside it — when today's projects are used up or
+// generation is paused (`devpost/prd.md > Limits and Usage (v3)`).
 import Image from 'next/image'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { useState } from 'react'
 import { NewProjectDialog } from '@/components/NewProjectDialog'
+import { QuotaMeter, USAGE_PATH } from '@/components/QuotaMeter'
+import { SpendNote, spendTitle } from '@/components/SpendNote'
 import { imageUrl } from '@/lib/image-url'
+import { useSpend } from '@/lib/limits/use-usage'
 import { stylePreset } from '@/lib/styles'
 import type { ProjectSummary, Station } from '@/lib/types'
 
@@ -39,6 +45,7 @@ export function Dashboard({ projects, notice = null, panelQuality, account = nul
   // `/?new=1` opens the dialog straight away — the reader's "New project…" door.
   const search = useSearchParams()
   const [creating, setCreating] = useState(search.get('new') === '1')
+  const spend = useSpend({ project: true })
 
   const library = projects.flatMap((project) => project.characters.map((character) => ({ character, project })))
   const images = projects.reduce((n, p) => n + p.images, 0)
@@ -60,10 +67,21 @@ export function Dashboard({ projects, notice = null, panelQuality, account = nul
         </div>
         <div className="header-spacer" />
         <div className="header-meta">
+          <QuotaMeter />
+          <Link className="header-link" href={USAGE_PATH}>
+            Usage
+          </Link>
           <span className="image-counter" title="Every image generated across the desk, and what the providers reported it cost">
             Images: {images} · ≈ {usd(cost)}
           </span>
-          <button type="button" className="btn btn-stamp" onClick={() => setCreating(true)}>
+          <button
+            type="button"
+            className="btn btn-stamp"
+            disabled={spend.blocked}
+            aria-describedby={spend.blocked ? 'new-project-reason' : undefined}
+            title={spendTitle(spend, undefined)}
+            onClick={() => setCreating(true)}
+          >
             New project
           </button>
           {account}
@@ -87,12 +105,19 @@ export function Dashboard({ projects, notice = null, panelQuality, account = nul
                 {notice}
               </p>
             )}
+            <SpendNote spend={spend} id="new-project-reason" />
 
             {projects.length === 0 ? (
               <div className="desk-empty card">
                 <p className="desk-empty-title">The desk is clear.</p>
                 <p>Start a project: give it a title, pick the style it will be drawn in, and pitch its story.</p>
-                <button type="button" className="btn btn-stamp btn-lg" onClick={() => setCreating(true)}>
+                <button
+                  type="button"
+                  className="btn btn-stamp btn-lg"
+                  disabled={spend.blocked}
+                  title={spendTitle(spend, undefined)}
+                  onClick={() => setCreating(true)}
+                >
                   New project
                 </button>
               </div>

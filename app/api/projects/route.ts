@@ -9,6 +9,7 @@ import { requireUser } from '@/lib/auth/session'
 import { JSON_LIMIT_BYTES, parseJson } from '@/lib/body'
 import { createProject, listProjects } from '@/lib/chapter'
 import { errorResponse } from '@/lib/errors'
+import { spendProject } from '@/lib/limits/text'
 import { NewProjectSchema } from '@/lib/schemas'
 
 export const runtime = 'nodejs'
@@ -26,7 +27,8 @@ export async function POST(req: Request) {
   try {
     const userId = await requireUser(req) // before the body is read
     const input = await parseJson(req, NewProjectSchema, JSON_LIMIT_BYTES, 'A new project needs a title and a style.')
-    return Response.json(await createProject(input, userId))
+    // A new project takes today's project quota (slice 20): held before it exists, given back if it cannot be made.
+    return Response.json(await spendProject(userId, () => createProject(input, userId)))
   } catch (err) {
     return errorResponse(err, 'projects', 'The desk couldn’t start the new project.')
   }

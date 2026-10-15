@@ -10,16 +10,25 @@
 // one card per page with every line editable until that page is written.
 // Implements `devpost/prd.md > The Director — Chapter Plan and Cover`; see
 // `devpost/spec.md > The Director (v2)`.
+//
+// Slice 20: the estimate says what it will take of today's images ("Uses 13 of
+// your 20 images today"); Generate all is shut — with the reason and the reset
+// time under the bar — when it takes more than is left or drawing is paused,
+// and the plan, a paid text call, is shut only while drawing is paused for
+// everyone. See `devpost/prd.md > Limits and Usage (v3)`.
 import { useState } from 'react'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { CoverCard } from '@/components/CoverCard'
 import { GenerationStatus } from '@/components/GenerationStatus'
 import { PagePlanCard } from '@/components/PagePlanCard'
 import { useImageUrl } from '@/components/project-image'
+import { SpendNote } from '@/components/SpendNote'
 import { StationFooter } from '@/components/StationFooter'
 import { coverJob } from '@/lib/activity'
-import { estimateLine } from '@/lib/cost'
+import { chapterImages, estimateLine } from '@/lib/cost'
 import type { Gates } from '@/lib/gates'
+import { imagesToStartAll, usesLine } from '@/lib/limits/button'
+import { useSpend, useUsage } from '@/lib/limits/use-usage'
 import type { ChapterPatch } from '@/lib/patch'
 import { pagesComplete, type PlanLineEdit } from '@/lib/plan'
 import type { Activity } from '@/lib/queue/jobs'
@@ -114,6 +123,8 @@ function BeforePlan({
 }) {
   const [pageCount, setPageCount] = useState(PAGE_COUNT_DEFAULT)
   const imageSrc = useImageUrl()
+  const textSpend = useSpend({ text: true })
+  const { usage } = useUsage()
   const scenario = chapter.storyMode === 'scenario' ? chapter.scenario : null
   const refs = scenario
     ? chapter.assets.filter((a) => scenario.referenceAssetIds.includes(a.id)).map((a) => a.name)
@@ -170,16 +181,32 @@ function BeforePlan({
 
       <div className="plan-bar card">
         <PageCountStepper value={pageCount} onChange={setPageCount} />
-        <p className="estimate">{estimateLine(pageCount, chapter.panelQuality)}</p>
-        <button type="button" className="btn btn-primary btn-lg" onClick={() => onWritePlan(pageCount, false)}>
+        <p className="estimate">
+          {estimateLine(pageCount, chapter.panelQuality)} {usesLine(usage, chapterImages(pageCount))}
+        </p>
+        <button
+          type="button"
+          className="btn btn-primary btn-lg"
+          disabled={textSpend.blocked}
+          aria-describedby={textSpend.blocked ? 'plan-reason' : undefined}
+          title={textSpend.blocked ? (textSpend.reason ?? undefined) : undefined}
+          onClick={() => onWritePlan(pageCount, false)}
+        >
           Write the chapter plan
         </button>
       </div>
+      <SpendNote spend={textSpend} id="plan-reason" />
 
       {notice && (
         <div className="notice cast-notice" role="alert">
           <span>{notice}</span>
-          <button type="button" className="btn btn-secondary" onClick={() => onWritePlan(pageCount, false)}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={textSpend.blocked}
+            title={textSpend.blocked ? (textSpend.reason ?? undefined) : undefined}
+            onClick={() => onWritePlan(pageCount, false)}
+          >
             Try again
           </button>
         </div>
@@ -214,6 +241,11 @@ function PlanDesk({
   const nothingLeft = chapter.pages.every((p) => p.written && p.blank === 0)
   const busy = starting !== null
   const openPanels = chapter.script
+  // Generate all draws every page not written and every blank panel: what it takes of today's images.
+  const allImages = imagesToStartAll(chapter)
+  const allSpend = useSpend({ images: allImages })
+  const textSpend = useSpend({ text: true })
+  const { usage } = useUsage()
 
   const onLine = (page: number, panel: number, e: PlanLineEdit) =>
     onEdit({ plan: { pages: { [page]: { [panel]: e } } } })
@@ -226,21 +258,32 @@ function PlanDesk({
           onChange={(n) => onCommit({ plan: { pageCount: n } })}
           minusBlocked={lastWritten ? `Page ${count} is already on the board, so the plan can’t drop it.` : null}
         />
-        <p className="estimate">{estimateLine(count, chapter.panelQuality)}</p>
+        <p className="estimate">
+          {estimateLine(count, chapter.panelQuality)} {nothingLeft || allSpend.blocked ? '' : usesLine(usage, allImages, 'Generate all uses')}
+        </p>
         <div className="plan-bar-actions">
           {!anyWritten && (
-            <button type="button" className="btn btn-secondary" onClick={() => setConfirming(true)}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={textSpend.blocked}
+              title={textSpend.blocked ? (textSpend.reason ?? undefined) : undefined}
+              onClick={() => setConfirming(true)}
+            >
               Ask the Director again…
             </button>
           )}
           <button
             type="button"
             className="btn btn-primary btn-lg"
-            disabled={busy || nothingLeft}
+            disabled={busy || nothingLeft || allSpend.blocked}
+            aria-describedby={allSpend.blocked && !nothingLeft ? 'all-reason' : undefined}
             title={
               nothingLeft
                 ? 'Every page is written and every panel is inked or on its way.'
-                : 'Writes every page not yet on the board from the plan, then inks every blank panel, page by page.'
+                : allSpend.blocked
+                  ? (allSpend.reason ?? undefined)
+                  : 'Writes every page not yet on the board from the plan, then inks every blank panel, page by page.'
             }
             onClick={onStartAll}
           >
@@ -249,6 +292,7 @@ function PlanDesk({
         </div>
       </div>
 
+      {!nothingLeft && <SpendNote spend={allSpend} id="all-reason" />}
       {plan.summarized && (
         <p className="helper plan-summarized">
           The scenario was long, so the Director planned from a summary of it.

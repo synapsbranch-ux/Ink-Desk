@@ -17,7 +17,7 @@ import { findAsset, fitsVision, UPLOAD_LIMIT_BYTES } from '@/lib/assets'
 import { errorResponse, Refused } from '@/lib/errors'
 import { assertGenerationEnabled } from '@/lib/generation'
 import { updateCharging, readImage } from '@/lib/images'
-import { textMeter } from '@/lib/llm'
+import { spendText } from '@/lib/limits/text'
 import { ImportRequestSchema } from '@/lib/schemas'
 import { storyBrief } from '@/lib/story'
 
@@ -43,20 +43,25 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       throw new Refused(`“${asset.name}” is too large for Claude to read. Upload a copy under ${UPLOAD_LIMIT_BYTES / (1024 * 1024)} MB and import that.`, 413)
     }
 
-    // (a) the picture, the old words retired with it
-    const desk = await update(projectId, (c) => importSheet(c, id, assetId))
-    const character = findCharacter(desk, id)
+    // The hold comes first and both steps run inside it: a refused import (the studio is paused, the person is at their
+    // cap, the counters are away) must leave the card exactly as it was, and (a) retires the DNA of the sheet it replaces.
+    let name = ''
+    const done = await spendText(userId, 'import', async (meter) => {
+      // (a) the picture, the old words retired with it
+      const desk = await update(projectId, (c) => importSheet(c, id, assetId))
+      const character = findCharacter(desk, id)
+      name = character.name
 
-    // (b) the words, from the picture
-    const meter = textMeter()
-    const dna = await writeDnaFromPicture(character, synopsis, { bytes, mediaType: asset.mediaType }, meter)
-    const done = await updateCharging(projectId, meter, (c) => {
-      // Only if the card still shows this picture — a second import or a draw
-      // that landed meanwhile wins, and these words would describe the wrong art.
-      if (findCharacter(c, id).sheetImageId !== asset.blobId) return c
-      return setDna(c, id, dna)
+      // (b) the words, from the picture
+      const dna = await writeDnaFromPicture(character, synopsis, { bytes, mediaType: asset.mediaType }, meter)
+      return updateCharging(projectId, meter, (c) => {
+        // Only if the card still shows this picture — a second import or a draw
+        // that landed meanwhile wins, and these words would describe the wrong art.
+        if (findCharacter(c, id).sheetImageId !== asset.blobId) return c
+        return setDna(c, id, dna)
+      })
     })
-    console.log(`[import] ${character.name} — sheet from “${asset.name}”, DNA written from the picture`)
+    console.log(`[import] ${name} — sheet from “${asset.name}”, DNA written from the picture`)
     return Response.json(done)
   } catch (err) {
     return errorResponse(err, 'import', CALM)

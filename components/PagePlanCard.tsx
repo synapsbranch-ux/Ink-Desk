@@ -7,11 +7,17 @@
 // editable until the page is written. A blank line says what it needs before
 // anything is drawn. A written page shows its lines read-only with "Open page
 // n"; an unwritten one offers "Generate page n" with its own estimate.
+// Slice 20: an unwritten page says what it takes of today's images ("Uses 4 of
+// your 20 images today") and its button is shut — with the reason and the
+// reset time under the header — when it cannot be drawn.
 // Implements `devpost/prd.md > The Director — Chapter Plan and Cover`.
 import { pageStatus } from '@/components/PageSwitcher'
 import { useImageUrl } from '@/components/project-image'
+import { SpendNote } from '@/components/SpendNote'
 import { pageJobCount } from '@/lib/activity'
-import { estimatePageUsd, usd } from '@/lib/cost'
+import { estimatePageUsd, PANELS_PER_PAGE, usd } from '@/lib/cost'
+import { usesLine } from '@/lib/limits/button'
+import { useUsage, useSpend } from '@/lib/limits/use-usage'
 import { assertPageDrawable, type PlanLineEdit } from '@/lib/plan'
 import { PANEL_LAYOUT, type PanelSlot } from '@/lib/prompts'
 import type { Activity } from '@/lib/queue/jobs'
@@ -62,6 +68,8 @@ export function PagePlanCard({
 }: Props) {
   const n = index + 1
   const written = summary?.written === true
+  const spend = useSpend({ images: PANELS_PER_PAGE })
+  const { usage } = useUsage()
   const status = pageStatus(summary, pageJobCount(activity, index))
   const blank = written ? null : assertPageDrawable(page, index)
   // Once written, the panels are the truth; the open page shows them, the others the plan's lines.
@@ -85,8 +93,14 @@ export function PagePlanCard({
             <button
               type="button"
               className="btn btn-primary"
-              disabled={blank !== null || starting || locked}
-              title={blank ?? 'Writes this page’s four panels from the plan and starts inking them, two at a time.'}
+              disabled={blank !== null || starting || locked || spend.blocked}
+              aria-describedby={spend.blocked ? `page-${index}-reason` : undefined}
+              title={
+                blank ??
+                (spend.blocked
+                  ? (spend.reason ?? undefined)
+                  : 'Writes this page’s four panels from the plan and starts inking them, two at a time.')
+              }
               onClick={() => onGenerate(index)}
             >
               {starting ? 'Starting…' : `Generate page ${n}`}
@@ -95,6 +109,10 @@ export function PagePlanCard({
         )}
       </header>
       {blank && <p className="plan-page-blank">{blank}</p>}
+      {!written && !blank && <SpendNote spend={spend} id={`page-${index}-reason`} />}
+      {!written && !blank && !spend.blocked && usesLine(usage, PANELS_PER_PAGE) && (
+        <p className="spend-line">{usesLine(usage, PANELS_PER_PAGE)}</p>
+      )}
 
       <div className="plan-page-body">
         <MiniPage summary={summary} openPanels={openPanels} cast={cast} lines={page.panels} />

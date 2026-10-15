@@ -90,9 +90,13 @@ async function release(id: string): Promise<void> {
 
 // --- The events -----------------------------------------------------------------
 
-/** The account's primary email, else its first, else none (a phone-only account). */
+/**
+ * The account's primary email, else its first, else none (a phone-only account) — counting only an address Clerk
+ * does not say is unverified. The studio's allowlist is matched against this address, so an address a stranger merely
+ * typed in must never be taken for the person it names; a payload that says nothing about verification is taken as it is.
+ */
 function emailOf(user: UserJSON): string {
-  const addresses = user.email_addresses ?? []
+  const addresses = (user.email_addresses ?? []).filter((a) => !a.verification?.status || a.verification.status === 'verified')
   const primary = addresses.find((a) => a.id === user.primary_email_address_id) ?? addresses[0]
   return primary?.email_address ?? ''
 }

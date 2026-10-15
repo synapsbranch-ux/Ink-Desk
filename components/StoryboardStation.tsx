@@ -14,13 +14,21 @@
 // switch. Implements `devpost/prd.md > Storyboard — The Main Studio`,
 // `> Page Script` and `> Pages — Generation, Lettering, Repair`; see
 // `devpost/spec.md > Components > Storyboard Station and Panel`.
+//
+// Slice 20: when no image can be drawn (today's allowance is used up, or
+// drawing is paused for everyone) a banner above the page says so once, with
+// the reset time — the panels' own buttons are shut with a few words each —
+// and the arrival does not queue the blank panels it already knows would be
+// refused; they keep their Draw panel buttons.
 import { useEffect, useRef } from 'react'
 import { PageScript } from '@/components/PageScript'
 import { PageSwitcher } from '@/components/PageSwitcher'
 import { Panel } from '@/components/Panel'
+import { SpendNote } from '@/components/SpendNote'
 import { StationFooter } from '@/components/StationFooter'
 import { failedPanelSentence, inFlight, isIdleBlank, panelJob } from '@/lib/activity'
 import type { Gates } from '@/lib/gates'
+import { useSpend } from '@/lib/limits/use-usage'
 import type { PanelEdit } from '@/lib/patch'
 import { pagesComplete } from '@/lib/plan'
 import { PANEL_LAYOUT } from '@/lib/prompts'
@@ -82,6 +90,10 @@ export function StoryboardStation({
   // Blank AND nothing drawing it: a blank panel with a job is on its way.
   const blank = script?.some((p) => isIdleBlank(p.status, jobOf(p.index))) ?? false
   const n = pageIndex + 1
+  // The blank panels the arrival would queue, and whether today's allowance covers them.
+  const blankCount = script?.filter((p) => isIdleBlank(p.status, jobOf(p.index))).length ?? 0
+  const startSpend = useSpend({ images: Math.max(1, blankCount) })
+  const drawSpend = useSpend({ images: 1 })
 
   // A legacy desk — no plan and no script — asks Claude for the page script
   // once on arrival, as v1 did (the gate keeps this from happening now). A
@@ -103,11 +115,12 @@ export function StoryboardStation({
   // being asked for again on their own, so a busy studio can't loop.
   const started = useRef(false)
   useEffect(() => {
-    if (script && blank && !started.current) {
+    // Not before the usage is known, and not when it already says the server would refuse.
+    if (script && blank && !started.current && startSpend.settled && !startSpend.blocked) {
       started.current = true
       onStartPanels()
     }
-  }, [script, blank, onStartPanels])
+  }, [script, blank, onStartPanels, startSpend.settled, startSpend.blocked])
 
   const inked = script?.filter((p) => p.versions.length > 0).length ?? 0
   const inkingNow = script?.filter((p) => p.status === 'inking' || jobOf(p.index)?.status === 'running').length ?? 0
@@ -137,6 +150,7 @@ export function StoryboardStation({
             {panelNotice}
           </p>
         )}
+        {script && <SpendNote spend={drawSpend} />}
 
         <div className="board">
           <div className="page-wrap">

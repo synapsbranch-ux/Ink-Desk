@@ -42,6 +42,8 @@ export type JobFilter = {
   key?: string
   /** Only jobs changed at or after this ISO time. */
   updatedSince?: string
+  /** Only jobs whose limits reservation is still `held` — the reconciler's sweep for ones that ended unsettled (slice 20). */
+  reservation?: 'held'
   limit?: number
 }
 

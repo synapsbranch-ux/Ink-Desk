@@ -195,7 +195,7 @@ type ChatResponse = {
 }
 
 /** One fetch's outcome: a validated reply, or a failure and whether one retry is worth it. */
-type Attempt<T> = { ok: true; value: T; cost: number | null } | { ok: false; retry: boolean; cause: string; cost?: number | null }
+type Attempt<T> = { ok: true; value: T; cost: number | null } | { ok: false; retry: boolean; cause: string; cost?: number | null; credits?: true }
 
 async function askFallback<S extends z.ZodType>(
   schema: S,
@@ -218,6 +218,7 @@ async function askFallback<S extends z.ZodType>(
   // One retry on the fallback, for a transient failure or a reply the schema refuses.
   // A 402 never retries; it will not pass on its own.
   let last = ''
+  let credits = false
   for (let attempt = 1; attempt <= 2; attempt++) {
     const result = await fallbackAttempt(schema, key, body, label)
     if (result.ok) {
@@ -227,12 +228,14 @@ async function askFallback<S extends z.ZodType>(
       return result.value
     }
     last = result.cause
+    if (result.credits) credits = true
     // A reply the schema refused was still generated, and billed.
     if (meter && result.cost != null) meter.costUsd += result.cost
     if (!result.retry || attempt === 2) break
     console.warn(`[text] ${label} — fallback failed (${result.cause.slice(0, 120)}), retrying once`)
   }
-  throw new ProviderError(FALLBACK_BUSY, 'provider', `openrouter/${fallbackModel}: ${last}`)
+  // A 402 is the account being out of credit, which the breaker must hear of (the image calls tell it the same way).
+  throw new ProviderError(FALLBACK_BUSY, 'provider', `openrouter/${fallbackModel}: ${last}`, credits ? 'credits' : undefined)
 }
 
 /** The wire body, exported for `check:llm`. */
@@ -292,7 +295,7 @@ async function fallbackAttempt<S extends z.ZodType>(
   if (!res.ok) {
     const text = await res.text().catch(() => '')
     if (res.status === 402) logOutOfCredits(label)
-    return { ok: false, retry: res.status === 429 || res.status >= 500, cause: `HTTP ${res.status} ${text.slice(0, 400)}` }
+    return { ok: false, retry: res.status === 429 || res.status >= 500, cause: `HTTP ${res.status} ${text.slice(0, 400)}`, ...(res.status === 402 ? { credits: true as const } : {}) }
   }
 
   let json: ChatResponse
@@ -304,7 +307,7 @@ async function fallbackAttempt<S extends z.ZodType>(
   if (json.error) {
     const code = json.error.code ?? 0
     if (code === 402) logOutOfCredits(label)
-    return { ok: false, retry: code === 429 || code >= 500, cause: `error ${code} ${json.error.message ?? ''}`.slice(0, 400) }
+    return { ok: false, retry: code === 429 || code >= 500, cause: `error ${code} ${json.error.message ?? ''}`.slice(0, 400), ...(code === 402 ? { credits: true as const } : {}) }
   }
   const message = json.choices?.[0]?.message
   if (message?.refusal) return { ok: false, retry: false, cause: `refused: ${message.refusal.slice(0, 300)}`, cost: json.usage?.cost ?? null }

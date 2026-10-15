@@ -7,11 +7,16 @@
 // Since slice 18 a panel's status word follows the queue: Pencilling while its
 // job waits, Inking… while it draws, and Not drawn yet for a blank panel
 // nothing is drawing.
+// Slice 20: Generate page n says what it takes of today's images and is shut,
+// with the reason and the reset time beside it, when it cannot be drawn.
 // Implements `devpost/prd.md > Page Script` and `> Pages — Generation,
 // Lettering, Repair`.
 import { GenerationStatus } from '@/components/GenerationStatus'
+import { SpendNote } from '@/components/SpendNote'
 import { inFlight, isIdleBlank, panelJob } from '@/lib/activity'
-import { estimatePageUsd, usd } from '@/lib/cost'
+import { estimatePageUsd, PANELS_PER_PAGE, usd } from '@/lib/cost'
+import { usesLine } from '@/lib/limits/button'
+import { useSpend, useUsage } from '@/lib/limits/use-usage'
 import { assertPageDrawable } from '@/lib/plan'
 import { PANEL_LAYOUT } from '@/lib/prompts'
 import type { Activity } from '@/lib/queue/jobs'
@@ -42,6 +47,9 @@ export function PageScript({ chapter, activity, writing, notice, onRetry, starti
   const script = chapter.script
   const n = chapter.address.pageIndex + 1
   const planned = !script ? chapter.plan?.pages[chapter.address.pageIndex] : undefined
+  const spend = useSpend({ images: PANELS_PER_PAGE })
+  const textSpend = useSpend({ text: true })
+  const { usage } = useUsage()
 
   if (planned) {
     const blank = assertPageDrawable(planned, chapter.address.pageIndex)
@@ -52,16 +60,24 @@ export function PageScript({ chapter, activity, writing, notice, onRetry, starti
           <button
             type="button"
             className="btn btn-primary btn-lg"
-            disabled={blank !== null || starting}
-            title={blank ?? 'Writes the four panels from these lines and starts inking them, two at a time.'}
+            disabled={blank !== null || starting || spend.blocked}
+            aria-describedby={spend.blocked ? 'script-reason' : undefined}
+            title={
+              blank ??
+              (spend.blocked
+                ? (spend.reason ?? undefined)
+                : 'Writes the four panels from these lines and starts inking them, two at a time.')
+            }
             onClick={onGeneratePage}
           >
             {starting ? 'Starting…' : `Generate page ${n}`}
           </button>
           <span className="helper">
-            Estimate: ≈ {usd(estimatePageUsd(chapter.panelQuality))} · 4 images at {chapter.panelQuality}
+            Estimate: ≈ {usd(estimatePageUsd(chapter.panelQuality))} · 4 images at {chapter.panelQuality}.{' '}
+            {!spend.blocked && usesLine(usage, PANELS_PER_PAGE)}
           </span>
         </div>
+        {!blank && <SpendNote spend={spend} id="script-reason" />}
         {blank && <p className="plan-page-blank">{blank} Write it in the Director.</p>}
         {startNotice && (
           <p className="notice" role="alert">
@@ -102,7 +118,13 @@ export function PageScript({ chapter, activity, writing, notice, onRetry, starti
       ) : !script ? (
         <div className="notice cast-notice" role="alert">
           <span>{notice ?? 'No page script yet.'}</span>
-          <button type="button" className="btn btn-secondary" onClick={onRetry}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={textSpend.blocked}
+            title={textSpend.blocked ? (textSpend.reason ?? undefined) : undefined}
+            onClick={onRetry}
+          >
             Try again
           </button>
         </div>

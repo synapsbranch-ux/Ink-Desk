@@ -1147,6 +1147,7 @@ input.cast-role:disabled,
   align-items: center;
   justify-content: flex-end;
   gap: var(--space-2);
+  flex-wrap: wrap;
   padding: 4px 6px 4px 10px;
   background: color-mix(in srgb, var(--paper) 90%, transparent);
   border-top: 1px solid var(--ink);
@@ -2469,6 +2470,12 @@ input.cast-role:disabled,
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+/* The cover's line also carries the day's allowance ("Uses 1 of your 10 images today …"): it is a sentence, so it wraps inside its card. */
+.cover-actions .plan-page-estimate {
+  white-space: normal;
+  flex: 1 1 14rem;
+  min-width: 0;
+}
 .plan-page-blank {
   margin: 0;
   font-size: 13px;
@@ -2831,5 +2838,535 @@ input.cast-role:disabled,
   .page-tab {
     min-width: 0;
     flex: 1 1 30%;
+  }
+}
+
+/* --- Limits and usage (v3, slice 20) ----------------------------------------
+   The quota meter in the headers, the ink-bar, the line that says why a
+   spending button is shut, and the Usage page. Calm in the ink; the hanko red
+   warns from 80% and is deepest, with a dotted band, when a limit is full — so
+   the state never rests on colour alone. */
+
+/* The thin ink-bar: a track and a fill. The number beside it is the information. */
+.ink-bar {
+  position: relative;
+  display: block;
+  height: 5px;
+  min-width: 0;
+  border-radius: 3px;
+  background: var(--neutral-300);
+  overflow: hidden;
+}
+.ink-bar-fill {
+  display: block;
+  height: 100%;
+  min-width: 0;
+  border-radius: inherit;
+  background: var(--neutral-800);
+  transition: width 0.45s ease;
+}
+.ink-bar.is-warn .ink-bar-fill {
+  background: var(--hanko-500);
+}
+.ink-bar.is-full .ink-bar-fill {
+  background:
+    repeating-linear-gradient(135deg, transparent 0 3px, color-mix(in srgb, #fff 45%, transparent) 3px 4px),
+    var(--hanko-700);
+}
+
+/* The meter in the header. */
+.quota {
+  position: relative;
+  font-size: 13px;
+  color: var(--neutral-800);
+}
+.quota-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 36px;
+  padding: 4px var(--space-3);
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-md);
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1.2;
+  color: inherit;
+}
+.quota-trigger:hover {
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+}
+.quota-trigger[aria-expanded='true'] {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  border-color: var(--ink);
+}
+.quota-trigger .ink-bar {
+  width: 56px;
+  flex: none;
+}
+.quota-label {
+  color: var(--neutral-700);
+}
+.quota-num {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--ink);
+}
+.quota-of {
+  font-weight: 400;
+  color: var(--neutral-700);
+}
+.quota-word {
+  font-style: italic;
+  color: var(--hanko-700);
+}
+.quota-trigger.is-warn,
+.quota-trigger.is-other-warn {
+  border-color: var(--hanko-300);
+  background: color-mix(in srgb, var(--hanko-100) 70%, transparent);
+}
+.quota-trigger.is-full,
+.quota-trigger.is-paused {
+  border-color: var(--hanko-600);
+  background: var(--hanko-100);
+}
+.quota-trigger.is-full .quota-word,
+.quota-trigger.is-paused .quota-word {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--hanko-800);
+}
+.quota-trigger.is-quiet {
+  color: var(--neutral-600);
+  border-style: dashed;
+}
+.quota-trigger.is-skeleton {
+  cursor: default;
+  pointer-events: none;
+  width: 190px;
+}
+.quota-skeleton-bar {
+  display: block;
+  width: 100%;
+  height: 8px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--neutral-200), var(--neutral-300), var(--neutral-200));
+  background-size: 200% 100%;
+  animation: quota-shimmer 1.6s ease-in-out infinite;
+}
+@keyframes quota-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .quota-skeleton-bar {
+    animation: none;
+  }
+  .ink-bar-fill {
+    transition: none;
+  }
+}
+
+/* The popover: all four meters and the reset time. */
+.quota-pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 40;
+  width: min(330px, calc(100vw - 2 * var(--space-4)));
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  box-shadow: 5px 5px 0 color-mix(in srgb, var(--ink) 22%, transparent);
+  white-space: normal;
+  text-align: left;
+}
+.quota-pop-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.quota-plan {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--neutral-700);
+}
+.quota-pop-lede {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.quota-pop-pause {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--hanko);
+  background: var(--hanko-100);
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--hanko-900);
+}
+.quota-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.quota-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px var(--space-3);
+  align-items: baseline;
+  font-size: 13px;
+}
+.quota-row .ink-bar {
+  grid-column: 1 / -1;
+}
+.quota-row-label {
+  font-family: var(--font-heading), Georgia, serif;
+  font-weight: 600;
+  font-size: 15px;
+}
+.quota-row-num {
+  font-variant-numeric: tabular-nums;
+  color: var(--neutral-800);
+  text-align: right;
+}
+.quota-row.is-warn .quota-row-num,
+.quota-row.is-full .quota-row-num {
+  color: var(--hanko-700);
+  font-weight: 600;
+}
+.quota-row.is-none {
+  opacity: 0.7;
+}
+.quota-reset {
+  margin: 0;
+  font-size: 13px;
+  font-style: italic;
+  color: var(--neutral-800);
+}
+.quota-pop-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--divider);
+}
+.quota-link,
+.header-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  font-family: var(--font-heading), Georgia, serif;
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--hanko-700);
+  text-underline-offset: 3px;
+}
+.header-link {
+  font-size: 14px;
+}
+
+/* Why a spending button is shut: one calm sentence, always visible. */
+.spend-note {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--hanko-400);
+  background: var(--surface);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--neutral-900);
+  text-wrap: pretty;
+}
+.spend-line {
+  margin: 0;
+  font-size: 13px;
+  font-style: italic;
+  line-height: 1.45;
+  color: var(--neutral-800);
+}
+.action-caption.is-blocked,
+.panel-bar-note.is-blocked {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--hanko-800);
+}
+.panel-bar-note.is-blocked {
+  /* The reason is the point of a disabled button: it takes a line of the bar to itself and wraps, rather than being squeezed
+     to nothing between the buttons or losing its reset time. */
+  flex: 1 1 100%;
+}
+.desk-section > .spend-note {
+  margin-block: var(--space-3);
+}
+.cast-card-foot > .spend-note {
+  margin-bottom: var(--space-1);
+}
+.station-inner > .spend-note,
+.station-inner .director-grid ~ .spend-note {
+  max-width: 760px;
+}
+
+/* The Usage page. */
+.usage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.usage-card {
+  padding: var(--space-4);
+  gap: var(--space-3);
+}
+.usage-card-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-4);
+}
+.usage-card-title {
+  font-size: 26px;
+  line-height: 1.15;
+}
+.usage-reset {
+  font-size: 14px;
+  font-style: italic;
+  color: var(--neutral-800);
+}
+.usage-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.usage-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.usage-row-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 2px var(--space-3);
+}
+.usage-row-label {
+  font-family: var(--font-heading), Georgia, serif;
+  font-weight: 600;
+  font-size: 19px;
+}
+.usage-row-num {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  color: var(--neutral-800);
+}
+.usage-row .ink-bar {
+  height: 8px;
+}
+.usage-row-flag {
+  font-size: 13px;
+  font-style: italic;
+  color: var(--hanko-700);
+}
+.usage-row.is-none .usage-row-num {
+  font-style: italic;
+  color: var(--neutral-700);
+}
+.usage-figures {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  margin: 0;
+}
+.usage-figure {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.usage-figure dt {
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--neutral-700);
+}
+.usage-figure dd {
+  margin: 0;
+  font-family: var(--font-heading), Georgia, serif;
+  font-weight: 600;
+  font-size: 34px;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.usage-figure .usage-figure-aside {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: var(--font-body), Georgia, serif;
+  font-weight: 400;
+  font-size: 13px;
+  color: var(--neutral-700);
+}
+.usage-note {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--neutral-800);
+  text-wrap: pretty;
+}
+.usage-limits {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.usage-limits li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--divider);
+  font-size: 15px;
+}
+.usage-limits li span:first-child {
+  font-family: var(--font-heading), Georgia, serif;
+  font-weight: 600;
+  font-size: 17px;
+}
+.usage-limits li span:last-child {
+  text-align: right;
+  color: var(--neutral-800);
+}
+.usage-plan-tag {
+  font-size: 12px;
+}
+.usage-pause {
+  border-left-color: var(--hanko-700);
+  background: var(--hanko-100);
+  line-height: 1.55;
+}
+.usage-pause-aside {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+  font-style: italic;
+  color: var(--neutral-800);
+}
+.usage-skeleton {
+  display: block;
+  height: 14px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--neutral-200), var(--neutral-300), var(--neutral-200));
+  background-size: 200% 100%;
+  animation: quota-shimmer 1.6s ease-in-out infinite;
+}
+.usage-skeleton.is-title {
+  width: 40%;
+  height: 22px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .usage-skeleton {
+    animation: none;
+  }
+}
+
+/* Touch: every action a comfortable target (44 px), the meter included. */
+@media (pointer: coarse), (max-width: 720px) {
+  .btn,
+  .quota-trigger,
+  .quota-link,
+  .header-link {
+    min-height: 44px;
+  }
+  .btn-panel {
+    min-height: 44px;
+    padding-inline: var(--space-3);
+  }
+}
+
+/* Tablet: the meter, the Usage link and the counters join the header. Where they do not fit beside the brand they
+   wrap under it, right-aligned — never past the edge of the screen. */
+@media (min-width: 721px) and (max-width: 960px) {
+  .studio-header {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 60px;
+    padding-block: var(--space-2);
+    row-gap: var(--space-1);
+  }
+  .studio-header .header-spacer {
+    display: none;
+  }
+  .studio-header .header-meta {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    margin-left: auto;
+    min-width: 0;
+    max-width: 100%;
+    gap: var(--space-1) var(--space-3);
+    white-space: normal;
+  }
+}
+
+@media (max-width: 720px) {
+  /* The header's right-hand group moves to a row of its own under the brand, so
+     the meter, the counters and the account sit side by side and wrap — never
+     push the page sideways. */
+  .studio-header {
+    flex-wrap: wrap;
+    row-gap: var(--space-1);
+  }
+  .studio-header .header-spacer {
+    display: none;
+  }
+  .studio-header .header-meta {
+    flex: 1 1 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    align-items: center;
+    gap: var(--space-1) var(--space-3);
+    white-space: normal;
+  }
+  /* The popover hangs from the header's full width, so it can never leave the screen. */
+  .studio-header {
+    position: relative;
+  }
+  .quota {
+    position: static;
+  }
+  .quota-pop {
+    top: calc(100% + 4px);
+    left: var(--space-4);
+    right: var(--space-4);
+    width: auto;
+  }
+  .quota-trigger {
+    padding-inline: var(--space-2);
+  }
+  .quota-trigger.is-skeleton {
+    width: 120px;
+  }
+  .usage-figures {
+    grid-template-columns: 1fr;
+  }
+  .usage-card-title {
+    font-size: 24px;
   }
 }

@@ -26,6 +26,7 @@ import { writeDna } from './claude'
 import { ProviderError, Refused, jobSentence } from './errors'
 import { generateImage, imageConfig } from './image-provider'
 import { landImage, readImage, saveImage, updateCharging } from './images'
+import { imageEstimateUsd } from './limits/estimate'
 import { textMeter } from './llm'
 import { tripCredits } from './queue/breaker'
 import { enqueueJob } from './queue/enqueue'
@@ -60,6 +61,11 @@ export async function queueSheet(projectId: string, characterId: string, reuseDn
 export async function drawSheet(projectId: string, characterId: string, reuseDna: boolean, run: JobRun = adhocRun()): Promise<Outcome> {
   const meter = textMeter()
   let stored = run.resultImageId !== null
+  // What this run has spent so far, for whichever way it ends: the words are paid for before the picture is tried, and a
+  // picture the provider answered is paid for even if the bucket then fails — none of it is free because the job did not
+  // finish (SEC-02). `run.costUsd` is what an earlier run of this job already had on the record.
+  let billed = 0
+  const owed = () => run.costUsd + billed + meter.costUsd
   try {
     const current = await read(projectId)
     const synopsis = storyBrief(current)
@@ -91,6 +97,9 @@ export async function drawSheet(projectId: string, characterId: string, reuseDna
       quality: cfg.sheetQuality,
       label: `sheet · ${target.name}`,
     })
+    // A picture that came back with no cost reported was still paid for: it is counted at what it is held for,
+    // because the job's total also holds the words' cost, and a total above zero would otherwise read as "reported".
+    billed = image.costUsd ?? imageEstimateUsd('sheet')
 
     // (c) the pair, onto the card, counted once
     await saveImage(
@@ -103,18 +112,19 @@ export async function drawSheet(projectId: string, characterId: string, reuseDna
       undefined,
       {
         ...run,
-        checkpoint: async (imageId, cost) => {
+        checkpoint: async (imageId) => {
           stored = true // the picture is in the bucket the moment this is called, whether or not the job can say so
-          await run.checkpoint(imageId, cost)
+          // The job's cost is the picture and the words: a run that comes back for this picture must not lose the words' share.
+          await run.checkpoint(imageId, billed + meter.costUsd)
         },
       }
     )
-    return { outcome: 'done', costUsd: (image.costUsd ?? 0) + meter.costUsd }
+    return { outcome: 'done', costUsd: billed + meter.costUsd }
   } catch (err) {
     if (stored && !(err instanceof Refused)) throw err
     if (err instanceof Refused) {
       // The card was locked, the story changed, the character is gone: a sentence, not a crash.
-      return { outcome: 'failed', error: err.message }
+      return { outcome: 'failed', error: err.message, costUsd: owed() }
     }
     const credits = err instanceof ProviderError && err.code === 'credits'
     if (credits) await tripCredits()
@@ -123,10 +133,11 @@ export async function drawSheet(projectId: string, characterId: string, reuseDna
       return {
         outcome: err.kind === 'refused' ? 'refused' : 'failed',
         error: credits ? PAUSED : jobSentence(err, CALM),
+        costUsd: owed(),
       }
     }
     // Not a provider problem: the store, or a bug. Retried if it was the store and the words are not lost either way.
     console.error('[sheet] failed:', err)
-    return { outcome: 'failed', error: CALM }
+    return { outcome: 'failed', error: CALM, costUsd: owed() }
   }
 }

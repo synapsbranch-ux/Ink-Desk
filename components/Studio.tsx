@@ -21,6 +21,14 @@
 // sign-in, and a project that is not (or no longer) this person's turns the
 // studio into the not-found page. Pictures are asked for under the project's
 // address, which `ProjectProvider` hands to every card.
+//
+// Slice 20: a request the server refuses for a limit (a quota, a rate limit,
+// the pause) answers with a `RefusalBody`; `postJson` turns it into its one
+// calm sentence — with the reset time when there is one — which every card
+// already shows as its notice. The quota meter reads the usage again when a
+// spending request is answered (`apiFetch`) and, here, when the last job ends,
+// since a failed job gives its image back. See `devpost/prd.md > Limits and
+// Usage (v3)`.
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { apiFetch, PROJECT_GONE_EVENT } from '@/components/api-fetch'
@@ -33,6 +41,8 @@ import { ReaderStation } from '@/components/ReaderStation'
 import { StationRail, type SaveState } from '@/components/StationRail'
 import { StoryStation, type SynopsisDraft } from '@/components/StoryStation'
 import { StoryboardStation } from '@/components/StoryboardStation'
+import { announceUsageChanged } from '@/lib/limits/use-usage'
+import { asRefusal, refusalSentence } from '@/lib/limits/button'
 import { failedSheetJobs, failedSheetSentence, mergeActivity, pollWanted, queueNotice, sheetJob } from '@/lib/activity'
 import { gates } from '@/lib/gates'
 import { applyPatch, mergePatch, type ChapterPatch, type CharacterEdit, type PanelEdit } from '@/lib/patch'
@@ -56,7 +66,13 @@ async function postJson(url: string, body: unknown): Promise<{ ok: boolean; stat
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  return { ok: res.ok, status: res.status, data: (await res.json()) as Reply }
+  const data = (await res.json()) as Reply
+  if (!res.ok) {
+    // A refused spend: the server's sentence, with when it lifts. Never a code.
+    const refusal = asRefusal(data)
+    if (refusal) return { ok: false, status: res.status, data: { error: refusalSentence(refusal) } }
+  }
+  return { ok: res.ok, status: res.status, data }
 }
 
 type Props = {
@@ -593,6 +609,12 @@ export function Studio({ projectId, account = null }: Props) {
   // while the last is still out (CR-8), and takes one more read after the last
   // job ends so the finished art is picked up. A failed read is silent.
   const live = pollWanted(chapter, activity)
+  // The last job ending changes the meter (a failed job gives its image back).
+  const wasLive = useRef(false)
+  useEffect(() => {
+    if (wasLive.current && !live) announceUsageChanged()
+    wasLive.current = live
+  }, [live])
   const reading = useRef(false)
   const owed = useRef(false)
   const poll = useCallback(async () => {

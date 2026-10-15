@@ -31,11 +31,26 @@ export class ProviderError extends Error {
   }
 }
 
+/**
+ * What a refusal of a spend adds to its sentence (slice 20, `RefusalBody` in
+ * `lib/limits/view.ts`): `code` says which kind — `quota` (a daily limit),
+ * `rate` (too fast), `paused` (the studio's cap or breaker), `spend` (the
+ * person's own dollar cap) — `resetsAt` when it lifts, `retryAfterSec` how long
+ * a rate limit asks the caller to wait. The browser reads these; it never
+ * parses the sentence.
+ */
+export type RefusalExtra = {
+  code?: 'quota' | 'rate' | 'paused' | 'spend'
+  resetsAt?: string
+  retryAfterSec?: number
+}
+
 /** A request the chapter's state does not allow: a locked card, a closed station. */
 export class Refused extends Error {
   constructor(
     message: string,
-    readonly status = 409
+    readonly status = 409,
+    readonly extra: RefusalExtra = {}
   ) {
     super(message)
     this.name = 'Refused'
@@ -66,6 +81,21 @@ export function jobSentence(err: ProviderError, calm: string): string {
   return err.kind === 'provider' ? calm : err.kind === 'config' ? configSentence(err) : err.message
 }
 
+/**
+ * A refusal as a response: the sentence as `error`, and — when it is a limit —
+ * `code`, `resetsAt` and `retryAfterSec` beside it (the `RefusalBody` the
+ * browser reads), with `Retry-After` when a rate limit says how long to wait.
+ * Never cached.
+ */
+export function refusalResponse(err: Refused, headers: Record<string, string> = {}): Response {
+  const { code, resetsAt, retryAfterSec } = err.extra
+  const body = { error: err.message, ...(code ? { code } : {}), ...(resetsAt ? { resetsAt } : {}), ...(retryAfterSec !== undefined ? { retryAfterSec } : {}) }
+  const out: Record<string, string> = { ...headers }
+  if (retryAfterSec !== undefined) out['Retry-After'] = String(Math.max(1, Math.ceil(retryAfterSec)))
+  if (code) out['Cache-Control'] = 'no-store'
+  return Response.json(body, { status: err.status, headers: out })
+}
+
 /** A short id that ties a sentence on screen to its line in the log. */
 function reference(): string {
   return globalThis.crypto.randomUUID().slice(0, 8)
@@ -81,7 +111,7 @@ function reference(): string {
  */
 export function errorResponse(err: unknown, scope: string, calm: string): Response {
   if (err instanceof Refused) {
-    return Response.json({ error: err.message }, { status: err.status })
+    return refusalResponse(err)
   }
   const ref = reference()
   if (err instanceof ProviderError) {

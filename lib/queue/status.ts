@@ -12,6 +12,7 @@ import 'server-only'
 import { generationEnabled, generationTimeoutMs, queueSettings } from '../config'
 import { read } from '../chapter'
 import { store, type Check } from '../store'
+import { endJob } from './ending'
 import type { Desk, PageRef } from '../types'
 import { ABANDON_GRACE_MS, ABANDONED, BUSY, abandon, isLive, visibleJobs, SHOW_FAILED_MS, type Activity, type JobRecord, type QueueState } from './jobs'
 import { producerRedis, redisKey, within } from './redis'
@@ -46,7 +47,7 @@ export async function liveJobs(projectId: string, now = new Date()): Promise<Job
     else {
       console.warn(`[queue] ${job.kind} job ${job.id} has no live worker (its lease lapsed); letting it go`)
       // Judged again on the fresh record: a worker that renewed since the listing is not let go.
-      await store.jobs.updateJob(job.id, (j) => (isJobLive(j, now) ? null : abandon(j, ABANDONED, now))).catch(() => {})
+      await endJob(job.id, (j) => (isJobLive(j, now) ? null : abandon(j, ABANDONED, now))).catch(() => {})
     }
   }
   return live

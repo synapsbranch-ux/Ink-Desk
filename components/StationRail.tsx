@@ -5,9 +5,11 @@
 // the rail has five stations (Story, Library, Director, Page, Ink & Publish)
 // and the header carries the page-level progress: which page is open, its
 // panels inked, and the chapter's pages complete.
+// Since slice 20 the quota meter sits first in the header's right-hand group.
 // Implements `devpost/prd.md > Screens and Layout (v2)`.
 import Image from 'next/image'
 import Link from 'next/link'
+import { QuotaMeter } from '@/components/QuotaMeter'
 import { usd } from '@/lib/cost'
 import type { Gates } from '@/lib/gates'
 import { pagesComplete } from '@/lib/plan'
@@ -71,6 +73,7 @@ export function StationRail({ chapter, gates, saveState, onGo, account = null }:
         </div>
         <div className="header-spacer" />
         <div className="header-meta">
+          <QuotaMeter />
           <span className="image-counter" title="Images generated in this project, and what the providers reported for every image and text call so far">
             Images this project: {chapter.imageCount} · ≈ {usd(chapter.costUsd)}
           </span>

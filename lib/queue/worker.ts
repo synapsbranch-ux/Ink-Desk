@@ -14,7 +14,7 @@ import { randomUUID } from 'node:crypto'
 import { UnrecoverableError, Worker, type Job } from 'bullmq'
 import IORedis from 'ioredis'
 import { queueSettings } from '../config'
-import { store } from '../store'
+import { endJob } from './ending'
 import { TOO_MANY_RESTARTS, finish } from './jobs'
 import { processJob } from './processors'
 import { reconcileOnce } from './reconcile'
@@ -87,9 +87,9 @@ export async function startWorker(opts: WorkerOptions = {}): Promise<WorkerHandl
     const exhausted = !job.opts.attempts || job.attemptsMade >= job.opts.attempts || err.name === 'UnrecoverableError' || /stalled/i.test(err.message)
     console.error(`[${workerId}] job ${job.id} ${exhausted ? 'failed for good' : 'will be retried'}: ${err.message}`)
     if (!exhausted || !job.data?.jobId) return
-    store.jobs
-      .updateJob(job.data.jobId, (j) => finish(j, { outcome: 'failed', error: TOO_MANY_RESTARTS }, new Date()))
-      .catch((e: unknown) => console.error(`[${workerId}] could not end job ${job.id}:`, e))
+    endJob(job.data.jobId, (j) => finish(j, { outcome: 'failed', error: TOO_MANY_RESTARTS }, new Date())).catch((e: unknown) =>
+      console.error(`[${workerId}] could not end job ${job.id}:`, e)
+    )
   })
 
   // The heartbeat the web service reads: no key, no worker.

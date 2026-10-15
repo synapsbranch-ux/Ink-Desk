@@ -6,10 +6,18 @@
 // style says what a default chapter costs in images (slice 11) — the full
 // estimate comes from the Director, before anything is drawn. Implements
 // `devpost/prd.md > New Project and Style Presets`.
+//
+// Slice 20: the estimate also says what the chapter takes of today's images
+// ("Uses 13 of your 20 images today"), and Create is shut — with the reason and
+// the reset time in the dialog — when today's projects are used up or drawing
+// is paused. A project the server refuses anyway shows its sentence.
 import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import { apiFetch } from '@/components/api-fetch'
-import { estimateChapterUsd, usd } from '@/lib/cost'
+import { SpendNote } from '@/components/SpendNote'
+import { chapterImages, estimateChapterUsd, usd } from '@/lib/cost'
+import { asRefusal, refusalSentence, usesLine } from '@/lib/limits/button'
+import { useUsage, useSpend } from '@/lib/limits/use-usage'
 import { PAGE_COUNT_DEFAULT } from '@/lib/schemas'
 import { DEFAULT_STYLE_PRESET_ID, STYLE_PRESETS, STYLE_PRESET_IDS, type StylePresetId } from '@/lib/styles'
 import type { Chapter } from '@/lib/types'
@@ -21,6 +29,8 @@ export function NewProjectDialog({ panelQuality, onClose }: { panelQuality: stri
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const titleRef = useRef<HTMLInputElement>(null)
+  const spend = useSpend({ project: true })
+  const { usage } = useUsage()
   useEffect(() => titleRef.current?.focus(), [])
 
   const create = async () => {
@@ -40,7 +50,8 @@ export function NewProjectDialog({ panelQuality, onClose }: { panelQuality: stri
       })
       const data = (await res.json()) as Chapter | { error: string }
       if (!res.ok || !('version' in data)) {
-        setNotice('error' in data ? data.error : 'The desk couldn’t start the new project.')
+        const refusal = asRefusal(data)
+        setNotice(refusal ? refusalSentence(refusal) : 'The desk couldn’t start the new project.')
         setBusy(false)
         return
       }
@@ -107,16 +118,24 @@ export function NewProjectDialog({ panelQuality, onClose }: { panelQuality: stri
 
         <p className="new-project-estimate">
           A {PAGE_COUNT_DEFAULT}-page chapter and its cover ≈ {usd(estimateChapterUsd(PAGE_COUNT_DEFAULT, panelQuality))} in
-          images at {panelQuality} — the Director shows the full estimate before anything is drawn.
+          images at {panelQuality} — the Director shows the full estimate before anything is drawn.{' '}
+          {usesLine(usage, chapterImages(PAGE_COUNT_DEFAULT))}
         </p>
 
+        <SpendNote spend={spend} id="create-reason" />
         {notice && <p className="notice">{notice}</p>}
 
         <div className="confirm-actions">
           <button type="button" className="btn btn-secondary" disabled={busy} onClick={onClose}>
             Cancel
           </button>
-          <button type="submit" className="btn btn-stamp" disabled={busy}>
+          <button
+            type="submit"
+            className="btn btn-stamp"
+            disabled={busy || spend.blocked}
+            aria-describedby={spend.blocked ? 'create-reason' : undefined}
+            title={spend.blocked ? (spend.reason ?? undefined) : undefined}
+          >
             {busy ? 'Opening the desk…' : 'Create project'}
           </button>
         </div>

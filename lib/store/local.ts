@@ -570,7 +570,7 @@ const jobs: JobStore = {
   },
 
   async listJobs(filter: JobFilter = {}) {
-    const { projectId, ownerId, status, key, updatedSince, limit } = filter
+    const { projectId, ownerId, status, key, updatedSince, reservation, limit } = filter
     return (await readJobs())
       .filter(
         (job) =>
@@ -578,7 +578,8 @@ const jobs: JobStore = {
           (ownerId === undefined || job.ownerId === ownerId) &&
           (status === undefined || status.includes(job.status)) &&
           (key === undefined || job.key === key) &&
-          (updatedSince === undefined || job.updatedAt >= updatedSince)
+          (updatedSince === undefined || job.updatedAt >= updatedSince) &&
+          (reservation === undefined || job.reservation === reservation)
       )
       .sort(newestFirst)
       .slice(0, limit ?? JOB_LIST_LIMIT)
