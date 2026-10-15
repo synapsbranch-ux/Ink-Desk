@@ -254,6 +254,7 @@ Order by risk, as the learner set it — *domain + storage + Redis/BullMQ worker
   Spec ref: `spec.md > Revision v3 > Limits, Quotas and the Kill Switch (v3)`, `> Quality, Cost and Budget (v3)`
   Build: `lib/limits/*` (sliding windows, daily counters, the Lua `reserve`, `settle` from `usage.cost`, `release`), plans from `ALLOWLIST_EMAILS`, `GLOBAL_DAILY_USD_CAP` and the cumulative cap the learner chooses, `GET /api/usage`, `QuotaMeter`, the Usage page; `GENERATION_ENABLED=true`. **Learner:** the allowlist, the caps, the OpenRouter key's credit limit with auto top-up off.
   Verify (mechanical): new `check:limits` — the 21st image of a free day is refused before any provider call, parallel requests cannot over-spend the cap (the reservation is atomic), a failed job releases its reservation, the meter's numbers equal the enforcement's; the daily keys expire at the reset.
+  *Built 2026-10-15, verified in the session (`check:limits` against a real Redis, typecheck, lint, `npm run build` and all 19 `check:*` with every real credential unset; the 80% warning, the 100% disable and the $0.01 pause seen in a browser on a scratch desk; an adversarial review's 21 findings, 20 fixed in full, in part or reduced, 1 left with its reason); waiting only on the live checkpoint on Railway (the allowlist, the caps, the OpenRouter credit limit, `GENERATION_ENABLED=true`), so the box stays open.* See `spec.md > As built — slice 20`.
   Learner check: with a free test account, spend down a day's quota and watch the meter warn at 80% and the buttons disable with the reset time; lower the global cap to $0.01 in Railway and see generation pause for everyone with the message. **Hands-on checkpoint.**
   Commit: `Limits: quotas, rate limits, spend reservation and the kill switch; generation opens` — tag `v3-cp5`
 
@@ -354,7 +355,7 @@ cut without being recorded under **Revisions**.
 | 17. Motion kernel test | 2026-10-15 (runs beside 16) | `v3-cp2` | — |
 | 18. Queue and worker | 2026-10-16 | `v3-cp3` | — |
 | 19. Accounts and ownership | 2026-10-17 | `v3-cp4` | — |
-| 20. Limits; generation opens | 2026-10-18 | `v3-cp5` | — |
+| 20. Limits; generation opens | 2026-10-18 | `v3-cp5` | built 2026-10-15; live checkpoint pending |
 | 21. Dashboard, sharing, reports, settings | 2026-10-19 | `v3-cp6` | — |
 | 22. Animate a page | 2026-10-20 → 21 | `v3-cp7` | — |
 | 23. Responsive, after-audit, judge account — **freeze** | **2026-10-22, end of day** | `v3-rc` | — |
