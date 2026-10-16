@@ -129,7 +129,7 @@ export function ReaderStation({ chapter, onGoStoryboard, onNewProject, defaultRe
   // Turning pages: in manga order "next" is the left-hand side.
   const count = entries.length
   const go = (i: number) => setPos(Math.min(Math.max(0, i), count - 1))
-  useTurnKeys({ enabled: !vertical, rtl, at, count, go: setPos })
+  useTurnKeys({ enabled: !vertical && !sharing, rtl, at, count, go: setPos })
 
   const current = entries[at]
   const busy = exporting !== null

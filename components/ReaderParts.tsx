@@ -17,7 +17,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { PencilPlaceholder } from '@/components/PencilPlaceholder'
 import { tailPath } from '@/lib/bubble'
 import { PANEL_LAYOUT } from '@/lib/prompts'
-import type { PageDirection } from '@/lib/reader'
+import { turnKeyIndex, type PageDirection } from '@/lib/reader'
 import type { BubbleLayout } from '@/lib/types'
 
 /** The reveal's clock, tuned to read well on camera: a beat before the first
@@ -99,20 +99,15 @@ export function ScrollEntry({
 /**
  * Left and right arrows turn the page, in manga order "next" being the
  * left-hand side. Off in the vertical scroll, and never while the reader is
- * typing in a field.
+ * typing in a field or has a dialog (Share, Report) open: the dialog has the keyboard.
  */
 export function useTurnKeys({ enabled, rtl, at, count, go }: { enabled: boolean; rtl: boolean; at: number; count: number; go: (index: number) => void }) {
   useEffect(() => {
     if (!enabled) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
-      const target = e.target as HTMLElement | null
-      if (target?.closest('input, textarea, [contenteditable="true"]')) return
-      const forward = rtl ? 'ArrowLeft' : 'ArrowRight'
-      const back = rtl ? 'ArrowRight' : 'ArrowLeft'
-      if (e.key === forward) go(Math.min(Math.max(0, at + 1), count - 1))
-      else if (e.key === back) go(Math.min(Math.max(0, at - 1), count - 1))
-      else return
+      const to = turnKeyIndex({ key: e.key, altKey: e.altKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey, target: e.target instanceof Element ? e.target : null }, rtl, at, count)
+      if (to === null) return
+      go(to)
       e.preventDefault()
     }
     window.addEventListener('keydown', onKey)

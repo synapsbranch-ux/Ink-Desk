@@ -1,4 +1,4 @@
-// Privacy (slice 19): what the studio stores, where, which outside services
+// Privacy (slice 19, updated in slice 21 for sharing, reports, export and deletion): what the studio stores, where, which outside services
 // see what, and how to have it deleted — plainly, and only what is true of the
 // build as it stands. Linked from sign-in and sign-up, readable signed out.
 // See `devpost/prd.md > Terms and Privacy (v3)`.
@@ -8,7 +8,7 @@ import Link from 'next/link'
 export const metadata: Metadata = { title: 'Privacy · Ink Desk' }
 
 /** The date of this text; change it with the words. */
-const UPDATED = '14 October 2026'
+const UPDATED = '16 October 2026'
 
 const page: React.CSSProperties = { maxWidth: 680, margin: '0 auto', padding: 'var(--space-8) var(--space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }
 
@@ -35,6 +35,10 @@ export default function PrivacyPage() {
             their hidden metadata (camera details, GPS location).
           </li>
           <li>
+            <strong>Export files</strong> — if you ask for a copy of your data in Settings, one zip is kept in the outputs bucket (a private part of
+            Cloudflare R2) for you to download. Only your latest export is kept; a new one replaces the last.
+          </li>
+          <li>
             <strong>Generation records</strong> — what was asked to be drawn, when, whether it worked, and its cost.
           </li>
           <li>
@@ -42,7 +46,18 @@ export default function PrivacyPage() {
             with Google or GitHub. Ink Desk keeps your Clerk user id, your email address and the date the account was made.
           </li>
         </ul>
-        <p>Your work is visible only to you. Nothing is shown to anyone else unless you share it yourself (sharing arrives in a later version).</p>
+        <p>
+          Your work is visible only to you, unless you share it yourself. When you choose <em>Share publicly</em> on a project, the studio makes a
+          link of the form <code>/s/…</code>. <strong>Anyone who has that link can read the page without signing in</strong>: the title, the cover,
+          the finished pages and their speech bubbles, and the names of the characters who speak. It is a copy taken at that moment, so later edits
+          stay private until you press <em>Update share</em>. It does not carry your email address, your name, your scenario or your notes. Search
+          engines are asked not to list it, but anyone you give the link to can pass it on. <em>Unpublish</em> turns the link off at once.
+        </p>
+        <p>
+          Anyone reading a shared page can press <em>Report</em>. A report keeps the reason, the short note they may add, the time, and a hashed
+          form of their network address (a one-way scrambling, not the address itself). It shows the page’s title to the person reading reports, never
+          your account.
+        </p>
 
         <h2>Which services see what</h2>
         <ul>
@@ -68,8 +83,11 @@ export default function PrivacyPage() {
 
         <h2>Deleting your data</h2>
         <p>
-          A <em>Delete account</em> button in Settings is coming in the next version; it will remove your projects, pictures, uploads, records and
-          your Clerk account. Until it arrives, {write} from the email address on your account, and everything will be deleted by hand.
+          In <Link href="/settings/data">Settings › Data and privacy</Link>, <em>Export my data</em> gives you one zip with your account details, your
+          settings, your shared links and every project with its pictures. <em>Delete account</em> removes your projects, pictures, uploads, videos,
+          shared links (they stop working at once), the reports about them, export files, usage counters and settings, and then your Clerk account.
+          It cannot be undone. The studio keeps only its own anonymous spend totals, which hold no names and none of your work. If you cannot sign in,{' '}
+          {write} from the email address on your account and it will be done for you.
         </p>
 
         <h2>Changes</h2>

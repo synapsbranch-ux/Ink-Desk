@@ -21,6 +21,7 @@ import { update } from './chapter'
 import { store, type BlobKind } from './store'
 import { addAsset, checkUpload, MAX_UPLOAD_SIDE, NOT_A_PICTURE, TOO_MANY_PIXELS, UPLOAD_LIMIT_BYTES, type UPLOAD_TYPES } from './assets'
 import { Refused } from './errors'
+import { pinnedPictures } from './share/pins'
 import type { JobRun } from './queue/run'
 import type { Asset, Desk, PageRef } from './types'
 import { isImageId, mediaTypeOf } from './store/local'
@@ -145,7 +146,8 @@ async function checkpointDurably(run: JobRun, imageId: string, costUsd: number |
  *     the project's spend, and the orphaned picture is deleted (CR-16). Any
  *     other failure leaves the picture where it is; the job record knows it.
  *   • A redraw that pushes a fourth version out deletes the version it
- *     dropped, which nothing can reach any more (CR-16).
+ *     dropped, which nothing can reach any more (CR-16) — unless the project's
+ *     live share still lists it (`lib/share/pins.ts`).
  */
 export async function landImage(
   projectId: string,
@@ -171,8 +173,8 @@ export async function landImage(
       at
     )
     if (before && after) {
-      for (const dropped of droppedPictures(before, after)) {
-        await store.deleteBlob(dropped).catch((e: unknown) => console.warn(`[images] could not delete ${dropped}:`, e))
+      for (const id of await unpinned(projectId, droppedPictures(before, after))) {
+        await store.deleteBlob(id).catch((e: unknown) => console.warn(`[images] could not delete ${id}:`, e))
       }
     }
     return chapter
@@ -184,6 +186,22 @@ export async function landImage(
       await store.deleteBlob(imageId).catch((e: unknown) => console.warn(`[images] could not delete ${imageId}:`, e))
     }
     throw err
+  }
+}
+
+/**
+ * Of the pictures a redraw dropped, the ones no live share lists: a share keeps what it published until it is updated, taken down or
+ * deleted, and lets go of it then. If the share cannot be read right now nothing is deleted — a picture that stays is a leak, one that
+ * goes is a blank panel on a public page.
+ */
+async function unpinned(projectId: string, dropped: string[]): Promise<string[]> {
+  if (dropped.length === 0) return dropped
+  try {
+    const pinned = await pinnedPictures(projectId)
+    return dropped.filter((id) => !pinned.has(id))
+  } catch (err) {
+    console.warn('[images] could not read the share; kept the dropped pictures:', err)
+    return []
   }
 }
 

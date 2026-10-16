@@ -622,11 +622,20 @@ try {
   const refused = claim(['--owner', 'user_learner'], { INKDESK_STORAGE: 'cloud', MONGODB_URI: '', DB_URL: '', INKDESK_CLAIM_CONFIRMED: '' })
   assert.equal(refused.status, 1)
   assert.match(refused.stderr, /INKDESK_CLAIM_CONFIRMED=yes/, 'cloud is refused without the confirmation')
+  // A link made while the desk had no accounts (owner `local`) must not outlive the hand-over: nobody could unpublish it afterwards.
+  const stamp = new Date().toISOString()
+  const oldLink = newToken()
+  await store.shares.create({
+    token: oldLink, ownerId: LOCAL_OWNER, kind: 'manga', projectId: legacy.id, videoId: null,
+    snapshot: { kind: 'manga', title: 'Before accounts', reading: 'rtl', cover: null, pages: [], takenAt: stamp },
+    createdAt: stamp, updatedAt: stamp, revokedAt: null,
+  })
   const dry = claim(['--owner', 'user_learner', '--dry-run', ...where], cloudOk)
   assert.equal(dry.status, 0, dry.stderr)
   assert.match(dry.stdout, new RegExp(`would claim\\s+${legacy.id}`))
   assert.match(dry.stdout, new RegExp(`left as it is\\s+${alice.id}`))
   assert.equal((await store.readProject(legacy.id)).ownerId, undefined, 'a dry run writes nothing')
+  assert.equal((await store.shares.activeForProject(legacy.id))?.token, oldLink, 'and leaves its link alone')
   const stolen = claim(['--owner', 'user_learner', '--project', alice.id, ...where], cloudOk)
   assert.equal(stolen.status, 1, 'a project with an owner is never taken')
   assert.equal((await store.readProject(alice.id)).ownerId, ALICE)
@@ -635,6 +644,8 @@ try {
   assert.equal((await store.readProject(legacy.id)).ownerId, 'user_learner', 'the project with no owner is the learner’s')
   assert.equal((await store.readProject(bobs.id)).ownerId, BOB)
   await ownedProject('user_learner', legacy.id)
+  assert.equal(await store.shares.activeForProject(legacy.id), null, 'the link made before accounts is taken down with the hand-over')
+  assert.equal((await store.shares.get(oldLink))?.snapshot, null, 'and keeps none of the work')
   assert.deepEqual((await store.listProjects('user_learner')).map((p) => p.id), [legacy.id])
   assert.equal(claim(['--owner', 'user_learner', '--project', legacy.id, ...where], cloudOk).status, 0, 'claiming again is a no-op')
   assert.equal(outbound.length, sent, 'nothing else ever left: only alice’s one paid request (and the stub refused it)')

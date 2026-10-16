@@ -2,9 +2,11 @@
 // 1200x630 card, or — when the manga has no drawn cover — a paper card with its
 // title. A revoked or unknown token is the same bare 404 as the picture route's,
 // so a preview cannot be used to find out whether a link was ever live. It takes
-// the `anonMedia` address window, is never cached (unpublishing is immediate; a
-// chat app that already fetched it keeps its own copy, which no server can
-// recall), and holds only what the snapshot lists: its title and its cover.
+// the `anon` address window (60 a minute: it crops a cover on the CPU every time, so
+// it does not get the picture window's 600, which is meant for streaming stored
+// files), is never cached (unpublishing is immediate; a chat app that already
+// fetched it keeps its own copy, which no server can recall), and holds only what
+// the snapshot lists: its title and its cover.
 import { ImageResponse } from 'next/og'
 import sharp from 'sharp'
 import { Refused, refusalResponse } from '@/lib/errors'
@@ -21,7 +23,7 @@ export const contentType = 'image/png'
 const MAX_PIXELS = 48_000_000
 
 export default async function Image({ params }: { params: Promise<{ token: string }> }) {
-  const refused = await takeWindow('anonMedia')
+  const refused = await takeWindow('anon')
   if (refused) return refusalResponse(refused, IMAGE_MISSING_HEADERS)
   const { token } = await params
   let manga

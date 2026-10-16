@@ -115,8 +115,8 @@ export function SettingsDefaults({ initial }: { initial: SettingsView }) {
           Reading direction
         </h2>
         <p className="settings-note">
-          How the reader opens a manga, in the studio and on a page you share. You can flip it while reading. A manhwa is one vertical
-          scroll whichever you choose.
+          How the reader opens a manga in the studio. You can flip it while reading. A shared page opens right to left and its readers can
+          flip it too. A manhwa is one vertical scroll whichever you choose.
         </p>
         <fieldset className="preset-list" disabled={busy}>
           <legend className="sr-only">Reading direction</legend>

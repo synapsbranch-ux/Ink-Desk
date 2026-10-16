@@ -18,13 +18,14 @@
 // Server only.
 import 'server-only'
 import { randomBytes } from 'node:crypto'
-import { owns } from '../auth/access'
+import { owns, projectImageIds } from '../auth/access'
 import { readBytes } from '../body'
 import { Refused } from '../errors'
 import { store } from '../store'
 import type { Project } from '../types'
-import { buildMangaSnapshot, NothingReadable, publicManga, snapshotsDiffer } from './snapshot'
-import type { ShareRecord, ShareView } from './types'
+import { pinnedBy, releasePictures, revokeShare } from './pins'
+import { buildMangaSnapshot, NothingReadable, publicManga, snapshotImageIds, snapshotsDiffer } from './snapshot'
+import type { MangaSnapshot, ShareRecord, ShareView } from './types'
 import { sharePath, shareUrl } from './url'
 
 const BASE62 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
@@ -117,11 +118,11 @@ export async function shareViewOfProject(userId: string, project: Project, origi
 export async function createShare(userId: string, project: Project, origin: string): Promise<ShareView> {
   const existing = await store.shares.activeForProject(project.id)
   if (existing && owns(userId, existing.ownerId)) return viewOf(existing, origin, await staleOf(existing, project))
-  if (existing) await store.shares.revoke(existing.token, new Date().toISOString())
+  if (existing) await revokeShare(existing, new Date().toISOString())
 
   const now = new Date().toISOString()
   const snapshot = buildMangaSnapshot(project, now)
-  const { share } = await store.shares.create({
+  const { share, created } = await store.shares.create({
     token: newShareToken(),
     ownerId: userId,
     kind: 'manga',
@@ -133,7 +134,36 @@ export async function createShare(userId: string, project: Project, origin: stri
     revokedAt: null,
   })
   // `created: false` means another click won the race: its share is the one, and it is just as fresh.
-  return viewOf(share, origin, false)
+  return viewOf(created ? await retaken(share, snapshot) : share, origin, false)
+}
+
+/**
+ * A share pins the pictures it lists only once it is written, so a redraw that landed between the project being read and the share
+ * being written may have deleted one of them. If the project no longer holds every picture the snapshot lists, take the snapshot
+ * again, once, from the project as it is now; whatever the first one held and the second does not is let go.
+ */
+async function retaken(share: ShareRecord, snapshot: MangaSnapshot): Promise<ShareRecord> {
+  if (share.projectId === null) return share
+  let held: Set<string>
+  let current: Project
+  try {
+    current = await store.readProject(share.projectId)
+    held = projectImageIds(current)
+  } catch {
+    return share
+  }
+  const listed = snapshotImageIds(snapshot)
+  if ([...listed].every((id) => held.has(id))) return share
+  let again: ShareRecord | null = null
+  try {
+    const now = new Date().toISOString()
+    again = await store.shares.refresh(share.token, buildMangaSnapshot(current, now), now)
+  } catch {
+    // Nothing readable any more (or the store blipped): the share stays as written, and the owner is told it has changed.
+  }
+  if (!again) return share
+  await releasePictures(listed, share.projectId, pinnedBy(again))
+  return again
 }
 
 /** Update share: replace the active share's snapshot with the project as it stands now. 409 when it has none to update. */
@@ -142,20 +172,28 @@ export async function refreshShare(userId: string, project: Project, origin: str
   if (!existing || !owns(userId, existing.ownerId)) throw new Refused(NOT_SHARED, 409)
   const now = new Date().toISOString()
   const snapshot = buildMangaSnapshot(project, now)
-  const share = await store.shares.refresh(existing.token, snapshot, now)
-  if (!share) throw new Refused(NOT_SHARED, 409) // unpublished in the meantime: a revoked address is never brought back
+  const written = await store.shares.refresh(existing.token, snapshot, now)
+  if (!written) throw new Refused(NOT_SHARED, 409) // unpublished in the meantime: a revoked address is never brought back
+  const share = await retaken(written, snapshot)
+  // What the old snapshot listed and this one does not is let go (and what the first, retaken one listed).
+  await releasePictures(new Set([...pinnedBy(existing), ...snapshotImageIds(snapshot)]), share.projectId, pinnedBy(share))
   return viewOf(share, origin, false)
 }
 
-/** Unpublish the project's active share, if it has one (idempotent). */
-export async function unpublishProject(userId: string, project: Project): Promise<void> {
+/**
+ * Unpublish the project's active share, if it has one (idempotent). The route has proved the project is the
+ * caller's, so a link an EARLIER owner left on it (a project claimed after being shared on a desk with no
+ * accounts) goes too: the owner is told it is down, and it must be.
+ */
+export async function unpublishProject(project: Project): Promise<void> {
   const share = await store.shares.activeForProject(project.id)
-  if (share && owns(userId, share.ownerId)) await store.shares.revoke(share.token, new Date().toISOString())
+  if (share) await revokeShare(share, new Date().toISOString())
 }
 
 /** Unpublish by token. The caller has proved the share is theirs (`ownedShare`); a second unpublish is not an error. */
 export async function unpublishToken(token: string): Promise<void> {
-  await store.shares.revoke(token, new Date().toISOString())
+  const share = await store.shares.get(token)
+  if (share) await revokeShare(share, new Date().toISOString())
 }
 
 /** Everything the person has published, newest first (Settings › Sharing). */

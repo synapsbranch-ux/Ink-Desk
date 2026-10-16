@@ -102,16 +102,35 @@ export async function read(projectId: string, at?: PageRef): Promise<Desk> {
  * this call and leaves the file untouched. A page job passes `at` explicitly
  * so it can never write to a page other than the one it claimed.
  */
-export function update(projectId: string, fn: (desk: Desk) => Desk, at?: PageRef): Promise<Desk> {
-  return store
-    .updateProject(projectId, (p) => {
-      const ref = at ?? openRef(p)
-      return applyDesk(p, ref, fn(toDesk(p, ref)))
-    })
-    // A page job reads back the page it wrote; anyone else reads the open
-    // page as it is *after* the change — so the page switcher's reply is
-    // already the page it switched to.
-    .then((p) => toDesk(p, at ?? openRef(p)))
+export async function update(projectId: string, fn: (desk: Desk) => Desk, at?: PageRef): Promise<Desk> {
+  let before: Project | undefined
+  let after: Project | undefined
+  const written = await store.updateProject(projectId, (p) => {
+    before = p
+    const ref = at ?? openRef(p)
+    after = applyDesk(p, ref, fn(toDesk(p, ref)))
+    return after
+  })
+  // A sheet this write replaced (a redraw, a reroll, an import over a drawn one) is reachable from nothing now: delete its picture, so an
+  // account's deletion — which finds pictures through the records that name them — has none to miss.
+  if (before && after) {
+    for (const dropped of droppedSheets(before, after)) {
+      await store.deleteBlob(dropped).catch((e: unknown) => console.warn(`[chapter] could not delete ${dropped}:`, e))
+    }
+  }
+  // A page job reads back the page it wrote; anyone else reads the open
+  // page as it is *after* the change — so the page switcher's reply is
+  // already the page it switched to.
+  return toDesk(written, at ?? openRef(written))
+}
+
+/** Character-sheet pictures `before` showed that `after` does not — and that no card and no shelf entry shows either (an imported sheet IS the shelf's picture). */
+export function droppedSheets(before: Project, after: Project): string[] {
+  const kept = new Set<string>(after.library.assets.map((a) => a.blobId))
+  for (const c of after.library.characters) if (c.sheetImageId) kept.add(c.sheetImageId)
+  const dropped = new Set<string>()
+  for (const c of before.library.characters) if (c.sheetImageId && !kept.has(c.sheetImageId)) dropped.add(c.sheetImageId)
+  return [...dropped]
 }
 
 /**

@@ -83,3 +83,25 @@ export function publishable(entries: readonly ReaderEntry[]): ReaderEntry[] {
 export function readingMode(stylePresetId: string): 'paged-rtl' | 'vertical' {
   return stylePreset(stylePresetId).reading
 }
+
+/** Where a key press is not a page turn: typing in a field, or anything inside a modal dialog (Share, Report), which owns the keyboard while it is open. */
+export const TURN_KEYS_IGNORED_IN = 'input, textarea, [contenteditable="true"], [role="dialog"], [aria-modal="true"]'
+
+/**
+ * The page an arrow key turns to, or null when it turns nothing. In manga order "next" is the left-hand side. A shortcut
+ * (Alt, Ctrl, Meta, Shift) and a key pressed in a field or a modal dialog are left alone. The index stays within the pages.
+ */
+export function turnKeyIndex(
+  e: { key: string; altKey: boolean; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; target: { closest(selector: string): unknown } | null },
+  rtl: boolean,
+  at: number,
+  count: number
+): number | null {
+  if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return null
+  if (e.target?.closest(TURN_KEYS_IGNORED_IN)) return null
+  const forward = rtl ? 'ArrowLeft' : 'ArrowRight'
+  const back = rtl ? 'ArrowRight' : 'ArrowLeft'
+  if (e.key === forward) return Math.min(Math.max(0, at + 1), count - 1)
+  if (e.key === back) return Math.min(Math.max(0, at - 1), count - 1)
+  return null
+}

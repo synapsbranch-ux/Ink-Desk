@@ -226,7 +226,7 @@ try {
 
   // --- b. The mode, its defaults and production's refusals ---------------------------
   const authConfig = await import('../lib/auth/config')
-  const { authMode, AuthConfigError, authProblems, clerkSettings, authorizedParties, frontendApiOf } = authConfig
+  const { authMode, AuthConfigError, authProblems, workerAuthProblems, clerkSettings, authorizedParties, frontendApiOf } = authConfig
   const config = await import('../lib/config')
   const { authSettings, ConfigError } = config
 
@@ -303,6 +303,13 @@ try {
   assert.deepEqual(authProblems({ INKDESK_AUTH: 'off' }), [], 'off needs nothing')
   assert.deepEqual(authProblems({ INKDESK_AUTH: 'test' }), [], 'test needs nothing')
   assert.ok(authProblems({ INKDESK_AUTH: 'clerk' }).length >= 2, 'clerk in development still needs its keys')
+  // The worker never signs anyone in, but deleting an account deletes the Clerk user: in clerk mode it needs the secret key, and only that.
+  assert.deepEqual(workerAuthProblems({ NODE_ENV: 'production', CLERK_SECRET_KEY: FAKE.secret }), [], 'a production worker with the key is fine without the publishable key or APP_URL')
+  assert.deepEqual(workerAuthProblems({ NODE_ENV: 'production' }), ['CLERK_SECRET_KEY is not set'], 'a production worker without the key is refused')
+  assert.match(workerAuthProblems({ INKDESK_AUTH: 'clerk', CLERK_SECRET_KEY: 'nope' })[0], /must be a Clerk secret key/)
+  assert.deepEqual(workerAuthProblems({ INKDESK_AUTH: 'off' }), [], 'off needs nothing')
+  assert.deepEqual(workerAuthProblems({}), [], 'a bare development worker needs nothing')
+  assert.ok(workerAuthProblems({ NODE_ENV: 'production', INKDESK_AUTH: 'off' }).length > 0, 'production off is refused here too')
 
   // The boot: production stops with the one sentence; development keeps its old behaviour.
   const { boot } = await import('../lib/boot')

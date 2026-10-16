@@ -41,8 +41,8 @@ import assert from 'node:assert/strict'
 import { registerHooks } from 'node:module'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { dirname, join } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import sharp from 'sharp'
 
 const env = process.env as Record<string, string | undefined>
@@ -109,6 +109,9 @@ const { buildMangaSnapshot, cleanText, NOTHING_READABLE, NothingReadable, public
 const { newShareToken, NOT_SHARED } = await import('../lib/share/service')
 const { isShareToken } = await import('../lib/share/url')
 const { PANEL_LAYOUT } = await import('../lib/prompts')
+const { landImage } = await import('../lib/images')
+const { attachPanelVersion } = await import('../lib/script')
+const { attachCoverVersion } = await import('../lib/plan')
 import type { Panel, Project } from '../lib/types'
 import type { MangaSnapshot, ShareRecord, ShareView } from '../lib/share/types'
 
@@ -121,6 +124,7 @@ const sharePage = (await import('../app/s/[token]/page')) as unknown as {
   default: (p: { params: Promise<{ token: string }> }) => Promise<import('react').ReactElement>
   generateMetadata: (p: { params: Promise<{ token: string }> }) => Promise<Record<string, unknown>>
 }
+const ownerImage = (await import('../app/api/projects/[id]/image/[imageId]/route')) as unknown as Record<'GET', Handler>
 const preview = (await import('../app/s/[token]/opengraph-image')) as unknown as { default: (p: { params: Promise<{ token: string }> }) => Promise<Response> }
 
 type Handler = (req: Request, ctx: { params: Promise<Record<string, string>> }) => Promise<Response>
@@ -489,6 +493,60 @@ try {
     ok('owner-only: bob gets the missing project’s 404 on all four project routes and “There is no such share.” on DELETE /api/shares/<token>, body unread, alice’s share untouched; the lists are per owner')
   }
 
+  // a project claimed after it was shared on a desk with no accounts: the link belongs to 'local', the project to alice
+  {
+    const claimed = await makeManga(ALICE)
+    const P = claimed.project.id
+    const old = (await store.shares.create({
+      token: newShareToken(),
+      ownerId: 'local',
+      kind: 'manga',
+      projectId: P,
+      videoId: null,
+      snapshot: buildMangaSnapshot(claimed.project, at),
+      createdAt: at,
+      updatedAt: at,
+      revokedAt: null,
+    })).share
+    assert.equal((await open(publicJson.GET, { token: old.token })).status, 200, 'the old link is live')
+    const frozen = JSON.stringify(await store.shares.get(old.token))
+    assert.equal(shareOf(await owner(projectRoute.GET, 'GET', { id: P }, ALICE)), null, 'the new owner is not shown a link that is not theirs')
+    // Update share is not for a link an earlier owner made: nothing is retaken, nothing is revealed.
+    const put = await owner(projectRoute.PUT, 'PUT', { id: P }, ALICE)
+    assert.equal(put.status, 409)
+    assert.equal((put.json as { error: string }).error, NOT_SHARED)
+    assert.equal(JSON.stringify(await store.shares.get(old.token)), frozen, 'Update share left the earlier owner’s share as it was')
+    // Share publicly takes the old link down and mints one of the new owner's own: the account never shows a live link it cannot unpublish.
+    const posted = shareOf(await owner(projectRoute.POST, 'POST', { id: P }, ALICE))
+    assert.ok(posted, 'the new owner has a share')
+    assert.notEqual(posted.token, old.token, 'a new address, not the earlier owner’s')
+    assert.equal((await store.shares.get(posted.token))?.ownerId, ALICE)
+    assert.ok((await store.shares.get(old.token))?.revokedAt, 'the earlier owner’s share is revoked')
+    assert.equal((await open(publicJson.GET, { token: old.token })).status, 404, 'its address answers the unknown 404 now')
+    assert.equal((await open(publicJson.GET, { token: posted.token })).status, 200)
+    assert.equal((await store.shares.activeForProject(P))?.token, posted.token, 'exactly one active share on the project')
+    assert.deepEqual(((await owner(listRoute.GET, 'GET', {}, ALICE)).json as { shares: ShareView[] }).shares.filter((x) => x.token === old.token), [], 'and the old one is in no list')
+
+    // Unpublish by the new owner also takes down an earlier owner's link left on the project (the route proved the project is theirs).
+    const second = await makeManga(ALICE)
+    const left = (await store.shares.create({
+      token: newShareToken(),
+      ownerId: 'local',
+      kind: 'manga',
+      projectId: second.project.id,
+      videoId: null,
+      snapshot: buildMangaSnapshot(second.project, at),
+      createdAt: at,
+      updatedAt: at,
+      revokedAt: null,
+    })).share
+    const del = await owner(projectRoute.DELETE, 'DELETE', { id: second.project.id }, ALICE)
+    assert.equal(del.status, 200)
+    assert.equal(await store.shares.activeForProject(second.project.id), null, 'Unpublish leaves no live link on the project')
+    assert.equal((await open(publicJson.GET, { token: left.token })).status, 404)
+    ok('claimed project: the earlier owner’s link is not shown to, nor updated by, the new owner; Share publicly revokes it and mints their own (old address 404, one active share); Unpublish leaves no live link')
+  }
+
   // =====================================================================================
   // 3. The public surface
   // =====================================================================================
@@ -677,7 +735,208 @@ try {
     assert.equal((await owner(projectRoute.PUT, 'PUT', { id: A }, ALICE)).status, 200)
     assert.equal(await store.shares.refresh(token, (await store.shares.get(second.token))!.snapshot!, at), null, 'a revoked token is never refreshed back to life')
     token = second.token
+
+    // A link left by an EARLIER owner (`local`, from before accounts) on a project alice now owns: Unpublish takes it down all the same.
+    const claimed = await makeManga(ALICE)
+    const left = shareOf(await owner(projectRoute.POST, 'POST', { id: claimed.project.id }, ALICE))!
+    const leftFile = join(dir, 'shares', `${left.token}.json`)
+    await writeFile(leftFile, JSON.stringify({ ...(JSON.parse(await readFile(leftFile, 'utf8')) as ShareRecord), ownerId: 'local' }))
+    assert.equal((await open(publicJson.GET, { token: left.token })).status, 200)
+    assert.equal((await owner(projectRoute.DELETE, 'DELETE', { id: claimed.project.id }, ALICE)).status, 200)
+    assert.equal((await open(publicJson.GET, { token: left.token })).status, 404, 'Unpublish on a project the caller owns revokes its link whoever recorded it')
+    assert.equal(await store.shares.activeForProject(claimed.project.id), null)
+
     ok('revoke: the JSON, a picture, the preview, the page (notFound) and the metadata are byte-for-byte what an unknown token gets; a malformed token too; the record keeps no title, name or picture id; unpublish is idempotent; sharing again makes a NEW token and the old one stays dead')
+  }
+
+  // =====================================================================================
+  // 4b. A redraw after sharing (CR-16 meets a share): a picture the live share lists is never deleted from under it
+  // =====================================================================================
+  {
+    // A redraw writes the desk back, and a desk with a plan of no pages (the planted one) refuses to; these projects have no plan.
+    const planless = async () => {
+      const made = await makeManga(ALICE)
+      await store.updateProject(made.project.id, (p) => ({ ...p, chapters: p.chapters.map((c) => ({ ...c, plan: null })) }))
+      return made
+    }
+    const m = await planless()
+    const P = m.project.id
+    const here = async (id: string) => (await store.getBlob(id)) !== null
+    const publicOk = async (t: string, id: string) => (await open(publicImage.GET, { token: t, imageId: id })).status
+    const newPicture = () => store.putBlob(png, 'image/png', 'panel')
+    const redrawPanel = async (pid = P) => {
+      const id = await newPicture()
+      await landImage(pid, id, (d, i) => attachPanelVersion(d, 0, i, new Date()), 0)
+      return id
+    }
+    const redrawCover = async () => {
+      const id = await newPicture()
+      await landImage(P, id, (d, i) => attachCoverVersion(d, i, new Date()), 0)
+      return id
+    }
+    const view = shareOf(await owner(projectRoute.POST, 'POST', { id: P }, ALICE))!
+    const shared = m.ids.panels[0][0] // panel 0's picture when it was shared; the older version beneath it is not published
+    const sharedCover = m.ids.cover
+
+    // Panel 0 keeps 3 versions (MAX_PANEL_VERSIONS) and starts with 2: the second redraw pushes the unpublished older one out, the third the shared picture.
+    const r1 = await redrawPanel()
+    assert.equal(await here(m.ids.older), true, 'nothing is dropped yet')
+    const r2 = await redrawPanel()
+    assert.equal(await here(m.ids.older), false, 'a picture no share lists is deleted when a redraw pushes it out, as before')
+    assert.equal(await here(shared), true, 'still there while it is in the window')
+    const r3 = await redrawPanel()
+    assert.equal(await here(shared), true, 'the picture the link shows is kept after the redraw that dropped it from the panel')
+    assert.equal(await publicOk(view.token, shared), 200, 'and the link still serves it')
+    assert.equal(await publicOk(view.token, m.ids.panels[0][1]), 200, 'as it does the others')
+    assert.equal(shareOf(await owner(projectRoute.GET, 'GET', { id: P }, ALICE))?.stale, true, 'the owner is told the page changed')
+    assert.equal(await here(r1), true, 'the project’s own versions are untouched')
+
+    // The cover too: three redraws drop the shared cover from its window.
+    for (let i = 0; i < 3; i++) await redrawCover()
+    assert.equal(await here(sharedCover), true, 'the shared cover survives a cover redraw that dropped it')
+    assert.equal(await publicOk(view.token, sharedCover), 200)
+    // The owner's route serves only what the project keeps, so Settings › Sharing shows the cover the link lists through the link's route.
+    assert.equal(shareOf(await owner(projectRoute.GET, 'GET', { id: P }, ALICE))?.cover, sharedCover, 'the owner’s view names the cover the link shows')
+    assert.equal((await owner(ownerImage.GET, 'GET', { id: P, imageId: sharedCover }, ALICE)).status, 404, 'which the project no longer keeps')
+
+    // Update share retakes the snapshot, and lets go of what only the old one held.
+    const moved = shareOf(await owner(projectRoute.PUT, 'PUT', { id: P }, ALICE))!
+    assert.equal(moved.token, view.token)
+    assert.equal(await here(shared), false, 'Update share releases the picture the old snapshot held and nothing else does')
+    assert.equal(await here(sharedCover), false)
+    const now = publicManga((await store.shares.get(view.token))!.snapshot)!
+    for (const id of snapshotImageIds(now)) assert.equal(await here(id), true, `${id} is in the bucket`)
+    assert.equal(await here(r2), true)
+    assert.equal(await here(r3), true)
+    assert.equal(await publicOk(view.token, shared), 404, 'the link no longer lists it')
+
+    // Unpublish releases what the share alone was holding. The link now shows r3; the next three redraws push it out of the window.
+    assert.equal(now.pages[0].panels[0].imageId, r3)
+    const r4 = await redrawPanel()
+    const r5 = await redrawPanel()
+    assert.equal(await here(r1), false, 'a picture the link does not list goes with the redraw that drops it')
+    assert.equal(await here(r3), true, 'the one it lists stays while it is listed')
+    const r6 = await redrawPanel()
+    assert.equal(await here(r3), true)
+    assert.equal(await publicOk(view.token, r3), 200)
+    assert.equal((await owner(projectRoute.DELETE, 'DELETE', { id: P }, ALICE)).status, 200)
+    assert.equal(await here(r3), false, 'Unpublish releases the picture only the link was holding')
+    for (const id of [r4, r5, r6]) assert.equal(await here(id), true, 'and none the project still keeps')
+    assert.equal(await publicOk(view.token, r4), 404)
+
+    // The same through the token door (Settings › Sharing) and the account-deletion door.
+    const again = shareOf(await owner(projectRoute.POST, 'POST', { id: P }, ALICE))!
+    const shown = publicManga((await store.shares.get(again.token))!.snapshot)!.pages[0].panels[0].imageId
+    assert.equal(shown, r6)
+    for (let i = 0; i < 3; i++) await redrawPanel()
+    assert.equal(await here(r6), true)
+    assert.equal((await owner(byToken.DELETE, 'DELETE', { token: again.token }, ALICE)).status, 200)
+    assert.equal(await here(r6), false, 'unpublishing from Settings releases it too')
+
+
+    // A redraw that lands between the project being read and the snapshot being written is caught: the snapshot is taken again, and no
+    // picture it lists is missing. (Update share first, then Share publicly.)
+    const everyPictureHeld = async (t: string) => {
+      const snap = publicManga((await store.shares.get(t))!.snapshot)!
+      for (const id of snapshotImageIds(snap)) {
+        assert.equal(await here(id), true, `${id} is in the bucket`)
+        assert.equal(await publicOk(t, id), 200, `${id} is served`)
+      }
+    }
+    const shares = store.shares as unknown as Record<'refresh' | 'create', (...a: unknown[]) => Promise<unknown>>
+    {
+      const racer = await planless()
+      const R = racer.project.id
+      const first = shareOf(await owner(projectRoute.POST, 'POST', { id: R }, ALICE))!
+      await redrawPanel(R) // current now, and not what the link lists
+      const realRefresh = shares.refresh
+      let raced = false
+      shares.refresh = async (...a) => {
+        if (!raced) {
+          raced = true
+          for (let i = 0; i < 3; i++) await redrawPanel(R) // drops the picture the new snapshot was taken with
+        }
+        return realRefresh.apply(store.shares, a)
+      }
+      try {
+        const res = await owner(projectRoute.PUT, 'PUT', { id: R }, ALICE)
+        assert.equal(res.status, 200, res.text)
+      } finally {
+        shares.refresh = realRefresh
+      }
+      assert.ok(raced)
+      await everyPictureHeld(first.token)
+      assert.equal(shareOf(await owner(projectRoute.GET, 'GET', { id: R }, ALICE))?.stale, false, 'and the share is the project as it stands')
+    }
+    {
+      const racer = await planless()
+      const C = racer.project.id
+      const realCreate = shares.create
+      let raced = false
+      shares.create = async (...a) => {
+        if (!raced) {
+          raced = true
+          for (let i = 0; i < 3; i++) await redrawPanel(C)
+        }
+        return realCreate.apply(store.shares, a)
+      }
+      let made: ShareView
+      try {
+        const res = await owner(projectRoute.POST, 'POST', { id: C }, ALICE)
+        assert.equal(res.status, 200, res.text)
+        made = shareOf(res)!
+      } finally {
+        shares.create = realCreate
+      }
+      assert.ok(raced)
+      await everyPictureHeld(made.token)
+    }
+
+    ok('redraw after sharing: a picture the link lists survives the redraws that drop it from its panel and from the cover; Update share releases it')
+  }
+
+  // =====================================================================================
+  // 4c. The arrow keys turn the reader's pages, but never behind an open dialog (Share, Report)
+  // =====================================================================================
+  {
+    const { turnKeyIndex } = await import('../lib/reader')
+    // A stand-in for the one DOM method the decision uses: `closest` over a chain of ancestors, for the selector forms the list is written in.
+    type Node = { tag: string; attrs?: Record<string, string> }
+    const target = (...chain: Node[]) => ({
+      closest(selector: string) {
+        const matches = (n: Node, one: string) => {
+          const attr = /^\[([\w-]+)(?:="([^"]*)")?\]$/.exec(one)
+          return attr ? (attr[2] === undefined ? attr[1] in (n.attrs ?? {}) : n.attrs?.[attr[1]] === attr[2]) : n.tag === one
+        }
+        return chain.find((n) => selector.split(',').some((one) => matches(n, one.trim()))) ?? null
+      },
+    })
+    const key = (k: string, t: ReturnType<typeof target> | null, mods: Partial<Record<'altKey' | 'ctrlKey' | 'metaKey' | 'shiftKey', boolean>> = {}) => ({ key: k, altKey: false, ctrlKey: false, metaKey: false, shiftKey: false, target: t, ...mods })
+    const body = target({ tag: 'body' })
+    // Manga order: the left arrow is forward. Left to right: the right arrow is.
+    assert.equal(turnKeyIndex(key('ArrowLeft', body), true, 1, 5), 2)
+    assert.equal(turnKeyIndex(key('ArrowRight', body), true, 1, 5), 0)
+    assert.equal(turnKeyIndex(key('ArrowRight', body), false, 1, 5), 2)
+    assert.equal(turnKeyIndex(key('ArrowLeft', body), false, 0, 5), 0, 'the first page stays the first')
+    assert.equal(turnKeyIndex(key('ArrowRight', body), false, 4, 5), 4, 'and the last the last')
+    assert.equal(turnKeyIndex(key('ArrowDown', body), true, 1, 5), null, 'other keys do nothing')
+    assert.equal(turnKeyIndex(key('ArrowLeft', body, { ctrlKey: true }), true, 1, 5), null, 'a shortcut is left to the browser')
+    // Typing in a field is never a page turn…
+    for (const tag of ['input', 'textarea']) assert.equal(turnKeyIndex(key('ArrowLeft', target({ tag }, { tag: 'body' })), true, 1, 5), null, tag)
+    assert.equal(turnKeyIndex(key('ArrowLeft', target({ tag: 'div', attrs: { contenteditable: 'true' } })), true, 1, 5), null)
+    // …and neither is a key pressed inside a modal dialog: on the Share dialog's buttons, the Report dialog's Close and Send.
+    const modal = (...inner: Node[]) => target(...inner, { tag: 'div', attrs: { role: 'dialog', 'aria-modal': 'true' } }, { tag: 'body' })
+    for (const inner of [{ tag: 'button' }, { tag: 'a' }, { tag: 'div' }]) {
+      assert.equal(turnKeyIndex(key('ArrowLeft', modal(inner)), true, 1, 5), null, `${inner.tag} in a dialog`)
+      assert.equal(turnKeyIndex(key('ArrowRight', modal(inner)), true, 1, 5), null, `${inner.tag} in a dialog`)
+    }
+    assert.equal(turnKeyIndex(key('ArrowLeft', null), true, 1, 5), 2, 'no target (a synthetic event) still turns')
+    // Both dialogs carry the attributes the guard looks for.
+    for (const file of ['ShareDialog', 'ReportDialog']) {
+      const source = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'components', `${file}.tsx`), 'utf8')
+      assert.ok(source.includes('role="dialog"') && source.includes('aria-modal="true"'), `${file} is a role=dialog, aria-modal`)
+    }
+    ok('arrow keys: left/right turn pages in the reading order and clamp at the ends; a shortcut, a field and a key pressed inside a modal dialog (Share, Report) turn nothing')
   }
 
   // =====================================================================================
@@ -700,6 +959,25 @@ try {
     asRequest({ 'x-forwarded-for': A1 })
     const busy = renderToStaticMarkup(await sharePage.default({ params: Promise.resolve({ token }) }))
     assert.ok(busy.includes('Too many visits just now.') && busy.includes('role="status"') && !busy.includes('The Last Train'), 'a calm page, nothing of the manga')
+    // …and the page's metadata takes the same window: over the line the head is the bare one a dead link gets, and the store is not read.
+    const spy = store.shares as unknown as { get: (t: string) => Promise<unknown> }
+    const realGet = spy.get
+    let reads = 0
+    spy.get = (t) => {
+      reads++
+      return realGet(t)
+    }
+    try {
+      const bare = JSON.stringify(await sharePage.generateMetadata({ params: Promise.resolve({ token: unknown }) }))
+      const throttled = JSON.stringify(await sharePage.generateMetadata({ params: Promise.resolve({ token }) }))
+      assert.equal(reads, 0, 'a throttled address’s metadata reads no share')
+      assert.ok(!throttled.includes('A Different Title') && !throttled.includes('pages'), 'and carries nothing of the live share')
+      assert.equal(throttled.replace(token, 'T'), bare.replace(unknown, 'T'), 'the same bare head a dead link gets, so live and dead cannot be told apart while the window is full')
+    } finally {
+      spy.get = realGet
+    }
+    asRequest({ 'x-forwarded-for': '203.0.113.9' })
+    assert.equal((await sharePage.generateMetadata({ params: Promise.resolve({ token }) })).title, 'A Different Title', 'an address with room still gets the live metadata')
     asRequest({ 'x-forwarded-for': A2 })
     assert.ok(renderToStaticMarkup(await sharePage.default({ params: Promise.resolve({ token }) })).includes('A Different Title'), 'another address reads the page')
     // Pictures: the media window, per address.
@@ -709,17 +987,24 @@ try {
     assert.equal(mediaLimited.status, 429, 'the picture route takes the anonMedia window')
     assert.equal(Object.fromEntries(mediaLimited.headers)['cache-control'], 'no-store')
     assert.equal((await open(publicImage.GET, { token, imageId: ids[2] }, '203.0.113.21')).status, 200)
-    // The preview image: the same media window.
+    // The preview image crops a cover on the CPU on every request, so it takes the strict page window (anon, 60 a minute),
+    // not the picture window (anonMedia, 600 a minute, meant for streaming stored files): a spent picture window leaves it alone…
     asRequest({ 'x-forwarded-for': B1 })
+    assert.equal((await preview.default({ params: Promise.resolve({ token }) })).status, 200, 'the picture window does not govern the preview')
+    // …and the page window (3 here) does.
+    const C1 = '203.0.113.30'
+    asRequest({ 'x-forwarded-for': C1 })
+    for (let i = 0; i < 3; i++) assert.equal((await preview.default({ params: Promise.resolve({ token }) })).status, 200)
     const ogLimited = await preview.default({ params: Promise.resolve({ token }) })
-    assert.equal(ogLimited.status, 429)
+    assert.equal(ogLimited.status, 429, 'the preview takes the anon window')
+    assert.equal(ogLimited.headers.get('cache-control'), 'no-store')
     // A caller can't escape a window by writing a different X-Forwarded-For to the left: the right-hand entry is the trusted hop’s.
     env.RATE_ANON_PER_MIN = '2'
     for (let i = 0; i < 2; i++) assert.equal((await open(publicJson.GET, { token }, `10.0.0.${i}, 198.51.100.9`)).status, 200)
     assert.equal((await open(publicJson.GET, { token }, '10.0.0.99, 198.51.100.9')).status, 429, 'a forged left-hand address does not buy a fresh window')
     env.RATE_ANON_PER_MIN = '100000'
     env.RATE_ANON_MEDIA_PER_MIN = '100000'
-    ok('windows: the JSON route (anon), the pictures and the preview (anonMedia) and the page (anon) are limited per address with a calm sentence and Retry-After; another address is untouched; unknown tokens count too; a forged left-hand X-Forwarded-For buys nothing')
+    ok('windows: the JSON route (anon), the pictures (anonMedia) and the preview and the page (anon, its metadata included: over the line the head is the dead link’s) are limited per address with a calm sentence and Retry-After; another address is untouched; unknown tokens count too; a forged left-hand X-Forwarded-For buys nothing')
   }
 
   // =====================================================================================

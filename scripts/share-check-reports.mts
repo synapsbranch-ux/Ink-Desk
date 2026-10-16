@@ -590,6 +590,15 @@ try {
     assert.equal((await store.shares.get(live.token))?.revokedAt, stamp)
     assert.deepEqual((await again.json()) as unknown, goneBody)
 
+    // A picture only the taken-down link was still holding (its project dropped it) goes with it; the report was about this share, nothing else.
+    const lone = await store.putBlob(PNG, 'image/png', 'cover')
+    const soloShare = await makeShare('Solo', { snapshot: { ...snapshotOf('Solo'), cover: { imageId: lone, title: 'Solo' } } })
+    await report(soloShare.token, { reason: 'spam' })
+    const soloReport = (await reportsOf(soloShare.token))[0]
+    assert.ok(await store.getBlob(lone), 'the picture is there while the link is up')
+    assert.equal((await admin(soloReport.id, { action: 'unpublish' }, BOSS)).status, 200)
+    assert.equal(await store.getBlob(lone), null, 'and goes with the takedown, which also lets go of what only the link held')
+
     // The public page data and the picture now answer EXACTLY as for a token that never existed.
     const ghost = newToken()
     assert.equal(await fingerprint(await getView(live.token)), await fingerprint(await getView(ghost)), 'the page data: identical to an unknown token')

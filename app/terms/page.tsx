@@ -1,6 +1,6 @@
 // Terms (slice 19): what the studio may be used for, in plain words. Linked
 // from sign-in and sign-up, readable signed out. Honest about what exists
-// today — anything that arrives in a later slice says so. See
+// today (slice 21 added the Report button on a shared page). See
 // `devpost/prd.md > Terms and Privacy (v3)`.
 import type { Metadata } from 'next'
 import Link from 'next/link'
@@ -8,7 +8,7 @@ import Link from 'next/link'
 export const metadata: Metadata = { title: 'Terms · Ink Desk' }
 
 /** The date of this text; change it with the words. */
-const UPDATED = '14 October 2026'
+const UPDATED = '16 October 2026'
 
 const page: React.CSSProperties = { maxWidth: 680, margin: '0 auto', padding: 'var(--space-8) var(--space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }
 
@@ -51,8 +51,9 @@ export default function TermsPage() {
 
         <h2>When the rules are broken</h2>
         <p>
-          Work that breaks these rules may be removed, and an account that keeps breaking them may be closed. A way to report a shared page from
-          inside the studio is coming; until then, {contact ? <a href={`mailto:${contact}`}>write to {contact}</a> : 'use the contact address on this page once it is published'}.
+          Work that breaks these rules may be removed, and an account that keeps breaking them may be closed. Anyone reading a shared page can press
+          its <em>Report</em> button, and no sign-in is needed. For anything else,{' '}
+          {contact ? <a href={`mailto:${contact}`}>write to {contact}</a> : 'use the contact address on this page once it is published'}.
         </p>
 
         <h2>Changes</h2>

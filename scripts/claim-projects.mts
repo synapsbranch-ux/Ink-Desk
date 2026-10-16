@@ -7,7 +7,7 @@
 // gets `--owner`; a project that already has another owner is never changed.
 // `--project` claims just that one; `--dry-run` lists what would change and
 // writes nothing. Its job records move with it, so its queue counts against
-// the new owner.
+// the new owner. A public share link it carried from before accounts is revoked.
 //
 // On the local store by default (`--data-dir`, else INKDESK_DATA_DIR, else
 // `data`). With INKDESK_STORAGE=cloud it writes MongoDB — and refuses unless
@@ -64,6 +64,7 @@ if (cloud) {
 const { store } = await import('../lib/store')
 const { LOCAL_OWNER } = await import('../lib/queue/jobs')
 const { Refused } = await import('../lib/errors')
+const { revokeShare } = await import('../lib/share/pins')
 
 let exitCode = 0
 try {
@@ -98,6 +99,12 @@ try {
       console.log(`  left as it is    ${label} — ${err.message}`)
       if (args.project) exitCode = 1
       continue
+    }
+    // A public link made while the desk had no accounts (owner `local`) is taken down: its new owner could neither see nor unpublish it.
+    const link = await store.shares.activeForProject(project.id)
+    if (link && link.ownerId !== owner) {
+      await revokeShare(link, new Date().toISOString())
+      console.log(`  link taken down  ${label} — it was shared before the account owned it; share it again to publish`)
     }
     // Its job records follow it, so the per-person queue limits count them against the new owner.
     for (const job of await store.jobs.listJobs({ projectId: project.id, ownerId: LOCAL_OWNER, limit: 10_000 })) {

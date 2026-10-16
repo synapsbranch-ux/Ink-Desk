@@ -39,6 +39,11 @@
 //                    and the secret; an unreadable project; the Clerk webhook (a replay is one
 //                    job, a failure to queue is a 503); sign-in off; the phrase
 //
+//   THE CLOUD ADAPTER WITHOUT A SERVER (section 14, both modes: plain HTTP stand-ins and a fake collection)
+//   14 cloud adapter  a big upload's timeout sized to its bytes, no wait on 100-continue, only transient
+//                    failures retried; the outputs bucket probed at connect (write, read, list); a share
+//                    create offered a taken token for a project that has an active share
+//
 //   OTHER SCRIPTS, run as child processes on their own scratch desks (local store only)
 //   10 sharing   share-check-sharing.mts  the snapshot allow-list, owner API, public page / JSON / pictures / preview, revoke, windows, XSS
 //   11 reports   share-check-reports.mts  the report route, what is stored, the window, admin gating and actions
@@ -986,9 +991,11 @@ try {
     await store.settings.put({ userId: owner, defaultStyle: null, readingDirection: 'ltr', updatedAt: at(5) })
 
     // Videos and the outputs store: an old export, a poster and a final.
-    const videoKeys = [`videos/${owner}/v1/poster.png`, `videos/${owner}/v1/final.mp4`]
+    // The third object is named by no videos record (a crash between the put and the record, a segment): only the prefix sweep can find it.
+    const videoKeys = [`videos/${owner}/v1/poster.png`, `videos/${owner}/v1/final.mp4`, `videos/${owner}/orphan/segment.bin`]
     await store.outputs.put(videoKeys[0], pngOf(tag, 50), 'image/png')
     await store.outputs.put(videoKeys[1], Buffer.from(`MARK-${tag}-video`), 'video/mp4')
+    await store.outputs.put(videoKeys[2], Buffer.from(`MARK-${tag}-orphan`), 'application/octet-stream')
     await store.videos.put({ id: crypto.randomUUID(), ownerId: owner, projectId: p1, page: 0, status: 'done', seconds: 9, costUsd: 0.5, posterKey: videoKeys[0], finalKey: videoKeys[1], error: null, createdAt: at(6), updatedAt: at(6) })
     const outputKeys = opts.stale === false ? [] : [`exports/${owner}/stale-${tag.toLowerCase()}.zip`]
     for (const key of outputKeys) await store.outputs.put(key, Buffer.from(`PK-old-${tag}`), 'application/zip')
@@ -1415,7 +1422,7 @@ try {
   // =====================================================================================
   // 9. Account deletion — POST/GET /api/settings/delete, the Clerk webhook, lib/account/deletion.ts
   // =====================================================================================
-  const { deleteAccount, DELETION_STEPS, DELETION_INCOMPLETE } = await import('../lib/account/deletion')
+  const { deleteAccount, productionDeps, DELETION_STEPS, DELETION_INCOMPLETE, DELETION_NOT_SET_UP } = await import('../lib/account/deletion')
   const { purgeCounters } = await import('../lib/account/counters')
   const { backend, resetBackend } = await import('../lib/limits')
   const { dayOf } = await import('../lib/limits/rules')
@@ -1674,6 +1681,8 @@ try {
         }
         if (!upTo('cancelled')) assert.equal(running?.status, 'running', 'before the cancel the job still runs')
         assert.deepEqual(clerk.calls, upTo('clerk') ? [owner] : [], `Clerk was asked ${upTo('clerk') ? 'once' : 'not yet'}`)
+        const liveShare = await store.shares.get(seed.tokens[0])
+        assert.ok(!liveShare || liveShare.revokedAt, `after ${stepName}: the public link is already dead, whatever else is left`)
         assert.equal(has('active shares') || has('share '), !upTo('shares'), 'shares and their reports go together')
         assert.equal(has('report '), !upTo('shares'))
         assert.equal(has('projects') || has('project '), !upTo('projects'), 'projects')
@@ -1683,7 +1692,8 @@ try {
         assert.equal(has('exports') || has('video files'), !upTo('outputs'))
         assert.equal(has('settings'), !upTo('settings'))
         if (redisReady) assert.equal(Object.keys(await redisDump(mentions(owner))).length > 0, !upTo('counters'), 'the counters go at step 5')
-        if (stepName === 'verified') assert.deepEqual(left, [], 'a crash after the last step has nothing left to do')
+        if (upTo('verified')) assert.deepEqual(left, [], 'a crash after the data is verified gone has nothing left to sweep')
+        if (!upTo('verified')) assert.deepEqual(clerk.calls, [], 'their sign-in ends only once the data is verified gone: a deletion cut off before that leaves them signed in, to see it and try again')
         // The retry.
         const finished = await deleteAccount(record, depsOf(clerk))
         assert.deepEqual(finished, { outcome: 'done' }, `resumed after ${stepName}`)
@@ -1742,19 +1752,57 @@ try {
       }
       assert.ok(!logged.join('\n').includes('SECRETMARK'), 'nothing logged carries the secret')
 
-      // A failed Clerk call stops the run before any data goes (their sign-in is still live, so nothing could be safely deleted yet), and the retry finishes.
+      // A failed Clerk call comes LAST, after the data is verified gone: the job throws for the queue to retry, and what is left to do is ending the sign-in.
       const owner = 'user_clerkfail'
       const seed = await seedDesk(owner, 'Clerkfail', { held: true })
       const record = await deletionJob(owner)
       const failing = { calls: [] as string[], deleteUser: async (): Promise<void> => { throw new Error('Clerk would not delete the user (HTTP 500); the deletion will be tried again') } }
       await assert.rejects(deleteAccount(record, depsOf(failing)), /HTTP 500/)
       assert.ok((await store.users.get(owner))?.deletedAt, 'the tombstone is set')
-      assert.equal((await store.projectsOf(owner)).length, 2, 'the data is still there')
-      assert.equal((await store.jobs.getJob(seed.jobs.running))?.outcome, 'cancelled', 'their work was already stopped')
+      assert.deepEqual(await leftovers(seed, record.id), [], 'the data was already gone when Clerk was asked')
+      const link = await store.shares.get(seed.tokens[0])
+      assert.equal(link, null, 'and so was the public link')
+      assert.equal((await store.jobs.getJob(seed.jobs.running))?.outcome ?? null, null, 'their jobs were swept with the rest')
       assert.deepEqual(await deleteAccount(record, depsOf(fakeClerk())), { outcome: 'done' })
       await store.jobs.deleteJob(record.id)
       assert.deepEqual(await leftovers(seed), [])
-      ok(`${where} deletion: Clerk’s 404 is success, a 500/401/429 throws for the queue to retry (the data waits, the retry finishes), the secret is sent only to Clerk and appears in no error or log line`)
+      ok(`${where} deletion: Clerk’s 404 is success, a 500/401/429 throws for the queue to retry (Clerk is asked last, after the data is verified gone, so the retry only has the sign-in left to end), the secret is sent only to Clerk and appears in no error or log line`)
+    }
+
+    // 9d2. A worker that cannot ask Clerk (no CLERK_SECRET_KEY) changes nothing and ends the job at once: it does not drop the email, stop
+    // their work and then fail every retry.
+    {
+      const owner = 'user_nokey'
+      const seed = await seedDesk(owner, 'Nokey', { held: true })
+      const record = await deletionJob(owner)
+      const blind = { ...fakeClerk(), ready: () => 'CLERK_SECRET_KEY is not set' }
+      assert.deepEqual(await deleteAccount(record, depsOf(blind)), { outcome: 'failed', error: DELETION_NOT_SET_UP })
+      assert.equal((await store.users.get(owner))?.deletedAt ?? null, null, 'the account is not marked')
+      assert.equal((await store.projectsOf(owner)).length, 2, 'the data is all there')
+      assert.equal((await store.jobs.getJob(seed.jobs.running))?.status, 'running', 'their work still runs')
+      assert.ok(!(await store.shares.get(seed.tokens[0]))?.revokedAt, 'their link is untouched')
+      assert.deepEqual(blind.calls, [], 'Clerk was not asked')
+      // What production wires in: clerk mode without the key is not ready; with it, ready; no clerk mode, no Clerk.
+      const saved = { NODE_ENV: env.NODE_ENV, INKDESK_AUTH: env.INKDESK_AUTH, CLERK_SECRET_KEY: env.CLERK_SECRET_KEY }
+      try {
+        env.NODE_ENV = 'production'
+        delete env.INKDESK_AUTH
+        delete env.CLERK_SECRET_KEY
+        assert.match(productionDeps().clerk?.ready?.() ?? '', /CLERK_SECRET_KEY is not set/, 'a production worker without the key is not ready')
+        env.CLERK_SECRET_KEY = `sk_test_${'x'.repeat(30)}`
+        assert.equal(productionDeps().clerk?.ready?.(), null, 'and with it, ready')
+        delete env.NODE_ENV
+        assert.equal(productionDeps().clerk, null, 'outside production there is no Clerk to ask')
+      } finally {
+        for (const [name, value] of Object.entries(saved)) {
+          if (value === undefined) delete env[name]
+          else env[name] = value
+        }
+      }
+      assert.deepEqual(await deleteAccount(record, depsOf(fakeClerk())), { outcome: 'done' }, 'once the key is there, the same job finishes')
+      await store.jobs.deleteJob(record.id)
+      assert.deepEqual(await leftovers(seed), [])
+      ok(`${where} deletion: a worker with no Clerk secret ends the job at once with nothing changed (account, data, work and link untouched); production wires that check in`)
     }
 
     // 9e. A project too damaged to read is deleted anyway; the pictures that can be found are removed; the one picture only that project's lost copy named is the documented limit.
@@ -1910,8 +1958,9 @@ try {
       console.warn = () => {}
       console.error = () => {}
       let outcome
+      const clerk = fakeClerk()
       try {
-        outcome = await deleteAccount(record, depsOf(null))
+        outcome = await deleteAccount(record, depsOf(clerk))
       } finally {
         store.shares.listActiveOf = realListActive
         store.shares.deleteAllOf = realDeleteAll
@@ -1919,9 +1968,11 @@ try {
         console.error = err
       }
       assert.deepEqual(outcome, { outcome: 'failed', error: DELETION_INCOMPLETE })
+      assert.deepEqual(clerk.calls, [], 'a deletion that ends failed never ended their sign-in: they can still sign in, see the sentence and try again')
       assert.ok(await store.jobs.getJob(record.id), 'a failed deletion keeps its record, for the status route to tell the person')
       assert.match(DELETION_INCOMPLETE, /Nothing is lost by trying again/)
-      assert.deepEqual(await deleteAccount(record, depsOf(null)), { outcome: 'done' }, 'and once the store behaves, the next run finishes')
+      assert.deepEqual(await deleteAccount(record, depsOf(clerk)), { outcome: 'done' }, 'and once the store behaves, the next run finishes')
+      assert.deepEqual(clerk.calls, [owner], 'and ends the sign-in then')
       await store.jobs.deleteJob(record.id)
       assert.deepEqual(await leftovers(seed), [])
       ok(`${where} deletion: if the verification still finds something after its sweeps, the job ends failed with one calm sentence (the record stays, the page offers Try again), and the next run finishes`)
@@ -1977,6 +2028,149 @@ try {
       assert.deepEqual(await leftovers(seed), [])
       ok(`${where} deletion: a worker that draws into a project the deletion removed ends "skipped" with the studio’s sentence, and a job it cancelled is never claimed again`)
     }
+
+    // 9l. A picture the person replaced is deleted with the replacement (a redraw, a reroll, an import over a drawn sheet), unless the shelf or
+    // another card still shows it (an imported sheet IS the shelf's picture) — so the deletion never has a sheet to find that no record names.
+    {
+      const { landImage } = await import('../lib/images')
+      const { attachSheet, importSheet, replaceCharacter } = await import('../lib/cast')
+      const { update } = await import('../lib/chapter')
+      const owner = 'user_sheets'
+      const seed = await seedDesk(owner, 'Sheetswap')
+      const pid = seed.projects[0]
+      const before = await store.readProject(pid)
+      const sheet0 = before.library.characters[0].sheetImageId!
+      const shelf = before.library.assets[0]
+      await store.updateProject(pid, (p) => ({ ...p, library: { ...p.library, characters: p.library.characters.map((c) => ({ ...c, locked: false })) } }))
+      const exists = async (id: string) => (await store.getBlob(id)) !== null
+      const draw = async (n: number) => {
+        const id = await store.putBlob(pngOf('Sheetswap', n), 'image/png', 'sheet')
+        await landImage(pid, id, (c, imageId) => attachSheet(c, 'c1', `dna ${n}`, imageId), 0)
+        return id
+      }
+      const sheet1 = await draw(201)
+      assert.equal(await exists(sheet0), false, 'a redrawn sheet’s old picture is deleted')
+      assert.ok(await exists(sheet1), 'the new one is kept')
+      await update(pid, (c) => importSheet(c, 'c1', shelf.id))
+      assert.equal(await exists(sheet1), false, 'an import over a drawn sheet deletes the drawn one')
+      assert.ok(await exists(shelf.blobId), 'but the imported picture is the shelf’s and stays')
+      const sheet2 = await draw(202)
+      assert.ok(await exists(shelf.blobId), 'drawing over an imported sheet leaves the shelf’s picture alone')
+      assert.ok(await exists(sheet2))
+      await update(pid, (c) => replaceCharacter(c, 'c1', { name: 'Fresh', role: 'rival', traits: ['calm'], look: 'a new look' }))
+      assert.equal(await exists(sheet2), false, 'a reroll deletes the sheet that belonged to the old proposal')
+      assert.ok(await exists(shelf.blobId))
+      // A draw that lands the same picture again (a re-run) deletes nothing.
+      const sheet3 = await draw(203)
+      await landImage(pid, sheet3, (c, imageId) => attachSheet(c, 'c1', 'dna 203', imageId), 0, undefined, (c, id) => c.cast.some((x) => x.id === 'c1' && x.sheetImageId === id))
+      assert.ok(await exists(sheet3))
+      const record = await deletionJob(owner)
+      assert.deepEqual(await deleteAccount(record, depsOf(null)), { outcome: 'done' })
+      await store.jobs.deleteJob(record.id)
+      for (const id of [sheet0, sheet1, sheet2, sheet3, shelf.blobId]) assert.equal(await exists(id), false, `${id} is gone after the deletion`)
+      assert.deepEqual(await leftovers(seed), [])
+      ok(`${where} deletion: a replaced sheet’s picture goes with the replacement (redraw, reroll, import over a drawn one), the shelf’s picture and a re-landed one stay, and nothing of the sheets is left after the account goes`)
+    }
+
+    // 9m. A picture that lands while the project is being deleted (a cancelled worker is not stopped) is found and deleted before the project goes.
+    {
+      const { landImage } = await import('../lib/images')
+      const owner = 'user_late'
+      const seed = await seedDesk(owner, 'Latepaint')
+      const record = await deletionJob(owner)
+      const late = await store.putBlob(pngOf('Latepaint', 300), 'image/png', 'panel')
+      const realDelete = store.deleteBlob
+      let fired = false
+      store.deleteBlob = async (id: string) => {
+        const index = seed.heldBy.get(id)
+        if (!fired && index !== undefined) {
+          fired = true
+          await landImage(seed.projects[index], late, (c, imageId) => ({ ...c, script: c.script && c.script.map((p, i) => (i === 0 ? { ...p, versions: [...p.versions, { imageId, createdAt: at(0) }] } : p)) }), 0)
+        }
+        return realDelete.call(store, id)
+      }
+      try {
+        assert.deepEqual(await deleteAccount(record, depsOf(null)), { outcome: 'done' })
+      } finally {
+        store.deleteBlob = realDelete
+      }
+      assert.ok(fired, 'the late picture landed while the sweep was deleting')
+      await store.jobs.deleteJob(record.id)
+      assert.equal(await store.getBlob(late), null, 'the picture that landed mid-sweep was deleted too')
+      assert.deepEqual(await leftovers(seed), [])
+      ok(`${where} deletion: a picture that lands from a worker still drawing, between the sweep’s read of a project and its delete, is found and deleted before the project goes`)
+    }
+
+    // 9n. A job made after the cancel (a second tab, a session Clerk has not ended yet) still has its hold released when its record is swept, and so has an
+    // ended job whose settle never ran: no record is deleted while it still holds quota or spend.
+    {
+      const { reserve } = await import('../lib/limits')
+      const owner = 'user_latejob'
+      const seed = await seedDesk(owner, 'Latejob')
+      const record = await deletionJob(owner)
+      const planted: string[] = []
+      const plant = async (over: Partial<JobRecord>) => {
+        const job = mkJob(owner, { kind: 'panel', projectId: seed.projects[0], payload: { kind: 'panel', chapterId: 'c', pageIndex: 0, index: 3 }, queue: 'image', reservation: 'held', reservedUsd: 0.05, ...over })
+        await reserve({ id: job.id, userId: owner, units: { image: 1 }, usd: 0.05 })
+        assert.equal((await store.jobs.insertJob(job)).created, true)
+        planted.push(job.id)
+      }
+      await deleteAccount(record, depsOf(null, async (step) => {
+        if (step !== 'cancelled') return
+        await plant({ status: 'queued' })
+        await plant({ status: 'running', workerId: 'w-late', attempts: 1, leaseUntil: new Date(Date.now() + 600_000).toISOString(), startedAt: at(1) })
+        await plant({ status: 'failed', outcome: 'failed', error: 'x', finishedAt: at(2) }) // ended, settle never ran
+      }))
+      assert.equal(planted.length, 3)
+      await store.jobs.deleteJob(record.id)
+      for (const id of planted) {
+        assert.equal(await store.jobs.getJob(id), null, 'the record is gone')
+        assert.equal(await backend().hold(id), null, `and its hold was released (${id})`)
+      }
+      assert.deepEqual(await leftovers(seed), [])
+      ok(`${where} deletion: jobs made after the cancel, and an ended job never settled, give their holds back before their records are deleted`)
+    }
+
+    // 9o. Whatever the person makes in the seconds their sign-in lasts (Clerk is asked last) is swept after it, before the job says done.
+    {
+      const owner = 'user_lastminute'
+      const seed = await seedDesk(owner, 'Lastminute')
+      const record = await deletionJob(owner)
+      const extra = crypto.randomUUID()
+      const clerk = {
+        calls: [] as string[],
+        deleteUser: async (id: string): Promise<void> => {
+          clerk.calls.push(id)
+          await store.createProject({ ...emptyProject({ id: extra, chapterId: crypto.randomUUID(), title: 'Last minute', stylePresetId: 'manga-bw', serverRunId: 'check' }), ownerId: owner })
+        },
+      }
+      assert.deepEqual(await deleteAccount(record, depsOf(clerk)), { outcome: 'done' })
+      assert.equal(await store.projectStamp(extra), null, 'a project made while Clerk was being asked is swept before done')
+      await store.jobs.deleteJob(record.id)
+      assert.deepEqual(await leftovers(seed), [])
+      ok(`${where} deletion: a project made while the sign-in was being ended is swept before the job says done`)
+    }
+
+    // 9p. A picture only the live share was holding (a redraw dropped it from the panel; the link still lists it) is deleted with the account:
+    // no record of the person's names it any more, so the deletion's sweep could not find it.
+    {
+      const owner = 'user_pinned'
+      const seed = await seedDesk(owner, 'Pinned')
+      const pinnedOnly = await store.putBlob(pngOf('Pinned', 400), 'image/png', 'panel')
+      seed.images.set(pinnedOnly, pngOf('Pinned', 400))
+      const kept = [...seed.images.keys()][4] // a panel the project still keeps, which the link also lists
+      assert.ok(kept)
+      const base = snapshotOf('Pinned link')
+      const listing: MangaSnapshot = { ...base, pages: [{ index: 0, panels: base.pages[0].panels.map((panel, i) => ({ ...panel, imageId: i === 0 ? pinnedOnly : i === 1 ? kept : panel.imageId })) }] }
+      assert.ok(await store.shares.refresh(seed.tokens[0], listing, at(3)), 'the live link lists both')
+      const record = await deletionJob(owner)
+      assert.deepEqual(await deleteAccount(record, depsOf(null)), { outcome: 'done' })
+      await store.jobs.deleteJob(record.id)
+      assert.equal(await store.getBlob(pinnedOnly), null, 'the picture only the link held is deleted with the account')
+      assert.equal(await store.getBlob(kept), null)
+      assert.deepEqual(await leftovers(seed), [])
+      ok(`${where} deletion: a picture only the live link was holding goes with the account`)
+    }
   } finally {
     await closeProducerRedis().catch(() => {})
     if (redisProc) {
@@ -1984,6 +2178,163 @@ try {
       delete env.REDIS_URL
       resetBackend()
     }
+  }
+
+  // =====================================================================================
+  // 14. The cloud adapter without a server: big uploads, the outputs bucket, a duplicate share (lens "cloud")
+  //     Stand-ins are plain HTTP servers and a fake collection on this machine, so it runs in both modes.
+  // =====================================================================================
+  {
+    const cloudLib = await import('../lib/store/cloud')
+    const { s3Client, uploadTimeoutMs, isTransientUpload, putFile, probeBuckets, createShareDoc, S3_TIMEOUTS } = cloudLib
+    const http = await import('node:http')
+    const { MongoServerError } = await import('mongodb')
+    type Req = import('node:http').IncomingMessage
+    type Res = import('node:http').ServerResponse
+    const serve = async (handler: (req: Req, res: Res) => void, onContinue?: (req: Req, res: Res) => void) => {
+      const server = http.createServer(handler)
+      if (onContinue) server.on('checkContinue', onContinue)
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+      const port = (server.address() as import('node:net').AddressInfo).port
+      return { port, endpoint: `http://127.0.0.1:${port}`, close: () => new Promise<void>((resolve) => (server.closeAllConnections(), server.close(() => resolve()))) }
+    }
+    const clientFor = (endpoint: string, timeouts: { connectionTimeout: number; requestTimeout: number; socketTimeout: number } = S3_TIMEOUTS) => s3Client({ endpoint, region: 'us-east-1', accessKeyId: 'check', secretAccessKey: 'check', forcePathStyle: true }, timeouts)
+    const bigFile = join(dir, 'big-upload.bin')
+    await writeFile(bigFile, randomBytes(1_500_000))
+
+    // 14a. The sizing of the per-call timeout: never under the client's own, one second per MB/s of the floor rate above it.
+    assert.equal(uploadTimeoutMs(1000), S3_TIMEOUTS.requestTimeout, 'a small body keeps the client’s timeout')
+    assert.equal(uploadTimeoutMs(400 * 1024 * 1024), 400_000, 'a 400 MB export may take 400 s at the slowest link the studio waits for (1 MB/s)')
+    assert.ok(uploadTimeoutMs(400 * 1024 * 1024) > uploadTimeoutMs(100 * 1024 * 1024), 'and grows with the size')
+
+    // 14b. A body that is still arriving is not a timeout: 1.5 MB at ~0.5 MB/s takes ~3 s against a client that gives a whole request 0.4 s.
+    let received = 0
+    const throttled = await serve((req, res) => {
+      req.on('data', (chunk: Buffer) => {
+        received += chunk.length
+        req.pause()
+        setTimeout(() => req.resume(), (chunk.length / 500_000) * 1000)
+      })
+      req.on('end', () => res.writeHead(200).end())
+    })
+    const tight = { connectionTimeout: 1000, requestTimeout: 400, socketTimeout: 5000 }
+    const slowClient = clientFor(throttled.endpoint, tight)
+    const began = Date.now()
+    await putFile(slowClient, { Bucket: 'b', Key: 'outputs/big.zip' }, bigFile, 1_500_000, { floorMs: 400, minBytesPerSec: 100_000 })
+    assert.ok(received >= 1_500_000 && received < 1_501_000, `the whole file arrived (${received} bytes with the SDK’s framing)`)
+    assert.ok(Date.now() - began > 1000, `slowly (${Date.now() - began} ms) — past the client’s own request timeout`)
+    slowClient.destroy()
+    await throttled.close()
+
+    // 14c. An endpoint that never answers `Expect: 100-continue` is not waited on: the body is sent without asking.
+    let sentExpect: string | undefined
+    let expectBytes = 0
+    const mute = await serve(
+      (req, res) => {
+        sentExpect = req.headers.expect
+        req.on('data', (chunk: Buffer) => (expectBytes += chunk.length))
+        req.on('end', () => res.writeHead(200).end())
+      },
+      () => {} // sees the Expect header and says nothing, ever
+    )
+    const patient = clientFor(mute.endpoint, { connectionTimeout: 1000, requestTimeout: 2000, socketTimeout: 5000 })
+    await putFile(patient, { Bucket: 'b', Key: 'outputs/big.zip' }, bigFile, 1_500_000)
+    assert.ok(expectBytes >= 1_500_000, 'the body went without waiting for a 100 Continue')
+    assert.equal(sentExpect, undefined, 'and no Expect header was sent')
+    patient.destroy()
+    await mute.close()
+
+    // 14d. Only a failure that can pass is tried again: a refused key is one request, a 503 and a reset are three.
+    const hits: Record<string, number> = {}
+    const flaky = await serve((req, res) => {
+      const which = String(req.url).split('/')[1] ?? ''
+      hits[which] = (hits[which] ?? 0) + 1
+      req.resume()
+      req.on('end', () => {
+        if (which === 'denied') res.writeHead(403, { 'content-type': 'application/xml' }).end('<Error><Code>AccessDenied</Code><Message>no</Message></Error>')
+        else if (which === 'busy') res.writeHead(503, { 'content-type': 'application/xml' }).end('<Error><Code>SlowDown</Code><Message>later</Message></Error>')
+        else if (which === 'flaky' && hits[which] < 3) req.socket.destroy()
+        else res.writeHead(200).end()
+      })
+    })
+    const retrying = clientFor(flaky.endpoint)
+    const tiny = join(dir, 'tiny-upload.bin')
+    await writeFile(tiny, randomBytes(2000))
+    await assert.rejects(putFile(retrying, { Bucket: 'denied', Key: 'k' }, tiny, 2000), /AccessDenied|Forbidden|denied/i)
+    assert.equal(hits.denied, 1, 'AccessDenied: one request, not three')
+    await assert.rejects(putFile(retrying, { Bucket: 'busy', Key: 'k' }, tiny, 2000))
+    assert.equal(hits.busy, 3, 'a 503 is tried three times')
+    await putFile(retrying, { Bucket: 'flaky', Key: 'k' }, tiny, 2000)
+    assert.equal(hits.flaky, 3, 'a reset connection is tried again, and the third time works')
+    assert.equal(isTransientUpload(Object.assign(new Error('x'), { name: 'TimeoutError' })), true)
+    assert.equal(isTransientUpload(Object.assign(new Error('x'), { name: 'NoSuchBucket', $metadata: { httpStatusCode: 404 } })), false)
+    assert.equal(isTransientUpload(new Error('boom')), false)
+    retrying.destroy()
+    await flaky.close()
+    await rm(bigFile, { force: true })
+    await rm(tiny, { force: true })
+    ok('cloud adapter: a big upload gets a timeout sized to its bytes, never waits on 100-continue, and only a failure that can pass is tried again')
+
+    // 14e. The outputs bucket is checked like the project-files bucket: written, read, and listed.
+    const buckets: Record<string, { objects: Set<string>; list: boolean }> = {
+      images: { objects: new Set(), list: true },
+      exports: { objects: new Set(), list: true },
+      nolist: { objects: new Set(), list: false },
+    }
+    const listCalls: string[] = []
+    const s3Stand = await serve((req, res) => {
+      const url = new URL(req.url ?? '/', 'http://x')
+      const [, bucket, ...rest] = url.pathname.split('/')
+      const key = rest.join('/')
+      const found = buckets[bucket]
+      const fail = (status: number, code: string) => res.writeHead(status, { 'content-type': 'application/xml' }).end(`<Error><Code>${code}</Code><Message>${code}</Message></Error>`)
+      const chunks: Buffer[] = []
+      req.on('data', (c: Buffer) => chunks.push(c))
+      req.on('end', () => {
+        if (!found) return fail(404, 'NoSuchBucket')
+        if (req.method === 'PUT') return void (found.objects.add(key), res.writeHead(200).end())
+        if (req.method === 'GET' && url.searchParams.get('list-type') === '2') {
+          listCalls.push(bucket)
+          return found.list ? void res.writeHead(200, { 'content-type': 'application/xml' }).end('<ListBucketResult><IsTruncated>false</IsTruncated></ListBucketResult>') : fail(403, 'AccessDenied')
+        }
+        if (req.method === 'GET') return found.objects.has(key) ? void res.writeHead(200).end('probe') : fail(404, 'NoSuchKey')
+        return fail(405, 'MethodNotAllowed')
+      })
+    })
+    const probing = clientFor(s3Stand.endpoint)
+    await probeBuckets(probing, { projectFiles: 'images', outputs: 'exports' }, 'inkdesk/')
+    assert.ok(buckets.images.objects.has('inkdesk/inkdesk-bucket-check.txt') && buckets.exports.objects.has('inkdesk/inkdesk-bucket-check.txt'), 'both buckets got the probe object')
+    assert.deepEqual(listCalls, ['exports'], 'and the outputs bucket was listed')
+    listCalls.length = 0
+    await probeBuckets(probing, { projectFiles: 'images', outputs: 'images' }, 'inkdesk/')
+    assert.deepEqual(listCalls, ['images'], 'one bucket for both: still listed (the exports need it)')
+    await assert.rejects(probeBuckets(probing, { projectFiles: 'images', outputs: 'typo' }, 'inkdesk/'), /NoSuchBucket|does not exist|specified bucket/i, 'a mistyped outputs bucket is found at connect')
+    await assert.rejects(probeBuckets(probing, { projectFiles: 'images', outputs: 'nolist' }, 'inkdesk/'), /AccessDenied|Forbidden|denied/i, 'a key that can write but not list is found at connect')
+    probing.destroy()
+    await s3Stand.close()
+    ok('cloud adapter: the outputs bucket is probed at connect (write, read, list), so a wrong bucket or a key that cannot list is found there, not in a deletion')
+
+    // 14f. A share offered a taken token for a project that already has an active one: the idempotent answer, as the local store gives.
+    const holder = { _id: 'holderTokenholderToken', activeProject: 'p-1', projectId: 'p-1', ownerId: ALICE, revokedAt: null }
+    const dup = (keyPattern: Record<string, number>) => new MongoServerError({ message: 'E11000 duplicate key', code: 11000, keyPattern })
+    const fake = (insertError: Error | null, found: unknown) => ({
+      insertOne: async () => {
+        if (insertError) throw insertError
+        return {}
+      },
+      findOne: async () => found,
+    })
+    const run = (insertError: Error | null, found: unknown) => (op: (collection: never) => Promise<unknown>) => op(fake(insertError, found) as never)
+    const offeredDoc = { _id: 'revokedTokenrevokedTo', activeProject: 'p-1', projectId: 'p-1', ownerId: ALICE, revokedAt: null }
+    // MongoDB names the _id index first when both unique indexes are broken.
+    const both = await createShareDoc(run(dup({ _id: 1 }), holder) as never, offeredDoc as never)
+    assert.deepEqual([both.created, both.share.token], [false, 'holderTokenholderToken'], 'taken token + active project: the active share is returned')
+    await assert.rejects(createShareDoc(run(dup({ _id: 1 }), null) as never, { ...offeredDoc, activeProject: undefined } as never), /already taken/, 'a taken token for a free project is refused')
+    await assert.rejects(createShareDoc(run(dup({ _id: 1 }), null) as never, offeredDoc as never), /already taken/, 'and when nobody holds the project, the token is what is taken')
+    const byProject = await createShareDoc(run(dup({ activeProject: 1 }), holder) as never, offeredDoc as never)
+    assert.equal(byProject.created, false, 'only the project index broken: the active share')
+    await assert.rejects(createShareDoc(run(new Error('network'), null) as never, offeredDoc as never), /network/, 'any other error is thrown')
+    ok('cloud adapter: a share create offered a taken token, for a project that has an active share, answers with that share (created: false)')
   }
 
   // 10-13. The slice's other checks, each a script with its own scratch desk, run here so ONE command holds the slice.

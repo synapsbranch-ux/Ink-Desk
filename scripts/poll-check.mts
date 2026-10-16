@@ -19,7 +19,8 @@
 // read window and its `Retry-After`, `no-store`, a reply that is a small
 // fraction of the desk's, `rev` that is exactly the desk's `updatedAt` and moves
 // when the project is edited, the live job set equal to the desk's own
-// `activity`, a lapsed lease let go like the desk lets it go — and not one
+// `activity`, the stamp read once and the project not read at all (a counter on
+// the store), a lapsed lease let go like the desk lets it go — and not one
 // byte of the project written (a panel still "inking" that no live job holds
 // is left for the desk read to demote, and is).
 import './server-only.mts' // first: lets server modules load outside Next (SEC-15)
@@ -510,6 +511,26 @@ const params = (id: string) => ({ params: Promise.resolve({ id }) })
 const status = (user: string | null, id: string) => statusRoute.GET(call(user, `/api/projects/${id}/status`), params(id))
 const desk = (user: string | null, id: string) => deskRoute.GET(call(user, `/api/projects/${id}`), params(id))
 
+/** Count the store's whole-project reads and stamp reads while `run` goes: the light poll's point is the one and never the other (CR-8). */
+async function countReads<T>(run: () => Promise<T>): Promise<{ result: T; projectReads: number; stampReads: number }> {
+  const real = { readProject: store.readProject, projectStamp: store.projectStamp }
+  const seen = { projectReads: 0, stampReads: 0 }
+  store.readProject = (id) => {
+    seen.projectReads++
+    return real.readProject.call(store, id)
+  }
+  store.projectStamp = (id) => {
+    seen.stampReads++
+    return real.projectStamp.call(store, id)
+  }
+  try {
+    return { result: await run(), ...seen }
+  } finally {
+    store.readProject = real.readProject
+    store.projectStamp = real.projectStamp
+  }
+}
+
 /** A desk with something on it: six pages of four panels, a cast with DNA, a synopsis, a scenario, a plan. */
 async function makeProject(owner: string, title: string): Promise<string> {
   const id = crypto.randomUUID()
@@ -616,8 +637,17 @@ try {
 
     const before = await projectBytes(a)
     const files = await tree(dir)
-    const res = await status(ALICE, a)
-    const text = await res.text()
+    // The light poll never reads the project: one stamp read, no whole-project read (the desk, counted the same way, reads it).
+    const counted = await countReads(async () => {
+      const r = await status(ALICE, a)
+      return { r, text: await r.text() }
+    })
+    assert.equal(counted.projectReads, 0, 'the status route read the whole project — it must ask for the stamp only (CR-8)')
+    assert.equal(counted.stampReads, 1, 'and it asked for the stamp, once')
+    const deskCounted = await countReads(() => desk(ALICE, a))
+    assert.ok(deskCounted.projectReads >= 1, 'control: the desk route does read the project, so the counter sees a whole-project read')
+    assert.equal(counted.result.r.status, 200)
+    const text = counted.result.text
     const body = JSON.parse(text) as { rev: string; activity: Activity }
     assert.deepEqual(Object.keys(body).sort(), ['activity', 'rev'])
     const activeBody = body.activity.jobs.filter((j) => j.status === 'queued' || j.status === 'running').map((j) => j.id).sort()

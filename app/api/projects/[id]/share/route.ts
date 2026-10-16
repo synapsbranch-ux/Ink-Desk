@@ -61,7 +61,7 @@ export async function DELETE(req: Request, { params }: Params) {
     const userId = await requireUser(req)
     const project = await ownedProject(userId, id)
     await assertNoInput(req)
-    await unpublishProject(userId, project)
+    await unpublishProject(project)
     return reply(null)
   } catch (err) {
     return errorResponse(err, 'share', 'The share couldn’t be taken down just now. Try again in a moment.')

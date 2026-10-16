@@ -8,12 +8,19 @@
 // logged or put in an error here: what is logged is the HTTP status and nothing
 // from the response.
 import 'server-only'
+import { workerAuthProblems } from '../auth/config'
 
 /** Is this Clerk's "there is no such user"? Its API errors carry the HTTP status and a code. */
 export function isGone(err: unknown): boolean {
   const e = err as { status?: unknown; errors?: { code?: unknown }[] } | null
   if (e?.status === 404) return true
   return Array.isArray(e?.errors) && e.errors.some((item) => item?.code === 'resource_not_found')
+}
+
+/** Why Clerk could not be asked right now (the secret key is missing or malformed), or null when it can. */
+export function clerkNotReady(): string | null {
+  const problems = workerAuthProblems()
+  return problems.length > 0 ? problems.join('; ') : null
 }
 
 export async function deleteClerkUser(userId: string): Promise<void> {

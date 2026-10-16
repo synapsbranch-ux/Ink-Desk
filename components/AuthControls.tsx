@@ -20,7 +20,8 @@ export function AuthControls() {
   if (!providerKey()) return null
   return (
     <Show when="signed-in">
-      <UserButton />
+      {/* "Manage account" goes to the Settings account page (not Clerk's own modal), where the rest of Settings is one click away. */}
+      <UserButton userProfileUrl="/settings/account" />
     </Show>
   )
 }

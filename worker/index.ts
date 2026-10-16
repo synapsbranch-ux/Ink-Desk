@@ -10,6 +10,7 @@
 // Started with `scripts/server-only.mts` preloaded (see the `worker` script in
 // package.json): the library modules import `server-only`, which refuses to
 // load outside Next unless resolved the way Next's server does.
+import { workerAuthProblems } from '../lib/auth/config'
 import { ConfigError, parseConfig } from '../lib/config'
 import { closeQueues } from '../lib/queue/queues'
 import { closeProducerRedis } from '../lib/queue/redis'
@@ -19,6 +20,9 @@ async function main() {
   let config
   try {
     config = parseConfig(process.env, 'worker')
+    // Deleting an account deletes its Clerk user, so a worker in clerk mode needs CLERK_SECRET_KEY: refused here, not on the first deletion.
+    const auth = workerAuthProblems()
+    if (auth.length > 0) throw new ConfigError(auth)
   } catch (err) {
     if (err instanceof ConfigError) {
       console.error(`[worker] ${err.message}`)

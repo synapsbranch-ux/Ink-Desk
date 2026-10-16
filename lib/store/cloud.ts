@@ -53,7 +53,7 @@ import { createReadStream } from 'node:fs'
 import { open, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client, type PutObjectCommandInput } from '@aws-sdk/client-s3'
 import { MongoClient, MongoNetworkError, MongoServerError, MongoServerSelectionError, type Collection, type Db, type Filter, type MongoClientOptions } from 'mongodb'
 import { ConfigError, cloudSettings, type CloudSettings } from '../config'
 import { ProviderError, Refused } from '../errors'
@@ -161,6 +161,54 @@ export const MONGO_TIMEOUTS = { serverSelectionTimeoutMS: 10_000, connectTimeout
 /** S3: opening the connection, the whole request, and an idle socket. */
 export const S3_TIMEOUTS = { connectionTimeout: 5_000, requestTimeout: 30_000, socketTimeout: 30_000 } as const
 
+/** The slowest sustained upload the studio still waits for: a 400 MB export (`EXPORT_CAP_BYTES`) gets 400 s. */
+export const MIN_UPLOAD_BYTES_PER_SEC = 1024 * 1024
+
+/**
+ * How long one upload of `bytes` may take. The SDK's `requestTimeout` runs from
+ * the first byte sent to the response, which for a PUT is after the whole body,
+ * so one fixed value would be a ceiling on the size of a file; steady progress
+ * does not reset it. Never under the client's own.
+ */
+export function uploadTimeoutMs(bytes: number, minBytesPerSec: number = MIN_UPLOAD_BYTES_PER_SEC, floorMs: number = S3_TIMEOUTS.requestTimeout): number {
+  return Math.max(floorMs, Math.ceil((bytes / minBytesPerSec) * 1000))
+}
+
+/** A failure that can pass on a second try: a timeout, a reset connection, a throttle or a 5xx. A refused key or a missing bucket cannot. */
+export function isTransientUpload(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false
+  const { name, code, $retryable, $metadata } = err as { name?: string; code?: string; $retryable?: unknown; $metadata?: { httpStatusCode?: number } }
+  const status = $metadata?.httpStatusCode
+  if (typeof status === 'number') return status >= 500 || status === 429 || status === 408
+  return Boolean($retryable) || name === 'TimeoutError' || name === 'RequestTimeout' || (typeof code === 'string' && /^(ECONNRESET|EPIPE|ETIMEDOUT|EAI_AGAIN)$/.test(code))
+}
+
+/**
+ * Upload the file at `path` (`size` bytes) as one streamed PutObject, with a
+ * timeout sized to it, and again from the start if a try fails in a way that
+ * can pass (a consumed stream cannot be replayed, so each try opens the file).
+ */
+export async function putFile(
+  s3: S3Client,
+  input: Omit<PutObjectCommandInput, 'Body' | 'ContentLength'>,
+  path: string,
+  size: number,
+  options: { minBytesPerSec?: number; floorMs?: number; attempts?: number } = {}
+): Promise<void> {
+  const requestTimeout = uploadTimeoutMs(size, options.minBytesPerSec, options.floorMs)
+  for (let attempt = 1; ; attempt++) {
+    const stream = createReadStream(path)
+    try {
+      await s3.send(new PutObjectCommand({ ...input, Body: stream, ContentLength: size }), { requestTimeout })
+      return
+    } catch (err) {
+      if (attempt >= (options.attempts ?? 3) || !isTransientUpload(err)) throw err
+    } finally {
+      stream.destroy()
+    }
+  }
+}
+
 /**
  * An object's body that stops arriving ends in an error after `idleMs` with no
  * new bytes, and the socket is let go (CR-6). The SDK's own timers stop once
@@ -216,6 +264,8 @@ export function s3Client(
     credentials: { accessKeyId: settings.accessKeyId, secretAccessKey: settings.secretAccessKey },
     // Without these the SDK waits forever on a half-open socket.
     requestHandler: { ...timeouts, throwOnRequestTimeout: true },
+    // Never wait for a "100 Continue": an endpoint that doesn't send one would stall every big upload until its timer ran out.
+    expectContinueHeader: false,
     maxAttempts: 3,
   })
 }
@@ -225,12 +275,35 @@ export function s3Client(
  *  Never an image id (`.txt`), so no image route can ever serve it. */
 export const BUCKET_PROBE_KEY = 'inkdesk-bucket-check.txt'
 
+/**
+ * What a connect proves about the buckets (throws on the first thing that
+ * fails). A wrong bucket or key found here costs nothing; found by `putBlob`,
+ * it would be found after an image was already paid for, and found by an
+ * account deletion, after the sign-in was gone. A write, not HeadBucket: that
+ * needs ListBucket, which a bucket-scoped key may lack — but exports and the
+ * deletion of an account list the outputs folder, so that one listing is
+ * tried too, on the outputs bucket (the same bucket, or its own).
+ */
+export async function probeBuckets(s3: S3Client, buckets: { projectFiles: string; outputs: string }, keyPrefix: string): Promise<void> {
+  const probeKey = keyPrefix + BUCKET_PROBE_KEY
+  for (const Bucket of new Set([buckets.projectFiles, buckets.outputs])) {
+    await s3.send(new PutObjectCommand({ Bucket, Key: probeKey, Body: 'Ink Desk keeps its images in this bucket.\n', ContentType: 'text/plain' }))
+    // And back: a key that can write but not read would store every image
+    // and serve none.
+    const probe = await s3.send(new GetObjectCommand({ Bucket, Key: probeKey }))
+    // Read to the end, so the socket goes back to the pool — bounded, or a
+    // stalled bucket would hold every request waiting on this connect.
+    if (probe.Body) await new Response(idleLimited(probe.Body.transformToWebStream() as ReadableStream<Uint8Array>)).arrayBuffer()
+  }
+  await s3.send(new ListObjectsV2Command({ Bucket: buckets.outputs, Prefix: outputObjectKey(keyPrefix, ''), MaxKeys: 1 }))
+}
+
 const MONGO_UNREACHABLE =
   'The studio couldn’t reach its MongoDB. Check MONGODB_URI (or DB_URL) and that the database lets this machine in, then reload.'
 const MONGO_REFUSED =
   'The studio reached its MongoDB, but that user can’t read and write the MONGODB_DB (or DB_DATABASE) database. Give the user readWrite on it, then reload.'
 const BUCKET_UNREACHABLE =
-  'The studio couldn’t write to its bucket. Check S3_ENDPOINT, S3_REGION, S3_BUCKET_PROJECT_FILES (or S3_BUCKET) and the S3 keys (and that the bucket exists), then reload.'
+  'The studio couldn’t write to its bucket. Check S3_ENDPOINT, S3_REGION, S3_BUCKET_PROJECT_FILES (or S3_BUCKET), S3_BUCKET_COMPILE_OUTPUTS and the S3 keys (they need to read, write and list; and the buckets must exist), then reload.'
 
 type Pending = { settings: string; cloud: Promise<Cloud> }
 
@@ -410,18 +483,8 @@ async function connect(settings: CloudSettings): Promise<Cloud> {
   await ensureShareIndexes(client.db(settings.mongoDb))
   const s3 = s3Client(settings)
   const bucket = settings.projectFilesBucket
-  const probeKey = settings.keyPrefix + BUCKET_PROBE_KEY
   try {
-    // A wrong bucket or key found here costs nothing; found by `putBlob`, it
-    // would be found after an image was already paid for. A write, not
-    // HeadBucket: that needs ListBucket, which a bucket-scoped key may lack.
-    await s3.send(new PutObjectCommand({ Bucket: bucket, Key: probeKey, Body: 'Ink Desk keeps its images in this bucket.\n', ContentType: 'text/plain' }))
-    // And back: a key that can write but not read would store every image
-    // and serve none.
-    const probe = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: probeKey }))
-    // Read to the end, so the socket goes back to the pool — bounded, or a
-    // stalled bucket would hold every request waiting on this connect.
-    if (probe.Body) await new Response(idleLimited(probe.Body.transformToWebStream() as ReadableStream<Uint8Array>)).arrayBuffer()
+    await probeBuckets(s3, { projectFiles: bucket, outputs: settings.outputsBucket }, settings.keyPrefix)
   } catch (err) {
     s3.destroy()
     await client.close().catch(() => {})
@@ -1005,25 +1068,38 @@ function toShareDoc(record: ShareRecord): ShareDoc {
 /** A listing of shares is bounded; a person with this many active shares has found a bug before we have. */
 const SHARE_LIST_LIMIT = 500
 
+/** The two collection calls a share create needs — narrow, so `check:share` can drive a double duplicate on purpose. */
+export type ShareOps = <T>(op: (shares: Pick<Collection<ShareDoc>, 'insertOne' | 'findOne'>) => Promise<T>) => Promise<T>
+
+/**
+ * Insert a share, or answer with the project's active one. When the offered
+ * token is taken AND the project already has an active share, MongoDB names the
+ * `_id` index (it is checked first), so the holder is looked up on any
+ * duplicate before a taken token is refused — whatever token is offered, the
+ * answer is the active share, as in the local store.
+ */
+export async function createShareDoc(run: ShareOps, doc: ShareDoc): Promise<{ share: ShareRecord; created: boolean }> {
+  for (let attempt = 1; attempt <= MAX_INSERT_ATTEMPTS; attempt++) {
+    try {
+      await run((collection) => collection.insertOne(doc))
+      return { share: fromShareDoc(doc), created: true }
+    } catch (err) {
+      if (!duplicateOn(err, '_id') && !duplicateOn(err, 'activeProject')) throw err
+      // The project already has an active share — the unique index decided, not a read.
+      const holder = doc.activeProject ? await run((collection) => collection.findOne({ activeProject: doc.activeProject })) : null
+      if (holder) return { share: fromShareDoc(holder), created: false }
+      // A taken token is never overwritten: a revoked one is dead for good.
+      if (duplicateOn(err, '_id')) throw new Error('that share token is already taken')
+      // It was revoked between the refusal and the look; the project is free now, so try again.
+    }
+  }
+  throw new ProviderError(BUSY, 'provider', `shares/${doc.projectId}: the project’s share kept changing hands under ${MAX_INSERT_ATTEMPTS} attempts`)
+}
+
 const shares: ShareStore = {
   async create(record) {
     if (!isShareToken(record.token)) throw new Error('Not a share token')
-    const doc = toShareDoc(record)
-    for (let attempt = 1; attempt <= MAX_INSERT_ATTEMPTS; attempt++) {
-      try {
-        await mongoShares((collection) => collection.insertOne(doc))
-        return { share: fromShareDoc(doc), created: true }
-      } catch (err) {
-        // A taken token is never overwritten: a revoked one is dead for good.
-        if (duplicateOn(err, '_id')) throw new Error('that share token is already taken')
-        if (!duplicateOn(err, 'activeProject')) throw err
-      }
-      // The project already has an active share — the unique index decided, not a read.
-      const holder = await mongoShares((collection) => collection.findOne({ activeProject: doc.activeProject }))
-      if (holder) return { share: fromShareDoc(holder), created: false }
-      // It was revoked between the refusal and the look; the project is free now, so try again.
-    }
-    throw new ProviderError(BUSY, 'provider', `shares/${record.projectId}: the project’s share kept changing hands under ${MAX_INSERT_ATTEMPTS} attempts`)
+    return createShareDoc(mongoShares, toShareDoc(record))
   },
 
   async get(token) {
@@ -1246,20 +1322,10 @@ const outputs: OutputStore = {
       }
       const { size } = await stat(path)
       if (size <= OUTPUT_BUFFER_MAX) {
-        await s3.send(new PutObjectCommand({ Bucket: outputsBucket, Key, Body: await readFile(path), ContentType: mediaType }))
+        await s3.send(new PutObjectCommand({ Bucket: outputsBucket, Key, Body: await readFile(path), ContentType: mediaType }), { requestTimeout: uploadTimeoutMs(size) })
       } else {
-        // Too big to hold: stream it, and send it again from the start if the first try fails (a consumed stream cannot be replayed).
-        for (let attempt = 1; ; attempt++) {
-          const stream = createReadStream(path)
-          try {
-            await s3.send(new PutObjectCommand({ Bucket: outputsBucket, Key, Body: stream, ContentLength: size, ContentType: mediaType }))
-            break
-          } catch (err) {
-            if (attempt >= 3) throw err
-          } finally {
-            stream.destroy()
-          }
-        }
+        // Too big to hold: stream it, with a timeout sized to its bytes, and send it again from the start if a try fails in a way that can pass.
+        await putFile(s3, { Bucket: outputsBucket, Key, ContentType: mediaType }, path, size)
       }
       return { bytes: size }
     } finally {
@@ -1402,11 +1468,13 @@ async function health(timeoutMs: number): Promise<StoreHealth> {
     return { mongo: which === 'bucket' ? 'ok' : 'down', bucket: 'down' }
   }
   const db = c.client.db(c.projects.dbName)
-  const [mongo, bucket] = await Promise.all([
+  const head = (Bucket: string) => within(timeoutMs, (abortSignal) => c.s3.send(new HeadObjectCommand({ Bucket, Key: c.prefix + BUCKET_PROBE_KEY }), { abortSignal }))
+  const [mongo, bucket, outputsBucket] = await Promise.all([
     within(timeoutMs, () => db.command({ ping: 1 })),
-    within(timeoutMs, (abortSignal) => c.s3.send(new HeadObjectCommand({ Bucket: c.bucket, Key: c.prefix + BUCKET_PROBE_KEY }), { abortSignal })),
+    head(c.bucket),
+    c.outputsBucket === c.bucket ? Promise.resolve<Check>('ok') : head(c.outputsBucket),
   ])
-  return { mongo, bucket }
+  return { mongo, bucket: bucket === 'ok' && outputsBucket === 'ok' ? 'ok' : 'down' }
 }
 
 export const cloudStore: Store = {

@@ -3,7 +3,8 @@
 //
 //   1. waits for a real request (`connection()`): a share can be taken down at
 //      any moment, so this page is never prerendered or cached;
-//   2. takes the client-address window (`anon`), and answers a calm "too many
+//   2. takes the client-address window (`anon`; `generateMetadata` shares the
+//      one count and reads nothing when it is full), and answers a calm "too many
 //      visits" page when it is full — the page's status stays 200 because a
 //      Server Component cannot set one, so the page says it in words;
 //   3. looks the token up. A malformed, unknown or revoked token is the same
@@ -36,10 +37,15 @@ const NOINDEX = { index: false, follow: false } as const
 /** The live share's snapshot, once per request (the page and its metadata both ask). */
 const snapshotOf = cache(async (token: string): Promise<ShareSnapshot | null> => (await lookupShare(token))?.snapshot ?? null)
 
+/** The address window, once per request: the page and its metadata both ask, and a view is counted once. */
+const windowOf = cache(() => takeWindow('anon'))
+
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   await connection()
   const { token } = await params
   const metadataBase = new URL(await metadataOrigin())
+  // Over the line, the store is not read and the head is the bare one a dead link gets: the window comes first, as on every public route.
+  if (await windowOf()) return { metadataBase, title: 'Ink Desk', robots: NOINDEX }
   const snapshot = await snapshotOf(token)
   const manga = publicManga(snapshot)
   // A link that is gone (or never was) gets the same bare metadata whichever it is.
@@ -60,7 +66,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 export default async function SharePage({ params }: Params) {
   await connection()
   const { token } = await params
-  const refused = await takeWindow('anon')
+  const refused = await windowOf()
   if (refused) {
     return (
       <div className="studio share-gone">

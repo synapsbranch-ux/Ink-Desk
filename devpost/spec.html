@@ -2096,7 +2096,8 @@ COMPILE_OUTPUTS  u/&lt;userId&gt;/p/&lt;projectId&gt;/video/&lt;videoId&gt;/
         <code>GLOBAL_TOTAL_USD_CAP</code> (proposed, see Budget), the per-plan quota numbers,
         <code>VIDEO_ENABLED</code>, <code>SHARE_ENABLED</code> (feature flags).</p>
       <h4>worker</h4>
-      <p style="margin-bottom:0"><code>NODE_ENV</code>, <code>DB_URL</code>, <code>DB_DATABASE</code>,
+      <p style="margin-bottom:0"><code>NODE_ENV</code>, <code>CLERK_SECRET_KEY</code> (deleting an account
+        deletes its Clerk user; the worker refuses to boot in clerk mode without it), <code>DB_URL</code>, <code>DB_DATABASE</code>,
         <code>REDIS_URL</code>, the eight <code>S3_*</code>, <code>OPENROUTER_API_KEY</code>,
         <code>ANTHROPIC_API_KEY</code> (optional), the model and quality variables,
         <code>VIDEO_MODEL=bytedance/seedance-2.0</code>, <code>VIDEO_RESOLUTION=720p</code>,

@@ -26,11 +26,15 @@
 //   5  voices       the reserved `voices` survives a save untouched, and a body
 //                   cannot write it
 //   6  no accounts  with sign-in off the one `local` owner has defaults too
+//   7  copy         the words that make promises, read from source: Privacy and Terms say what
+//                   slice 21 now does (public links, Report, export, Delete account) and no longer
+//                   say it is coming; Defaults promises its direction only for the studio; the
+//                   account menu links to Settings
 //
 // The cloud store cannot be exercised from here; this is the local half.
 import './server-only.mts' // first: lets server modules load outside Next (SEC-15)
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -226,6 +230,39 @@ try {
     env.INKDESK_AUTH = 'test'
     assert.equal(view(await call('GET', ALICE)).defaultStyle, 'manhwa-colour')
     ok('with sign-in off the one `local` owner saves and reads their own defaults')
+  }
+
+  // 7. copy ---------------------------------------------------------------------------------------
+  {
+    const root = join(import.meta.dirname, '..')
+    const read = (file: string) => readFile(join(root, file), 'utf8')
+    const privacy = await read('app/privacy/page.tsx')
+    const terms = await read('app/terms/page.tsx')
+    // Slice 21 shipped sharing, the Report button, the export and Delete account: neither page may still say they are coming.
+    assert.doesNotMatch(privacy, /later version|next version|by hand|is coming/i, 'Privacy no longer says sharing or deletion is still to come')
+    assert.doesNotMatch(terms, /is coming|until then/i, 'Terms no longer say the report button is still to come')
+    assert.match(privacy, /anyone with the link|without signing in/i, 'Privacy says a shared page is readable without signing in')
+    assert.match(privacy, /\/s\//, 'Privacy names the public link')
+    assert.match(privacy, /Settings/, 'Privacy points at Settings for the export and deletion')
+    assert.match(privacy, /Delete account/, 'Privacy names the Delete account button')
+    assert.match(privacy, /export/i, 'Privacy says what an export file is and where it is kept')
+    assert.match(privacy, /outputs/i, 'Privacy says the export files are kept in the outputs bucket')
+    assert.match(privacy, /report/i, 'Privacy says what a report keeps')
+    assert.match(privacy, /hash/i, 'Privacy says the report keeps a hash of the address, not the address')
+    assert.match(terms, /Report/, 'Terms point at the Report button')
+    // The date moves with the words (the slice-19 text was dated 14 October 2026).
+    for (const [name, text] of [['Privacy', privacy], ['Terms', terms]] as const) {
+      const updated = /const UPDATED = '([^']+)'/.exec(text)?.[1]
+      assert.ok(updated && updated !== '14 October 2026', `${name} has a new UPDATED date`)
+    }
+    // A share's direction comes from its style (a manga opens right to left), not from the owner's default: the Defaults page must not say otherwise.
+    const defaults = await read('components/SettingsDefaults.tsx')
+    assert.doesNotMatch(defaults, /on a page you share/i, 'Defaults does not promise the direction reaches a shared page')
+    assert.match(defaults, /shared page opens right to left/i, 'Defaults says a shared page opens right to left')
+    // The user menu is a way into Settings (PRD Core Journey step 7), not only Clerk's own profile modal.
+    const auth = await read('components/AuthControls.tsx')
+    assert.match(auth, /<UserButton[^>]*userProfileUrl="\/settings\/account"/, 'the account menu opens Settings, not a second account modal')
+    ok('copy: Privacy and Terms describe public links, reports, export and deletion as they are; Defaults promises the direction for the studio only; the user menu opens Settings')
   }
 
   assert.deepEqual(outbound, [], 'nothing left the machine')

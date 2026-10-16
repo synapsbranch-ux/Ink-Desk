@@ -12,13 +12,13 @@
 // "alert" for a failure), so one slow request never freezes the rest. The link
 // is a read-only field, so when the clipboard is not available (an insecure
 // address, a blocked permission) the person can still select and copy it.
-// Pictures are the owner's image route, never a bucket address. Implements
+// Pictures are the link's own picture route (the cover the link shows, which the project may have redrawn past), never a bucket address. Implements
 // `devpost/prd.md > Settings (v3)` (Sharing) and `> Sharing (v3)`.
 import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { apiFetch } from '@/components/api-fetch'
 import { SettingsDialog } from '@/components/SettingsDialog'
-import { imageUrl } from '@/lib/image-url'
+import { shareImageUrl } from '@/lib/share/url'
 import type { ShareView } from '@/lib/share/types'
 
 const LIST_FAILED = 'Your shared links couldn’t be listed just now. Try again in a moment.'
@@ -188,9 +188,9 @@ export function SettingsSharing() {
             return (
               <li key={share.token} className="card share-row">
                 <div className="share-row-thumb">
-                  {share.cover && share.projectId ? (
-                    // eslint-disable-next-line @next/next/no-img-element -- the owner's picture, served by id
-                    <img src={imageUrl(share.projectId, share.cover)} alt="" loading="lazy" />
+                  {share.cover ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- the cover the link shows, served by the link's own picture route: the project may have redrawn past it
+                    <img src={shareImageUrl(share.token, share.cover)} alt="" loading="lazy" />
                   ) : (
                     <span>No cover</span>
                   )}

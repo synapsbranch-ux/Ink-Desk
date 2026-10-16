@@ -181,6 +181,24 @@ function looksLikePem(value: string): boolean {
   return /-----BEGIN PUBLIC KEY-----[\s\S]+-----END PUBLIC KEY-----/.test(value.replace(/\\n/g, '\n'))
 }
 
+function secretProblems(env: Env): string[] {
+  const secret = env.CLERK_SECRET_KEY?.trim()
+  if (!secret) return ['CLERK_SECRET_KEY is not set']
+  return SECRET_KEY.test(secret) ? [] : ['CLERK_SECRET_KEY must be a Clerk secret key (sk_test_… or sk_live_…)']
+}
+
+/**
+ * What the worker needs of the sign-in settings: it never signs anyone in, but the deletion of an account ends the
+ * person's Clerk sessions by deleting the Clerk user (`lib/account/clerk.ts`), which needs the secret key and nothing
+ * else of Clerk's. Empty where the mode is not `clerk`. The worker's boot refuses to start on any of these, and the
+ * deletion refuses before it changes anything.
+ */
+export function workerAuthProblems(env: Env = process.env): string[] {
+  const problems = modeProblems(env)
+  if (problems.length > 0) return problems
+  return authMode(env) === 'clerk' ? secretProblems(env) : []
+}
+
 /** Every problem with the sign-in settings, by name. Empty when the mode needs nothing more. */
 export function authProblems(env: Env = process.env): string[] {
   const problems = modeProblems(env)
@@ -192,9 +210,7 @@ export function authProblems(env: Env = process.env): string[] {
   if (!publishable) problems.push(`${keyName} is not set`)
   else if (!frontendApiOf(publishable)) problems.push(`${keyName} must be a Clerk publishable key (pk_test_… or pk_live_…)`)
 
-  const secret = env.CLERK_SECRET_KEY?.trim()
-  if (!secret) problems.push('CLERK_SECRET_KEY is not set')
-  else if (!SECRET_KEY.test(secret)) problems.push('CLERK_SECRET_KEY must be a Clerk secret key (sk_test_… or sk_live_…)')
+  problems.push(...secretProblems(env))
 
   const jwtKey = env.CLERK_JWT_KEY?.trim()
   if (jwtKey && !looksLikePem(jwtKey)) problems.push('CLERK_JWT_KEY must be the PEM public key from Clerk’s dashboard (or be left unset)')
