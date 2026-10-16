@@ -56,6 +56,8 @@ export interface LimitsBackend {
   orphans(limit?: number): Promise<string[]>
   /** The hold `id` records, or null. */
   hold(id: string): Promise<Hold | null>
+  /** Forget a person's counters and windows (account deletion). The Redis backend has none: `lib/account/counters.ts` scans for its keys. */
+  purgeUser?(userId: string): Promise<number>
   /** A key's value and time to live (milliseconds), for the checks. Relative key name, without the prefix. */
   peek(key: string): Promise<{ value: number | null; ttlMs: number | null }>
 }

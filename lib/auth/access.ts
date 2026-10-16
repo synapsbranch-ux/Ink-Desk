@@ -49,6 +49,17 @@ export async function ownedProject(userId: string, id: string): Promise<Project>
 }
 
 /**
+ * The caller's project as the light poll sees it: its stamp (`ownerId`, `updatedAt`), checked the way
+ * `ownedProject` checks the whole project — someone else's, a missing one and a malformed id are the
+ * same 404 — without ever reading the project itself (CR-8: the studio asks this every second and a half).
+ */
+export async function ownedProjectStamp(userId: string, id: string): Promise<{ ownerId: string; updatedAt: string }> {
+  const stamp = await store.projectStamp(id)
+  if (!stamp || !owns(userId, stamp.ownerId)) throw new Refused(NO_SUCH_PROJECT, 404)
+  return stamp
+}
+
+/**
  * Every image id a project holds: character sheets (drawn or imported), every
  * panel version on every page, every cover version, every upload on the shelf.
  * A dropped version's picture is deleted (CR-16), so it is not here either.

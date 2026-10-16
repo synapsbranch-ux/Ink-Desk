@@ -29,6 +29,15 @@
 // spending request is answered (`apiFetch`) and, here, when the last job ends,
 // since a failed job gives its image back. See `devpost/prd.md > Limits and
 // Usage (v3)`.
+//
+// Slice 21 closes CR-8: the poll no longer re-reads the whole desk every 1.5 s.
+// While something is live it asks the light `GET .../status` (`{ rev, activity }`)
+// on a recursive timeout — never two reads at once, backing off on errors, a
+// 429's `Retry-After` and quiet answers, paused in a hidden tab — and reads the
+// desk only when `rev` is not the one in hand or a job ended. The scheduling
+// decisions are `lib/poll.ts` (pure, `scripts/poll-check.mts`); this file
+// supplies the reads. The project page also hands in the person's reading
+// direction, which the Reader opens a manga in.
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { apiFetch, PROJECT_GONE_EVENT } from '@/components/api-fetch'
@@ -45,15 +54,12 @@ import { announceUsageChanged } from '@/lib/limits/use-usage'
 import { asRefusal, refusalSentence } from '@/lib/limits/button'
 import { failedSheetJobs, failedSheetSentence, mergeActivity, pollWanted, queueNotice, sheetJob } from '@/lib/activity'
 import { gates } from '@/lib/gates'
+import { createPoller, parseRetryAfter, type Poller, type PollMode, type StatusReply, type StatusRead } from '@/lib/poll'
 import { applyPatch, mergePatch, type ChapterPatch, type CharacterEdit, type PanelEdit } from '@/lib/patch'
 import type { Activity } from '@/lib/queue/jobs'
 import type { Chapter, Pitch, Station } from '@/lib/types'
 
 const SAVE_DELAY_MS = 600
-/** While a job is active (or a panel inks) the studio re-reads the desk this often. */
-const POLL_MS = 1500
-/** While the queue is down, how often an idle studio looks again. */
-const QUEUE_RECHECK_MS = 10_000
 /** A read that has not answered by now is given up on, so one hung request cannot stall the poll for good. */
 const POLL_TIMEOUT_MS = 10_000
 const UNREACHABLE = 'The studio couldn’t be reached. Is the dev server running?'
@@ -79,9 +85,20 @@ type Props = {
   projectId: string
   /** The account menu (`components/AuthControls.tsx`), rendered on the server; nothing on a desk without accounts. */
   account?: React.ReactNode
+  /** The direction the Reader opens a manga in: the person's setting (Settings › Defaults); right to left when they have none. */
+  defaultReading?: 'rtl' | 'ltr'
 }
 
-export function Studio({ projectId, account = null }: Props) {
+/** The status reply, if it is one: a rev and an activity, nothing the studio would trip on. */
+function asStatus(data: unknown): StatusReply | null {
+  if (typeof data !== 'object' || data === null) return null
+  const { rev, activity } = data as { rev?: unknown; activity?: unknown }
+  const jobs = (activity as { jobs?: unknown } | null)?.jobs
+  if (typeof rev !== 'string' || typeof activity !== 'object' || activity === null || !Array.isArray(jobs)) return null
+  return { rev, activity: activity as Activity }
+}
+
+export function Studio({ projectId, account = null, defaultReading = 'rtl' }: Props) {
   const router = useRouter()
   const api = `/api/projects/${projectId}`
 
@@ -129,11 +146,14 @@ export function Studio({ projectId, account = null }: Props) {
   /** Counts the replies taken in, so a poll that was on the wire when a newer
    *  reply landed can tell its answer is the older one and drop it. */
   const epoch = useRef(0)
+  /** The `updatedAt` of the desk last taken in: the poll compares the project's `rev` with it to know whether there is anything to read. */
+  const deskRev = useRef<string | null>(null)
 
   /** Take `activity` off a desk reply; what is left is the chapter. */
   const unwrap = useCallback((reply: Chapter): Chapter => {
     const { activity: next, ...desk } = reply
     setActivity((prev) => mergeActivity(prev, next))
+    deskRev.current = desk.updatedAt
     epoch.current += 1
     return desk
   }, [])
@@ -601,13 +621,15 @@ export function Studio({ projectId, account = null }: Props) {
     }
   }, [pageApi, absorb, refresh])
 
-  // Poll the desk while anything is being drawn: an active job in `activity`,
-  // or a panel, page or cover the desk itself says is inking. Polling rather
-  // than a live connection, see `spec.md > What Was Simplified and Why`. An
-  // idle, finished project does not poll at all. It pauses while the tab is
-  // hidden (and reads at once when the tab comes back), never starts a read
-  // while the last is still out (CR-8), and takes one more read after the last
-  // job ends so the finished art is picked up. A failed read is silent.
+  // Watch the project while anything is being drawn: an active job in
+  // `activity`, or a panel, page or cover the desk itself says is inking.
+  // Polling rather than a live connection, see `spec.md > What Was Simplified
+  // and Why`. The look is the light status route; the full desk is read only
+  // when `rev` moved or a job ended (`lib/poll.ts` decides, and spaces the looks
+  // out: recursive, never overlapping, backing off, paused while the tab is
+  // hidden and one look when it returns). An idle, finished project does not
+  // poll at all, and takes one more read after the last job ends so the
+  // finished art is picked up. A failed look is silent.
   const live = pollWanted(chapter, activity)
   // The last job ending changes the meter (a failed job gives its image back).
   const wasLive = useRef(false)
@@ -615,56 +637,82 @@ export function Studio({ projectId, account = null }: Props) {
     if (wasLive.current && !live) announceUsageChanged()
     wasLive.current = live
   }, [live])
-  const reading = useRef(false)
-  const owed = useRef(false)
-  const poll = useCallback(async () => {
-    if (reading.current) return
-    reading.current = true
+
+  /** Ask the light route. A reply that lands after a newer one is the older answer, and is dropped. */
+  const readStatus = useCallback(async (): Promise<StatusRead> => {
+    const seen = epoch.current
+    try {
+      const res = await apiFetch(`${api}/status`, { signal: AbortSignal.timeout(POLL_TIMEOUT_MS) })
+      if (res.status === 429) return { kind: 'limited', retryAfterMs: parseRetryAfter(res.headers.get('Retry-After')) }
+      if (!res.ok) return { kind: 'failed' }
+      const reply = asStatus(await res.json())
+      if (!reply) return { kind: 'failed' }
+      return epoch.current === seen ? { kind: 'ok', reply } : { kind: 'stale' }
+    } catch {
+      return { kind: 'failed' }
+    }
+  }, [api])
+
+  /** The full desk, with the same guard: a reply that landed while this read was on the wire is newer than it. */
+  const readDesk = useCallback(async (): Promise<boolean> => {
     const seen = epoch.current
     try {
       const res = await apiFetch(api, { signal: AbortSignal.timeout(POLL_TIMEOUT_MS) })
-      if (!res.ok) return
+      if (!res.ok) return false
       const desk = (await res.json()) as Chapter
-      // A reply that landed while this read was on the wire is newer than it.
       if (epoch.current === seen) absorb(desk)
+      return true
     } catch {
-      // silent: the next tick tries again
-    } finally {
-      reading.current = false
+      return false
     }
   }, [api, absorb])
-  useEffect(() => {
-    if (live) owed.current = true
-    else if (!owed.current) return
-    const tick = () => {
-      if (document.visibilityState !== 'visible') return
-      if (!live) {
-        // The one extra read after the last job ended.
-        if (!owed.current) return
-        owed.current = false
-      }
-      void poll()
-    }
-    const timer = live ? setInterval(tick, POLL_MS) : null
-    document.addEventListener('visibilitychange', tick)
-    if (!live) tick()
-    return () => {
-      if (timer) clearInterval(timer)
-      document.removeEventListener('visibilitychange', tick)
-    }
-  }, [live, poll])
 
   // While the status line says the queue is down or has no worker, look again
   // now and then so it clears itself when the queue is back — slowly, and only
-  // while the tab can be seen. (While something is drawing, the faster poll above already does it.)
+  // while the tab can be seen. (While something is drawing, the faster loop already does it.)
   const queueDown = queueNotice(activity) !== null
+  const mode: PollMode = gone ? 'off' : live ? 'live' : queueDown ? 'recheck' : 'off'
+  /** The extra read after the last job ends is still owed. */
+  const owed = useRef(false)
+  const poller = useRef<Poller | null>(null)
   useEffect(() => {
-    if (!queueDown || live) return
-    const timer = setInterval(() => {
-      if (document.visibilityState === 'visible') void poll()
-    }, QUEUE_RECHECK_MS)
-    return () => clearInterval(timer)
-  }, [queueDown, live, poll])
+    const made = createPoller({
+      readStatus,
+      readDesk,
+      deskRev: () => deskRev.current,
+      apply: (reply) => setActivity((prev) => mergeActivity(prev, reply.activity)),
+      // A read taken with nothing left to draw is the extra read.
+      willReadDesk: (_reason, activeNow) => {
+        if (activeNow === 0) owed.current = false
+      },
+      visible: () => document.visibilityState === 'visible',
+      after: (ms, fn) => {
+        const t = setTimeout(fn, ms)
+        return () => clearTimeout(t)
+      },
+      now: () => Date.now(),
+    })
+    poller.current = made
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') made.resume()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      made.stop()
+      poller.current = null
+    }
+  }, [readStatus, readDesk])
+  useEffect(() => {
+    poller.current?.setMode(mode)
+  }, [mode, readStatus, readDesk])
+  useEffect(() => {
+    if (live) owed.current = true
+    else if (owed.current) {
+      owed.current = false
+      poller.current?.final()
+    }
+  }, [live, readStatus, readDesk])
 
   if (gone) return <DeskNotice heading="There is no such page on the desk." />
 
@@ -777,7 +825,12 @@ export function Studio({ projectId, account = null }: Props) {
             onGoReader={() => goTo('reader')}
           />
         ) : (
-          <ReaderStation chapter={chapter} onGoStoryboard={() => goTo('storyboard')} onNewProject={newProject} />
+          <ReaderStation
+            chapter={chapter}
+            onGoStoryboard={() => goTo('storyboard')}
+            onNewProject={newProject}
+            defaultReading={defaultReading}
+          />
         )}
       </div>
     </ProjectProvider>

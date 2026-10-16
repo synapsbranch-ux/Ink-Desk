@@ -18,10 +18,20 @@
 // here are read-only, exactly as placed on the Page station.
 // Implements `devpost/prd.md > Reader (v2) — The Chapter` and
 // `> Export (v2) — PNG and PDF`; see `devpost/spec.md > Reader and Exports (v2)`.
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useState } from 'react'
 import { PencilPlaceholder } from '@/components/PencilPlaceholder'
 import { useImageUrl } from '@/components/project-image'
-import { bubbleLayout, tailPath } from '@/lib/bubble'
+import {
+  directionClass,
+  ReaderCover,
+  ReaderNav,
+  ReaderPage,
+  ScrollEntry,
+  useTurnKeys,
+  type PanelView,
+} from '@/components/ReaderParts'
+import { ShareDialog } from '@/components/ShareDialog'
+import { bubbleLayout } from '@/lib/bubble'
 import { downloadBlob, ExportError, exportCoverPng, exportFilename, exportPdf, exportPng } from '@/lib/export'
 import { PANEL_LAYOUT } from '@/lib/prompts'
 import {
@@ -37,29 +47,24 @@ import {
 import { currentImageId } from '@/lib/script'
 import type { Chapter, Character, Panel } from '@/lib/types'
 
-/** The reveal's clock, tuned to read well on camera: a beat before the first
- *  panel, each panel starting as the previous wipe lands, the bubble arriving
- *  as its panel's ink dries. */
-const REVEAL_FIRST_S = 0.45
-const REVEAL_STEP_S = 1.15
-const BUBBLE_LAG_S = 1.0
-
 type Props = {
   chapter: Chapter
   onGoStoryboard: () => void
   /** The door to the desk (v2): a new project starts there; this one is never cleared. */
   onNewProject: () => void
+  /** Settings › Defaults (v3): which way a manga opens. Absent means right to left, as it always did. */
+  defaultReading?: 'rtl' | 'ltr'
 }
 
 /** What an export is doing right now: the PDF, or one entry's PNG. */
 type Exporting = 'pdf' | `png:${number}` | null
 
-export function ReaderStation({ chapter, onGoStoryboard, onNewProject }: Props) {
+export function ReaderStation({ chapter, onGoStoryboard, onNewProject, defaultReading = 'rtl' }: Props) {
   const mode = readingMode(chapter.stylePresetId)
   const projectId = chapter.address.projectId
   const vertical = mode === 'vertical'
-  // Manga reads right to left; the toggle is v1's, kept for a left-to-right read.
-  const [rtl, setRtl] = useState(true)
+  // Manga reads right to left unless the person's defaults say otherwise; the toggle is v1's, kept for a left-to-right read.
+  const [rtl, setRtl] = useState(defaultReading === 'rtl')
   const direction: PageDirection = vertical ? 'vertical' : rtl ? 'rtl' : 'ltr'
 
   const entries = readerSequence(chapter)
@@ -75,6 +80,8 @@ export function ReaderStation({ chapter, onGoStoryboard, onNewProject }: Props) 
   /** The last failed export's sentence, and which export it was — in the
    *  vertical scroll it shows under the button that was pressed. */
   const [notice, setNotice] = useState<{ text: string; for: Exporting } | null>(null)
+  /** The Share dialog (v3, slice 21) is open. */
+  const [sharing, setSharing] = useState(false)
 
   const title = chapterTitle(chapter)
   const toPublish = publishable(entries)
@@ -121,24 +128,8 @@ export function ReaderStation({ chapter, onGoStoryboard, onNewProject }: Props) 
 
   // Turning pages: in manga order "next" is the left-hand side.
   const count = entries.length
-  useEffect(() => {
-    if (vertical) return
-    const go = (i: number) => setPos(Math.min(Math.max(0, i), count - 1))
-    const onKey = (e: KeyboardEvent) => {
-      if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
-      const target = e.target as HTMLElement | null
-      if (target?.closest('input, textarea, [contenteditable="true"]')) return
-      const forward = rtl ? 'ArrowLeft' : 'ArrowRight'
-      const back = rtl ? 'ArrowRight' : 'ArrowLeft'
-      if (e.key === forward) go(at + 1)
-      else if (e.key === back) go(at - 1)
-      else return
-      e.preventDefault()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [vertical, rtl, at, count])
   const go = (i: number) => setPos(Math.min(Math.max(0, i), count - 1))
+  useTurnKeys({ enabled: !vertical, rtl, at, count, go: setPos })
 
   const current = entries[at]
   const busy = exporting !== null
@@ -222,6 +213,15 @@ export function ReaderStation({ chapter, onGoStoryboard, onNewProject }: Props) 
             >
               {exporting === 'pdf' ? 'Binding the PDF…' : 'Export PDF'}
             </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-share"
+              aria-haspopup="dialog"
+              title="A public link to the cover and the finished pages, for anyone you give it to."
+              onClick={() => setSharing(true)}
+            >
+              Share publicly…
+            </button>
           </div>
         </div>
 
@@ -265,39 +265,16 @@ export function ReaderStation({ chapter, onGoStoryboard, onNewProject }: Props) 
           </div>
         ) : (
           <div className="reader-sheet">
-            <nav className={`reader-nav${rtl ? ' is-rtl' : ''}`} aria-label="Pages">
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm reader-turn"
-                disabled={at === 0}
-                onClick={() => go(at - 1)}
-              >
-                {rtl ? 'Previous →' : '← Previous'}
-              </button>
-              <ol className="reader-strip">
-                {entries.map((e, i) => (
-                  <li key={i}>
-                    <button
-                      type="button"
-                      className={`reader-tab${i === at ? ' is-active' : ''}${isReadable(e) ? '' : ' is-pencil'}`}
-                      aria-current={i === at ? 'page' : undefined}
-                      title={isReadable(e) ? entryLabel(e) : `${entryLabel(e)} — not inked yet`}
-                      onClick={() => go(i)}
-                    >
-                      {e.kind === 'cover' ? 'Cover' : e.index + 1}
-                    </button>
-                  </li>
-                ))}
-              </ol>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm reader-turn"
-                disabled={at >= entries.length - 1}
-                onClick={() => go(at + 1)}
-              >
-                {rtl ? '← Next' : 'Next →'}
-              </button>
-            </nav>
+            <ReaderNav
+              rtl={rtl}
+              at={at}
+              go={go}
+              tabs={entries.map((e) => ({
+                label: e.kind === 'cover' ? 'Cover' : String(e.index + 1),
+                title: isReadable(e) ? entryLabel(e) : `${entryLabel(e)} — not inked yet`,
+                pencil: !isReadable(e),
+              }))}
+            />
             {current?.kind === 'page' && current.complete && (
               <div className="read-arrow" aria-hidden="true">
                 {rtl ? '⟵ read right to left' : 'read left to right ⟶'}
@@ -341,6 +318,7 @@ export function ReaderStation({ chapter, onGoStoryboard, onNewProject }: Props) 
           </div>
         </div>
       </div>
+      {sharing && <ShareDialog projectId={projectId} readable={toPublish.length > 0} onClose={() => setSharing(false)} />}
     </main>
   )
 }
@@ -363,53 +341,6 @@ function pdfHint(toPublish: readonly ReaderEntry[], entries: readonly ReaderEntr
   return `One PDF: ${cover ? 'the cover and ' : ''}${pages} finished ${pages === 1 ? 'page' : 'pages'}, bubbles and lettering composited${out.length ? ` — ${out.join('; ')}` : ''}.`
 }
 
-/**
- * One entry of the vertical scroll: it waits, art hidden, until it scrolls
- * into view — or a later entry does — then plays its ink-in once. No
- * IntersectionObserver (an old browser) → it plays at once.
- */
-function ScrollEntry({
-  label,
-  reached,
-  onReach,
-  children,
-}: {
-  label: string
-  reached: boolean
-  onReach: () => void
-  children: (playing: boolean) => ReactNode
-}) {
-  const ref = useRef<HTMLDivElement | null>(null)
-  const [seen, setSeen] = useState(() => typeof IntersectionObserver === 'undefined')
-  const reach = useRef(onReach)
-  useEffect(() => {
-    reach.current = onReach
-  })
-  useEffect(() => {
-    const el = ref.current
-    if (!el || typeof IntersectionObserver === 'undefined') return
-    const io = new IntersectionObserver(
-      (records) => {
-        if (records.some((r) => r.isIntersecting)) {
-          setSeen(true)
-          reach.current()
-          io.disconnect()
-        }
-      },
-      // Any part of the entry inside the top 80% of the viewport — not a
-      // share of its area: a page can be many screens tall on a phone.
-      { threshold: 0, rootMargin: '0px 0px -20% 0px' }
-    )
-    io.observe(el)
-    return () => io.disconnect()
-  }, [])
-  return (
-    <div ref={ref} className="reader-scroll-entry" aria-label={label} role="group">
-      {children(seen || reached)}
-    </div>
-  )
-}
-
 function EntryView({
   entry,
   cast,
@@ -421,89 +352,25 @@ function EntryView({
   direction: PageDirection
   playing: boolean
 }) {
-  if (entry.kind === 'cover') return <ReaderCover title={entry.title} imageId={entry.imageId} playing={playing} />
+  const imageSrc = useImageUrl()
+  if (entry.kind === 'cover') return <ReaderCover title={entry.title} imageId={entry.imageId} playing={playing} imageSrc={imageSrc} />
   if (!entry.complete) return <PencilPage index={entry.index} inked={entry.inked} direction={direction} />
-  return <ReaderPage index={entry.index} panels={entry.panels} cast={cast} direction={direction} playing={playing} />
+  return <ReaderPage index={entry.index} panels={panelViews(entry.panels, cast)} direction={direction} playing={playing} imageSrc={imageSrc} />
 }
 
-const directionClass = (d: PageDirection) => (d === 'rtl' ? ' is-rtl' : d === 'vertical' ? ' is-vertical' : '')
-
-/** The cover as the reader shows it: the art, the title lettered over it. */
-function ReaderCover({ title, imageId, playing }: { title: string; imageId: string | null; playing: boolean }) {
-  const imageSrc = useImageUrl()
-  return (
-    <figure
-      className={`cover-frame reader-cover${imageId ? ' is-inked' : ''}${playing ? '' : ' is-waiting'}`}
-      data-entry="cover"
-    >
-      {imageId ? (
-        // eslint-disable-next-line @next/next/no-img-element -- served by our own route as final bytes; the cover being read
-        <img className="cover-art" src={imageSrc(imageId)} alt="The chapter’s cover" />
-      ) : (
-        <div className="cover-pencil sketch is-still">
-          <span className="pencil-label">No cover yet — the Director draws it.</span>
-        </div>
-      )}
-      {title && <h2 className="cover-title">{title}</h2>}
-    </figure>
-  )
-}
-
-/** A complete page, its ink-in replaying panel by panel. */
-function ReaderPage({
-  index,
-  panels,
-  cast,
-  direction,
-  playing,
-}: {
-  index: number
-  panels: Panel[]
-  cast: Character[]
-  direction: PageDirection
-  playing: boolean
-}) {
-  const imageSrc = useImageUrl()
-  return (
-    <section
-      className={`page reader-page${directionClass(direction)}${playing ? '' : ' is-waiting'}`}
-      aria-label={`Page ${index + 1}`}
-      data-entry={`page-${index + 1}`}
-    >
-      {PANEL_LAYOUT.map((slot) => {
-        const panel = panels[slot.index]
-        const imageId = currentImageId(panel)
-        const character = cast.find((c) => c.id === panel.characterId) ?? null
-        const delay = REVEAL_FIRST_S + slot.index * REVEAL_STEP_S
-        return (
-          <figure
-            key={slot.index}
-            className={`panel panel-${slot.shape} reader-panel`}
-            data-panel={slot.index}
-            style={{ '--reveal-delay': `${delay}s`, '--bubble-delay': `${delay + BUBBLE_LAG_S}s` } as CSSProperties}
-          >
-            <PencilPlaceholder slot={slot} label="" still />
-            {imageId && (
-              // eslint-disable-next-line @next/next/no-img-element -- served by our own route as final bytes; the page being read
-              <img
-                className="panel-art reader-reveal"
-                src={imageSrc(imageId)}
-                alt={character ? `${character.name}, ${slot.shot}` : `Panel ${slot.index + 1}`}
-              />
-            )}
-            <ReaderBubble panel={panel} />
-            <span className="panel-num" aria-hidden="true">
-              {slot.index + 1}
-            </span>
-            <figcaption className="sr-only">
-              Panel {slot.index + 1}
-              {character ? `, ${character.name}` : ''}, {slot.shot}. “{panel.dialogue}”
-            </figcaption>
-          </figure>
-        )
-      })}
-    </section>
-  )
+/** A page's panels as the shared reader pieces read them: the current picture, the layout, and the words a screen reader gets. */
+function panelViews(panels: readonly Panel[], cast: readonly Character[]): PanelView[] {
+  return PANEL_LAYOUT.map((slot) => {
+    const panel = panels[slot.index]
+    const character = cast.find((c) => c.id === panel.characterId) ?? null
+    return {
+      imageId: currentImageId(panel),
+      dialogue: panel.dialogue,
+      layout: bubbleLayout(panel),
+      alt: character ? `${character.name}, ${slot.shot}` : `Panel ${slot.index + 1}`,
+      caption: `Panel ${slot.index + 1}${character ? `, ${character.name}` : ''}, ${slot.shot}. “${panel.dialogue}”`,
+    }
+  })
 }
 
 /** An unfinished page: the four pencils, and its number. */
@@ -526,27 +393,5 @@ function PencilPage({ index, inked, direction }: { index: number; inked: number;
         </span>
       </div>
     </section>
-  )
-}
-
-/** The bubble as the reader sees it: the same stored (or derived) layout and
- *  the same SVG shapes as the Storyboard, with the editing stripped away. */
-function ReaderBubble({ panel }: { panel: Pick<Panel, 'index' | 'camera' | 'bubble' | 'dialogue'> }) {
-  const l = bubbleLayout(panel)
-  return (
-    <div className="bubble-layer reader-bubble">
-      <svg className="bubble-shape" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-        <ellipse cx={l.x + l.w / 2} cy={l.y + l.h / 2} rx={l.w / 2} ry={l.h / 2} />
-        <path d={tailPath(l)} />
-      </svg>
-      <div
-        className="bubble-static"
-        style={{ left: `${l.x}%`, top: `${l.y}%`, width: `${l.w}%`, height: `${l.h}%` }}
-      >
-        <div className="bubble-text-wrap">
-          <span className="bubble-text is-static">{panel.dialogue}</span>
-        </div>
-      </div>
-    </div>
   )
 }

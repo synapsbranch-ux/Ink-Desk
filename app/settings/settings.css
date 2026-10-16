@@ -1,0 +1,368 @@
+/* Settings (v3, slice 21): the layout around Account, Defaults, Sharing, Data
+   and privacy and Usage, and the few things those pages need that the studio's
+   own classes (`.station`, `.card`, `.btn*`, `.notice`, `.tag`, `.field`,
+   `.preset-*`, `.confirm-*`, `.usage*`) do not already give. Every control here
+   is at least 44px tall; nothing scrolls sideways at 390, 768 or 1280px. */
+
+/* --- The frame ---------------------------------------------------------- */
+
+.settings .btn,
+.settings .chip,
+.settings .input,
+.settings .brand {
+  min-height: 44px;
+}
+.settings .station {
+  padding-top: var(--space-6);
+}
+.settings .station-inner {
+  width: 100%;
+  min-width: 0;
+}
+
+/* The section nav: a row of tabs that wraps, so on a phone it is two short rows
+   and every item stays on screen. The current one is ruled in hanko. */
+.settings-nav {
+  border-bottom: 1px solid var(--divider);
+  padding: 0 var(--space-6);
+}
+.settings-nav ul {
+  list-style: none;
+  margin: 0 auto;
+  padding: 0;
+  max-width: 860px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-4);
+}
+.settings-nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0;
+  border-bottom: 3px solid transparent;
+  font-family: var(--font-heading), Georgia, serif;
+  font-weight: 600;
+  font-size: 17px;
+  color: var(--neutral-800);
+  text-decoration: none;
+}
+.settings-nav a:hover {
+  color: var(--hanko-700);
+}
+.settings-nav a[aria-current='page'] {
+  color: var(--ink);
+  border-bottom-color: var(--hanko);
+}
+.settings-nav a:focus-visible,
+.settings-foot a:focus-visible {
+  outline: 2px solid var(--hanko);
+  outline-offset: -2px;
+}
+
+.settings-foot {
+  margin: 0 auto;
+  width: 100%;
+  max-width: calc(860px + 2 * var(--space-6));
+  padding: var(--space-4) var(--space-6) var(--space-8);
+  display: flex;
+  gap: var(--space-4);
+  font-size: 14px;
+}
+.settings-foot a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+
+/* A settings page's heading is a notch smaller than a station's: it is a form, not a chapter. */
+.settings .station-title {
+  font-size: 52px;
+}
+
+/* --- Sections and forms ---------------------------------------------------- */
+
+.settings-card {
+  padding: var(--space-4);
+  gap: var(--space-3);
+}
+.settings-card-title {
+  font-size: 26px;
+  line-height: 1.2;
+}
+.settings-note {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--neutral-800);
+}
+.settings-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.settings-status {
+  font-size: 14px;
+  font-style: italic;
+  color: var(--neutral-700);
+  min-height: 1.5em;
+}
+.settings-status.is-error {
+  color: var(--hanko-600);
+  font-style: normal;
+}
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.settings-form .preset-list {
+  margin-bottom: 0;
+}
+/* Radios in these lists are real inputs; the whole row is the target. */
+.settings-form .preset-option {
+  min-height: 56px;
+  align-items: center;
+}
+.settings-form .preset-option input {
+  margin: 0;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.settings-form .preset-option:focus-within {
+  outline: 2px solid var(--hanko);
+  outline-offset: 1px;
+}
+.settings-voices {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-left: 3px solid var(--neutral-400);
+  background: var(--surface);
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--neutral-800);
+}
+
+/* --- Account (Clerk's panel) ----------------------------------------------- */
+
+.settings-clerk {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* --- Sharing list ---------------------------------------------------------- */
+
+.share-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.share-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: var(--space-4);
+  padding: var(--space-3);
+  align-items: start;
+}
+.share-row-thumb {
+  aspect-ratio: 3 / 4;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--ink);
+  background: var(--halftone-sketch), var(--neutral-200);
+  overflow: hidden;
+}
+.share-row-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.share-row-thumb span {
+  font-family: var(--font-heading), Georgia, serif;
+  font-style: italic;
+  font-size: 13px;
+  color: var(--neutral-700);
+  text-align: center;
+  padding: var(--space-1);
+}
+.share-row-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.share-row-title {
+  font-family: var(--font-heading), Georgia, serif;
+  font-weight: 600;
+  font-size: 22px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.share-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  font-size: 13px;
+  color: var(--neutral-700);
+  font-variant-numeric: tabular-nums;
+}
+.share-row-link {
+  display: block;
+  font-size: 13px;
+  color: var(--neutral-800);
+  overflow-wrap: anywhere;
+}
+.share-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.share-row-note {
+  margin: 0;
+  font-size: 13px;
+  font-style: italic;
+  color: var(--neutral-700);
+  min-height: 1.4em;
+}
+.share-row-note.is-error {
+  color: var(--hanko-600);
+  font-style: normal;
+}
+.share-skeleton {
+  height: 118px;
+  border: 1px solid var(--divider);
+  background: linear-gradient(90deg, var(--neutral-200), var(--neutral-100), var(--neutral-200)) 0 0 / 200% 100%;
+  animation: settings-shimmer 1.6s linear infinite;
+}
+@keyframes settings-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .share-skeleton {
+    animation: none;
+  }
+}
+
+/* --- Data and privacy ---------------------------------------------------------- */
+
+.data-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+.data-facts {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-6);
+  font-size: 14px;
+  color: var(--neutral-800);
+}
+.data-facts div {
+  display: flex;
+  gap: var(--space-2);
+}
+.data-facts dt {
+  color: var(--neutral-700);
+}
+.data-facts dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The danger zone: fenced off from the export above it by space and a hanko rule, not by colour alone. */
+.danger-zone {
+  border-color: var(--hanko);
+  box-shadow: 4px 4px 0 color-mix(in srgb, var(--hanko) 18%, transparent);
+}
+.danger-zone .settings-card-title {
+  color: var(--hanko-700);
+}
+
+/* --- The dialogs ------------------------------------------------------------------ */
+
+.confirm-card.settings-dialog {
+  width: min(520px, 100%);
+  max-height: calc(100dvh - 2 * var(--space-4));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.settings-dialog .confirm-body {
+  color: var(--neutral-800);
+}
+.settings-dialog-lists {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-3);
+}
+.settings-dialog-list {
+  margin: 0;
+  padding: 0;
+}
+.settings-dialog-list h3 {
+  font-size: 12px;
+  font-family: var(--font-body), Georgia, serif;
+  font-weight: 400;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--neutral-700);
+  margin-bottom: var(--space-1);
+}
+.settings-dialog-list ul {
+  margin: 0;
+  padding-left: 1.2em;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--neutral-900);
+}
+.settings-dialog .field {
+  margin-bottom: 0;
+}
+.settings-dialog .input {
+  min-height: 44px;
+}
+.settings-dialog .confirm-actions .btn {
+  flex: 1 1 140px;
+}
+
+@media (max-width: 720px) {
+  .settings .station {
+    padding: var(--space-6) var(--space-4);
+  }
+  .settings .station-title {
+    font-size: 40px;
+  }
+  .settings-nav {
+    padding: 0 var(--space-4);
+  }
+  .settings-nav ul {
+    gap: 0 var(--space-3);
+  }
+  .settings-foot {
+    padding-inline: var(--space-4);
+  }
+  .share-row {
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+  .share-row-title {
+    font-size: 20px;
+  }
+  .settings-card-title {
+    font-size: 24px;
+  }
+  .settings .confirm-overlay {
+    padding: var(--space-3);
+  }
+}

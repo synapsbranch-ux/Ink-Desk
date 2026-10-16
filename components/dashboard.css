@@ -1,0 +1,87 @@
+/* Dashboard v3 (slice 21): only what the desk added. The cards, grids, header,
+   tags and ink-bar are globals.css's (`.project-card`, `.project-grid`,
+   `.studio-header`, `.tag`, `.ink-bar`); nothing here restyles them for other
+   screens, and every rule is scoped to `.desk` or a class only the desk uses. */
+
+/* A card's tags (the style, and "Shared" beside it) sit on one line and wrap, never push the card wider. */
+.desk .project-style {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+}
+
+/* Targets: a header link and the meter's button are 44 px high on every width of
+   the desk, not only on touch screens (the slice-20 review's 721-960 px range). */
+.desk .studio-header .header-link,
+.desk .studio-header .quota-trigger,
+.desk .studio-header .btn {
+  min-height: 44px;
+}
+.desk .studio-header .header-link {
+  padding-inline: var(--space-2);
+}
+
+/* The Videos section: the poster is the project card's thumb; the length sits on it like a stamp. */
+.video-poster {
+  position: relative;
+}
+.video-length {
+  position: absolute;
+  right: var(--space-2);
+  bottom: var(--space-2);
+  padding: 2px 8px;
+  border: 1px solid var(--ink);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--ink);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A trailer being made: the ink-bar and, when the server knows, the percentage. A bar that does not know its
+   progress slides a short fill back and forth rather than showing a number it does not have. */
+.video-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.video-progress .ink-bar {
+  flex: 1;
+  min-width: 0;
+}
+.video-progress-figure {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--neutral-700);
+}
+.video-progress.is-unknown .ink-bar-fill {
+  width: 35%;
+  transition: none;
+  animation: video-wait 1.6s ease-in-out infinite alternate;
+}
+@keyframes video-wait {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(185%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .video-progress.is-unknown .ink-bar-fill {
+    animation: none;
+    width: 100%;
+    background: repeating-linear-gradient(135deg, var(--neutral-500) 0 4px, transparent 4px 8px);
+  }
+}
+
+.video-note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--hanko-800);
+}
+.video-status.is-failed {
+  border-color: var(--hanko-700);
+  color: var(--hanko-800);
+}

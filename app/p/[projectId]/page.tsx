@@ -5,6 +5,12 @@
 // studio, which does everything else through `/api/projects/<id>`. `params`
 // is a Promise in this Next version — see `devpost/spec.md > Routing and the
 // Dashboard (v2)` and `> Data Access and Ownership (v3)`.
+//
+// Slice 21: it also reads the person's saved reading direction (Settings ›
+// Defaults) and hands it to the studio, which hands it to the Reader as the
+// way a manga first opens. That read is decoration — a store that cannot answer
+// it, or a person who never saved anything, opens the Reader right to left as
+// it always did — so it can never keep the studio from opening.
 import { notFound } from 'next/navigation'
 import { AuthControls } from '@/components/AuthControls'
 import { DeskNotice } from '@/components/DeskNotice'
@@ -12,7 +18,18 @@ import { pageUser, SIGNED_OUT_SENTENCE } from '@/components/page-user'
 import { Studio } from '@/components/Studio'
 import { ownedProject } from '@/lib/auth/access'
 import { configSentence, ProviderError, Refused } from '@/lib/errors'
+import { DEFAULT_READING_DIRECTION, readSettings, type ReadingDirection } from '@/lib/settings'
 import { isProjectId } from '@/lib/store/local'
+
+/** The person's reading direction, or the studio's own when it can't be read. */
+async function readingOf(userId: string): Promise<ReadingDirection> {
+  try {
+    return (await readSettings(userId)).readingDirection
+  } catch (err) {
+    console.error(`[studio] the reading direction could not be read: ${err instanceof Error ? err.message : 'unknown error'}`)
+    return DEFAULT_READING_DIRECTION
+  }
+}
 
 export default async function ProjectPage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params
@@ -34,5 +51,5 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
     }
     throw err
   }
-  return <Studio projectId={projectId} account={<AuthControls />} />
+  return <Studio projectId={projectId} account={<AuthControls />} defaultReading={await readingOf(userId)} />
 }

@@ -1,0 +1,177 @@
+/* The Report button and dialog of a shared page (v3, slice 21). Paper and ink
+   like the confirmation card (.confirm-*), with radios that are real controls
+   and every target at least 44 px. Under 480 px the dialog is a full-height
+   sheet. The page behind is the shared reader's own; the overlay sits above it. */
+
+.report-open {
+  min-height: 44px;
+}
+
+.report-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: color-mix(in srgb, var(--ink) 42%, transparent);
+}
+.report-card {
+  width: 100%;
+  max-width: 500px;
+  max-height: calc(100dvh - 2 * var(--space-4));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-6);
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  box-shadow: 7px 7px 0 color-mix(in srgb, var(--ink) 25%, transparent);
+}
+.report-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.report-title {
+  font-size: 28px;
+  line-height: 1.15;
+}
+.report-lede {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--neutral-800);
+}
+
+.report-reasons {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.report-legend {
+  display: block;
+  padding: 0;
+  margin-bottom: var(--space-2);
+  font-family: var(--font-heading), Georgia, serif;
+  font-weight: 600;
+  font-size: 19px;
+}
+.report-optional {
+  font-family: var(--font-body), Georgia, serif;
+  font-weight: 400;
+  font-size: 13px;
+  color: var(--neutral-700);
+  margin-left: var(--space-2);
+}
+.report-reason {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  cursor: pointer;
+}
+.report-reason:hover {
+  border-color: var(--neutral-500);
+}
+.report-reason.is-selected {
+  border-color: var(--hanko);
+  background: var(--hanko-100);
+}
+.report-reason:has(input:focus-visible) {
+  outline: 2px solid var(--hanko);
+  outline-offset: 2px;
+}
+.report-reason input {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 3px 0 0;
+  accent-color: var(--hanko);
+}
+.report-reason-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.report-reason-label {
+  font-size: 16px;
+}
+.report-reason-hint {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--neutral-700);
+}
+
+.report-note {
+  display: flex;
+  flex-direction: column;
+}
+.report-textarea {
+  min-height: 96px;
+  resize: vertical;
+  line-height: 1.5;
+}
+.report-count {
+  align-self: flex-end;
+  margin-top: var(--space-1);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--neutral-700);
+}
+.report-count .is-near {
+  color: var(--hanko-700);
+}
+.report-error {
+  margin: 0;
+}
+
+.report-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.report-btn {
+  min-height: 44px;
+}
+.report-hint {
+  margin: calc(-1 * var(--space-2)) 0 0;
+  text-align: right;
+  font-size: 13px;
+  color: var(--neutral-700);
+}
+
+.report-open:focus-visible,
+.report-btn:focus-visible,
+.report-textarea:focus-visible {
+  outline: 2px solid var(--hanko);
+  outline-offset: 2px;
+}
+
+@media (max-width: 480px) {
+  .report-overlay {
+    padding: 0;
+    align-items: stretch;
+  }
+  .report-card {
+    max-width: none;
+    max-height: none;
+    height: 100dvh;
+    border-width: 0;
+    box-shadow: none;
+    padding: var(--space-4);
+  }
+  .report-actions .report-btn {
+    flex: 1 1 100%;
+  }
+}

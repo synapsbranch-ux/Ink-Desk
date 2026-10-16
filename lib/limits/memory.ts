@@ -101,6 +101,19 @@ export function createMemoryBackend(): LimitsBackend {
       return { ok: true }
     },
 
+    /** Forget a person (account deletion): their quota cells, dollar ledgers and request windows — never `spend:global:*`. */
+    async purgeUser(userId: string): Promise<number> {
+      if (userId === 'global') return 0
+      let removed = 0
+      for (const key of [...cells.keys()]) {
+        if (key.startsWith(`quota:${userId}:`) || key.startsWith(`spend:${userId}:`)) removed += cells.delete(key) ? 1 : 0
+      }
+      for (const key of [...windows.keys()]) {
+        if (key.startsWith('rl:') && key.endsWith(`:${userId}`)) removed += windows.delete(key) ? 1 : 0
+      }
+      return removed
+    },
+
     async reserve(input: ReserveInput): Promise<ReserveResult> {
       if (getHold(input.id)) return { ok: true, duplicate: true }
       const now = nowMs()

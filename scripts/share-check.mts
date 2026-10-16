@@ -24,6 +24,27 @@
 //   7  projects      deleteProject, projectStamp, projectsOf (a damaged project
 //                    included)
 //
+//   ACCOUNT JOBS (sections 8 and 9, lib/account and app/api/settings/{export,delete})
+//   8  account export  the routes (202 / state / download), one job per person, the zip read
+//                    back by an independent reader and unzip -t, its contents (minimal
+//                    account.json, no ownerId, the stored picture bytes, the missing one in
+//                    the manifest), nothing of another person, only the latest kept, pictures
+//                    streamed one at a time, the size cap, a store failing mid-way, an account
+//                    deleted while it runs
+//   9  account deletion  through the routes and the queue on a desk full of everything (a
+//                    scratch Redis for the counters): zero records and objects left in every
+//                    store and under the data dir, bob byte-identical, the hold of the running
+//                    job released, the studio's totals and a look-alike id untouched; twice and
+//                    at once; a crash after each of the 11 steps and the retry; Clerk's 404, 5xx
+//                    and the secret; an unreadable project; the Clerk webhook (a replay is one
+//                    job, a failure to queue is a 503); sign-in off; the phrase
+//
+//   OTHER SCRIPTS, run as child processes on their own scratch desks (local store only)
+//   10 sharing   share-check-sharing.mts  the snapshot allow-list, owner API, public page / JSON / pictures / preview, revoke, windows, XSS
+//   11 reports   share-check-reports.mts  the report route, what is stored, the window, admin gating and actions
+//   12 settings  share-check-settings.mts the Defaults route
+//   13 polling   poll-check.mts           the light status route and the poller (CR-8); also `npm run check:poll`
+//
 // The cloud half: with INKDESK_STORAGE=cloud and INKDESK_CHECK_CLOUD=yes the
 // same sections run on MongoDB and an S3-compatible bucket — only ones on this
 // machine (localhost), on a scratch database dropped at the end, because a
@@ -823,6 +844,1174 @@ try {
   // screen, the settings and the account deletion are held by the next agent, in
   // numbered sections of their own (8, 9, …). Keep the summary last.
   // =====================================================================================
+
+  // =====================================================================================
+  // 8. Account export — POST/GET /api/settings/export, the download, lib/account/export.ts
+  // =====================================================================================
+  const { createHash, createHmac } = await import('node:crypto')
+  const { spawnSync } = await import('node:child_process')
+  const { inflateRawSync } = await import('node:zlib')
+  const { accountRunners } = await import('../lib/queue/processors')
+  const { enqueueAccountJob } = await import('../lib/queue/enqueue')
+  const { newJob, claim, deleteAccountKey, NO_ACCOUNT_TO_DELETE } = await import('../lib/queue/jobs')
+  const { projectImageIds } = await import('../lib/auth/access')
+  const { makeExport, slugOf, imageFileName } = await import('../lib/account/export')
+  const { EXPORT_TOO_BIG, exportKeyOf } = await import('../lib/account/keys')
+  const exportRoute = await import('../app/api/settings/export/route')
+  const downloadRoute = await import('../app/api/settings/export/download/route')
+  const deleteRoute = await import('../app/api/settings/delete/route')
+  const sha = (b: Uint8Array) => createHash('sha256').update(b).digest('hex')
+  const rq = (method: string, path: string, user: string | null, body?: unknown) =>
+    new Request(`http://check${path}`, {
+      method,
+      headers: { ...(user ? { 'x-inkdesk-test-user': user } : {}), ...(body !== undefined ? { 'content-type': 'application/json' } : {}) },
+      body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body),
+    })
+  const waitFor = async (what: string, pred: () => boolean | Promise<boolean>, ms = 20_000) => {
+    const t0 = Date.now()
+    while (!(await pred())) {
+      if (Date.now() - t0 > ms) throw new Error(`timed out waiting for ${what}`)
+      await sleep(25)
+    }
+  }
+  const mkJob = (ownerId: string, over: Partial<JobRecord> = {}): JobRecord => ({
+    ...newJob({ key: `acct-check:${crypto.randomUUID()}`, ownerId, projectId: '', kind: 'export', payload: { kind: 'export' } }, crypto.randomUUID(), new Date(T0)),
+    ...over,
+  })
+
+  /** Everything one person has, in every store, with sentinels planted in each place so a leftover can be found by content. */
+  type Seed = {
+    owner: string
+    tag: string
+    projects: string[]
+    /** Pictures (id → bytes): the ones the projects hold, and the stranded one a job names. */
+    images: Map<string, Buffer>
+    /** Which project (index into `projects`) holds each picture the projects hold. */
+    heldBy: Map<string, 0 | 1>
+    /** Pictures only a job record names (paid for, never attached). */
+    stranded: string[]
+    /** A picture id a panel names that the bucket no longer has. */
+    missing: string
+    tokens: string[]
+    reportIds: string[]
+    videoKeys: string[]
+    jobs: { running: string; queued: string; failed: string }
+    outputKeys: string[]
+  }
+  const pngOf = (tag: string, n: number, bigBytes = 1200) => Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), Buffer.from(`MARK-${tag}-${n}`), randomBytes(bigBytes)])
+
+  async function seedDesk(owner: string, tag: string, opts: { bigImage?: number; held?: boolean; stale?: boolean } = {}): Promise<Seed> {
+    const images = new Map<string, Buffer>()
+    const heldBy = new Map<string, 0 | 1>()
+    const put = async (kind: 'sheet' | 'panel' | 'cover' | 'asset', type: 'image/png' | 'image/jpeg' | 'image/webp', n: number, size = 1200, project: 0 | 1 = 0) => {
+      const bytes = pngOf(tag, n, size)
+      const id = await store.putBlob(bytes, type, kind)
+      images.set(id, bytes)
+      heldBy.set(id, project)
+      return id
+    }
+    await store.users.upsert({ id: owner, email: `${tag.toLowerCase()}@inkdesk.invalid`, createdAt: at(0) })
+    const chapterId = crypto.randomUUID()
+    const p1 = crypto.randomUUID()
+    const p2 = crypto.randomUUID()
+    for (const [id, title] of [[p1, `${tag} Café “Moon” / ../ Ünï`], [p2, `${tag} second`]] as const) {
+      await store.createProject({ ...emptyProject({ id, chapterId: crypto.randomUUID(), title, stylePresetId: 'manga-bw', serverRunId: 'check' }), ownerId: owner })
+    }
+    const sheet = await put('sheet', 'image/png', 1)
+    const asset = await put('asset', 'image/jpeg', 2)
+    const cover = await put('cover', 'image/webp', 3)
+    const panels1 = [await put('panel', 'image/png', 4, opts.bigImage), await put('panel', 'image/png', 5), await put('panel', 'image/jpeg', 6), await put('panel', 'image/png', 7)]
+    const panel2 = await put('panel', 'image/webp', 8, 1200, 1)
+    const missing = `panel-${crypto.randomUUID()}.png`
+    const panelOf = (i: number, imageIds: string[]) => ({
+      index: i as 0 | 1 | 2 | 3,
+      characterId: 'c1',
+      action: `${tag} action`,
+      camera: 'wide',
+      background: 'bg',
+      dialogue: `${tag} line ${i}`,
+      bubble: null,
+      versions: imageIds.map((imageId) => ({ imageId, createdAt: at(0) })),
+      currentVersion: 0,
+      status: 'done' as const,
+      startedAt: null,
+      startedByRun: null,
+    })
+    await store.updateProject(p1, (p) => ({
+      ...p,
+      library: {
+        characters: [{ id: 'c1', name: `Hero ${tag}`, role: 'lead', traits: [], look: `look ${tag}`, dna: `dna ${tag}`, sheetImageId: sheet, locked: true }],
+        assets: [{ id: 'a1', kind: 'reference', name: 'ref', blobId: asset, mediaType: 'image/jpeg', bytes: images.get(asset)?.length ?? 0, createdAt: at(0) }],
+      },
+      chapters: [
+        {
+          ...p.chapters[0],
+          cover: { brief: 'b', title: `${tag} cover`, versions: [{ imageId: cover, createdAt: at(0) }], currentVersion: 0, status: 'done', startedAt: null, startedByRun: null },
+          pages: [{ index: 0, layoutId: 'four-shot', panels: panels1.map((id, i) => panelOf(i, [id])) }],
+        },
+      ],
+    }))
+    await store.updateProject(p2, (p) => ({
+      ...p,
+      chapters: [{ ...p.chapters[0], pages: [{ index: 0, layoutId: 'four-shot', panels: [panelOf(0, [panel2, missing])] }] }],
+    }))
+
+    // A picture only a job knows (paid for, never attached), and three jobs: one running, one waiting, one failed with it.
+    const strandedBytes = pngOf(tag, 99)
+    const strandedId = await store.putBlob(strandedBytes, 'image/png', 'panel')
+    images.set(strandedId, strandedBytes)
+    const running = mkJob(owner, { kind: 'panel', projectId: p1, payload: { kind: 'panel', chapterId, pageIndex: 0, index: 0 }, queue: 'image', status: 'running', attempts: 1, workerId: 'w-check', leaseUntil: new Date(Date.now() + 600_000).toISOString(), startedAt: at(1) })
+    if (opts.held) {
+      const { reserve } = await import('../lib/limits')
+      await reserve({ id: running.id, userId: owner, units: { image: 1 }, usd: 0.05 })
+      running.reservation = 'held'
+      running.reservedUsd = 0.05
+    }
+    const queued = mkJob(owner, { kind: 'panel', projectId: p1, payload: { kind: 'panel', chapterId, pageIndex: 0, index: 1 }, queue: 'image' })
+    const failed = mkJob(owner, { kind: 'panel', projectId: p1, payload: { kind: 'panel', chapterId, pageIndex: 0, index: 2 }, queue: 'image', status: 'failed', outcome: 'failed', error: 'x', resultImageId: strandedId, finishedAt: at(2) })
+    for (const j of [running, queued, failed]) assert.equal((await store.jobs.insertJob(j)).created, true)
+
+    // A live share, a dead one, and a report about each.
+    const live = shareOf({ projectId: p1, ownerId: owner, snapshot: snapshotOf(`${tag} shared`) })
+    const dead = shareOf({ projectId: p2, ownerId: owner, snapshot: snapshotOf(`${tag} retired`) })
+    await store.shares.create(live)
+    await store.shares.create(dead)
+    await store.shares.revoke(dead.token, at(3))
+    const reportIds: string[] = []
+    for (const token of [live.token, dead.token]) {
+      const id = crypto.randomUUID()
+      reportIds.push(id)
+      await store.reports.add({ id, token, reason: 'spam', note: `note ${tag}`, ipHash: 'h'.repeat(22), at: at(4), handledAt: null })
+    }
+    await store.settings.put({ userId: owner, defaultStyle: null, readingDirection: 'ltr', updatedAt: at(5) })
+
+    // Videos and the outputs store: an old export, a poster and a final.
+    const videoKeys = [`videos/${owner}/v1/poster.png`, `videos/${owner}/v1/final.mp4`]
+    await store.outputs.put(videoKeys[0], pngOf(tag, 50), 'image/png')
+    await store.outputs.put(videoKeys[1], Buffer.from(`MARK-${tag}-video`), 'video/mp4')
+    await store.videos.put({ id: crypto.randomUUID(), ownerId: owner, projectId: p1, page: 0, status: 'done', seconds: 9, costUsd: 0.5, posterKey: videoKeys[0], finalKey: videoKeys[1], error: null, createdAt: at(6), updatedAt: at(6) })
+    const outputKeys = opts.stale === false ? [] : [`exports/${owner}/stale-${tag.toLowerCase()}.zip`]
+    for (const key of outputKeys) await store.outputs.put(key, Buffer.from(`PK-old-${tag}`), 'application/zip')
+
+    return { owner, tag, projects: [p1, p2], images, heldBy, stranded: [strandedId], missing, tokens: [live.token, dead.token], reportIds, videoKeys, jobs: { running: running.id, queued: queued.id, failed: failed.id }, outputKeys }
+  }
+
+  /** What is in every store about one person, as plain data — two of these are equal exactly when nothing about them changed. */
+  async function fingerprint(seed: Seed) {
+    const { owner } = seed
+    const ids = [...seed.images.keys()]
+    return JSON.parse(
+      JSON.stringify({
+        user: await store.users.get(owner),
+        projects: await Promise.all(seed.projects.map((id) => store.readProject(id))),
+        blobs: await Promise.all(ids.map(async (id) => [id, sha((await store.getBlob(id))?.bytes ?? Buffer.alloc(0))])),
+        jobs: (await store.jobs.listJobs({ ownerId: owner, limit: 100 })).sort((a, b) => (a.id < b.id ? -1 : 1)),
+        shares: await Promise.all(seed.tokens.map((t) => store.shares.get(t))),
+        reports: await Promise.all(seed.reportIds.map((id) => store.reports.get(id))),
+        settings: await store.settings.get(owner),
+        videos: await store.videos.listOf(owner),
+        outputs: await Promise.all(
+          [...seed.videoKeys, ...seed.outputKeys].map(async (key) => {
+            const o = await store.outputs.open(key)
+            return [key, o ? sha(Buffer.from(await new Response(o.body).arrayBuffer())) : null]
+          })
+        ),
+      })
+    )
+  }
+
+  /** What still names this person in the stores, by the store's own API; empty means gone. */
+  async function leftovers(seed: Seed, except?: string): Promise<string[]> {
+    const { owner } = seed
+    const left: string[] = []
+    if ((await store.projectsOf(owner)).length) left.push('projects')
+    for (const id of seed.projects) if (await store.projectStamp(id)) left.push(`project ${id}`)
+    for (const id of seed.images.keys()) if (await store.getBlob(id)) left.push(`picture ${id}`)
+    if ((await store.jobs.listJobs({ ownerId: owner, limit: 10 })).some((j) => j.id !== except)) left.push('jobs')
+    if ((await store.shares.listActiveOf(owner)).length) left.push('active shares')
+    for (const token of seed.tokens) if (await store.shares.get(token)) left.push(`share ${token}`)
+    for (const id of seed.reportIds) if (await store.reports.get(id)) left.push(`report ${id}`)
+    if (await store.settings.get(owner)) left.push('settings')
+    if ((await store.videos.listOf(owner)).length) left.push('videos')
+    if ((await store.outputs.list(`exports/${owner}`)).length) left.push('exports')
+    if ((await store.outputs.list(`videos/${owner}`)).length) left.push('video files')
+    for (const key of [...seed.videoKeys, ...seed.outputKeys]) if (await store.outputs.open(key)) left.push(`output ${key}`)
+    return left
+  }
+
+  /** Every file under the scratch data dir, by relative path, with its hash — and whether it names `markers`. Local store only. */
+  async function dirSnapshot(markers: string[]): Promise<Map<string, { hash: string; names: boolean }>> {
+    const found = new Map<string, { hash: string; names: boolean }>()
+    const walk = async (folder: string) => {
+      for (const entry of await readdir(folder, { withFileTypes: true }).catch(() => [])) {
+        const path = join(folder, entry.name)
+        if (entry.isDirectory()) await walk(path)
+        else if (entry.isFile() && !/\.(lock|tmp)$/.test(entry.name)) {
+          const bytes = await readFile(path)
+          const rel = path.slice(dir.length + 1)
+          found.set(rel, { hash: sha(bytes), names: markers.some((m) => rel.includes(m) || bytes.includes(m)) })
+        }
+      }
+    }
+    await walk(dir)
+    return found
+  }
+
+  /** A zip read back with no help from the library that wrote it: the central directory, then each entry (stored or deflated). */
+  function readZip(buf: Buffer): Map<string, Buffer> {
+    const eocd = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]))
+    assert.ok(eocd >= 0, 'the zip has an end-of-directory record')
+    const count = buf.readUInt16LE(eocd + 10)
+    let p = buf.readUInt32LE(eocd + 16)
+    const entries = new Map<string, Buffer>()
+    for (let i = 0; i < count; i++) {
+      assert.equal(buf.readUInt32LE(p), 0x02014b50, 'a central directory entry')
+      const method = buf.readUInt16LE(p + 10)
+      const compressed = buf.readUInt32LE(p + 20)
+      const size = buf.readUInt32LE(p + 24)
+      const nameLength = buf.readUInt16LE(p + 28)
+      const extraLength = buf.readUInt16LE(p + 30)
+      const commentLength = buf.readUInt16LE(p + 32)
+      const local = buf.readUInt32LE(p + 42)
+      const name = buf.toString('utf8', p + 46, p + 46 + nameLength)
+      const start = local + 30 + buf.readUInt16LE(local + 26) + buf.readUInt16LE(local + 28)
+      const raw = buf.subarray(start, start + compressed)
+      const data = method === 8 ? inflateRawSync(raw) : raw
+      assert.equal(data.length, size, `${name}: the size the directory states`)
+      assert.ok(!entries.has(name), `${name} appears once`)
+      entries.set(name, Buffer.from(data))
+      p += 46 + nameLength + extraLength + commentLength
+    }
+    return entries
+  }
+
+  /** Remove a seeded desk by hand, store call by store call — the check's own broom, not the deletion under test. */
+  async function wipeDesk(seed: Seed) {
+    for (const id of seed.projects) {
+      const p = await store.readProject(id).catch(() => null)
+      if (p) for (const image of projectImageIds(p)) await store.deleteBlob(image)
+      await store.deleteProject(id)
+    }
+    for (const id of seed.images.keys()) await store.deleteBlob(id)
+    await store.jobs.deleteJobsOf(seed.owner)
+    await store.shares.deleteAllOf(seed.owner)
+    await store.reports.deleteForTokens(seed.tokens)
+    await store.settings.delete(seed.owner)
+    await store.videos.deleteAllOf(seed.owner)
+    await store.outputs.deletePrefix(`videos/${seed.owner}`).catch(() => 0)
+    await store.outputs.deletePrefix(`exports/${seed.owner}`).catch(() => 0)
+  }
+
+  const downloadOf = async (user: string) => {
+    const res = await downloadRoute.GET(rq('GET', '/api/settings/export/download', user))
+    return { res, bytes: Buffer.from(await res.arrayBuffer()) }
+  }
+  const exportStateOf = async (user: string) => (await (await exportRoute.GET(rq('GET', '/api/settings/export', user))).json()) as Record<string, unknown>
+
+  {
+    // The store sections above leave records behind for these two people: start from clean desks, so what is counted is what is seeded here.
+    for (const owner of [ALICE, BOB]) {
+      for (const { id } of await store.projectsOf(owner)) {
+        const p = await store.readProject(id).catch(() => null)
+        if (p) for (const image of projectImageIds(p)) await store.deleteBlob(image)
+        await store.deleteProject(id)
+      }
+      await store.jobs.deleteJobsOf(owner)
+      await store.reports.deleteForTokens(await store.shares.deleteAllOf(owner))
+      await store.settings.delete(owner)
+      await store.videos.deleteAllOf(owner)
+      await store.outputs.deletePrefix(`exports/${owner}`)
+      await store.outputs.deletePrefix(`videos/${owner}`)
+    }
+    const alice = await seedDesk(ALICE, 'Quillfeather', { bigImage: 3 * 1024 * 1024, stale: false })
+    const bob = await seedDesk(BOB, 'Wombatcrest', { stale: false })
+    const bobBefore = await fingerprint(bob)
+
+    // 8a. Signed out, nothing asked for yet, a body that is not welcome.
+    for (const [handler, path] of [[exportRoute.GET, '/api/settings/export'], [downloadRoute.GET, '/api/settings/export/download']] as const) {
+      assert.equal((await handler(rq('GET', path, null))).status, 401, `${path} needs sign-in`)
+    }
+    assert.equal((await exportRoute.POST(rq('POST', '/api/settings/export', null))).status, 401)
+    assert.deepEqual(await exportStateOf(ALICE), { state: 'none' })
+    const none = await downloadOf(ALICE)
+    assert.equal(none.res.status, 404)
+    assert.match(((await new Response(none.bytes).json()) as { error: string }).error, /no export to download yet/i)
+    assert.equal(none.res.headers.get('cache-control'), 'no-store')
+    for (const body of ['{"scope":"all"}', 'nope', '[]']) {
+      const res = await exportRoute.POST(rq('POST', '/api/settings/export', ALICE, body))
+      assert.equal(res.status, 400, `a body that says anything is refused: ${body}`)
+    }
+    assert.equal((await exportRoute.POST(rq('POST', '/api/settings/export', ALICE, 'x'.repeat(5000)))).status, 413, 'a big body is refused unread')
+    assert.deepEqual(await store.jobs.listJobs({ ownerId: ALICE, key: `export:${ALICE}` }), [], 'and none of those started a job')
+    ok(`${where} export: signed-out is 401 on every route; before one is made the state is none and the download a calm 404; a body is refused and starts nothing`)
+
+    // An older export is already in the store: the new one must replace it.
+    await store.outputs.put(exportKeyOf(ALICE, 'older-job'), Buffer.from('PK older'), 'application/zip')
+
+    // 8b. One in flight per person: two clicks (and a click while one runs) are one job. The runner is held to keep it running.
+    const realExport = accountRunners.export
+    let releaseGate: () => void = () => {}
+    const gate = new Promise<void>((resolve) => (releaseGate = resolve))
+    accountRunners.export = async (job, run) => {
+      await gate
+      return realExport(job, run)
+    }
+    let first: { job: { id: string; status: string } }
+    try {
+      const [a, b] = await Promise.all([exportRoute.POST(rq('POST', '/api/settings/export', ALICE)), exportRoute.POST(rq('POST', '/api/settings/export', ALICE, '{}'))])
+      assert.deepEqual([a.status, b.status], [202, 202])
+      first = (await a.json()) as typeof first
+      assert.equal(((await b.json()) as typeof first).job.id, first.job.id, 'both clicks got the same job')
+      assert.equal(a.headers.get('cache-control'), 'no-store')
+      await waitFor('the export job to be claimed', async () => (await store.jobs.getJob(first.job.id))?.status === 'running')
+      assert.deepEqual(await exportStateOf(ALICE), { state: 'working', jobId: first.job.id })
+      assert.deepEqual(await exportStateOf(BOB), { state: 'none' }, 'bob does not see alice’s export')
+      assert.equal(((await (await exportRoute.POST(rq('POST', '/api/settings/export', ALICE))).json()) as typeof first).job.id, first.job.id, 'a click while it works finds it')
+    } finally {
+      releaseGate()
+      accountRunners.export = realExport
+    }
+    await waitFor('the export to be ready', async () => (await exportStateOf(ALICE)).state === 'ready')
+    const ready = await exportStateOf(ALICE)
+    assert.equal(ready.jobId, first.job.id)
+    assert.equal(typeof ready.bytes, 'number')
+    assert.ok(!Number.isNaN(Date.parse(String(ready.readyAt))))
+    assert.deepEqual((await store.outputs.list(`exports/${ALICE}`)).map((o) => o.key), [exportKeyOf(ALICE, first.job.id)], 'the old export is gone, only this one stands')
+    ok(`${where} export: POST is 202 {job}; two clicks and a click while it runs are one job; GET says working, then ready with its size and time; one export stands in the outputs store (the stale one was deleted)`)
+
+    // 8c. The download: owner-only, an attachment, no-store, nosniff — and a zip that an independent reader and unzip accept.
+    const got = await downloadOf(ALICE)
+    assert.equal(got.res.status, 200)
+    assert.equal(got.res.headers.get('content-type'), 'application/zip')
+    assert.match(got.res.headers.get('content-disposition') ?? '', /^attachment; filename="ink-desk-export-\d{4}-\d{2}-\d{2}\.zip"$/)
+    assert.equal(got.res.headers.get('cache-control'), 'no-store')
+    assert.equal(got.res.headers.get('x-content-type-options'), 'nosniff')
+    assert.equal(Number(got.res.headers.get('content-length')), got.bytes.length)
+    assert.equal(got.bytes.length, ready.bytes)
+    const zipPath = join(dir, 'alice-export.zip')
+    await writeFile(zipPath, got.bytes)
+    const unzipped = spawnSync('unzip', ['-t', zipPath], { encoding: 'utf8' })
+    if (unzipped.error) console.log('  --  unzip is not installed here; the zip was read with the check’s own reader only')
+    else assert.equal(unzipped.status, 0, `unzip -t: ${unzipped.stdout}`)
+    const files = readZip(got.bytes)
+    const present = [...alice.heldBy.keys()]
+    const names = [...files.keys()]
+    const folderOf = (id: string, title: string) => `projects/${slugOf(title)}-${id}`
+    const folder1 = folderOf(alice.projects[0], (await store.readProject(alice.projects[0])).title)
+    const folder2 = folderOf(alice.projects[1], (await store.readProject(alice.projects[1])).title)
+    assert.match(folder1, /^projects\/[a-z0-9-]+-[a-z0-9-]+$/, 'a title with slashes, dots and accents is a safe folder name')
+    assert.deepEqual(
+      names.sort(),
+      [
+        'account.json', 'manifest.json', 'settings.json', 'shares.json',
+        `${folder1}/project.json`, `${folder2}/project.json`,
+        ...present.map((id) => `${alice.heldBy.get(id) === 0 ? folder1 : folder2}/images/${id}`),
+      ].sort(),
+      'exactly the account files, each project’s document and every picture a project holds (not the stranded one a job names, not the missing one)'
+    )
+    ok(`${where} export: the download is an attachment named ink-desk-export-<date>.zip, no-store, nosniff, its length right; unzip -t and an independent reader accept it`)
+
+    // 8d. What is in it: account.json is minimal, project.json has no owner, pictures are the stored bytes, the missing one is in the manifest.
+    assert.deepEqual(Object.keys(JSON.parse(files.get('account.json')!.toString())).sort(), ['createdAt', 'email', 'id'])
+    assert.deepEqual(JSON.parse(files.get('account.json')!.toString()), { id: ALICE, email: 'quillfeather@inkdesk.invalid', createdAt: at(0) })
+    assert.equal(JSON.parse(files.get('settings.json')!.toString()).readingDirection, 'ltr')
+    const sharesJson = JSON.parse(files.get('shares.json')!.toString()) as { shares: { token: string; path: string; title: string }[] }
+    assert.deepEqual(sharesJson.shares.map((s) => [s.token, s.path, s.title]), [[alice.tokens[0], `/s/${alice.tokens[0]}`, 'Quillfeather shared']], 'only the ACTIVE share, with its token and title')
+    for (const folder of [folder1, folder2]) {
+      const project = JSON.parse(files.get(`${folder}/project.json`)!.toString()) as Record<string, unknown>
+      assert.ok(!('ownerId' in project), 'ownerId is removed')
+      assert.ok(!files.get(`${folder}/project.json`)!.toString().includes(ALICE), 'and nothing in the document names the account')
+    }
+    for (const id of present) {
+      const entry = `${alice.heldBy.get(id) === 0 ? folder1 : folder2}/images/${id}`
+      assert.ok(files.has(entry), `${id} is in the zip`)
+      assert.equal(sha(files.get(entry)!), sha(alice.images.get(id)!), `${id}: the very bytes that were stored`)
+      assert.match(entry, /\.(png|jpg|webp)$/, 'with its extension')
+    }
+    const manifest = JSON.parse(files.get('manifest.json')!.toString()) as { projects: number; images: number; missingImages: { project: string; imageId: string }[]; unreadableProjects: unknown[] }
+    assert.equal(manifest.projects, 2)
+    assert.equal(manifest.images, present.length)
+    assert.deepEqual(manifest.missingImages.map((m) => [m.project, m.imageId]), [[alice.projects[1], alice.missing]], 'the missing picture is noted, not fatal')
+    assert.equal(imageFileName('panel-abc.png', 'image/png'), 'panel-abc.png')
+    assert.equal(imageFileName('panel-abc', 'image/jpeg'), 'panel-abc.jpg')
+    assert.equal(slugOf('  ../ ÀÉÎ  Ünï — Café!! '), 'aei-uni-cafe')
+    assert.equal(slugOf('日本語'), 'project')
+    ok(`${where} export: account.json holds id, email and createdAt only; settings and the active share are in; project.json has no owner; every picture is the stored bytes with its extension; the missing picture is in the manifest, not a failure`)
+
+    // 8e. Nothing of anyone else — not by content, not by name.
+    const everything = Buffer.concat([...files.entries()].map(([name, data]) => Buffer.concat([Buffer.from(name), data])))
+    for (const secret of [BOB, 'Wombatcrest', ...bob.projects, ...bob.tokens, ...[...bob.images.keys()]]) {
+      assert.ok(!everything.includes(secret), `bob’s ${secret.slice(0, 20)} is not in alice’s zip`)
+    }
+    assert.ok(everything.includes('Quillfeather'), 'while hers is')
+    const bobDownload = await downloadOf(BOB)
+    assert.equal(bobDownload.res.status, 404, 'bob has made no export; he is not handed alice’s')
+    assert.deepEqual(await fingerprint(bob), bobBefore, 'bob’s data is untouched by alice’s export')
+    ok(`${where} export: no byte of bob’s desk is in alice’s zip, bob cannot fetch it, and bob’s records are unchanged`)
+
+    // 8f. Only the latest is kept: a second export replaces the first, and the download follows.
+    const second = (await (await exportRoute.POST(rq('POST', '/api/settings/export', ALICE))).json()) as typeof first
+    assert.notEqual(second.job.id, first.job.id)
+    await waitFor('the second export', async () => (await exportStateOf(ALICE)).jobId === second.job.id && (await exportStateOf(ALICE)).state === 'ready')
+    assert.deepEqual((await store.outputs.list(`exports/${ALICE}`)).map((o) => o.key), [exportKeyOf(ALICE, second.job.id)], 'one export, the newer')
+    assert.equal(Number((await downloadOf(ALICE)).res.headers.get('content-length')), (await exportStateOf(ALICE)).bytes)
+    ok(`${where} export: a new export replaces the old one (one key under exports/<owner>/), and the download is the new one`)
+
+    // 8g. Pictures are streamed one at a time, never all held; a temp file is made and always removed.
+    const tmpScratch = join(dir, 'export-tmp')
+    await mkdir(tmpScratch, { recursive: true })
+    const realOpen = store.openBlob
+    let open = 0
+    let peak = 0
+    let opened = 0
+    store.openBlob = async (id) => {
+      const blob = await realOpen.call(store, id)
+      if (!blob) return blob
+      open++
+      opened++
+      peak = Math.max(peak, open)
+      let closed = false
+      const close = () => {
+        if (!closed) open--
+        closed = true
+      }
+      return { ...blob, body: blob.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({ flush: close })) }
+    }
+    try {
+      const sentinel = mkJob(ALICE, { id: crypto.randomUUID() })
+      const done = await makeExport(sentinel, { tmpDir: tmpScratch })
+      assert.deepEqual(done, { outcome: 'done' })
+      assert.equal(opened, present.length, 'every picture was opened once')
+      assert.equal(peak, 1, 'and never more than one was open at a time')
+      assert.deepEqual(await readdir(tmpScratch), [], 'the temp file is removed after a good export')
+      assert.deepEqual((await store.outputs.list(`exports/${ALICE}`)).map((o) => o.key), [exportKeyOf(ALICE, sentinel.id)])
+    } finally {
+      store.openBlob = realOpen
+    }
+    ok(`${where} export: ${present.length} pictures (one of 3 MB) were streamed one at a time (peak 1 open), and the temp file in os.tmpdir() was removed`)
+
+    // 8h. The cap: a calm sentence, nothing stored, the earlier export kept, the temp file gone.
+    const before = (await store.outputs.list(`exports/${ALICE}`)).map((o) => o.key)
+    const capped = await makeExport(mkJob(ALICE), { capBytes: 100_000, tmpDir: tmpScratch })
+    assert.deepEqual(capped, { outcome: 'failed', error: EXPORT_TOO_BIG })
+    assert.match(EXPORT_TOO_BIG, /larger than the studio can pack/)
+    assert.deepEqual((await store.outputs.list(`exports/${ALICE}`)).map((o) => o.key), before, 'the earlier export stands')
+    assert.deepEqual(await readdir(tmpScratch), [], 'no temp file is left behind a refused export')
+    // A store that does not say how big a picture is (the size is counted as it streams): the same refusal, mid-picture.
+    const sizeless = store.openBlob
+    store.openBlob = async (id) => {
+      const blob = await sizeless.call(store, id)
+      return blob ? { ...blob, bytes: null } : blob
+    }
+    try {
+      assert.deepEqual(await makeExport(mkJob(ALICE), { capBytes: 100_000, tmpDir: tmpScratch }), { outcome: 'failed', error: EXPORT_TOO_BIG })
+    } finally {
+      store.openBlob = sizeless
+    }
+    assert.deepEqual(await readdir(tmpScratch), [])
+    ok(`${where} export: past the size cap the job ends failed with one calm sentence, stores nothing, keeps the earlier export and leaves no temp file`)
+
+    // 8i. A store that fails mid-way throws (so the queue retries) and still cleans up.
+    const realOpen2 = store.openBlob
+    let calls = 0
+    store.openBlob = async (id) => {
+      if (++calls === 3) throw new Error('the bucket went away')
+      return realOpen2.call(store, id)
+    }
+    try {
+      await assert.rejects(makeExport(mkJob(ALICE), { tmpDir: tmpScratch }), /the bucket went away/)
+    } finally {
+      store.openBlob = realOpen2
+    }
+    assert.deepEqual(await readdir(tmpScratch), [], 'the temp file is removed when the build throws')
+    // …and a picture whose stream breaks half way: the same, with nothing left open and no unhandled error.
+    const realOpen3 = store.openBlob
+    store.openBlob = async (id) => {
+      const blob = await realOpen3.call(store, id)
+      if (!blob) return blob
+      let sent = false
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (!sent) {
+            sent = true
+            controller.enqueue(new Uint8Array(100))
+          } else controller.error(new Error('the connection dropped'))
+        },
+      })
+      return { ...blob, body }
+    }
+    try {
+      await assert.rejects(makeExport(mkJob(ALICE), { tmpDir: tmpScratch }), /the connection dropped/)
+    } finally {
+      store.openBlob = realOpen3
+    }
+    assert.deepEqual(await readdir(tmpScratch), [], 'the temp file is removed when a picture’s stream breaks')
+    assert.deepEqual((await store.outputs.list(`exports/${ALICE}`)).map((o) => o.key), before, 'and the earlier export stands, nothing half-written beside it')
+    ok(`${where} export: a store that fails mid-way throws for the queue to retry, and still removes the temp file and stores nothing`)
+
+    // 8j. An account deleted while its export is being made gets no export (checked before the put and after it).
+    const ghost = 'user_ghost'
+    await store.users.upsert({ id: ghost, email: 'ghost@inkdesk.invalid', createdAt: at(0) })
+    await store.users.markDeleted(ghost)
+    assert.equal((await makeExport(mkJob(ghost), { tmpDir: tmpScratch })).outcome, 'refused')
+    const racer = 'user_racer'
+    await store.users.upsert({ id: racer, email: 'racer@inkdesk.invalid', createdAt: at(0) })
+    const realPut = store.outputs.put
+    store.outputs.put = async (key, body, type) => {
+      const result = await realPut.call(store.outputs, key, body, type)
+      await store.users.markDeleted(racer) // the deletion lands while the zip is being stored
+      return result
+    }
+    try {
+      assert.equal((await makeExport(mkJob(racer), { tmpDir: tmpScratch })).outcome, 'refused')
+    } finally {
+      store.outputs.put = realPut
+    }
+    assert.deepEqual(await store.outputs.list('exports/user_ghost'), [])
+    assert.deepEqual(await store.outputs.list('exports/user_racer'), [], 'a zip that landed after the deletion is removed again')
+    ok(`${where} export: an account that was deleted before — or while — its export ran is left with nothing in the outputs store`)
+
+    // 8k. A project too damaged to read is listed in the manifest and the rest still comes (local files can be torn).
+    if (!CLOUD) {
+      const damagedOwner = 'user_damaged'
+      const keepId = crypto.randomUUID()
+      const torn = crypto.randomUUID()
+      for (const [id, title] of [[keepId, 'Whole'], [torn, 'Torn']] as const) {
+        await store.createProject({ ...emptyProject({ id, chapterId: crypto.randomUUID(), title, stylePresetId: 'manga-bw', serverRunId: 'check' }), ownerId: damagedOwner })
+      }
+      // Damaged but still naming its owner (a version this studio does not know): it cannot be opened, and it is still hers.
+      const file = join(dir, 'projects', torn, 'project.json')
+      await writeFile(file, JSON.stringify({ ...JSON.parse(await readFile(file, 'utf8')), version: 1 }))
+      await rm(join(dir, 'projects', torn, 'project.json.bak'), { force: true })
+      assert.equal((await makeExport(mkJob(damagedOwner), { tmpDir: tmpScratch })).outcome, 'done')
+      const damagedJob = (await store.outputs.list(`exports/${damagedOwner}`))[0]
+      const parsed = readZip(Buffer.from(await new Response((await store.outputs.open(damagedJob.key))!.body).arrayBuffer()))
+      assert.ok([...parsed.keys()].includes(`projects/whole-${keepId}/project.json`), 'the readable project is in')
+      const m = JSON.parse(parsed.get('manifest.json')!.toString()) as { unreadableProjects: { project: string }[] }
+      assert.deepEqual(m.unreadableProjects.map((u) => u.project), [torn], 'the damaged one is named in the manifest')
+      await store.deleteProject(keepId)
+      await store.deleteProject(torn)
+      await store.outputs.deletePrefix(`exports/${damagedOwner}`)
+      ok('local export: a project whose stored copy cannot be read is named in the manifest and the rest of the desk is still exported')
+    }
+
+    // 8l. A desk without accounts can still export its own (the owner is `local`).
+    const localProject = crypto.randomUUID()
+    await store.createProject(emptyProject({ id: localProject, chapterId: crypto.randomUUID(), title: 'Before accounts', stylePresetId: 'manga-bw', serverRunId: 'check' }))
+    assert.equal((await makeExport(mkJob(LOCAL_OWNER), { tmpDir: tmpScratch })).outcome, 'done')
+    const localZip = readZip(Buffer.from(await new Response((await store.outputs.open((await store.outputs.list('exports/local'))[0].key))!.body).arrayBuffer()))
+    assert.ok(localZip.has(`projects/before-accounts-${localProject}/project.json`))
+    assert.deepEqual(JSON.parse(localZip.get('account.json')!.toString()), { id: 'local', email: null, createdAt: null })
+    await store.outputs.deletePrefix('exports/local')
+    await store.deleteProject(localProject)
+    ok(`${where} export: the single local owner of a desk without accounts can export too`)
+
+    // Tidy for the deletion section, which starts from clean desks.
+    await rm(tmpScratch, { recursive: true, force: true })
+    await rm(zipPath, { force: true })
+    for (const seed of [alice, bob]) await wipeDesk(seed)
+  }
+
+  // =====================================================================================
+  // 9. Account deletion — POST/GET /api/settings/delete, the Clerk webhook, lib/account/deletion.ts
+  // =====================================================================================
+  const { deleteAccount, DELETION_STEPS, DELETION_INCOMPLETE } = await import('../lib/account/deletion')
+  const { purgeCounters } = await import('../lib/account/counters')
+  const { backend, resetBackend } = await import('../lib/limits')
+  const { dayOf } = await import('../lib/limits/rules')
+  const { closeProducerRedis, producerRedis, redisKey } = await import('../lib/queue/redis')
+  const { Refused } = await import('../lib/errors')
+  const { once } = (await import('node:events')).default
+  const { createServer } = await import('node:net')
+  type ChildProc = ReturnType<typeof spawn>
+
+  // A scratch Redis for the counters: the in-process backend cannot be asked to forget a person, so the counters
+  // that must go are real Redis keys. Without redis-server on the PATH the Redis assertions are skipped, loudly.
+  let redisProc: ChildProc | undefined
+  let redisReady = false
+  if (spawnSync('redis-server', ['--version'], { stdio: 'ignore' }).status === 0) {
+    const probe = createServer()
+    probe.listen(0, '127.0.0.1')
+    await once(probe, 'listening')
+    const { port } = probe.address() as { port: number }
+    probe.close()
+    await once(probe, 'close')
+    redisProc = spawn('redis-server', ['--port', String(port), '--bind', '127.0.0.1', '--save', '', '--appendonly', 'no'], { stdio: 'ignore' })
+    env.REDIS_URL = `redis://127.0.0.1:${port}`
+    resetBackend()
+    await waitFor('the scratch redis', async () => {
+      try {
+        return (await producerRedis().ping()) === 'PONG'
+      } catch {
+        return false
+      }
+    }, 10_000)
+    redisReady = true
+  } else {
+    console.log('  --  redis-server is not on the PATH: the account deletion’s counter assertions are skipped')
+  }
+  const R = () => producerRedis()
+  const today = dayOf(Date.now())
+  const month = today.slice(0, 6)
+  const counterKeys = (u: string) => [`quota:${u}:${today}:image`, `quota:${u}:${today}:project`, `spend:${u}:${today}`, `spend:${u}:${month}`]
+  const windowKeys = (u: string) => [`rl:edit:${u}`, `rl:read:${u}`, `rl:text:${u}`, `rl:anon:${u}`]
+  async function seedCounters(u: string) {
+    if (!redisReady) return
+    for (const k of counterKeys(u)) await R().set(redisKey(k), '3')
+    for (const k of windowKeys(u)) await R().zadd(redisKey(k), Date.now(), `${Date.now()}-${u}`)
+  }
+  /** Every key under the studio prefix that is not BullMQ's, with its value — for comparing before and after. */
+  async function redisDump(match: (key: string) => boolean = () => true): Promise<Record<string, unknown>> {
+    const out: Record<string, unknown> = {}
+    if (!redisReady) return out
+    let cursor = '0'
+    do {
+      const [next, keys] = await R().scan(cursor, 'MATCH', 'inkdesk:*', 'COUNT', 500)
+      cursor = next
+      for (const key of keys) {
+        if (key.startsWith('inkdesk:bull:') || !match(key)) continue
+        const type = await R().type(key)
+        out[key] = type === 'string' ? await R().get(key) : type === 'zset' ? (await R().zrange(key, 0, -1, 'WITHSCORES')).filter((_, i) => i % 2 === 0) : type
+      }
+    } while (cursor !== '0')
+    return out
+  }
+  const mentions = (u: string) => (key: string) => key.includes(`:${u}:`) || key.endsWith(`:${u}`)
+
+  const fakeClerk = () => {
+    const calls: string[] = []
+    return {
+      calls,
+      deleteUser: async (id: string): Promise<void> => {
+        calls.push(id)
+      },
+    }
+  }
+  const depsOf = (clerk: ReturnType<typeof fakeClerk> | null, afterStep?: (s: (typeof DELETION_STEPS)[number]) => void | Promise<void>) => ({
+    clerk,
+    purgeCounters,
+    now: () => new Date(),
+    ...(afterStep ? { afterStep } : {}),
+  })
+  /** A deletion job as the processor would hold it: written, claimed, running. */
+  async function deletionJob(owner: string): Promise<JobRecord> {
+    const record = claim(newJob({ key: deleteAccountKey(owner), ownerId: owner, projectId: '', kind: 'delete-account', payload: { kind: 'delete-account' } }, crypto.randomUUID(), new Date()), 'w-check', new Date())
+    assert.ok(record)
+    assert.equal((await store.jobs.insertJob(record)).created, true)
+    return record
+  }
+  const stateOf = async (user: string) => (await (await deleteRoute.GET(rq('GET', '/api/settings/delete', user))).json()) as { state: string; error?: string }
+  const deleteAs = (user: string | null, body?: unknown) => deleteRoute.POST(rq('POST', '/api/settings/delete', user, body === undefined ? { confirm: 'delete my account' } : body))
+
+  try {
+    // 9a. THE WHOLE THING, through the routes and the queue: alice has two projects, pictures of every kind, a share and a report
+    // about it, a revoked share, jobs (one running and holding quota), settings, videos, outputs and Redis counters. Bob has the same.
+    {
+      const cousin = 'user_alicex' // an id that starts like alice's: nothing of theirs may go
+      if (redisReady) {
+        await R().set(redisKey(`spend:global:${today}`), '2000000')
+        await R().set(redisKey('spend:global:total'), '5000000')
+        await R().set(redisKey('spend:global:20250101'), '7')
+        await seedCounters(cousin)
+      }
+      const globalsBefore = await redisDump((k) => k.startsWith('inkdesk:spend:global:'))
+      const alice = await seedDesk(ALICE, 'Quillfeather', { held: true })
+      const bob = await seedDesk(BOB, 'Wombatcrest')
+      await seedCounters(ALICE)
+      await seedCounters(BOB)
+      const holdId = alice.jobs.running
+      assert.ok(await backend().hold(holdId), 'alice’s running job holds quota')
+      const bobBefore = await fingerprint(bob)
+      const bobRedisBefore = await redisDump(mentions(BOB))
+      const cousinBefore = await redisDump(mentions(cousin))
+      const dirBefore = CLOUD ? new Map() : await dirSnapshot([ALICE, 'Quillfeather'])
+      const aliceFilesBefore = [...dirBefore.entries()].filter(([, f]) => f.names).map(([p]) => p)
+      if (!CLOUD) assert.ok(aliceFilesBefore.length > 15, `alice’s desk is spread over many files (${aliceFilesBefore.length})`)
+
+      // The phrase: nothing else starts it (the dialog asks twice; the server asks again).
+      for (const wrong of [{ confirm: 'delete my account please' }, { confirm: '' }, { confirm: 'delete' }, {}, { confirm: 'delete my account', also: 1 }, { confirm: 5 }, ['delete my account'], 'nope', 'x'.repeat(4000)]) {
+        const res = await deleteAs(ALICE, wrong)
+        assert.ok([400, 413].includes(res.status), `${JSON.stringify(wrong).slice(0, 40)} → ${res.status}`)
+        const sentence = ((await res.json()) as { error: string }).error
+        assert.ok(sentence.length > 0 && sentence.length < 200 && !/zod|ZodError|undefined/.test(sentence), sentence)
+      }
+      assert.match(((await (await deleteAs(ALICE, { confirm: 'nope' })).json()) as { error: string }).error, /type “delete my account” exactly/)
+      assert.equal((await deleteAs(null)).status, 401)
+      assert.deepEqual(await store.jobs.listJobs({ ownerId: ALICE, key: deleteAccountKey(ALICE) }), [], 'none of those started a deletion')
+      assert.deepEqual(await stateOf(ALICE), { state: 'none' })
+      assert.equal((await deleteRoute.GET(rq('GET', '/api/settings/delete', null))).status, 401)
+
+      // Start it for real (the phrase in another case, with spaces), with the runner held so the states can be seen.
+      const realRunner = accountRunners['delete-account']
+      let release: () => void = () => {}
+      const held = new Promise<void>((resolve) => (release = resolve))
+      accountRunners['delete-account'] = async (job, run) => {
+        await held
+        return realRunner(job, run)
+      }
+      let jobId = ''
+      try {
+        const [a, b] = await Promise.all([deleteAs(ALICE, { confirm: '  Delete My ACCOUNT ' }), deleteAs(ALICE)])
+        assert.deepEqual([a.status, b.status], [202, 202])
+        const ja = ((await a.json()) as { job: { id: string; status: string } }).job
+        const jb = ((await b.json()) as { job: { id: string } }).job
+        assert.equal(ja.id, jb.id, 'two clicks are one deletion')
+        assert.equal(a.headers.get('cache-control'), 'no-store')
+        jobId = ja.id
+        await waitFor('the deletion to be claimed', async () => (await store.jobs.getJob(jobId))?.status === 'running')
+        assert.deepEqual(await stateOf(ALICE), { state: 'working' })
+        assert.deepEqual(await stateOf(BOB), { state: 'none' }, 'bob’s page does not see alice’s deletion')
+        assert.equal(((await (await deleteAs(ALICE)).json()) as { job: { id: string } }).job.id, jobId, 'and a click while it works finds it')
+      } finally {
+        release()
+        accountRunners['delete-account'] = realRunner
+      }
+      await waitFor('the deletion job’s own record to be deleted', async () => (await store.jobs.getJob(jobId)) === null)
+      // Read before alice asks anything else: her own page polling after the purge would take a fresh window (a signed-out person cannot).
+      const aliceRedisAfter = await redisDump(mentions(ALICE))
+      assert.deepEqual(await stateOf(ALICE), { state: 'done' }, 'the page that polls is told it is done')
+
+      // ZERO of alice's, in every store.
+      assert.deepEqual(await leftovers(alice), [], 'nothing of alice’s is left in any store')
+      assert.equal((await store.projectsOf(ALICE)).length, 0)
+      const tomb = await store.users.get(ALICE)
+      assert.ok(tomb?.deletedAt, 'her account record is a tombstone')
+      assert.equal(tomb?.email, '', 'with no email')
+      await store.users.upsert({ id: ALICE, email: 'late@inkdesk.invalid', createdAt: at(9) })
+      assert.ok((await store.users.get(ALICE))?.deletedAt, 'a late user.created cannot bring her back')
+      assert.equal((await store.users.get(ALICE))?.email, '')
+      // Her public links are dead and the reports about them are gone.
+      for (const token of alice.tokens) assert.equal(await store.shares.get(token), null)
+      for (const id of alice.reportIds) assert.equal(await store.reports.get(id), null)
+      // The job that held quota was cancelled through endJob: its hold is gone (released, not left to expire).
+      assert.equal(await backend().hold(holdId), null, 'the running job’s hold was released')
+      ok(`${where} deletion: a confirmed request is 202, two clicks are one job, the states go none → working → done, and nothing of alice’s is left in the projects, pictures (${alice.images.size}), jobs, shares, reports, settings, videos or outputs; her account is a tombstone with no email`)
+
+      // On disk (local store): not one file or byte names her — except the tombstone — and bob’s are untouched, byte for byte.
+      if (!CLOUD) {
+        const dirAfter = await dirSnapshot([ALICE, 'Quillfeather'])
+        const stillNaming = [...dirAfter.entries()].filter(([, f]) => f.names).map(([p]) => p)
+        assert.deepEqual(stillNaming, [join('users', `${ALICE}.json`)], 'the only file left that names alice is her tombstone')
+        assert.ok(!(await readFile(join(dir, 'users', `${ALICE}.json`), 'utf8')).includes('quillfeather@'), 'which holds no email')
+        let untouched = 0
+        for (const [path, file] of dirBefore) {
+          if (aliceFilesBefore.includes(path)) continue
+          assert.equal(dirAfter.get(path)?.hash, file.hash, `${path} is byte-identical`)
+          untouched++
+        }
+        for (const path of dirAfter.keys()) assert.ok(dirBefore.has(path), `${path} is not a new file`)
+        for (const path of aliceFilesBefore) if (path !== join('users', `${ALICE}.json`)) assert.ok(!dirAfter.has(path), `${path} is gone`)
+        ok(`local deletion: ${aliceFilesBefore.length - 1} of alice’s files are gone, no file or byte under the data dir names her but the tombstone, and ${untouched} other files are byte-identical`)
+      }
+      assert.deepEqual(await fingerprint(bob), bobBefore, 'bob’s records, pictures, jobs, shares, reports, settings, videos and outputs are unchanged')
+      ok(`${where} deletion: bob’s desk (projects, ${bob.images.size} pictures, jobs, share, reports, settings, videos, outputs) is identical before and after`)
+
+      // Redis: hers are gone, bob’s, her look-alike’s and the studio’s totals are not.
+      if (redisReady) {
+        assert.deepEqual(aliceRedisAfter, {}, 'no counter or window of alice’s remains')
+        const bobRedisAfter = await redisDump(mentions(BOB))
+        for (const [key, value] of Object.entries(bobRedisBefore)) {
+          assert.ok(key in bobRedisAfter, `${key} still exists`)
+          if (typeof value === 'string') assert.equal(bobRedisAfter[key], value, `${key} is unchanged`)
+        }
+        assert.ok(Object.keys(bobRedisBefore).length >= counterKeys(BOB).length + windowKeys(BOB).length)
+        assert.deepEqual(await redisDump(mentions(cousin)), cousinBefore, 'so are those of user_alicex')
+        assert.equal(Object.keys(cousinBefore).length, counterKeys(cousin).length + windowKeys(cousin).length)
+        const globalsAfter = await redisDump((k) => k.startsWith('inkdesk:spend:global:'))
+        assert.equal(globalsAfter['inkdesk:spend:global:20250101'], '7', 'the studio’s own totals are never touched')
+        assert.equal(Number(globalsAfter[`inkdesk:spend:global:${today}`]), Number(globalsBefore[`inkdesk:spend:global:${today}`] ?? 0), 'and alice’s hold came off them when her job was cancelled')
+        assert.equal(Number(globalsAfter['inkdesk:spend:global:total']), Number(globalsBefore['inkdesk:spend:global:total'] ?? 0))
+        ok('redis deletion: quota:, spend: and rl: keys of alice are gone (found by SCAN); bob’s, user_alicex’s and the studio-wide spend:global:* totals are untouched; her held quota went back to the totals')
+      }
+
+      // The page of an account that is gone: nothing to export, nothing to download.
+      assert.equal((await downloadOf(ALICE)).res.status, 404)
+      await wipeDesk(bob)
+    }
+
+    // 9b. Again, and at the same time: a finished deletion run once more finds nothing and says so; two at once converge.
+    {
+      const twin = 'user_twin'
+      const seed = await seedDesk(twin, 'Twinleaf', { held: true })
+      await seedCounters(twin)
+      const j1 = await deletionJob(twin)
+      const outcomes = await Promise.all([deleteAccount(j1, depsOf(null)), deleteAccount({ ...j1, id: crypto.randomUUID() }, depsOf(null))])
+      assert.deepEqual(outcomes.map((o) => o.outcome), ['done', 'done'], 'two runs at once both finish')
+      await store.jobs.deleteJobsOf(twin)
+      assert.deepEqual(await leftovers(seed), [])
+      assert.deepEqual(await deleteAccount(j1, depsOf(null)), { outcome: 'done' }, 'and once more, on nothing')
+      await store.jobs.deleteJobsOf(twin)
+      assert.deepEqual(await leftovers(seed), [])
+      if (redisReady) assert.deepEqual(await redisDump(mentions(twin)), {})
+      ok(`${where} deletion: running it twice at once, and again after it finished, ends in the same empty place`)
+    }
+
+    // 9c. A crash after ANY step: the run is cut off (the injected hook throws), the part-way state is what the step says, and the next run — the retry —
+    // finishes it. The hook is dependency injection: production passes none.
+    {
+      const bob = await seedDesk(BOB, 'Wombatcrest')
+      const bobBefore = await fingerprint(bob)
+      for (const [i, stepName] of DELETION_STEPS.entries()) {
+        const owner = `user_crash${i}`
+        const seed = await seedDesk(owner, `Crashdummy${i}x`, { held: true })
+        await seedCounters(owner)
+        const record = await deletionJob(owner)
+        const clerk = fakeClerk()
+        await assert.rejects(
+          deleteAccount(record, depsOf(clerk, (step) => { if (step === stepName) throw new Error(`crash after ${step}`) })),
+          new RegExp(`crash after ${stepName}`)
+        )
+        // What a crash right after this step leaves behind.
+        const left = await leftovers(seed, record.id)
+        const has = (what: string) => left.some((l) => l.startsWith(what))
+        const upTo = (s: (typeof DELETION_STEPS)[number]) => DELETION_STEPS.indexOf(stepName) >= DELETION_STEPS.indexOf(s)
+        assert.ok((await store.users.get(owner))?.deletedAt, `after ${stepName}: the tombstone stands`)
+        assert.ok(await store.jobs.getJob(record.id), `after ${stepName}: the deletion’s own record is never swept (the processor deletes it last)`)
+        const running = await store.jobs.getJob(seed.jobs.running)
+        if (!upTo('jobs') && upTo('cancelled')) {
+          assert.deepEqual([running?.status, running?.outcome], ['failed', 'cancelled'], 'the running job was cancelled')
+          assert.equal(await backend().hold(seed.jobs.running), null, 'and its hold released')
+        }
+        if (!upTo('cancelled')) assert.equal(running?.status, 'running', 'before the cancel the job still runs')
+        assert.deepEqual(clerk.calls, upTo('clerk') ? [owner] : [], `Clerk was asked ${upTo('clerk') ? 'once' : 'not yet'}`)
+        assert.equal(has('active shares') || has('share '), !upTo('shares'), 'shares and their reports go together')
+        assert.equal(has('report '), !upTo('shares'))
+        assert.equal(has('projects') || has('project '), !upTo('projects'), 'projects')
+        assert.equal(has('picture '), !upTo('jobs'), 'pictures stay until the jobs that name the stranded one are swept')
+        assert.equal(has('jobs'), !upTo('jobs'), 'jobs')
+        assert.equal(has('videos'), !upTo('videos'))
+        assert.equal(has('exports') || has('video files'), !upTo('outputs'))
+        assert.equal(has('settings'), !upTo('settings'))
+        if (redisReady) assert.equal(Object.keys(await redisDump(mentions(owner))).length > 0, !upTo('counters'), 'the counters go at step 5')
+        if (stepName === 'verified') assert.deepEqual(left, [], 'a crash after the last step has nothing left to do')
+        // The retry.
+        const finished = await deleteAccount(record, depsOf(clerk))
+        assert.deepEqual(finished, { outcome: 'done' }, `resumed after ${stepName}`)
+        await store.jobs.deleteJob(record.id)
+        assert.deepEqual(await leftovers(seed), [], `after a crash at "${stepName}" and a retry, nothing is left`)
+        if (redisReady) assert.deepEqual(await redisDump(mentions(owner)), {})
+        assert.equal(clerk.calls.length, upTo('clerk') ? 2 : 1, 'a retried run asks Clerk again and is fine with "already gone"')
+      }
+      assert.deepEqual(await fingerprint(bob), bobBefore, 'bob’s desk is untouched by all of it')
+      await wipeDesk(bob)
+      ok(`${where} deletion: a crash after each of the ${DELETION_STEPS.length} steps (${DELETION_STEPS.join(', ')}) leaves the state that step says, and the retry converges on zero records; bob untouched`)
+    }
+
+    // 9d. Clerk (clerk mode): "already gone" is success, any other answer throws for the queue to retry, and the secret is never logged.
+    {
+      const SECRET = `sk_test_${'x'.repeat(30)}SECRETMARK`
+      const answers: { status: number; body: unknown }[] = []
+      const calls: { method: string; path: string; auth: string }[] = []
+      const priorFetch = globalThis.fetch
+      // Installed BEFORE the Clerk SDK is first loaded: it keeps the fetch it finds at load.
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = input instanceof Request ? input.url : String(input)
+        if (!/^https:\/\/api\.clerk\.com\/v1\/users\//.test(url)) return priorFetch(input, init)
+        calls.push({ method: init?.method ?? 'GET', path: new URL(url).pathname, auth: new Headers(init?.headers).get('authorization') ?? '' })
+        const answer = answers.shift() ?? { status: 200, body: { object: 'deleted_object', id: 'x', deleted: true } }
+        return new Response(JSON.stringify(answer.body), { status: answer.status, headers: { 'content-type': 'application/json' } })
+      }) as typeof fetch
+      env.CLERK_SECRET_KEY = SECRET
+      const logged: string[] = []
+      const real = { log: console.log, warn: console.warn, error: console.error }
+      for (const level of ['log', 'warn', 'error'] as const) console[level] = (...args: unknown[]) => void logged.push(args.map(String).join(' '))
+      try {
+        const { deleteClerkUser, isGone } = await import('../lib/account/clerk')
+        assert.equal(isGone({ status: 404 }), true)
+        assert.equal(isGone({ errors: [{ code: 'resource_not_found' }] }), true)
+        assert.equal(isGone({ status: 500 }), false)
+        assert.equal(isGone(new Error('x')), false)
+        assert.equal(isGone(null), false)
+        answers.push({ status: 200, body: { object: 'deleted_object', id: 'user_c1', deleted: true } })
+        await deleteClerkUser('user_c1')
+        assert.deepEqual(calls.map((c) => [c.method, c.path]), [['DELETE', '/v1/users/user_c1']])
+        assert.equal(calls[0].auth, `Bearer ${SECRET}`, 'it signed in with the studio’s key (to Clerk only)')
+        answers.push({ status: 404, body: { errors: [{ code: 'resource_not_found', message: 'Not found', long_message: 'No user' }] } })
+        await deleteClerkUser('user_c1') // already gone: success
+        for (const status of [500, 401, 429]) {
+          answers.push({ status, body: { errors: [{ code: 'internal_clerk_error', message: 'boom' }] } })
+          const err = await deleteClerkUser('user_c2').then(() => null, (e: unknown) => e as Error)
+          assert.ok(err instanceof Error, `HTTP ${status} throws, so the queue retries`)
+          assert.match(err.message, new RegExp(`HTTP ${status}`))
+          assert.ok(!err.message.includes('SECRETMARK') && !String((err as { cause?: unknown }).cause ?? '').includes('SECRETMARK'), 'the error does not carry the secret')
+        }
+      } finally {
+        Object.assign(console, real)
+        globalThis.fetch = priorFetch
+        delete env.CLERK_SECRET_KEY
+      }
+      assert.ok(!logged.join('\n').includes('SECRETMARK'), 'nothing logged carries the secret')
+
+      // A failed Clerk call stops the run before any data goes (their sign-in is still live, so nothing could be safely deleted yet), and the retry finishes.
+      const owner = 'user_clerkfail'
+      const seed = await seedDesk(owner, 'Clerkfail', { held: true })
+      const record = await deletionJob(owner)
+      const failing = { calls: [] as string[], deleteUser: async (): Promise<void> => { throw new Error('Clerk would not delete the user (HTTP 500); the deletion will be tried again') } }
+      await assert.rejects(deleteAccount(record, depsOf(failing)), /HTTP 500/)
+      assert.ok((await store.users.get(owner))?.deletedAt, 'the tombstone is set')
+      assert.equal((await store.projectsOf(owner)).length, 2, 'the data is still there')
+      assert.equal((await store.jobs.getJob(seed.jobs.running))?.outcome, 'cancelled', 'their work was already stopped')
+      assert.deepEqual(await deleteAccount(record, depsOf(fakeClerk())), { outcome: 'done' })
+      await store.jobs.deleteJob(record.id)
+      assert.deepEqual(await leftovers(seed), [])
+      ok(`${where} deletion: Clerk’s 404 is success, a 500/401/429 throws for the queue to retry (the data waits, the retry finishes), the secret is sent only to Clerk and appears in no error or log line`)
+    }
+
+    // 9e. A project too damaged to read is deleted anyway; the pictures that can be found are removed; the one picture only that project's lost copy named is the documented limit.
+    if (!CLOUD) {
+      const owner = 'user_torn'
+      const seed = await seedDesk(owner, 'Tornpage')
+      const file = join(dir, 'projects', seed.projects[1], 'project.json')
+      await writeFile(file, JSON.stringify({ ...JSON.parse(await readFile(file, 'utf8')), version: 1 }))
+      await rm(join(dir, 'projects', seed.projects[1], 'project.json.bak'), { force: true })
+      await assert.rejects(store.readProject(seed.projects[1]), (e: unknown) => (e as { status?: number }).status === 500)
+      assert.deepEqual((await store.projectsOf(owner)).map((p) => p.id).sort(), [...seed.projects].sort(), 'the damaged project is listed')
+      const record = await deletionJob(owner)
+      assert.deepEqual(await deleteAccount(record, depsOf(null)), { outcome: 'done' })
+      await store.jobs.deleteJob(record.id)
+      const [damagedPicture] = [...seed.heldBy.entries()].filter(([, p]) => p === 1).map(([id]) => id)
+      assert.deepEqual(await leftovers(seed), [`picture ${damagedPicture}`], 'everything goes but the one picture only the unreadable copy named')
+      assert.ok(!(await stat(join(dir, 'projects', seed.projects[1])).catch(() => null)), 'the damaged project’s folder is gone')
+      await store.deleteBlob(damagedPicture)
+      ok('local deletion: an unreadable project is deleted anyway (its readable sibling’s pictures and every job’s stored picture go); only a picture that nothing readable names remains — the documented limit')
+    }
+
+    // 9f. The Clerk webhook: `user.deleted` marks the account and enqueues the SAME job; a replay finds it; a failure to enqueue makes Clerk retry.
+    {
+      const WEBHOOK_SECRET = `whsec_${randomBytes(24).toString('base64')}`
+      env.CLERK_WEBHOOK_SIGNING_SECRET = WEBHOOK_SECRET
+      const webhook = await import('../app/api/webhooks/clerk/route')
+      const signed = (body: string, id: string) => {
+        const stamp = String(Math.floor(Date.now() / 1000))
+        const key = Buffer.from(WEBHOOK_SECRET.replace(/^whsec_/, ''), 'base64')
+        const signature = createHmac('sha256', key).update(`${id}.${stamp}.${body}`).digest('base64')
+        return new Request('http://check/api/webhooks/clerk', { method: 'POST', headers: { 'content-type': 'application/json', 'svix-id': id, 'svix-timestamp': stamp, 'svix-signature': `v1,${signature}` }, body })
+      }
+      const gone = (id: string) => JSON.stringify({ type: 'user.deleted', object: 'event', data: { id, object: 'user', deleted: true } })
+      const owner = 'user_hook'
+      const seed = await seedDesk(owner, 'Hookline')
+      const realRunner = accountRunners['delete-account']
+      let release: () => void = () => {}
+      const held = new Promise<void>((resolve) => (release = resolve))
+      accountRunners['delete-account'] = async (job, run) => {
+        await held
+        return realRunner(job, run)
+      }
+      try {
+        const first = await webhook.POST(signed(gone(owner), 'msg_one'))
+        assert.equal(first.status, 200, await first.clone().text())
+        const jobsFor = () => store.jobs.listJobs({ ownerId: owner, key: deleteAccountKey(owner) })
+        const [only] = await jobsFor()
+        assert.equal((await jobsFor()).length, 1, 'one deletion job')
+        assert.equal(only.kind, 'delete-account')
+        assert.equal(only.projectId, '')
+        assert.equal(only.reservation, 'none')
+        assert.ok((await store.users.get(owner))?.deletedAt)
+        // Clerk delivers the event again — the same message, then a fresh message with the same content.
+        const again = await webhook.POST(signed(gone(owner), 'msg_one'))
+        assert.equal(((await again.json()) as { duplicate?: boolean }).duplicate, true)
+        assert.equal((await webhook.POST(signed(gone(owner), 'msg_two'))).status, 200)
+        assert.deepEqual((await jobsFor()).map((j) => j.id), [only.id], 'a replayed event leaves exactly one job')
+        // The person pressing the button at the same moment finds that job too.
+        const viaApi = await enqueueAccountJob({ ownerId: owner, kind: 'delete-account' })
+        assert.deepEqual([viaApi.created, viaApi.job.id], [false, only.id])
+      } finally {
+        release()
+        accountRunners['delete-account'] = realRunner
+      }
+      await waitFor('the webhook’s job to finish', async () => (await store.jobs.getJob((await store.jobs.listJobs({ ownerId: owner, key: deleteAccountKey(owner) }))[0]?.id ?? 'none')) === null)
+      assert.deepEqual(await leftovers(seed), [], 'the job the webhook started removed everything')
+
+      // The job cannot be queued: Clerk is told to retry (503), the account stays marked, and the retry then works.
+      const owner2 = 'user_hook2'
+      const seed2 = await seedDesk(owner2, 'Hooktwo')
+      const savedRedis = env.REDIS_URL
+      delete env.REDIS_URL
+      env.INKDESK_QUEUE = 'bullmq' // a Redis queue with no Redis: the studio is busy, and nothing is recorded
+      const quiet = console.error
+      console.error = () => {}
+      let refused: Response
+      try {
+        refused = await webhook.POST(signed(gone(owner2), 'msg_three'))
+      } finally {
+        console.error = quiet
+        delete env.INKDESK_QUEUE
+        if (savedRedis) env.REDIS_URL = savedRedis
+      }
+      assert.equal(refused.status, 503, 'a store failure makes Clerk retry')
+      assert.deepEqual(await store.jobs.listJobs({ ownerId: owner2 }).then((js) => js.filter((j) => j.kind === 'delete-account')), [], 'and no record of a job that was never queued')
+      assert.ok((await store.users.get(owner2))?.deletedAt, 'the tombstone is idempotent and stays')
+      assert.equal((await webhook.POST(signed(gone(owner2), 'msg_three'))).status, 200, 'Clerk’s retry of the same message is handled, not taken for a duplicate')
+      await waitFor('the retried job to finish', async () => (await store.jobs.listJobs({ ownerId: owner2, key: deleteAccountKey(owner2) })).length === 0)
+      assert.deepEqual(await leftovers(seed2), [])
+      delete env.CLERK_WEBHOOK_SIGNING_SECRET
+      ok(`${where} webhook: user.deleted marks the account and enqueues the deletion job; a replayed event (same message or a fresh one) and the button find the one job; a failure to queue answers 503 and Clerk’s retry succeeds`)
+    }
+
+    // 9g. A desk with sign-in OFF: there is no account to delete, and deleting its one owner would wipe the desk.
+    {
+      const localProject = crypto.randomUUID()
+      await store.createProject(emptyProject({ id: localProject, chapterId: crypto.randomUUID(), title: 'My only desk', stylePresetId: 'manga-bw', serverRunId: 'check' }))
+      const savedAuth = env.INKDESK_AUTH
+      env.INKDESK_AUTH = 'off'
+      try {
+        const res = await deleteAs(null)
+        assert.equal(res.status, 409)
+        assert.equal(((await res.json()) as { error: string }).error, NO_ACCOUNT_TO_DELETE, 'the one sentence')
+        assert.equal(NO_ACCOUNT_TO_DELETE, 'Deleting an account isn’t available on a desk without accounts.')
+        assert.equal((await deleteAs(null, { confirm: 'something else entirely' })).status, 409, 'refused before the phrase is even read')
+        assert.deepEqual(await (await deleteRoute.GET(rq('GET', '/api/settings/delete', null))).json(), { state: 'none' })
+        await assert.rejects(enqueueAccountJob({ ownerId: LOCAL_OWNER, kind: 'delete-account' }), (e: unknown) => e instanceof Refused && e.status === 409 && e.message === NO_ACCOUNT_TO_DELETE)
+        assert.deepEqual(await deleteAccount(mkJob(LOCAL_OWNER, { kind: 'delete-account', payload: { kind: 'delete-account' } }), depsOf(null)), { outcome: 'refused', error: NO_ACCOUNT_TO_DELETE }, 'and the runner itself refuses')
+        // An export is fine there (a person may take their own desk).
+        assert.equal((await exportRoute.POST(rq('POST', '/api/settings/export', null))).status, 202)
+        await waitFor('the local export', async () => (await exportStateOf('local')).state === 'ready')
+        await store.outputs.deletePrefix('exports/local')
+      } finally {
+        env.INKDESK_AUTH = savedAuth
+      }
+      assert.deepEqual(await store.jobs.listJobs({ key: deleteAccountKey(LOCAL_OWNER) }), [], 'no deletion was ever recorded')
+      assert.equal((await store.readProject(localProject)).title, 'My only desk', 'the desk is as it was')
+      await store.deleteProject(localProject)
+      ok(`${where} deletion: with sign-in off the route answers 409 with “${NO_ACCOUNT_TO_DELETE}” before reading the phrase, the door and the runner refuse too, nothing is recorded or removed — while export still works`)
+    }
+
+    // 9h. The counters purge never reaches a neighbour or the studio, and refuses ids it cannot trust.
+    if (redisReady) {
+      const before = await redisDump()
+      assert.equal(await purgeCounters('*'), 0)
+      assert.equal(await purgeCounters('user_*'), 0)
+      assert.equal(await purgeCounters('global'), 0)
+      assert.equal(await purgeCounters('a:b'), 0)
+      assert.equal(await purgeCounters(''), 0)
+      assert.deepEqual(await redisDump(), before, 'unsafe ids delete nothing')
+      await seedCounters('user_zed')
+      await seedCounters('user_zedd')
+      assert.equal(await purgeCounters('user_zed'), counterKeys('user_zed').length + windowKeys('user_zed').length)
+      assert.deepEqual(await redisDump(mentions('user_zed')), {})
+      assert.equal(Object.keys(await redisDump(mentions('user_zedd'))).length, counterKeys('user_zedd').length + windowKeys('user_zedd').length, 'user_zedd is not user_zed')
+      assert.equal(await purgeCounters('user_zed'), 0, 'again: nothing')
+      await purgeCounters('user_zedd')
+      ok('redis: the purge finds keys by SCAN, takes exactly one person’s, repeats harmlessly and refuses ids with glob characters, colons or the name "global"')
+    }
+
+    // 9i. A deletion that cannot finish says so with one calm sentence, and keeps its record (only `done` deletes it).
+    {
+      const owner = 'user_stuck'
+      const seed = await seedDesk(owner, 'Stuckfast')
+      const record = await deletionJob(owner)
+      // A store that gives back what was just deleted: shares reappear after every sweep (a user making more while it runs).
+      const realListActive = store.shares.listActiveOf
+      const realDeleteAll = store.shares.deleteAllOf
+      store.shares.deleteAllOf = async () => []
+      store.shares.listActiveOf = async () => [{ ...shareOf({ projectId: seed.projects[0], ownerId: owner }) }]
+      const warn = console.warn
+      const err = console.error
+      console.warn = () => {}
+      console.error = () => {}
+      let outcome
+      try {
+        outcome = await deleteAccount(record, depsOf(null))
+      } finally {
+        store.shares.listActiveOf = realListActive
+        store.shares.deleteAllOf = realDeleteAll
+        console.warn = warn
+        console.error = err
+      }
+      assert.deepEqual(outcome, { outcome: 'failed', error: DELETION_INCOMPLETE })
+      assert.ok(await store.jobs.getJob(record.id), 'a failed deletion keeps its record, for the status route to tell the person')
+      assert.match(DELETION_INCOMPLETE, /Nothing is lost by trying again/)
+      assert.deepEqual(await deleteAccount(record, depsOf(null)), { outcome: 'done' }, 'and once the store behaves, the next run finishes')
+      await store.jobs.deleteJob(record.id)
+      assert.deepEqual(await leftovers(seed), [])
+      ok(`${where} deletion: if the verification still finds something after its sweeps, the job ends failed with one calm sentence (the record stays, the page offers Try again), and the next run finishes`)
+    }
+
+    // 9j. Many records: every loop pages (200 at a time) and ends — 450 jobs, 250 of them still queued, half with a stored picture.
+    {
+      const owner = 'user_many'
+      await store.users.upsert({ id: owner, email: 'many@inkdesk.invalid', createdAt: at(0) })
+      const pictures: string[] = []
+      for (let i = 0; i < 450; i++) {
+        let resultImageId: string | null = null
+        if (i % 2 === 0) {
+          resultImageId = await store.putBlob(pngOf('Manyjobs', i, 16), 'image/png', 'panel')
+          pictures.push(resultImageId)
+        }
+        const active = i < 250
+        assert.equal(
+          (await store.jobs.insertJob(mkJob(owner, { kind: 'panel', queue: 'image', projectId: crypto.randomUUID(), payload: { kind: 'panel', chapterId: 'c', pageIndex: 0, index: 0 }, status: active ? 'queued' : 'failed', outcome: active ? null : 'failed', resultImageId, createdAt: at(i), updatedAt: at(i) }))).created,
+          true
+        )
+      }
+      const record = await deletionJob(owner)
+      assert.deepEqual(await deleteAccount(record, depsOf(null)), { outcome: 'done' })
+      assert.deepEqual((await store.jobs.listJobs({ ownerId: owner, limit: 10 })).map((j) => j.id), [record.id], 'only the deletion’s own record is left')
+      for (const id of pictures) assert.equal(await store.getBlob(id), null, 'every stored picture went with its job')
+      await store.jobs.deleteJob(record.id)
+      ok(`${where} deletion: 450 job records (250 of them active) and ${pictures.length} stored pictures are cancelled, deleted and swept in pages, ending with only the deletion’s own record`)
+    }
+
+    // 9k. A job that is drawing when its owner's project is deleted ends calmly: the panel engine answers a vanished project with "skipped" (nothing drawn, nothing thrown),
+    // and a re-run of a job the deletion already cancelled is never claimed again. (No change to panels.ts was needed.)
+    {
+      const { inkPanel } = await import('../lib/panels')
+      const { adhocRun } = await import('../lib/queue/run')
+      const { processJob } = await import('../lib/queue/processors')
+      const owner = 'user_vanish'
+      const seed = await seedDesk(owner, 'Vanishing')
+      const addr = { projectId: seed.projects[0], chapterId: (await store.readProject(seed.projects[0])).chapters[0].id, pageIndex: 0 }
+      const record = await deletionJob(owner)
+      await deleteAccount(record, depsOf(null))
+      await store.jobs.deleteJob(record.id)
+      const quiet = console.warn
+      console.warn = () => {}
+      try {
+        assert.deepEqual(await inkPanel(addr, 0, adhocRun()), { outcome: 'skipped', error: 'There is no such project.' })
+      } finally {
+        console.warn = quiet
+      }
+      // The job record the deletion cancelled (or deleted) is not claimed when BullMQ delivers it again.
+      assert.equal(await processJob(seed.jobs.running, { workerId: 'w-late' }), 'skipped')
+      assert.equal(await processJob(seed.jobs.queued, { workerId: 'w-late' }), 'skipped')
+      assert.deepEqual(await leftovers(seed), [])
+      ok(`${where} deletion: a worker that draws into a project the deletion removed ends "skipped" with the studio’s sentence, and a job it cancelled is never claimed again`)
+    }
+  } finally {
+    await closeProducerRedis().catch(() => {})
+    if (redisProc) {
+      redisProc.kill()
+      delete env.REDIS_URL
+      resetBackend()
+    }
+  }
+
+  // 10-13. The slice's other checks, each a script with its own scratch desk, run here so ONE command holds the slice.
+  //   10 sharing   scripts/share-check-sharing.mts   snapshot allow-list, owner API, public page / JSON / pictures / preview, revoke, windows, XSS, a video share
+  //   11 reports   scripts/share-check-reports.mts   the report route, what is stored, the window, admin gating, admin actions
+  //   12 settings  scripts/share-check-settings.mts  the Defaults route: strict body, isolation, the reserved voices
+  //   13 polling   scripts/poll-check.mts            the light status route and the poller's schedule (CR-8)
+  // They use the local store and say so; the cloud run (INKDESK_STORAGE=cloud) holds the store sections above only.
+  if (!CLOUD) {
+    const childEnv = { ...process.env }
+    delete childEnv.INKDESK_DATA_DIR // each one makes its own scratch desk
+    for (const [n, name, script] of [
+      [10, 'sharing', 'share-check-sharing'],
+      [11, 'reports', 'share-check-reports'],
+      [12, 'settings', 'share-check-settings'],
+      [13, 'polling', 'poll-check'],
+    ] as const) {
+      const child = spawn(process.execPath, ['--import', 'tsx', join(ROOT, 'scripts', `${script}.mts`)], { cwd: ROOT, env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] })
+      let said = ''
+      child.stdout.on('data', (chunk: Buffer) => (said += chunk.toString()))
+      child.stderr.on('data', (chunk: Buffer) => (said += chunk.toString()))
+      const code = await new Promise<number | null>((resolve) => child.on('close', resolve))
+      if (code !== 0) console.log(said)
+      assert.equal(code, 0, `${script} exits 0`)
+      assert.ok(/all passed/.test(said), `${script} says it passed`)
+      ok(`${n} ${name}: scripts/${script}.mts passed (${said.split('\n').filter((l) => /^\s+ok\s/.test(l)).length} assertions listed)`)
+    }
+  }
 
   assert.equal(outbound.length, 0, 'nothing ever left this machine')
   console.log('\n  share-check: all passed\n')

@@ -159,7 +159,7 @@ try {
           continue
         }
         if (path.startsWith('app/api/projects/[id]/') && !offOnly) {
-          const owned = body.indexOf('ownedProject(')
+          const owned = body.search(/\bownedProject(Stamp)?\(/)
           if (owned === -1) problems.push(`${path} ${method}: does not check the project’s owner (ownedProject)`)
           if (read !== -1 && (owned === -1 || read < owned || read < asks)) problems.push(`${path} ${method}: reads the body before the owner is checked`)
           const flag = body.indexOf('assertGenerationEnabled(')

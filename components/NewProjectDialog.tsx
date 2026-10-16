@@ -11,6 +11,10 @@
 // ("Uses 13 of your 20 images today"), and Create is shut — with the reason and
 // the reset time in the dialog — when today's projects are used up or drawing
 // is paused. A project the server refuses anyway shows its sentence.
+//
+// Slice 21: `defaultStyle` (Settings › Defaults) is the preset the dialog opens
+// with chosen; it is only a starting point — the person may pick any other, and
+// an id this build does not know falls back to the studio's own default.
 import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import { apiFetch } from '@/components/api-fetch'
@@ -19,13 +23,20 @@ import { chapterImages, estimateChapterUsd, usd } from '@/lib/cost'
 import { asRefusal, refusalSentence, usesLine } from '@/lib/limits/button'
 import { useUsage, useSpend } from '@/lib/limits/use-usage'
 import { PAGE_COUNT_DEFAULT } from '@/lib/schemas'
-import { DEFAULT_STYLE_PRESET_ID, STYLE_PRESETS, STYLE_PRESET_IDS, type StylePresetId } from '@/lib/styles'
+import { DEFAULT_STYLE_PRESET_ID, STYLE_PRESETS, STYLE_PRESET_IDS, isStylePresetId, type StylePresetId } from '@/lib/styles'
 import type { Chapter } from '@/lib/types'
 
-export function NewProjectDialog({ panelQuality, onClose }: { panelQuality: string; onClose: () => void }) {
+type Props = {
+  panelQuality: string
+  onClose: () => void
+  /** The preset to open on; none (or an unknown one) means the studio's own default. */
+  defaultStyle?: StylePresetId | null
+}
+
+export function NewProjectDialog({ panelQuality, onClose, defaultStyle = null }: Props) {
   const router = useRouter()
   const [title, setTitle] = useState('')
-  const [preset, setPreset] = useState<StylePresetId>(DEFAULT_STYLE_PRESET_ID)
+  const [preset, setPreset] = useState<StylePresetId>(defaultStyle && isStylePresetId(defaultStyle) ? defaultStyle : DEFAULT_STYLE_PRESET_ID)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const titleRef = useRef<HTMLInputElement>(null)

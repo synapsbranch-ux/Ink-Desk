@@ -1,0 +1,214 @@
+/* Sharing (v3, slice 21): the public shared page, and the Share dialog in the
+   Reader station. Built on the studio's tokens and classes (`.station`, `.btn`,
+   `.notice`, `.confirm-*`, the reader's `.reader-*`) — only what they do not
+   already give is here. Every control is at least 44px tall; nothing scrolls
+   sideways at 390, 768 or 1280px. */
+
+/* --- The public page ---------------------------------------------------- */
+
+.share-page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+}
+.share-page .station {
+  padding: var(--space-8) var(--space-6);
+}
+.share-page .station-inner {
+  width: 100%;
+  min-width: 0;
+}
+.share-head {
+  gap: var(--space-2);
+}
+/* A chapter's title can be 200 characters: it wraps, and it never makes the page wider. */
+.share-title {
+  font-size: clamp(32px, 7vw, 60px);
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+.share-meta {
+  margin: 0;
+  font-size: 14px;
+  color: var(--neutral-700);
+}
+.share-page .btn,
+.share-page .chip,
+.share-page .reader-tab {
+  min-height: 44px;
+}
+.share-page .reader-tab {
+  min-width: 44px;
+}
+.share-page .reader-strip {
+  gap: var(--space-2);
+}
+.share-page .reader-controls {
+  align-items: stretch;
+}
+.share-page .reader-sheet {
+  min-width: 0;
+}
+.share-page .reader-actions {
+  flex-wrap: wrap;
+}
+
+/* Lettering follows the screen: small enough on a phone that a bubble's words are not cut off. */
+.share-page .bubble-text {
+  font-size: clamp(8px, 2.2vw, 17px);
+}
+@media (min-width: 900px) {
+  .share-page .bubble-text {
+    font-size: clamp(11px, 1.2vw, 17px);
+  }
+}
+
+/* The footer: who made it, and a way into the studio; Report beside them. */
+.share-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-6);
+  flex-wrap: wrap;
+  padding: var(--space-4) var(--space-6) var(--space-6);
+  border-top: 1px solid var(--divider);
+  font-size: 14px;
+  color: var(--neutral-700);
+}
+.share-made {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+}
+.share-brand {
+  font-family: var(--font-heading), Georgia, serif;
+  font-weight: var(--font-heading-weight);
+  font-size: 18px;
+  color: var(--ink);
+}
+.share-studio-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+
+/* The page a link that is gone (or never was) lands on, and the one a busy address gets. */
+.share-gone {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+.share-gone .not-found {
+  padding: var(--space-6) var(--space-4);
+  max-width: 100%;
+}
+.share-gone .btn {
+  min-height: 44px;
+}
+.share-gone .not-found h1,
+.share-gone .not-found .notice {
+  overflow-wrap: anywhere;
+}
+
+/* --- The Share dialog (Reader station) --------------------------------------- */
+
+.btn-share {
+  min-height: 44px;
+}
+/* With Share publicly beside the exports the reader's buttons no longer fit one line on a phone: they wrap instead of pushing the page sideways. */
+.reader-controls .reader-actions {
+  flex-wrap: wrap;
+}
+.share-dialog {
+  width: min(100%, 520px);
+  max-height: calc(100dvh - var(--space-6) * 2);
+  overflow-y: auto;
+}
+.share-dialog:focus {
+  outline: none;
+}
+.share-dialog .btn,
+.share-dialog .input {
+  min-height: 44px;
+}
+.share-link-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+.share-link-field {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0; /* .field's own bottom margin would lift the Copy button off the field's baseline */
+}
+.share-link {
+  font-size: 14px;
+  text-overflow: ellipsis;
+}
+.share-copy {
+  flex: none;
+}
+.share-actions {
+  justify-content: space-between;
+}
+.share-dialog .helper {
+  margin: 0;
+}
+/* The live region is always there (so a screen reader hears what lands in it) but takes no room until it has something to say. */
+.share-status:empty {
+  margin-top: calc(var(--space-4) * -1);
+}
+.share-open {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  min-height: 44px;
+  margin-top: calc(var(--space-2) * -1);
+}
+
+@media (max-width: 600px) {
+  /* The page strip on a line of its own, the two turn buttons under it. */
+  .share-page .reader-nav {
+    flex-wrap: wrap;
+  }
+  .share-page .reader-strip {
+    order: -1;
+    flex: 1 1 100%;
+  }
+}
+
+@media (max-width: 720px) {
+  .share-page .station {
+    padding: var(--space-6) var(--space-4);
+  }
+  .share-footer {
+    padding-inline: var(--space-4);
+  }
+}
+
+/* Under 480px the dialog is a full-height sheet, and the link and Copy stack. */
+@media (max-width: 480px) {
+  .confirm-overlay:has(.share-dialog) {
+    padding: 0;
+    align-items: stretch;
+  }
+  .share-dialog {
+    width: 100%;
+    max-height: none;
+    border-width: 0;
+    box-shadow: none;
+  }
+  .share-link-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .share-actions {
+    flex-direction: column-reverse;
+  }
+  .share-actions .btn {
+    width: 100%;
+  }
+}

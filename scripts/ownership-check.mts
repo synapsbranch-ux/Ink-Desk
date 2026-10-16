@@ -353,7 +353,7 @@ try {
         revokedAt: null,
       })
     ).share
-  const aliceShare = await shareOf(ALICE, alice.id)
+  let aliceShare = await shareOf(ALICE, alice.id)
 
   const values = (projectId: string, imageId: string) => ({ id: projectId, n: '0', i: '0', imageId, jobId: aliceJob.id, token: aliceShare.token })
   const before = await snapshot(alice.id)
@@ -471,6 +471,9 @@ try {
 
   // --- 3b. Shares, admins and the public routes (slice 21) --------------------------------
   {
+    // Section 3 handed alice's own DELETE routes her real share token, which (rightly) unpublished it, and her
+    // project-share POST may have made a new one: take whichever is active, or share the project again.
+    aliceShare = (await store.shares.activeForProject(alice.id)) ?? (await shareOf(ALICE, alice.id))
     // ownedShare: the owner's active share; everything else is the unknown share’s 404, word for word.
     assert.equal(NO_SUCH_SHARE, 'There is no such share.')
     assert.equal((await ownedShare(ALICE, aliceShare.token)).token, aliceShare.token)

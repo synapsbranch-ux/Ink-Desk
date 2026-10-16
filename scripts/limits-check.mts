@@ -660,6 +660,27 @@ try {
     await redis().flushall()
   }
 
+  // 2b. The memory backend forgets a person (account deletion) and nobody else — nor the studio's totals -------
+  {
+    const b = createMemoryBackend()
+    const caps: Caps = { quota: { image: 1000, project: 1000, videoSeconds: 1000, audioChars: 1000 }, userDailyMicros: 10_000_000, globalDailyMicros: 1e9, globalTotalMicros: null }
+    for (const userId of ['user_gone', 'user_gonex']) {
+      await b.reserve({ id: `purge-${userId}`, userId, units: { image: 2 }, usdMicros: 5_000, caps, tracked: false })
+      await b.hit('edit', userId, 10, 60_000)
+    }
+    assert.ok(b.purgeUser, 'the memory backend can forget a person')
+    assert.ok((await b.purgeUser('user_gone')) >= 4, 'quota, day and month ledgers and the window go')
+    const gone = await b.counters('user_gone')
+    assert.deepEqual([gone.quota.image, gone.userDayMicros, gone.userMonthMicros], [0, 0, 0])
+    const kept = await b.counters('user_gonex')
+    assert.deepEqual([kept.quota.image, kept.userDayMicros], [2, 5_000], 'a look-alike id is untouched')
+    assert.equal(kept.globalDayMicros, 10_000, 'the studio’s totals are untouched')
+    assert.equal(await b.purgeUser('user_gone'), 0, 'again: nothing')
+    assert.equal(await b.purgeUser('global'), 0)
+    assert.equal(kept.globalTotalMicros, 10_000)
+    ok('memory: purgeUser removes one person’s quota, ledgers and windows, repeats harmlessly, and leaves a look-alike id and spend:global:* alone')
+  }
+
   // 3. Atomicity: racing a nearly-full cap cannot over-spend it ----------------------------------------------
   {
     for (const [name, b] of [['Redis', createRedisBackend()], ['memory', createMemoryBackend()]] as const) {

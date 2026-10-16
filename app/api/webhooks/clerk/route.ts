@@ -11,14 +11,20 @@
 // a second write. A failure says 400 and nothing more: the body is never
 // echoed, and the cause stays in the terminal.
 //
-// `user.deleted` marks the account deleted; removing its work is the
-// account-deletion job of slice 21.
+// `user.deleted` marks the account deleted and starts the account-deletion job
+// (slice 21, `lib/account/deletion.ts`) that removes its work. The job's dedupe
+// key is the person (`delete-account:<id>`), so a replayed event, Clerk's own retry
+// and the deletion the studio itself started from Settings all find the one job
+// and start no second. If the job cannot be queued the event answers 503 and
+// Clerk tries again later — like any other store failure — rather than leaving an
+// account marked deleted whose work stays.
 import type { UserJSON } from '@clerk/nextjs/server'
 import { verifyWebhook, type WebhookEvent } from '@clerk/nextjs/webhooks'
 import { NextRequest } from 'next/server'
 import { readBytes } from '@/lib/body'
 import { queueSettings } from '@/lib/config'
 import { Refused } from '@/lib/errors'
+import { enqueueAccountJob } from '@/lib/queue/enqueue'
 import { store } from '@/lib/store'
 
 export const runtime = 'nodejs'
@@ -111,7 +117,11 @@ async function apply(event: WebhookEvent): Promise<void> {
       return
     }
     case 'user.deleted': {
-      if (event.data.id) await store.users.markDeleted(event.data.id)
+      const id = event.data.id
+      if (!id) return
+      await store.users.markDeleted(id)
+      // The record is the tombstone; the job removes everything else. Asking again while it runs returns that job.
+      await enqueueAccountJob({ ownerId: id, kind: 'delete-account' })
       return
     }
     default:

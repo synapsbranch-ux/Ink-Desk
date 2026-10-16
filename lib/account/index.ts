@@ -6,11 +6,12 @@
 // queue code in here. See `devpost/spec.md > Settings, Usage, Terms and Privacy
 // (v3)` and the order of steps in the slice 21 contract.
 //
-// THE SIGNATURES BELOW ARE THE CONTRACT with the processor and stay fixed; the
-// bodies are the other half of slice 21 and replace the stubs. Until they do,
-// each answers `failed` with one calm sentence, so nothing can mistake a stub
-// for a finished export or deletion (a `delete-account` job that ends `failed`
-// keeps its record; only `done` deletes it).
+// THE SIGNATURES BELOW ARE THE CONTRACT with the processor and stay fixed. The
+// work is split by what it does: `export.ts` (the zip) with `zip.ts`, and
+// `deletion.ts` (the sweep) with `clerk.ts` and `counters.ts`; `keys.ts` names
+// where an account's files live and `state.ts` is what the three routes tell the
+// person. A `delete-account` job that ends `failed` keeps its record; only
+// `done` deletes it.
 //
 //   runExport(job, run)         zip the owner's data into the outputs store at
 //                               `exports/<ownerId>/<jobId>.zip`; keep only the
@@ -26,18 +27,15 @@
 import 'server-only'
 import type { JobRecord } from '../queue/jobs'
 import type { JobRun, Outcome } from '../queue/run'
-
-/** What a stub says until its body is built. */
-const NOT_BUILT = 'Not built yet.'
+import { deleteAccount, productionDeps } from './deletion'
+import { makeExport } from './export'
 
 export async function runExport(job: JobRecord, run: JobRun): Promise<Outcome> {
-  void job
-  void run
-  return { outcome: 'failed', error: NOT_BUILT }
+  void run // an export draws nothing, so there is no picture to checkpoint
+  return makeExport(job)
 }
 
 export async function runDeleteAccount(job: JobRecord, run: JobRun): Promise<Outcome> {
-  void job
   void run
-  return { outcome: 'failed', error: NOT_BUILT }
+  return deleteAccount(job, productionDeps())
 }
