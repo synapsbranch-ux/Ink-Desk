@@ -49,7 +49,7 @@ import { authMode } from '../auth/config'
 import { Refused } from '../errors'
 import { endJob } from '../queue/ending'
 import { settleEnded } from '../limits/jobs'
-import { LOCAL_OWNER, NO_ACCOUNT_TO_DELETE, finish, isActive, type JobRecord } from '../queue/jobs'
+import { LOCAL_OWNER, NO_ACCOUNT_TO_DELETE, finish, isActive, reservationOf, type JobRecord } from '../queue/jobs'
 import type { Outcome } from '../queue/run'
 import { revokeShare } from '../share/pins'
 import { store } from '../store'
@@ -243,7 +243,8 @@ async function removeProjects(owner: string): Promise<void> {
 /**
  * Every job's stored picture (one that was paid for and never attached), then the job's record; the deletion's own is the processor's to delete last.
  * A record is never deleted while it still holds quota or spend: a job made after the cancel is ended (`endJob` releases its hold), and an ended
- * one whose settle never ran is settled — a deleted record is one nothing could settle afterwards.
+ * one whose settle never ran is settled — a deleted record is one nothing could settle afterwards. A settle that could not land (the counters
+ * are down) throws, so the queue tries the whole deletion again with the record still there.
  */
 async function removeJobs(owner: string, selfId: string, deps: DeletionDeps): Promise<void> {
   for (let pass = 0; pass < MAX_PASSES; pass++) {
@@ -253,6 +254,9 @@ async function removeJobs(owner: string, selfId: string, deps: DeletionDeps): Pr
       if (isActive(j)) await endJob(j.id, (current) => (current.id === selfId || !isActive(current) ? null : finish(current, { outcome: 'cancelled', error: CANCELLED }, deps.now())))
       else await settleEnded(j)
       const current = (await store.jobs.getJob(j.id)) ?? j
+      // `settleEnded` swallows a counter store that did not answer and leaves the record `held` for the sweep, which lists records:
+      // deleting this one now would strand its estimate in the studio's totals. Throw instead — the queue retries with the record still here.
+      if (reservationOf(current) === 'held') throw new Error(`could not settle the hold of job ${j.id} yet: the counters did not answer`)
       if (current.resultImageId) await store.deleteBlob(current.resultImageId)
       await store.jobs.deleteJob(j.id)
     }

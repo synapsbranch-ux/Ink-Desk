@@ -5,12 +5,13 @@
 // with a hanko rule, below the export — and asks twice: the button opens a
 // dialog that NAMES what goes (projects and their pictures, videos, shared
 // links, queued work, export files, usage counters, settings) and what stays
-// (nothing of theirs: only the studio's anonymous spend totals, which hold no
-// names or work), and the confirm stays shut until the person has typed
-// `delete my account`. The server checks the same phrase again.
+// (a minimal record of the account, anonymous spend totals, logs and backups
+// until they expire, and rarely a picture no record names), and the confirm
+// stays shut until the person has typed `delete my account`. The server checks
+// the same phrase again.
 //
-// Deleting is a background job (`POST /api/settings/delete`, 202): it ends the
-// sign-in early, then removes the work, so this panel polls
+// Deleting is a background job (`POST /api/settings/delete`, 202): it removes
+// the work first and the Clerk sign-in last, so this panel polls
 // (`GET /api/settings/delete`) and, when it is done — or when the session has
 // already gone, a 401 — sends the browser to sign-in. A reload mid-way picks
 // the same state up from the server. A failure ends in the server's sentence and
@@ -226,7 +227,10 @@ export function SettingsDelete({ available }: { available: boolean }) {
               <div className="settings-dialog-list">
                 <h3>What stays</h3>
                 <ul>
-                  <li>Nothing of yours. The studio keeps only its own anonymous spend totals, which hold no names and none of your work.</li>
+                  <li>A minimal record of the account: your Clerk user id and when it was created and deleted, no email. It stops the account being brought back by mistake.</li>
+                  <li>The studio’s own anonymous spend totals, which hold no names and none of your work.</li>
+                  <li>Server logs and backups, until they expire.</li>
+                  <li>Rarely, a picture that no record of yours names, which cannot be traced to you to be removed.</li>
                 </ul>
               </div>
             </div>

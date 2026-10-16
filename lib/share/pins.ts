@@ -42,7 +42,8 @@ export async function releasePictures(ids: Iterable<string>, projectId: string |
     try {
       held = projectImageIds(await store.readProject(projectId))
     } catch (err) {
-      if (!(err instanceof Refused)) return void console.warn(`[share] kept ${loose.length} picture(s) a share let go of; the project could not be read:`, err)
+      // Only "there is no such project" (a 404) means gone; a project that exists but is damaged (a 500) still names its pictures.
+      if (!(err instanceof Refused && err.status === 404)) return void console.warn(`[share] kept ${loose.length} picture(s) a share let go of; the project could not be read:`, err)
     }
   }
   for (const id of loose) {

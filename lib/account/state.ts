@@ -10,12 +10,14 @@
 //   deletion  none     nothing under way
 //             working  the job is queued or running
 //             failed   it stopped before the end; running it again picks up where it left off
-//             done     the account's record carries its tombstone and no job is left
-//             (the job's own record is deleted on success, so `done` is read from the tombstone)
+//             done     the account's record carries a recent tombstone and no job is left
+//             (the job's own record is deleted on success, so `done` is read from the tombstone — while it is
+//             younger than a failed job's record would last; after that it is `none`, so a deletion that
+//             failed and was left can be started again)
 import 'server-only'
 import { Refused } from '../errors'
 import { activeJob } from '../queue/enqueue'
-import { SHOW_FAILED_MS, deleteAccountKey, exportKey } from '../queue/jobs'
+import { KEEP_FINISHED_MS, SHOW_FAILED_MS, deleteAccountKey, exportKey } from '../queue/jobs'
 import { readBytes } from '../body'
 import { store } from '../store'
 import { exportFolder, hasOutputFolder, jobIdOfExport } from './keys'
@@ -66,14 +68,18 @@ export async function exportState(ownerId: string): Promise<ExportView> {
   return { state: 'none' }
 }
 
-export async function deleteState(ownerId: string): Promise<DeleteView> {
+export async function deleteState(ownerId: string, now = Date.now()): Promise<DeleteView> {
   const key = deleteAccountKey(ownerId)
   if (await activeJob(key)) return { state: 'working' }
   const [last] = await store.jobs.listJobs({ ownerId, key, limit: 1 })
   if (last?.status === 'failed' && last.outcome !== 'cancelled') return { state: 'failed', error: last.error ?? DELETE_FAILED }
   if (last?.status === 'done') return { state: 'done' }
-  // The finished job deletes its own record: the account's tombstone is what is left to say it happened.
-  if ((await store.users.get(ownerId))?.deletedAt) return { state: 'done' }
+  // The finished job deletes its own record: the account's tombstone is what is left to say it happened. But the tombstone goes on FIRST
+  // and Clerk's user goes last, so a deletion that failed leaves a live, signed-in person with a tombstone too — and its failed record is
+  // pruned after KEEP_FINISHED_MS (counted from its ending, so always later than the tombstone). Only a tombstone younger than that can
+  // be a deletion that finished a moment ago; an older one with no job is nothing under way, and the person may start it again.
+  const tombstone = (await store.users.get(ownerId))?.deletedAt
+  if (tombstone && now - Date.parse(tombstone) < KEEP_FINISHED_MS) return { state: 'done' }
   return { state: 'none' }
 }
 

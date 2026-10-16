@@ -84,9 +84,12 @@ export default function PrivacyPage() {
         <h2>Deleting your data</h2>
         <p>
           In <Link href="/settings/data">Settings › Data and privacy</Link>, <em>Export my data</em> gives you one zip with your account details, your
-          settings, your shared links and every project with its pictures. <em>Delete account</em> removes your projects, pictures, uploads, videos,
+          settings, your shared links and every project with its pictures. <em>Delete my account</em> removes your projects, pictures, uploads, videos,
           shared links (they stop working at once), the reports about them, export files, usage counters and settings, and then your Clerk account.
-          It cannot be undone. The studio keeps only its own anonymous spend totals, which hold no names and none of your work. If you cannot sign in,{' '}
+          It cannot be undone. A few things stay: a minimal record of the account (your Clerk user id and the dates it was created and deleted, no email),
+          kept so the account cannot be brought back by mistake; the studio’s own anonymous spend totals, which hold no names and none of your work;
+          server logs and backups, until they expire; and, rarely, a picture that no record of yours names, which cannot be traced to you to be removed.
+          If you cannot sign in,{' '}
           {write} from the email address on your account and it will be done for you.
         </p>
 

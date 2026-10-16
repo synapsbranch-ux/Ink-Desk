@@ -833,6 +833,29 @@ try {
     assert.equal((await owner(byToken.DELETE, 'DELETE', { token: again.token }, ALICE)).status, 200)
     assert.equal(await here(r6), false, 'unpublishing from Settings releases it too')
 
+    // A project that exists but cannot be read (damaged, no backup) is not guessed at: Unpublish must leave every picture the link listed,
+    // because the project still names them and repairing it from a file backup would otherwise find its art gone.
+    {
+      const sick = await planless()
+      const S = sick.project.id
+      const link = shareOf(await owner(projectRoute.POST, 'POST', { id: S }, ALICE))!
+      const listed = [...snapshotImageIds(publicManga((await store.shares.get(link.token))!.snapshot)!)]
+      assert.ok(listed.length >= 2, 'the link lists panels and a cover')
+      const file = join(dir, 'projects', S, 'project.json')
+      await writeFile(file, JSON.stringify({ ...JSON.parse(await readFile(file, 'utf8')), version: 1 }))
+      await rm(join(dir, 'projects', S, 'project.json.bak'), { force: true })
+      await assert.rejects(store.readProject(S), (e: unknown) => (e as { status?: number }).status === 500, 'the project cannot be read')
+      const warn = console.warn
+      console.warn = () => {}
+      try {
+        assert.equal((await owner(byToken.DELETE, 'DELETE', { token: link.token }, ALICE)).status, 200, 'the link can still be taken down')
+      } finally {
+        console.warn = warn
+      }
+      assert.equal((await store.shares.get(link.token))?.snapshot ?? null, null, 'and it is revoked')
+      for (const id of listed) assert.equal(await here(id), true, `${id} stays: an unreadable project is not treated as gone`)
+    }
+
 
     // A redraw that lands between the project being read and the snapshot being written is caught: the snapshot is taken again, and no
     // picture it lists is missing. (Update share first, then Share publicly.)
@@ -931,6 +954,9 @@ try {
       assert.equal(turnKeyIndex(key('ArrowRight', modal(inner)), true, 1, 5), null, `${inner.tag} in a dialog`)
     }
     assert.equal(turnKeyIndex(key('ArrowLeft', null), true, 1, 5), 2, 'no target (a synthetic event) still turns')
+    // …and neither is a key whose target is the body while a modal is open: a click on the dialog's plain text drops focus there, outside the dialog.
+    assert.equal(turnKeyIndex({ ...key('ArrowLeft', body), modalOpen: true }, true, 1, 5), null, 'focus lost to the body behind an open dialog')
+    assert.equal(turnKeyIndex({ ...key('ArrowLeft', body), modalOpen: false }, true, 1, 5), 2, 'no dialog open: it turns')
     // Both dialogs carry the attributes the guard looks for.
     for (const file of ['ShareDialog', 'ReportDialog']) {
       const source = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'components', `${file}.tsx`), 'utf8')

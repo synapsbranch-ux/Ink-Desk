@@ -105,7 +105,7 @@ export function useTurnKeys({ enabled, rtl, at, count, go }: { enabled: boolean;
   useEffect(() => {
     if (!enabled) return
     const onKey = (e: KeyboardEvent) => {
-      const to = turnKeyIndex({ key: e.key, altKey: e.altKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey, target: e.target instanceof Element ? e.target : null }, rtl, at, count)
+      const to = turnKeyIndex({ key: e.key, altKey: e.altKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey, target: e.target instanceof Element ? e.target : null, modalOpen: document.querySelector('[aria-modal="true"]') !== null }, rtl, at, count)
       if (to === null) return
       go(to)
       e.preventDefault()

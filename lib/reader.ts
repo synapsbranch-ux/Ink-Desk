@@ -89,16 +89,18 @@ export const TURN_KEYS_IGNORED_IN = 'input, textarea, [contenteditable="true"], 
 
 /**
  * The page an arrow key turns to, or null when it turns nothing. In manga order "next" is the left-hand side. A shortcut
- * (Alt, Ctrl, Meta, Shift) and a key pressed in a field or a modal dialog are left alone. The index stays within the pages.
+ * (Alt, Ctrl, Meta, Shift), a key pressed in a field or a modal dialog, and any key while a modal is open (`modalOpen`) are left alone. The index stays within the pages.
  */
 export function turnKeyIndex(
-  e: { key: string; altKey: boolean; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; target: { closest(selector: string): unknown } | null },
+  e: { key: string; altKey: boolean; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; target: { closest(selector: string): unknown } | null; modalOpen?: boolean },
   rtl: boolean,
   at: number,
   count: number
 ): number | null {
   if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return null
   if (e.target?.closest(TURN_KEYS_IGNORED_IN)) return null
+  // A click on a dialog's plain text drops focus to the body, outside the dialog: the open modal still owns the keys.
+  if (e.modalOpen) return null
   const forward = rtl ? 'ArrowLeft' : 'ArrowRight'
   const back = rtl ? 'ArrowRight' : 'ArrowLeft'
   if (e.key === forward) return Math.min(Math.max(0, at + 1), count - 1)

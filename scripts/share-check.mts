@@ -2171,6 +2171,48 @@ try {
       assert.deepEqual(await leftovers(seed), [])
       ok(`${where} deletion: a picture only the live link was holding goes with the account`)
     }
+
+    // 9q. A deletion that failed leaves a live, signed-in person with a tombstone (Clerk is asked last). Once its failed record is pruned the
+    // state must not read `done` — that sends the Data page to /sign-in on every visit and hides the Delete card for good.
+    {
+      const { deleteState } = await import('../lib/account/state')
+      const { KEEP_FINISHED_MS } = await import('../lib/queue/jobs')
+      const owner = 'user_leftfailed'
+      await store.users.markDeleted(owner)
+      assert.deepEqual(await deleteState(owner), { state: 'done' }, 'a tombstone with no job, fresh, is a deletion that has just finished')
+      assert.deepEqual(await deleteState(owner, Date.now() + KEEP_FINISHED_MS + 60_000), { state: 'none' }, 'a tombstone older than a failed record lasts, with no job, is nothing under way')
+      ok(`${where} deletion: a tombstone with no job reads done only while it is younger than a failed record would have lasted; after that the person may start again`)
+    }
+
+    // 9r. A settle that could not land (the counters did not answer) must not let the record go: nothing could settle its hold afterwards.
+    {
+      const { reserve } = await import('../lib/limits')
+      const owner = 'user_unsettled'
+      const seed = await seedDesk(owner, 'Unsettled')
+      const record = await deletionJob(owner)
+      const job = mkJob(owner, { kind: 'panel', projectId: seed.projects[0], payload: { kind: 'panel', chapterId: 'c', pageIndex: 0, index: 3 }, queue: 'image', status: 'failed', outcome: 'failed', error: 'x', finishedAt: at(2), reservation: 'held', reservedUsd: 0.05 })
+      await reserve({ id: job.id, userId: owner, units: { image: 1 }, usd: 0.05 })
+      assert.equal((await store.jobs.insertJob(job)).created, true)
+      const b = backend() as unknown as { finish: (...a: unknown[]) => Promise<unknown> }
+      const realFinish = b.finish
+      const warn = console.warn
+      console.warn = () => {}
+      b.finish = () => Promise.reject(new Error('redis is down'))
+      try {
+        await assert.rejects(deleteAccount(record, depsOf(null)), /could not settle the hold/, 'the deletion throws for the queue to retry')
+      } finally {
+        b.finish = realFinish
+        console.warn = warn
+      }
+      assert.ok(await store.jobs.getJob(job.id), 'the record is still there to settle')
+      assert.ok(await backend().hold(job.id), 'and so is its hold')
+      assert.deepEqual(await deleteAccount(record, depsOf(null)), { outcome: 'done' }, 'the retry settles it and finishes')
+      assert.equal(await store.jobs.getJob(job.id), null)
+      assert.equal(await backend().hold(job.id), null, 'the hold was released before the record went')
+      await store.jobs.deleteJob(record.id)
+      assert.deepEqual(await leftovers(seed), [])
+      ok(`${where} deletion: a job whose hold could not be settled keeps its record, and the deletion is retried, until the hold is given back`)
+    }
   } finally {
     await closeProducerRedis().catch(() => {})
     if (redisProc) {
