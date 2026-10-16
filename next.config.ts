@@ -82,6 +82,8 @@ const robotsHeader = { key: 'X-Robots-Tag', value: 'noindex, nofollow' }
 const sharePageHeaders = [robotsHeader, { key: 'Referrer-Policy', value: 'no-referrer' }]
 
 const nextConfig: NextConfig = {
+  // Only for several `next dev` servers at once on one machine (the build agents, the checks): `INKDESK_DIST_DIR=.next-3931`.
+  ...(process.env.INKDESK_DIST_DIR ? { distDir: process.env.INKDESK_DIST_DIR } : {}),
   // No `X-Powered-By: Next.js` advertising the stack.
   poweredByHeader: false,
   // The queue's client libraries load native helpers and read their own files at
