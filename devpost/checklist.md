@@ -3,6 +3,8 @@ doc: checklist
 status: approved
 ---
 
+> **Status note, 2026-10-16:** slices 16–21 are built (each box stays open until its live checkpoint; slice 17 until the learner's verdict on the motion clips). Slice 22 is next.
+>
 > **Status note, 2026-10-14:** slices 8–15 are built and the v2 demo is filmed. **Slices 16–23 are the v3 revision, approved at the gut check the same day — *"start with slice 16"*** — see **Revisions** and the v3 target dates.
 >
 > **Status note, 2026-10-13:** slices 1–7 are built, reviewed and tagged `v1-poc`. Slices 8–15 (the v2 revision, see **Revisions**) were approved at the gut check the same day — *"approved, start slice 8."*
@@ -265,6 +267,7 @@ Order by risk, as the learner set it — *domain + storage + Redis/BullMQ worker
   Spec ref: `spec.md > Revision v3 > Sharing (v3)`, `> Reports (v3)`, `> Settings, Usage, Terms and Privacy (v3)`, `> Data Model (v3)`
   Build: `shares` with snapshots, `app/s/[token]` and its OG image, `/api/s/[token]/*` serving only snapshot ids, reports and `app/admin/reports`, Settings pages, export zip, **delete account** as one idempotent worker job (also run by the `user.deleted` webhook), studio defaults if the day allows (first on the cut list).
   Verify (mechanical): new `check:share` — a share exposes no field outside the snapshot, a revoked and an unknown token give the same 404, a report is rate-limited per IP; account deletion leaves no record, object, job or share for that user (counted in Mongo and the bucket).
+  *Built 2026-10-16, verified in the session (`check:share` with its crash-at-every-step deletion section, `check:poll`, typecheck, lint, `next build --webpack` and all 21 `check:*` with every real credential unset; a browser walk of the real product at 390, 768 and 1280 px; two rounds of adversarial review whose 29 confirmed findings were each reproduced first and fixed, the first of them that account deletion could not finish in production); waiting only on the live checkpoint on Railway (`ADMIN_EMAILS` on web, `CLERK_SECRET_KEY` on the worker, the real Mongo and bucket, a phone), so the box stays open.* Studio defaults shipped as style and reading direction; the voice picker waits for slice 22. The CR-8 polling fix (a status route) rode along because the security report names this slice as its closer. See `spec.md > As built — slice 21`.
   Learner check: share a chapter, open the link signed out on your phone, paste it in a chat app and see the preview, report it, find the report in the admin list, unpublish it; export your data; delete a throwaway account and confirm it is gone. **Hands-on checkpoint.**
   Commit: `Sharing, reports and settings: share links, the admin list, export and account deletion` — tag `v3-cp6`
 

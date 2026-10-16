@@ -1,6 +1,6 @@
 ---
 doc: security-report
-status: in progress — slice 16 fixes recorded
+status: in progress — slice 21 fixes recorded
 ---
 
 # Ink Desk — Security and Stability Report
@@ -147,7 +147,7 @@ The learner's rule (`scope.md > Revision — Ink Desk Studio v3`, item 9): an au
 | CR-5 | high | No request-body size limit, and unbounded strings and records in the zod schemas: one request makes the project 30 MB, and every poll then serves 30 MB | slice 16 | fixed — slice 16 |
 | CR-2 | medium | Cloud mode cannot start with the provided env: it requires MONGODB_URI/MONGODB_DB/S3_BUCKET, ignores S3_FORCE_PATH_STYLE and the two named buckets, and instrumentation … | slice 16 | fixed — slice 16 |
 | CR-6 | medium | No timeouts on S3 or Mongo calls and no watchdog on queue jobs or the per-project lock chain: one hung socket can stop all generation globally or freeze a project | slice 16 | fixed — slice 16 |
-| CR-8 | medium | Polling storm: a full-desk GET every 1.5s for as long as the Director or Storyboard is open, including hidden tabs, without an in-flight guard and without backoff on … | slice 21 | open |
+| CR-8 | medium | Polling storm: a full-desk GET every 1.5s for as long as the Director or Storyboard is open, including hidden tabs, without an in-flight guard and without backoff on … | slice 21 | fixed — slice 21 |
 | CR-10 | medium | One global FIFO queue, two wide, shared by all users with no per-user cap or fairness and no 402 circuit breaker: one Generate all starves everyone | slice 18 | fixed — slice 18 |
 | CR-11 | medium | Long provider calls run inside the request with no concurrency cap or idempotency: killed requests waste spend, and parallel draws bypass PANEL_CONCURRENCY | slice 18 | fixed — slice 18 |
 | CR-12 | medium | Dashboard listing loads every project document in full, for every user, on every load | slice 16 | fixed — slice 16 |
@@ -198,7 +198,7 @@ The learner's rule (`scope.md > Revision — Ink Desk Studio v3`, item 9): an au
 
 ### CR-8 — Polling storm: a full-desk GET every 1.5s for as long as the Director or Storyboard is open, including hidden tabs, without an in-flight …
 
-- **Where:** `components/Studio.tsx`:488 · **Severity:** medium · **Closed by:** slice 21 · **Status:** open
+- **Where:** `components/Studio.tsx`:488 · **Severity:** medium · **Closed by:** slice 21 · **Status:** fixed — slice 21 (the status route and the scheduler in `lib/poll.ts`; see Slice 21 below)
 - **Scenario:** `watching` is true whenever the station is storyboard or director and a plan or script exists. A finished, idle project therefore polls forever, and so does every hidden tab. Each tick calls fetch(api) on setInterval with no check for a request already in flight, so a slow server (813 ms per GET at 30 MB, see CR-5) builds overlapping requests. Errors are swallowed and the next tick fires 1.5s later, so polling keeps full pressure on a struggling server. Every response carries the whole desk (scenario up to 100k chars, the plan, all pages' panels, cast, assets), and every request does a full project read plus demoteStale. 200 users with two tabs each produce ~270 req/s of full-document reads against Mongo while nobody is generating anything.
 - **Fix:** Poll only when the server reports work in flight: add `activeJobs`/`queued` to the desk and drop the bare `watching` term. Replace setInterval with a recursive setTimeout that waits for the previous request to finish. Pause when document.visibilityState is 'hidden'. Back off exponentially on errors and 429s (1.5s up to 30s). Return a cheap ETag/Last-Modified from rev/updatedAt and answer 304, or add a light GET /status endpoint with per-panel status only. Rate-limit GET per user.
 - **Verifier:** Confirmed in components/Studio.tsx:489-508. `watching` is true for any storyboard or director station that has a plan or script, so idle finished projects poll every 1.5 s. It uses setInterval with no in-flight guard, no visibilityState pause, no backoff, and swallows errors. Each tick does a full readProject plus demoteStale and returns the whole desk. This is a load and cost amplifier under real traffic, not a crash. Medium.
@@ -340,6 +340,32 @@ Built by two builders with disjoint files (the enforcement; the screens), an int
 **What the learner must do for SEC-02 to hold on the live domain** (the code is closed; the numbers are theirs): set `ALLOWLIST_EMAILS`, `GLOBAL_DAILY_USD_CAP` and `GLOBAL_TOTAL_USD_CAP` on `web`; put a **credit limit on the OpenRouter key with auto top-up off**, the backstop beyond every cap here; check the edge's `X-Real-IP` and set `CLIENT_IP_HEADER`; keep `REDIS_URL` on both services; then `GENERATION_ENABLED=true`. See `spec.md > As built - slice 20`.
 
 **Still open after slice 20, by design:** SEC-07 (prompt injection; slice 22), SEC-14 (the `data/` move waits for the learner), CR-8 (the polling storm: an idle project no longer polls and hidden tabs pause, but the full-desk read per tick stays until slice 21). **Not closed by this slice but named by it:** video and audio spend has counters and a meter but no estimate or hold until slice 22; a person at their own dollar cap still sees the text buttons enabled (finding 15); a text 402 pauses for ten minutes, not the day (finding 19). The **after** audit (slice 23) re-runs both lenses on the frozen build, the limits included.
+
+## Slice 21 - sharing, reports, settings, deletion (2026-10-16)
+
+Closed: **CR-8** (the poll asks `GET /api/projects/[id]/status` — a stamp and the job list, about 2% of the desk's reply — on a recursive timeout with back-off and `Retry-After`, and reads the whole desk only when the revision changed or a job just ended; `check:poll` fails if the status route reads a whole project). New attack surface, all built with its own proofs: a **public, unauthenticated read surface** (`/s/*`, `/api/s/*`) and a public write (the report), an **admin list**, **account export and deletion**, and the file/queue/Redis machinery under them.
+
+Built by six builders on disjoint files (sharing; reports and admin; settings; export and deletion; dashboard; polling), an integrator, then **two rounds of adversarial review** (seven lenses, then four on the fixes; three skeptics per finding, each told to refute; every fixer reproduced the finding with a failing assertion first). **Round 1: 23 findings confirmed, round 2: 6 more; each was fixed or reduced, and what the fixers chose not to fix is listed under *Accepted* below.** Highlights:
+
+| What the review found | What became of it |
+|---|---|
+| Account deletion could never finish in production: the worker had no Clerk secret, and the Clerk user was deleted before any data was removed | **Fixed.** The job checks Clerk can be asked before anything changes; the worker refuses to boot in clerk mode without `CLERK_SECRET_KEY`; Clerk is deleted **last**, so a failed deletion leaves the person signed in to retry |
+| A redraw after sharing deleted pictures the live share still listed (CR-16 against snapshots) | **Fixed.** Pictures a live share lists are pinned and released when the share is refreshed, unpublished, taken down or its account deleted; a damaged project keeps them; the snapshot is re-taken once if a redraw lands mid-write; a 900-round concurrent fuzz found none missing and none orphaned |
+| Replaced character sheets sat outside every record and survived account deletion | **Fixed** going forward (`droppedSheets`); sheets replaced before this slice stay (blob ids carry no owner) — **accepted, documented** |
+| Privacy and Terms still said sharing, deletion and reporting did not exist | **Fixed;** the copy was checked against the code in round 2 |
+| A share left on a project by its earlier owner (before a claim) stayed public and invisible to the new owner | **Fixed.** Unpublish and share-again revoke whatever active share the project has; `claim-projects` revokes it |
+| Deletion left public links live until after the Clerk call; a deletion's later holds were deleted unreleased; a picture landing between a read and a delete was orphaned | **Fixed.** Links are revoked first; jobs created after the cancel are ended (hold released) before removal and a record whose settle failed fails the job for a retry; the sweep re-reads until no picture is new |
+| The share page read the store and built its metadata before the address window; the preview image was a CPU amplifier on the cheap picture window | **Fixed / reduced.** One cached window per view; the preview takes the strict 60-a-minute window. A stored card or a sharp concurrency cap was judged a design change — **accepted** |
+| Large export uploads died at the client's 30 s ceiling; the outputs bucket was never probed; a token collision on a shared project reported the wrong error | **Fixed** (timeout sized to the file, no `Expect: 100-continue`, a connect-time write/read/list probe of both buckets, the duplicate-key path resolved to the holder) — **cloud code still unrun against a real server** |
+| Arrow keys turned the reader's pages behind the Share and Report dialogs | **Fixed** (`turnKeyIndex`) |
+| Three checks would not have caught a regression (the status route reading the whole desk, orphan video objects, the claimed-project owner guards) | **Fixed.** Each mutation now fails its check |
+| A deletion that failed after the tombstone eventually read as finished | **Fixed.** A fresh tombstone reads *done* only while no failed record explains it; the Delete card returns after 7 days |
+
+**Verified** with every real credential unset and `fetch` stubbed: `typecheck`, `lint`, `next build --webpack`, all 21 `check:*` (new `check:share`, `check:poll`) and a browser walk of the real product at 390, 768 and 1280 px; mutation tests for the guards named above (a surviving mutation was itself a finding).
+
+**Accepted, stated plainly:** (1) unreferenced pictures cannot be found by owner and may outlive a deletion (a worker still drawing at cancel time; sheets before this slice) — a bucket lifecycle rule is the backstop; (2) a deletion started by Clerk's `user.deleted` that fails past BullMQ's three attempts is not re-run; (3) a Clerk session token minted before the Clerk delete can write for about a minute — the second sweep narrows it; (4) a preview already fetched by a chat app cannot be recalled when a share is unpublished; (5) the share page's rate-limited state is HTTP 200 (a Server Component cannot set a status; the JSON, picture and preview routes return real 429s); (6) the cloud (Mongo and S3) halves of the new store, the export upload and the connect probe have **never run against a real server**; (7) in dev, a non-admin's `/admin/reports` differs from an unknown route by the error overlay's payload — production is unverified; (8) with the report window, a scripted visitor can still file 6 reports an hour per address.
+
+**Still open after slice 21, by design:** SEC-07 (prompt injection; slice 22), SEC-14 (the `data/` move waits for the learner). The **after** audit (slice 23) re-runs both lenses on the frozen build.
 
 ## Not yet audited — the after audit adds these
 
