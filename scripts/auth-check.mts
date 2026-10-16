@@ -5,9 +5,13 @@
 //
 //   npm run check:auth
 //
-//   a. Every `app/api/**/route.ts` handler asks who is calling (`requireUser`)
-//      unless it is on the public list (the health check, Clerk's webhook);
-//      under a project's address it checks the owner before it reads a body.
+//   a. Every `app/api/**/route.ts` handler asks who is calling (`requireUser`,
+//      or `requireAdmin`, which does) unless it is on the public list (the
+//      health check, Clerk's webhook) or is public by design (slice 21:
+//      `app/api/s/**`, the share page's data — those take NO session and must
+//      take an address window instead); under a project's address it checks the
+//      owner before it reads a body, under `/api/shares/[token]` the share's
+//      owner, under `/api/admin` the admin.
 //   b. INKDESK_AUTH: off outside production, clerk in it; production refuses
 //      off, test, and clerk without its keys — by name, never by value.
 //   c. requireUser in test mode (a valid header, none, a malformed one) and
@@ -22,6 +26,13 @@
 //   g. The browser's apiFetch: a 401 while Clerk still holds a session (a
 //      token that lapsed while the machine slept) refreshes and asks once
 //      more; only a 401 that stays one sends the page to sign-in.
+//   h. Admins (slice 21): ADMIN_EMAILS against the verified email, case-
+//      insensitively; a deleted account, an unknown one and `local` (with
+//      sign-in on) are not; a non-admin gets 404 "There is no such page.",
+//      never 403; a store that is down promotes nobody.
+//   i. Headers (slice 21): `/s/*` and `/api/s/*` are noindex, `/s/*` sends no
+//      referrer, the CSP is the site's own; and the proxy keeps its Origin
+//      check on the share routes' writes while leaving them open to a stranger.
 import './server-only.mts' // first: lets server modules load outside Next (SEC-15)
 import assert from 'node:assert/strict'
 import { createHmac, generateKeyPairSync, randomBytes, sign as rsaSign, type KeyObject } from 'node:crypto'
@@ -124,7 +135,22 @@ try {
       const list = handlers(source)
       if (list.length === 0) problems.push(`${path}: no handler found to check`)
       for (const { method, body } of list) {
-        const asks = body.indexOf('requireUser(')
+        const firstOf = (...needles: string[]) => {
+          const found = needles.map((n) => body.indexOf(n)).filter((i) => i !== -1)
+          return found.length === 0 ? -1 : Math.min(...found)
+        }
+        const read = body.search(BODY)
+        // Public by design (slice 21): the share page's data. A stranger holding a link has no session, so the route takes
+        // none — and takes a window keyed by the client address instead, before it reads anything.
+        if (path.startsWith('app/api/s/')) {
+          const window = body.indexOf('limitByAddress(')
+          if (window === -1) problems.push(`${path} ${method}: a public route takes no address window (limitByAddress)`)
+          if (/\b(requireUser|requireAdmin)\(/.test(body)) problems.push(`${path} ${method}: is public by design and must take no session`)
+          if (window !== -1 && read !== -1 && read < window) problems.push(`${path} ${method}: reads the body before its address window`)
+          continue
+        }
+        // `requireAdmin` calls `requireUser` and then answers 404 to anyone who is not an admin.
+        const asks = firstOf('requireUser(', 'requireAdmin(')
         // The v2 image route answers 404 for everything unless sign-in is off,
         // where there is one owner; that is its whole check.
         const offOnly = /^\s*if \(authMode\(\) !== 'off'\) return\b/m.test(body.split('\n').slice(1, 3).join('\n'))
@@ -135,10 +161,19 @@ try {
         if (path.startsWith('app/api/projects/[id]/') && !offOnly) {
           const owned = body.indexOf('ownedProject(')
           if (owned === -1) problems.push(`${path} ${method}: does not check the project’s owner (ownedProject)`)
-          const read = body.search(BODY)
           if (read !== -1 && (owned === -1 || read < owned || read < asks)) problems.push(`${path} ${method}: reads the body before the owner is checked`)
           const flag = body.indexOf('assertGenerationEnabled(')
           if (flag !== -1 && owned !== -1 && flag < owned) problems.push(`${path} ${method}: checks the generation flag before the owner`)
+        }
+        if (path.startsWith('app/api/shares/[token]')) {
+          const owned = body.indexOf('ownedShare(')
+          if (owned === -1) problems.push(`${path} ${method}: does not check the share’s owner (ownedShare)`)
+          if (read !== -1 && (owned === -1 || read < owned || read < asks)) problems.push(`${path} ${method}: reads the body before the owner is checked`)
+        }
+        if (path.startsWith('app/api/admin/')) {
+          const admin = body.indexOf('requireAdmin(')
+          if (admin === -1) problems.push(`${path} ${method}: does not call requireAdmin`)
+          if (read !== -1 && (admin === -1 || read < admin)) problems.push(`${path} ${method}: reads the body before the admin is checked`)
         }
         if (/\/jobs?\//.test(path) && !body.includes('ownedJob(')) problems.push(`${path} ${method}: does not check the job’s owner (ownedJob)`)
       }
@@ -169,7 +204,25 @@ try {
     /reads the body before the owner/
   )
   assert.match(scanRoute('app/api/projects/[id]/y/route.ts', 'export async function GET(req: Request) {\n  await requireUser(req)\n}\n').join(), /ownedProject/)
-  ok(`all ${routes.length} API routes ask who is calling (public: ${PUBLIC_ROUTES.map((p) => p.split('/').slice(2, -1).join('/')).join(', ')}); project routes check the owner before the body`)
+  // Slice 21's shapes. A route that is neither requireUser/requireAdmin nor public-by-design still fails…
+  assert.match(scanRoute('app/api/settings/z/route.ts', 'export async function GET(req: Request) {\n  return Response.json({})\n}\n').join(), /neither calls requireUser nor is on the public list/)
+  assert.equal(scanRoute('app/api/settings/z/route.ts', 'export async function GET(req: Request) {\n  await requireUser(req)\n}\n').length, 0)
+  // …a public share route takes no session and DOES take an address window, before anything is read…
+  const publicGood = 'export async function POST(req: Request) {\n  await limitByAddress(req, \'report\')\n  const b = await readJson(req, 1)\n}\n'
+  assert.deepEqual(scanRoute('app/api/s/[token]/report/route.ts', publicGood), [], 'a public route that takes its address window first passes')
+  assert.match(scanRoute('app/api/s/[token]/route.ts', 'export async function GET(req: Request) {\n  return Response.json({})\n}\n').join(), /takes no address window/, 'a public route without a window is caught')
+  assert.match(scanRoute('app/api/s/[token]/route.ts', 'export async function GET(req: Request) {\n  await requireUser(req)\n  await limitByAddress(req)\n}\n').join(), /take no session/, 'a public route that asks for a session is caught')
+  assert.match(scanRoute('app/api/s/[token]/report/route.ts', 'export async function POST(req: Request) {\n  const b = await readJson(req, 1)\n  await limitByAddress(req, \'report\')\n}\n').join(), /reads the body before its address window/)
+  assert.match(scanRoute('app/api/projects/[id]/s/route.ts', 'export async function GET(req: Request) {\n  await limitByAddress(req)\n}\n').join(), /neither calls requireUser/, 'only app/api/s/ is public by design: an address window is no substitute for a session elsewhere')
+  // …owner-managed share routes check the share’s owner first, admin routes the admin…
+  assert.match(scanRoute('app/api/shares/[token]/route.ts', 'export async function DELETE(req: Request) {\n  await requireUser(req)\n}\n').join(), /ownedShare/)
+  assert.match(scanRoute('app/api/shares/[token]/route.ts', 'export async function PUT(req: Request) {\n  const u = await requireUser(req)\n  const b = await readJson(req, 1)\n  await ownedShare(u, "t")\n}\n').join(), /reads the body before the owner/)
+  assert.deepEqual(scanRoute('app/api/shares/[token]/route.ts', 'export async function DELETE(req: Request) {\n  const u = await requireUser(req)\n  await ownedShare(u, "t")\n}\n'), [])
+  assert.match(scanRoute('app/api/admin/reports/[id]/route.ts', 'export async function POST(req: Request) {\n  await requireUser(req)\n}\n').join(), /does not call requireAdmin/)
+  assert.match(scanRoute('app/api/admin/reports/[id]/route.ts', 'export async function POST(req: Request) {\n  const b = await readJson(req, 1)\n  await requireAdmin(req)\n}\n').join(), /reads the body before the admin is checked/)
+  assert.deepEqual(scanRoute('app/api/admin/reports/[id]/route.ts', 'export async function POST(req: Request) {\n  await requireAdmin(req)\n  const b = await readJson(req, 1)\n}\n'), [])
+  const sessionless = routes.filter((r) => r.startsWith('app/api/s/'))
+  ok(`all ${routes.length} API routes ask who is calling (public: ${PUBLIC_ROUTES.map((p) => p.split('/').slice(2, -1).join('/')).join(', ')}; public by design, with an address window and no session: ${sessionless.length} under /api/s); project, share and admin routes check the owner before the body`)
 
   // --- b. The mode, its defaults and production's refusals ---------------------------
   const authConfig = await import('../lib/auth/config')
@@ -474,6 +527,15 @@ try {
       const read = await call(`${APP}/api/projects`, { headers: { origin: 'https://evil.example', cookie: '__session=x' } })
       assert.notEqual(read.status, 403, 'a GET is not a write')
       assert.ok(passes(await POST(`${APP}/api/webhooks/clerk`, { origin: 'https://evil.example' })), 'Clerk’s webhooks are exempt')
+      // The share page’s routes (slice 21) need no session but are NOT exempt: a write to them keeps the Origin check, so a
+      // page on another site cannot post reports for a visitor; a read from anywhere (a crawler, a chat app’s preview) is fine.
+      await refusedOrigin(await POST(`${APP}/api/s/tok123/report`, { origin: 'https://evil.example' }))
+      await refusedOrigin(await POST(`${APP}/api/s/tok123/report`, { origin: 'null' }))
+      await refusedOrigin(await POST(`${APP}/api/s/tok123/report`, { cookie: '__session=x' }))
+      assert.notEqual((await POST(`${APP}/api/s/tok123/report`, { origin: APP })).status, 403, 'the share page’s own origin passes')
+      assert.notEqual((await POST(`${APP}/api/s/tok123/report`)).status, 403, 'no Origin and no cookie is left to the route’s own window')
+      assert.notEqual((await call(`${APP}/api/s/tok123/image/img-1.png`, { headers: { origin: 'https://evil.example', cookie: '__session=x' } })).status, 403, 'a read of a share is not a write')
+      assert.ok(passes(await call(`${APP}/api/s/tok123`)), 'and a stranger’s read reaches the route')
       // www → the apex, path and query kept, 308.
       const www = await call('https://www.inkdesk.example/p/abc?page=2')
       assert.equal(www.status, 308)
@@ -483,6 +545,11 @@ try {
       assert.ok(passes(await call(`${APP}/api/health`)))
     })
   }
+  // The reason the Origin check survives on /api/s/*: it is not among the routes the proxy waves through unchecked.
+  assert.deepEqual([...authConfig.PUBLIC_API_PREFIXES], ['/api/health', '/api/webhooks/'], 'nothing public-by-design is on the unchecked list')
+  for (const path of ['/api/s/tok123', '/api/s/tok123/report', '/api/s/tok123/image/img-1.png', '/api/admin/reports/r1']) assert.equal(authConfig.isPublicApi(path), false, `${path} is not skipped by the proxy`)
+  for (const path of ['/s/tok123', '/s/tok123/opengraph-image']) assert.equal(authConfig.isPublicPage(path), true, `${path} is an open page`)
+  for (const path of ['/s', '/admin', '/admin/reports', '/settings/account', '/p/abc', '/share/tok']) assert.equal(authConfig.isPublicPage(path), false, `${path} needs sign-in`)
   // APP_URL on www: nothing to move.
   await withEnv({ INKDESK_AUTH: 'test', APP_URL: 'https://www.inkdesk.example' }, async () => {
     assert.notEqual((await call('https://www.inkdesk.example/')).status, 308)
@@ -515,9 +582,18 @@ try {
     const to = new URL(signedOut.headers.get('location') ?? '')
     assert.equal(`${to.origin}${to.pathname}`, `${APP}/sign-in`)
     assert.equal(to.searchParams.get('redirect_url'), `${APP}/p/abc`, 'and comes back where it was going')
-    for (const open of ['/sign-in', '/sign-up/verify', '/terms', '/privacy']) {
+    // Slice 21: a shared manga and its picture card are open to a stranger holding the link; the admin pages are pages like any other.
+    for (const open of ['/sign-in', '/sign-up/verify', '/terms', '/privacy', '/s/tok123', '/s/tok123/opengraph-image']) {
       const res = await call(`${APP}${open}`, { headers: { accept: 'text/html', 'sec-fetch-dest': 'document' } })
       assert.ok(passes(res), `${open} is open to a stranger (got ${res.status})`)
+    }
+    for (const closed of ['/admin', '/admin/reports', '/settings/account', '/settings/sharing']) {
+      const res = await call(`${APP}${closed}`, { headers: { accept: 'text/html', 'sec-fetch-dest': 'document' } })
+      assert.ok([302, 307, 308].includes(res.status), `${closed} needs sign-in like any page, got ${res.status}`)
+      assert.equal(new URL(res.headers.get('location') ?? '').pathname, '/sign-in', `${closed} goes to sign-in`)
+    }
+    for (const stranger of ['/api/s/tok123', '/api/s/tok123/image/img-1.png', '/api/admin/reports/r1', '/api/shares']) {
+      assert.ok(passes(await call(`${APP}${stranger}`)), `${stranger}: a signed-out call reaches its route, which decides (an address window, or 401, or 404) — the proxy never redirects an API call`)
     }
     const api = await call(`${APP}/api/projects`)
     assert.ok(passes(api), 'a signed-out API call reaches its route, which answers 401 itself')
@@ -536,7 +612,7 @@ try {
     assert.ok(!passes(intruder), 'a session signed by another key does not open the page')
   })
   assert.deepEqual(outbound, [], 'nothing reached the network')
-  ok('Clerk mode, offline: a signed-out page → /sign-in?redirect_url=…; sign-in, sign-up, terms, privacy open; a session minted with CLERK_JWT_KEY is signed-in; another key’s is not')
+  ok('Clerk mode, offline: a signed-out page → /sign-in?redirect_url=…; sign-in, sign-up, terms, privacy and a shared manga (/s/…) open, /admin and /settings need sign-in; a session minted with CLERK_JWT_KEY is signed-in; another key’s is not')
 
   // --- f. Networkless verification with the JWT key --------------------------------------
   const { verifyToken } = await import('@clerk/backend')
@@ -598,6 +674,150 @@ try {
       globalThis.fetch = offline
     }
     ok('apiFetch: a 401 while Clerk still holds a session refreshes the token and retries once, so a waking laptop stays on its page; only a lasting 401 goes to sign-in')
+  }
+
+  // --- h. Admins (slice 21) -------------------------------------------------------------------
+  {
+    const { isAdmin, requireAdmin, adminPageGate, forgetAdmins, NO_SUCH_PAGE } = await import('../lib/auth/admin')
+    assert.equal(NO_SUCH_PAGE, 'There is no such page.')
+    const at = '2026-10-16T09:00:00.000Z'
+    for (const [id, email] of [['user_boss1', 'Boss@Example.COM'], ['user_plain1', 'plain@example.com'], ['user_gone1', 'gone@example.com'], ['user_noaddr1', '']] as const) {
+      await store.users.upsert({ id, email, createdAt: at })
+    }
+    await store.users.markDeleted('user_gone1')
+    const asking = (user?: string) => new Request('http://check/api/admin/reports/r1', { method: 'POST', headers: user === undefined ? {} : { [TEST_USER_HEADER]: user } })
+    const notThere = async (req: Request) => {
+      await assert.rejects(requireAdmin(req), (err: unknown) => {
+        assert.ok(err instanceof Refused, `expected Refused, got ${String(err)}`)
+        assert.equal(err.status, 404, 'never 403: an admin route does not reveal itself')
+        assert.equal(err.message, 'There is no such page.')
+        return true
+      })
+    }
+    await withEnv({ INKDESK_AUTH: 'test', ADMIN_EMAILS: ' boss@example.com , Gone@Example.com ,,' }, async () => {
+      forgetAdmins()
+      assert.equal(await isAdmin('user_boss1'), true, 'matched case-insensitively against the recorded email (Boss@Example.COM vs boss@example.com)')
+      assert.equal(await isAdmin('user_plain1'), false)
+      assert.equal(await isAdmin('user_gone1'), false, 'a deleted account is never an admin, though its old email is still on the list')
+      assert.equal(await isAdmin('user_unknown1'), false, 'an account the webhook has not delivered yet')
+      assert.equal(await isAdmin('user_noaddr1'), false, 'an account with no verified email')
+      assert.equal(await isAdmin('local'), false, 'with sign-in on, `local` administers nothing')
+      assert.equal(await requireAdmin(asking('user_boss1')), 'user_boss1')
+      await notThere(asking('user_plain1'))
+      await notThere(asking('user_gone1'))
+      await notThere(asking('user_unknown1'))
+      await assert.rejects(requireAdmin(asking()), (err: unknown) => err instanceof Refused && err.status === 401 && err.message === SIGN_IN_SENTENCE, 'signed out is the 401 every API route gives')
+      // The page guard: an admin passes; anyone else — signed out included — gets Next’s own 404.
+      assert.equal(await adminPageGate('user_boss1'), 'user_boss1')
+      for (const who of ['user_plain1', 'user_gone1', null, 'local']) {
+        await assert.rejects(adminPageGate(who), (err: unknown) => (err as { digest?: string }).digest === 'NEXT_HTTP_ERROR_FALLBACK;404', `${who}: the page is a 404`)
+      }
+
+      // Cached 15 s per person, like the plan; forgetting it re-reads.
+      let reads = 0
+      const realGet = store.users.get
+      store.users.get = async (id) => (reads++, realGet(id))
+      try {
+        forgetAdmins()
+        await isAdmin('user_boss1')
+        await isAdmin('user_boss1')
+        await isAdmin('user_boss1')
+        assert.equal(reads, 1, 'three questions, one read')
+        // A store that is down promotes nobody, and the "no" is not remembered.
+        store.users.get = async () => {
+          throw new Error('the store went away')
+        }
+        forgetAdmins()
+        const log = console.warn
+        console.warn = () => {}
+        try {
+          assert.equal(await isAdmin('user_boss1'), false, 'unreachable store: not an admin')
+          await notThere(asking('user_boss1'))
+        } finally {
+          console.warn = log
+        }
+        store.users.get = realGet
+        assert.equal(await isAdmin('user_boss1'), true, 'and it answers again as soon as the store does')
+      } finally {
+        store.users.get = realGet
+      }
+
+      // The list is read fresh: take the address off and the same account is no longer an admin (after the cache, or forgetting it).
+      env.ADMIN_EMAILS = 'someone.else@example.com'
+      assert.equal(await isAdmin('user_boss1'), false, 'the cache is keyed by the list: a changed list is believed at once')
+      env.ADMIN_EMAILS = ''
+      assert.equal(await isAdmin('user_boss1'), false, 'blank: nobody')
+      delete env.ADMIN_EMAILS
+      assert.equal(await isAdmin('user_boss1'), false, 'unset: nobody')
+      env.ADMIN_EMAILS = 'boss@example.com, not-an-address'
+      assert.equal(await isAdmin('user_boss1'), false, 'a malformed list names nobody: a typo promotes no one')
+      env.ADMIN_EMAILS = 'boss@example.com'
+      assert.equal(await isAdmin('user_boss1'), true)
+      // …and an account deleted since being cached is demoted once the cache is let go.
+      await store.users.upsert({ id: 'user_later1', email: 'boss@example.com', createdAt: at })
+      assert.equal(await isAdmin('user_later1'), true)
+      await store.users.markDeleted('user_later1')
+      forgetAdmins()
+      assert.equal(await isAdmin('user_later1'), false, 'deleted: never an admin')
+    })
+    // Sign-in off: the one owner is the admin (so the learner can see the page in development); nobody else exists.
+    await withEnv({ INKDESK_AUTH: 'off', ADMIN_EMAILS: undefined }, async () => {
+      forgetAdmins()
+      assert.equal(await isAdmin(LOCAL_OWNER), true, 'a desk without accounts: the owner administers it, with a blank list')
+      assert.equal(await isAdmin('user_boss1'), false)
+      assert.equal(await requireAdmin(asking()), LOCAL_OWNER)
+      assert.equal(await adminPageGate(LOCAL_OWNER), LOCAL_OWNER)
+    })
+    // Production, blank list: nobody — and `local` is nobody there either.
+    await withEnv({ ...clerkEnv(), NODE_ENV: 'production', ADMIN_EMAILS: undefined }, async () => {
+      forgetAdmins()
+      assert.equal(await isAdmin('user_boss1'), false)
+      assert.equal(await isAdmin(LOCAL_OWNER), false)
+    })
+    forgetAdmins()
+    ok('admins: the verified email against ADMIN_EMAILS, case-insensitive; a deleted, unknown, address-less or `local` account is not (sign-in on); a non-admin gets 404 “There is no such page.” (never 403) from the route and Next’s 404 from the page; a store that is down promotes nobody; a changed list is believed at once; sign-in off makes the local owner the admin; a blank list in production is nobody')
+  }
+
+  // --- i. Headers (slice 21): the share page is noindex and sends no referrer, the CSP is the site’s own ------------
+  {
+    const nextConfig = (await import('../next.config')).default
+    const rules = await nextConfig.headers!()
+    // Next’s `:path*` matching, enough for the patterns this file uses: `/x/:path*` is `/x` and everything under it.
+    const matches = (source: string, path: string) => new RegExp(`^${source.replace(/\/:path\*$/, '(?:/.*)?')}$`).test(path)
+    /** What a response for `path` carries: every matching rule in order, a later one overriding an earlier one’s key. */
+    const headersFor = (path: string) => {
+      const out = new Map<string, string>()
+      for (const rule of rules) if (matches(rule.source, path)) for (const { key, value } of rule.headers) out.set(key.toLowerCase(), value)
+      return out
+    }
+    const NOINDEX = 'noindex, nofollow'
+    for (const path of ['/s/abc123', '/s/abc123/opengraph-image', '/s/abc123/anything/deeper']) {
+      const h = headersFor(path)
+      assert.equal(h.get('x-robots-tag'), NOINDEX, `${path} is noindex, nofollow`)
+      assert.equal(h.get('referrer-policy'), 'no-referrer', `${path} sends no referrer: the link’s secret never leaves in a Referer`)
+    }
+    for (const path of ['/api/s/abc123', '/api/s/abc123/image/img-1.png', '/api/s/abc123/report']) {
+      const h = headersFor(path)
+      assert.equal(h.get('x-robots-tag'), NOINDEX, `${path} is noindex, nofollow`)
+      assert.equal(h.get('referrer-policy'), 'strict-origin-when-cross-origin', `${path} keeps the site’s referrer policy (it is the page that sends no referrer)`)
+    }
+    for (const path of ['/', '/p/abc', '/settings/account', '/admin/reports', '/api/projects', '/api/shares', '/sign-in', '/status/s/x', '/sx']) {
+      const h = headersFor(path)
+      assert.equal(h.get('x-robots-tag'), undefined, `${path} is not marked noindex`)
+      assert.equal(h.get('referrer-policy'), 'strict-origin-when-cross-origin', `${path} keeps the site’s referrer policy`)
+    }
+    // Nothing else changed: the CSP and the rest of the site-wide set reach the share routes untouched, and the page loads no third party.
+    const site = headersFor('/')
+    for (const path of ['/s/abc123', '/api/s/abc123/image/img-1.png']) {
+      const h = headersFor(path)
+      for (const key of ['content-security-policy', 'x-content-type-options', 'x-frame-options', 'permissions-policy']) assert.equal(h.get(key), site.get(key), `${path}: ${key} is the site’s own`)
+    }
+    const csp = headersFor('/s/abc123').get('content-security-policy') ?? ''
+    assert.match(csp, /default-src 'self'/)
+    assert.match(csp, /img-src 'self' data: blob:(?:;|$)/, 'pictures come from the studio’s own route')
+    assert.match(csp, /frame-ancestors 'none'/)
+    assert.doesNotMatch(csp, /https?:\/\//, 'with sign-in off the policy names no outside host at all')
+    ok('headers: /s/* and /api/s/* carry X-Robots-Tag noindex, nofollow; /s/* also Referrer-Policy no-referrer; every other path is untouched; the CSP and the rest of the security set reach the share routes unchanged (no third party)')
   }
 
   console.log('\n  Sign-in check passed.\n')

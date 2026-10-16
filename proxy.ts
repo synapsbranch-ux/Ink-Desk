@@ -15,6 +15,18 @@
 // The health check (Railway asks with the host `healthcheck.railway.app`) and
 // Clerk's webhooks pass straight through: neither has a session, and the
 // webhook proves itself with its signature.
+//
+// Slice 21 adds nothing to this file, on purpose, and `check:auth` holds why:
+//   • `/s/*` (a shared manga and its picture card) is an open PAGE
+//     (`isPublicPage`), so a stranger holding a link is never sent to sign-in.
+//   • `/api/s/*` (that page's data, pictures and report form) needs no session
+//     either, but it is NOT among the unchecked API prefixes: the Origin check
+//     still judges its writes, so a page on another site cannot post reports
+//     for a visitor. Its reads reach the route, which takes an address window
+//     (`limitByAddress`) before it does anything else.
+//   • `/admin/*` is a page like any other: a signed-out visitor goes to
+//     sign-in, and the page itself answers anyone who is not an admin with the
+//     studio's 404 (`lib/auth/admin.ts`) — the proxy is never the only check.
 import { NextResponse, type NextFetchEvent, type NextMiddleware, type NextRequest } from 'next/server'
 import {
   CROSS_ORIGIN_SENTENCE,

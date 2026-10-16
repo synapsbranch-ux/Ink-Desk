@@ -13,6 +13,7 @@
 import 'server-only'
 import { Refused } from '../errors'
 import { LOCAL_OWNER, type JobRecord } from '../queue/jobs'
+import type { ShareRecord } from '../share/types'
 import { store } from '../store'
 import type { Project } from '../types'
 import { authMode } from './config'
@@ -21,6 +22,8 @@ import { authMode } from './config'
 export const NO_SUCH_PROJECT = 'There is no such project.'
 export const NO_SUCH_IMAGE = 'There is no such image.'
 export const NO_SUCH_JOB = 'There is no such job.'
+/** A share that is unknown, someone else's, or (for the owner's own operations) no longer published. */
+export const NO_SUCH_SHARE = 'There is no such share.'
 
 /** Does `userId` own a record whose owner is `ownerId` (absent = `local`)? `local` owns nothing once accounts are on. */
 export function owns(userId: string, ownerId: string | null | undefined): boolean {
@@ -71,4 +74,26 @@ export async function ownedJob(userId: string, jobId: string): Promise<JobRecord
   const job = await store.jobs.getJob(jobId)
   if (!job || !owns(userId, job.ownerId)) throw new Refused(NO_SUCH_JOB, 404)
   return job
+}
+
+/**
+ * The caller's share, or the 404 an unknown one gets (slice 21) — for the OWNER's
+ * routes (`DELETE /api/shares/[token]`, Update share, Settings › Sharing). It
+ * answers 404 with the very same sentence for a token that does not exist, one
+ * that is someone else's, and one that is the caller's own but no longer
+ * published: a revoked share is dead for good and shows nowhere, so the owner's
+ * operations (refresh, unpublish) apply to an ACTIVE share only. A route that
+ * must stay idempotent — unpublishing twice is not an error — passes
+ * `{ includeRevoked: true }` and gets the revoked record (its snapshot is null)
+ * back for the caller's own token, and still 404 for anyone else's.
+ *
+ * The PUBLIC routes (`/s/[token]`, `/api/s/[token]/*`) are the other way round:
+ * they take no session and read `store.shares.get` themselves, answering the
+ * same 404 for unknown and revoked tokens alike.
+ */
+export async function ownedShare(userId: string, token: string, opts: { includeRevoked?: boolean } = {}): Promise<ShareRecord> {
+  const share = await store.shares.get(token)
+  if (!share || !owns(userId, share.ownerId)) throw new Refused(NO_SUCH_SHARE, 404)
+  if (share.revokedAt !== null && !opts.includeRevoked) throw new Refused(NO_SUCH_SHARE, 404)
+  return share
 }

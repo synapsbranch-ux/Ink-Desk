@@ -18,6 +18,12 @@
 // web instance answers the poll, and opening a project never needs a write to
 // succeed. A refused attach still charges, and deletes, the orphan.
 //
+// Slice 21 adds the `account` queue (an export, a deletion): such a job runs on
+// its own lane, one at a time, beside the image lane; it survives a killed
+// worker like a picture; it is not stopped by the caps, the pause, the credit
+// breaker or a closed studio; the reconciler puts it back; the inline queue runs
+// it in a lane of its own; a deletion that ends done deletes its own record.
+//
 // Needs `redis-server` on the PATH (or INKDESK_CHECK_REDIS_URL pointing at a
 // scratch Redis this check may FLUSHALL). Without either it says so and stops.
 import './server-only.mts' // first: lets server modules load outside Next (SEC-15)
@@ -124,14 +130,14 @@ const { applyPatch } = await import('../lib/patch')
 const { attachPanelVersion, markFailed, newScript } = await import('../lib/script')
 const { queuePanel, queueBlankPanels, isQueued } = await import('../lib/panels')
 const { queueSheet } = await import('../lib/sheet')
-const { enqueueJob } = await import('../lib/queue/enqueue')
+const { enqueueJob, enqueueAccountJob } = await import('../lib/queue/enqueue')
 const J = await import('../lib/queue/jobs')
 const { bullQueue, closeQueues } = await import('../lib/queue/queues')
 const { closeProducerRedis, producerRedis, redisKey } = await import('../lib/queue/redis')
 const { startWorker } = await import('../lib/queue/worker')
 const { reconcileOnce } = await import('../lib/queue/reconcile')
 const { resetBreaker, creditsBreakerOpen } = await import('../lib/queue/breaker')
-const { forgetQueueState, queueState, readWithActivity } = await import('../lib/queue/status')
+const { HEARTBEAT_KEY, forgetQueueState, maxRunMs, queueState, readWithActivity } = await import('../lib/queue/status')
 const { takeSlot } = await import('../lib/inflight')
 const { retryDelayMs } = await import('../lib/image-provider')
 const { Refused } = await import('../lib/errors')
@@ -822,6 +828,327 @@ try {
     ok('the review’s fixes: a finished panel stays done; a paid retry attaches even with the breaker open; a failed checkpoint loses nothing; a double delivery draws once; a stranded picture is picked up; caps hold under a burst; a hung job is freed; sentences carry no internals')
   }
 
+  // 13b. The account queue (slice 21): an export and a deletion are about a person, not a project. --------------------
+  {
+    const { processJob, accountRunners } = await import('../lib/queue/processors')
+    const { tripCredits } = await import('../lib/queue/breaker')
+    const { endJob } = await import('../lib/queue/ending')
+    const { Refused: RefusedErr } = await import('../lib/errors')
+    await reset()
+    const panelFor = (p: { addr: { chapterId: string } }, index = 0) => ({ kind: 'panel' as const, chapterId: p.addr.chapterId, pageIndex: 0, index })
+    const finishDone = (jobId: string) => endJob(jobId, (j) => J.finish(j, { outcome: 'done' }, new Date()))
+    const claimBy = (jobId: string, workerId: string) => store.jobs.updateJob(jobId, (j) => J.claim(j, workerId, new Date()))
+    const small = { lockDurationMs: 5_000, stalledIntervalMs: 1_000, heartbeatMs: 300, reconcileMs: 600_000, reconcileDelayMs: 600_000 }
+    const realRunners = { ...accountRunners }
+
+    // (a) The pure side: the queue's name, the kinds, the keys, what the browser would see.
+    {
+      assert.deepEqual([...J.QUEUE_NAMES], ['image', 'video', 'audio', 'account'])
+      assert.deepEqual([J.QUEUE_OF.export, J.QUEUE_OF['delete-account'], J.QUEUE_OF.panel], ['account', 'account', 'image'])
+      assert.ok(J.isAccountKind('export') && J.isAccountKind('delete-account') && !J.isAccountKind('panel') && !J.isAccountKind('sheet'))
+      assert.deepEqual([J.exportKey('user_a'), J.deleteAccountKey('user_a')], ['export:user_a', 'delete-account:user_a'])
+      const rec = J.newJob({ key: J.exportKey('user_a'), ownerId: 'user_a', projectId: '', kind: 'export', payload: { kind: 'export' } }, 'acct-1', new Date())
+      assert.deepEqual([rec.queue, rec.projectId, rec.reservation, rec.reservedUsd, rec.status], ['account', '', 'none', 0, 'queued'])
+      const view = J.toView(rec)
+      assert.deepEqual(view.target, {})
+      assert.ok(!('key' in view) && !('ownerId' in view), 'the browser sees neither keys nor owners of an account job')
+      assert.equal(maxRunMs('export'), 10 * 60_000, 'an export may take ten minutes')
+      assert.equal(maxRunMs('delete-account'), 15 * 60_000, 'a deletion fifteen')
+      assert.ok(maxRunMs('panel') < maxRunMs('sheet') && J.ACCOUNT_CEILING_MS > maxRunMs('delete-account'), 'the lane’s ceiling is past its longest job')
+    }
+
+    // (b) enqueueAccountJob: on the account queue, once per person and kind, and none of the studio’s refusals apply.
+    {
+      const p = await lockedPage('Account caps')
+      const pic = await enqueueJob({ key: 'acct:pic1', ownerId: 'user_dana', projectId: p.pid, kind: 'panel', payload: panelFor(p, 0) })
+      env.QUEUE_USER_INFLIGHT = '1'
+      env.QUEUE_MAX_WAITING = '1'
+      await assert.rejects(enqueueJob({ key: 'acct:pic2', ownerId: 'user_dana', projectId: p.pid, kind: 'panel', payload: panelFor(p, 1) }), (e: unknown) => e instanceof RefusedErr && e.status === 429, 'a picture over her cap is refused…')
+      await assert.rejects(enqueueJob({ key: 'acct:pic3', ownerId: 'user_eve', projectId: p.pid, kind: 'panel', payload: panelFor(p, 2) }), (e: unknown) => e instanceof RefusedErr && e.status === 503 && e.message === J.BUSY, '…and one over the studio’s')
+      env.GENERATION_ENABLED = 'false'
+      await tripCredits()
+      assert.equal(await creditsBreakerOpen(), true)
+      await assert.rejects(enqueueJob({ key: 'acct:pic4', ownerId: 'user_eve', projectId: p.pid, kind: 'panel', payload: panelFor(p, 3) }), (e: unknown) => e instanceof RefusedErr && e.message === J.PAUSED, '…and the breaker is open')
+
+      // With every one of those standing — both caps full, generation closed, the breaker open — a person can still take their data and leave.
+      const exp = await enqueueAccountJob({ ownerId: 'user_dana', kind: 'export' })
+      const del = await enqueueAccountJob({ ownerId: 'user_eve', kind: 'delete-account' })
+      for (const [made, kind, owner] of [[exp, 'export', 'user_dana'], [del, 'delete-account', 'user_eve']] as const) {
+        assert.equal(made.created, true)
+        const rec = (await store.jobs.getJob(made.job.id))!
+        assert.deepEqual([rec.kind, rec.queue, rec.ownerId, rec.projectId, rec.key, rec.status], [kind, 'account', owner, '', kind === 'export' ? J.exportKey(owner) : J.deleteAccountKey(owner), 'queued'])
+        assert.deepEqual([rec.reservation, rec.reservedUsd, rec.payload], ['none', 0, { kind }], 'no reservation: it draws nothing and spends nothing')
+        const entry = await bullQueue('account').getJob(made.job.id)
+        assert.equal(entry?.name, kind, 'it is on the account queue, under its record’s id')
+        assert.equal(await bullQueue('image').getJob(made.job.id), undefined, 'and not on the image queue')
+      }
+      assert.equal((await bullQueue('account').getJob(exp.job.id))?.opts.priority, 1)
+      // One in flight per person and kind: asking again hands back that job; the other kind is a job of its own.
+      const again = await enqueueAccountJob({ ownerId: 'user_dana', kind: 'export' })
+      assert.deepEqual([again.created, again.job.id], [false, exp.job.id])
+      const other = await enqueueAccountJob({ ownerId: 'user_dana', kind: 'delete-account' })
+      assert.deepEqual([other.created, other.job.id === exp.job.id], [true, false])
+      assert.equal((await store.jobs.listJobs({ key: J.exportKey('user_dana') })).length, 1, 'one export record')
+      // A desk with sign-in off has one owner, who is the whole desk: its deletion is refused at the door, its export is fine.
+      await assert.rejects(enqueueAccountJob({ ownerId: J.LOCAL_OWNER, kind: 'delete-account' }), (e: unknown) => e instanceof RefusedErr && e.status === 409 && e.message === J.NO_ACCOUNT_TO_DELETE)
+      assert.equal((await store.jobs.listJobs({ key: J.deleteAccountKey(J.LOCAL_OWNER) })).length, 0, 'and leaves no record')
+      assert.equal((await enqueueAccountJob({ ownerId: J.LOCAL_OWNER, kind: 'export' })).created, true)
+      await assert.rejects(enqueueAccountJob({ ownerId: '', kind: 'export' }), /needs an owner/)
+
+      // They are not counted against anyone's caps either: end her picture job, and with her export and deletion still in flight a new picture is not "over her cap of one".
+      resetBreaker()
+      await redis().del(redisKey('breaker', 'credits'))
+      await endJob(pic.job.id, (j) => J.finish(j, { outcome: 'cancelled', error: 'x' }, new Date()))
+      const first = await enqueueJob({ key: 'acct:pic5', ownerId: 'user_dana', projectId: p.pid, kind: 'panel', payload: panelFor(p, 0) })
+      assert.equal(first.created, true, 'her export and deletion in flight do not count against her one picture')
+      await assert.rejects(enqueueJob({ key: 'acct:pic6', ownerId: 'user_dana', projectId: p.pid, kind: 'panel', payload: panelFor(p, 1) }), (e: unknown) => e instanceof RefusedErr && e.status === 429, 'but a second picture does')
+      delete env.QUEUE_USER_INFLIGHT
+      delete env.QUEUE_MAX_WAITING
+      env.GENERATION_ENABLED = 'true'
+
+      // Redis required and not configured: the studio-busy sentence, and no record is left to be queued later.
+      await reset()
+      const redisUrlWas = env.REDIS_URL
+      delete env.REDIS_URL
+      env.GENERATION_ENABLED = 'false' // (a web service that cannot generate may start without Redis)
+      await quiet(async () => {
+        await assert.rejects(enqueueAccountJob({ ownerId: 'user_fay', kind: 'export' }), (e: unknown) => e instanceof RefusedErr && e.status === 503 && e.message === J.BUSY)
+      })()
+      env.REDIS_URL = redisUrlWas
+      env.GENERATION_ENABLED = 'true'
+      assert.equal((await store.jobs.listJobs({ ownerId: 'user_fay' })).length, 0)
+      ok('enqueueAccountJob: a record with no project and no reservation, on the account queue under its id; one per person and kind; refused only for the sign-in-off deletion and a Redis that is not there — never by the caps, a closed studio or the credit breaker, and never counted against anyone’s caps')
+      await reset()
+    }
+
+    // (c) Two lanes in one worker: each takes only its own queue, the account lane one at a time, the heartbeat says so.
+    {
+      const p = await lockedPage('Lanes')
+      const e1 = await enqueueAccountJob({ ownerId: 'user_gus', kind: 'export' })
+      const pic = await enqueueJob({ key: 'lane:pic', ownerId: 'user_gus', projectId: p.pid, kind: 'panel', payload: panelFor(p) })
+      const handled: string[] = []
+      const standIn = async (jobId: string, ctx: { workerId: string }) => {
+        handled.push(jobId)
+        await claimBy(jobId, ctx.workerId)
+        await sleep(50)
+        await finishDone(jobId)
+      }
+      const imageOnly = await startWorker({ workerId: 'img-only', lanes: ['image'], concurrency: 2, process: standIn, ...small })
+      handles.push(imageOnly)
+      await until('the picture to be handled', async () => (await store.jobs.getJob(pic.job.id))!.status === 'done')
+      await sleep(800)
+      assert.equal((await store.jobs.getJob(e1.job.id))!.status, 'queued', 'a worker with no account lane leaves the account job where it is')
+      assert.deepEqual(handled, [pic.job.id])
+      const beat = JSON.parse((await redis().get(HEARTBEAT_KEY)) ?? 'null') as { workerId: string; lanes: Record<string, number>; concurrency: number }
+      assert.deepEqual([beat.workerId, beat.lanes], ['img-only', { image: 2 }], 'the heartbeat says which lanes this worker takes')
+      const accountOnly = await startWorker({ workerId: 'acct-only', lanes: ['account'], process: standIn, ...small })
+      handles.push(accountOnly)
+      await until('the export to be handled', async () => (await store.jobs.getJob(e1.job.id))!.status === 'done')
+      assert.equal((await store.jobs.getJob(e1.job.id))!.workerId, 'acct-only')
+      assert.equal((await store.jobs.getJob(pic.job.id))!.workerId, 'img-only')
+      const pic2 = await enqueueJob({ key: 'lane:pic2', ownerId: 'user_gus', projectId: p.pid, kind: 'panel', payload: panelFor(p, 1) })
+      await until('the second picture to be handled', async () => (await store.jobs.getJob(pic2.job.id))!.status === 'done')
+      assert.equal((await store.jobs.getJob(pic2.job.id))!.workerId, 'img-only', 'and the account lane never takes a picture')
+      for (const h of handles.splice(0)) await h.close(1_000)
+      await reset()
+
+      // One account job at a time per worker, while pictures run two wide beside them.
+      const live = { account: 0, image: 0 }
+      const peak = { account: 0, image: 0 }
+      const slow = async (jobId: string, ctx: { workerId: string }) => {
+        const queue = (await store.jobs.getJob(jobId))!.queue as 'account' | 'image'
+        live[queue]++
+        peak[queue] = Math.max(peak[queue], live[queue])
+        await claimBy(jobId, ctx.workerId)
+        await sleep(350)
+        live[queue]--
+        await finishDone(jobId)
+      }
+      const both = await startWorker({ workerId: 'both', concurrency: 2, process: slow, ...small })
+      handles.push(both)
+      const beat2 = JSON.parse((await redis().get(HEARTBEAT_KEY)) ?? 'null') as { lanes: Record<string, number> }
+      assert.deepEqual(beat2.lanes, { image: 2, account: 1 }, 'both lanes by default, the account lane one wide')
+      const ids: string[] = []
+      for (const owner of ['user_h1', 'user_h2', 'user_h3']) ids.push((await enqueueAccountJob({ ownerId: owner, kind: 'export' })).job.id)
+      for (let i = 0; i < 4; i++) ids.push((await enqueueJob({ key: `lane:slow${i}`, ownerId: 'user_h4', projectId: p.pid, kind: 'panel', payload: panelFor(p, i) })).job.id)
+      await until('all seven to finish', async () => (await Promise.all(ids.map((id) => store.jobs.getJob(id)))).every((j) => j?.status === 'done'), 20_000)
+      assert.equal(peak.account, 1, 'three exports, never two at once')
+      assert.ok(peak.image >= 2, `and the pictures still ran ${peak.image} wide beside them`)
+      for (const h of handles.splice(0)) await h.close(1_000)
+      await reset()
+      ok('the worker takes two lanes: a worker without the account lane leaves an account job queued, the account lane never takes a picture, three exports run one at a time while pictures run two wide, and the heartbeat names the lanes')
+    }
+
+    // (d) A killed worker: BullMQ’s stalled recovery hands the account job to another worker, like a picture.
+    {
+      const doomed = spawn(process.execPath, ['--import', 'tsx', 'scripts/queue-check-worker.mts'], {
+        env: { ...process.env, CHECK_WORKER_ID: 'doomed-account' },
+        stdio: ['ignore', 'pipe', 'inherit'],
+      })
+      children.push(doomed)
+      let out = ''
+      doomed.stdout!.on('data', (d: Buffer) => (out += d.toString()))
+      await until('the doomed worker to be ready', () => out.includes('READY'), 30_000)
+      const exp = await enqueueAccountJob({ ownerId: 'user_ivy', kind: 'export' })
+      await until('the doomed worker to claim the export', () => out.includes('CLAIMED'), 15_000)
+      const claimed = (await store.jobs.getJob(exp.job.id))!
+      assert.deepEqual([claimed.status, claimed.workerId, claimed.queue], ['running', 'doomed-account', 'account'])
+      doomed.kill('SIGKILL')
+      await once(doomed, 'exit')
+      const ran: string[] = []
+      const rescuer = await startWorker({
+        workerId: 'rescuer-account',
+        lanes: ['account'],
+        process: async (jobId, ctx) => {
+          ran.push(jobId)
+          await claimBy(jobId, ctx.workerId)
+          await finishDone(jobId)
+        },
+        ...small,
+        lockDurationMs: 1_500,
+      })
+      handles.push(rescuer)
+      await until('the rescuer to finish the export', async () => (await store.jobs.getJob(exp.job.id))?.status === 'done', 20_000)
+      const done = (await store.jobs.getJob(exp.job.id))!
+      assert.deepEqual([done.workerId, done.attempts, ran], ['rescuer-account', 2, [exp.job.id]], 'claimed by the doomed worker, then by the rescuer')
+      await rescuer.close(2_000)
+      handles.pop()
+      await reset()
+      ok('an account job survives a killed worker: stalled recovery hands it to another worker on the account lane, which finishes it (claimed twice)')
+    }
+
+    // (e) The reconciler puts account jobs back, by the queue their record names.
+    {
+      const orphan = await enqueueAccountJob({ ownerId: 'user_jon', kind: 'delete-account' })
+      await redis().flushall() // Redis loses everything it knew
+      assert.equal(await bullQueue('account').getJob(orphan.job.id), undefined)
+      const old = new Date(Date.now() - J.REQUEUE_AFTER_MS - 5_000).toISOString()
+      await store.jobs.updateJob(orphan.job.id, (j) => ({ ...j, updatedAt: old }))
+      const report = await reconcileOnce('acct-1')
+      assert.equal(report.requeued, 1)
+      assert.ok(await bullQueue('account').getJob(orphan.job.id), 'it is back on the account queue')
+      assert.equal(await bullQueue('image').getJob(orphan.job.id), undefined, 'and not on the image queue')
+      // A running one whose worker and queue entry are both gone goes back to queued, and on the queue.
+      const gone = new Date(Date.now() - 5_000).toISOString()
+      await store.jobs.updateJob(orphan.job.id, (j) => ({ ...J.claim(j, 'dead-worker', new Date())!, leaseUntil: gone, updatedAt: gone }))
+      await bullQueue('account').obliterate({ force: true })
+      await redis().del(redisKey('lock', 'reconcile'))
+      const r2 = await reconcileOnce('acct-2')
+      assert.equal(r2.requeued, 1)
+      assert.equal((await store.jobs.getJob(orphan.job.id))!.status, 'queued')
+      assert.ok(await bullQueue('account').getJob(orphan.job.id))
+      // One claimed too many times is failed with a sentence, not put back for ever — and, holding no reservation, leaves nothing to settle.
+      await store.jobs.updateJob(orphan.job.id, (j) => ({ ...j, attempts: 6, updatedAt: old }))
+      await bullQueue('account').obliterate({ force: true })
+      await redis().del(redisKey('lock', 'reconcile'))
+      const r3 = await reconcileOnce('acct-3')
+      assert.equal(r3.failed, 1)
+      const poisoned = (await store.jobs.getJob(orphan.job.id))!
+      assert.deepEqual([poisoned.status, poisoned.error, poisoned.reservation], ['failed', J.TOO_MANY_RESTARTS, 'none'])
+      ok('the reconciler re-enqueues an account job a flushed Redis forgot, and one whose worker died, on the account queue; a poison one is failed with a sentence')
+      await reset()
+    }
+
+    // (f) The processor: the same four steps, no credit breaker, a deletion forgets its own record when it ends done.
+    {
+      const calls: string[] = []
+      accountRunners.export = async (job, run) => {
+        calls.push(`export ${job.ownerId} ${job.projectId === ''} ${run.jobId === job.id}`)
+        return { outcome: 'done' }
+      }
+      accountRunners['delete-account'] = async (job) => {
+        calls.push(`delete ${job.ownerId}`)
+        return { outcome: 'done' }
+      }
+      try {
+        env.GENERATION_ENABLED = 'false'
+        await tripCredits()
+        const x = await enqueueAccountJob({ ownerId: 'user_kay', kind: 'export' })
+        assert.equal(await processJob(x.job.id, { workerId: 'direct' }), 'done', 'the open credit breaker does not stop an account job: it calls no provider')
+        const ranX = (await store.jobs.getJob(x.job.id))!
+        assert.deepEqual([ranX.status, ranX.outcome, ranX.attempts, ranX.error, ranX.workerId, ranX.leaseUntil], ['done', 'done', 1, null, 'direct', null])
+        assert.deepEqual(calls, ['export user_kay true true'])
+        resetBreaker()
+        await redis().del(redisKey('breaker', 'credits'))
+        env.GENERATION_ENABLED = 'true'
+
+        const d = await enqueueAccountJob({ ownerId: 'user_lee', kind: 'delete-account' })
+        assert.equal(await processJob(d.job.id, { workerId: 'direct' }), 'done')
+        assert.equal(await store.jobs.getJob(d.job.id), null, 'a deletion that ended done has deleted its own record: nothing of the person stays')
+        assert.deepEqual(await store.jobs.listJobs({ ownerId: 'user_lee' }), [])
+
+        accountRunners['delete-account'] = async () => ({ outcome: 'failed', error: 'Something is still left. Try again.' })
+        const d2 = await enqueueAccountJob({ ownerId: 'user_mia', kind: 'delete-account' })
+        assert.equal(await processJob(d2.job.id, { workerId: 'direct' }), 'failed')
+        const kept = (await store.jobs.getJob(d2.job.id))!
+        assert.deepEqual([kept.status, kept.error], ['failed', 'Something is still left. Try again.'], 'a failed deletion keeps its record, and its sentence for the status route to tell')
+        const asked = await enqueueAccountJob({ ownerId: 'user_mia', kind: 'delete-account' })
+        assert.equal(asked.created, true, 'and asking again starts a new one: the failed record no longer holds the key')
+
+        // A runner that throws (the store went away mid-sweep): the job stays claimed for BullMQ to retry; the retry finishes it.
+        let thrown = 0
+        accountRunners['delete-account'] = async () => {
+          if (thrown++ === 0) throw new Error('the store went away')
+          return { outcome: 'done' }
+        }
+        const d3 = await enqueueAccountJob({ ownerId: 'user_ned', kind: 'delete-account' })
+        await assert.rejects(processJob(d3.job.id, { workerId: 'direct' }), /the store went away/)
+        const stuck = (await store.jobs.getJob(d3.job.id))!
+        assert.deepEqual([stuck.status, stuck.attempts], ['running', 1], 'it is still claimed, not ended and not deleted')
+        assert.equal(await processJob(d3.job.id, { workerId: 'direct' }), 'done', 'the retry finishes it')
+        assert.equal(await store.jobs.getJob(d3.job.id), null)
+
+        // The processor’s own guard beside the door: a deletion record for the local owner (written around enqueueAccountJob) is refused, not run.
+        const before = calls.length
+        const sneaked = await store.jobs.insertJob(
+          J.newJob({ key: J.deleteAccountKey(J.LOCAL_OWNER), ownerId: J.LOCAL_OWNER, projectId: '', kind: 'delete-account', payload: { kind: 'delete-account' } }, crypto.randomUUID(), new Date())
+        )
+        assert.equal(await processJob(sneaked.job.id, { workerId: 'direct' }), 'failed')
+        const refusedRec = (await store.jobs.getJob(sneaked.job.id))!
+        assert.deepEqual([refusedRec.outcome, refusedRec.error], ['refused', J.NO_ACCOUNT_TO_DELETE], 'the record stays, with its sentence')
+        assert.equal(calls.length, before, 'and the runner was never called')
+      } finally {
+        Object.assign(accountRunners, realRunners)
+        resetBreaker()
+        env.GENERATION_ENABLED = 'true'
+      }
+      ok('the processor runs account jobs like any other — claim, heartbeat, finish — with no credit-breaker check; a deletion that ends done deletes its own record, a failed one keeps it with its sentence, a thrown error is retried, and the local owner’s deletion is refused')
+      await reset()
+    }
+
+    // (g) The inline queue runs them in a lane of its own — not in an image slot — one at a time.
+    {
+      env.INKDESK_QUEUE = 'inline'
+      let open!: () => void
+      const gate = new Promise<void>((resolve) => (open = resolve))
+      accountRunners.export = async () => {
+        await gate
+        return { outcome: 'done' }
+      }
+      try {
+        const a = await enqueueAccountJob({ ownerId: 'user_oli', kind: 'export' })
+        const b = await enqueueAccountJob({ ownerId: 'user_pam', kind: 'export' })
+        await until('the first export to be running', () => singletons.accountQueue.running().length === 1)
+        assert.deepEqual(singletons.accountQueue.running(), [a.job.id])
+        assert.deepEqual(singletons.accountQueue.waiting(), [b.job.id], 'one at a time')
+        assert.deepEqual(singletons.queue.running(), [], 'the image lane is not touched')
+        assert.equal(await bullQueue('account').getJob(a.job.id), undefined, 'and nothing went to Redis')
+        open()
+        await until('both to finish', async () => (await Promise.all([a, b].map((x) => store.jobs.getJob(x.job.id)))).every((j) => j?.status === 'done'))
+        await until('the lane to be free', () => singletons.accountQueue.running().length === 0)
+        // A deletion run inline deletes its own record too.
+        accountRunners['delete-account'] = async () => ({ outcome: 'done' })
+        const d = await enqueueAccountJob({ ownerId: 'user_quin', kind: 'delete-account' })
+        await until('the inline deletion to forget itself', async () => (await store.jobs.getJob(d.job.id)) === null)
+      } finally {
+        Object.assign(accountRunners, realRunners)
+        env.INKDESK_QUEUE = 'bullmq'
+      }
+      ok('INKDESK_QUEUE=inline runs account jobs in the web process in their own lane, one at a time, never in an image slot, with nothing sent to Redis')
+      await reset()
+    }
+  }
+
   // 14. Redis down: generate says busy at once, reading keeps working, the status line says why.
   {
     const p = await lockedPage('Down')
@@ -835,6 +1162,11 @@ try {
         await assert.rejects(queuePanel(p.addr, 0), (e: unknown) => e instanceof Refused && e.status === 503 && e.message === J.BUSY)
       })()
       assert.ok(Date.now() - t0 < 8_000, `refused in ${Date.now() - t0} ms, not a hang`)
+      // An account job needs Redis like any other when the queue is Redis: the same sentence, and nothing left to be queued later.
+      await quiet(async () => {
+        await assert.rejects(enqueueAccountJob({ ownerId: 'user_quinn', kind: 'export' }), (e: unknown) => e instanceof Refused && e.status === 503 && e.message === J.BUSY)
+      })()
+      assert.deepEqual((await store.jobs.listJobs({ ownerId: 'user_quinn' })).map((j) => [j.status, j.outcome]), [['failed', 'cancelled']], 'the record was ended, so the reconciler never queues it')
       assert.equal((await store.jobs.listJobs({ projectId: p.pid, status: ['queued', 'running'] })).length, 0, 'and it leaves no queued record behind')
       assert.equal((await store.jobs.listJobs({ projectId: p.pid }))[0].outcome, 'cancelled')
       // The route a person presses, and the desk that keeps opening.

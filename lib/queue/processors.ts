@@ -16,6 +16,17 @@
 //      job. It throws only when the store failed after the picture was paid for
 //      — then BullMQ retries and the retry attaches the stored picture.
 //   4. FINISH — `done`, or `failed` with the sentence the card shows.
+//
+// Slice 21 adds the account kinds, `export` and `delete-account` (lib/account):
+// the same four steps, with three differences. They call no paid provider, so
+// the credit breaker does not stop them; their ceiling is the account lane's
+// (`ACCOUNT_RUN_MS`: ten minutes for an export, fifteen for a deletion); and a
+// `delete-account` job's own record is deleted the moment it ends `done` —
+// the person it was about no longer exists, and nothing about them may stay,
+// this record included. A `failed` one stays, with its sentence, for the status
+// route to tell them. Unlike the image engines, an account runner may THROW
+// (a store that went away mid-sweep): the job stays claimed, BullMQ retries it
+// (or the reconciler re-runs it), and every step of both is safe to repeat.
 import 'server-only'
 import { inkCover } from '../director'
 import { inkPanel } from '../panels'
@@ -24,7 +35,7 @@ import { store } from '../store'
 import { creditsBreakerOpen } from './breaker'
 import { endJob } from './ending'
 import { maxRunMs } from './status'
-import { LEASE_MS, LEASE_RENEW_MS, PAUSED, checkpoint, claim, finish, isActive, renew, type JobPayload, type JobRecord } from './jobs'
+import { LEASE_MS, LEASE_RENEW_MS, NO_ACCOUNT_TO_DELETE, PAUSED, LOCAL_OWNER, checkpoint, claim, finish, isAccountKind, isActive, renew, type AccountJobKind, type JobPayload, type JobRecord } from './jobs'
 import type { JobRun, Outcome } from './run'
 
 export type Handled = 'done' | 'failed' | 'skipped'
@@ -80,7 +91,8 @@ async function run(jobId: string, ctx: { workerId: string; maxRunMs?: number }):
   const tag = `${job.kind} ${job.id.slice(0, 8)}`
 
   // A job that only has to attach a picture it already paid for calls nobody, so the breaker does not stop it.
-  if (!job.resultImageId && (await creditsBreakerOpen())) {
+  // An account job calls no provider at all: the breaker has nothing to say about it.
+  if (!isAccountKind(job.kind) && !job.resultImageId && (await creditsBreakerOpen())) {
     // Fail it without calling anyone: the account is out of credit (CR-10).
     console.warn(`[worker] ${tag} — credit breaker open; not calling the provider`)
     await end(job, { outcome: 'failed', error: PAUSED })
@@ -88,7 +100,7 @@ async function run(jobId: string, ctx: { workerId: string; maxRunMs?: number }):
   }
 
   // The heartbeat: renew the lease while the work runs.
-  const deadline = Date.now() + (ctx.maxRunMs ?? maxRunMs(job.kind === 'panel' || job.kind === 'cover' ? job.kind : 'sheet'))
+  const deadline = Date.now() + (ctx.maxRunMs ?? maxRunMs(job.kind === 'panel' || job.kind === 'cover' || isAccountKind(job.kind) ? job.kind : 'sheet'))
   const beat = setInterval(() => {
     if (Date.now() > deadline) return
     store.jobs.updateJob(job.id, (j) => renew(j, workerId, new Date())).catch((err: unknown) => {
@@ -117,6 +129,7 @@ async function run(jobId: string, ctx: { workerId: string; maxRunMs?: number }):
   }
 
   await end(job, { outcome: outcome.outcome, error: outcome.error, costUsd: outcome.costUsd })
+  if (job.kind === 'delete-account' && outcome.outcome === 'done') await forgetDeletion(job, tag)
   console.log(`[worker] ${tag} — ${outcome.outcome}`)
   return outcome.outcome === 'done' ? 'done' : outcome.outcome === 'skipped' ? 'skipped' : 'failed'
 }
@@ -131,6 +144,31 @@ async function work(job: JobRecord, run: JobRun): Promise<Outcome> {
       return inkCover(job.projectId, run)
     case 'sheet':
       return drawSheet(job.projectId, p.characterId, p.reuseDna, run)
+    case 'export':
+      return accountRunners.export(job, run)
+    case 'delete-account':
+      // Belt and braces beside the door (`enqueueAccountJob`): on a desk without accounts the one owner is the whole desk.
+      if (job.ownerId === LOCAL_OWNER) return { outcome: 'refused', error: NO_ACCOUNT_TO_DELETE }
+      return accountRunners['delete-account'](job, run)
+  }
+}
+
+/**
+ * The two account runners (`lib/account`), looked up on every job. Each loads its module on first use, not at the top:
+ * the account code reaches into every store, and a web bundle that only enqueues must not carry it. They sit in an
+ * object, not behind two imports, so a check can stand in for them the way it stands in for a store call.
+ */
+export const accountRunners: Record<AccountJobKind, (job: JobRecord, run: JobRun) => Promise<Outcome>> = {
+  export: async (job, run) => (await import('../account')).runExport(job, run),
+  'delete-account': async (job, run) => (await import('../account')).runDeleteAccount(job, run),
+}
+
+/** The deletion succeeded, so its own record goes too — the last trace of the person. A store that blips here leaves a finished record the reconciler prunes after a week; it is not worth failing a deletion that is complete. */
+async function forgetDeletion(job: JobRecord, tag: string): Promise<void> {
+  try {
+    await store.jobs.deleteJob(job.id)
+  } catch (err) {
+    console.warn(`[worker] ${tag} — finished, but its own record could not be deleted yet (it is pruned within a week):`, err instanceof Error ? err.message : err)
   }
 }
 

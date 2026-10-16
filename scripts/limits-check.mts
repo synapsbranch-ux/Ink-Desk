@@ -205,7 +205,7 @@ const synopsisRoute = await import('../app/api/projects/[id]/synopsis/route')
 const sheetRoute = await import('../app/api/projects/[id]/sheet/route')
 const importRoute = await import('../app/api/projects/[id]/import/route')
 import type { LimitsBackend } from '../lib/limits/backend'
-import type { Caps, Units } from '../lib/limits/rules'
+import type { Caps, RateBucket, Units } from '../lib/limits/rules'
 import type { JobRecord } from '../lib/queue/jobs'
 import type { UsageView } from '../lib/limits/view'
 
@@ -445,6 +445,20 @@ try {
     assert.equal(win('POST', '/api/projects/p1/sheet/'), 'image', 'a trailing slash is the same route')
     assert.equal(win('DELETE', '/api/projects/p1'), 'edit', 'a route nobody classified is limited as an edit from its first day')
     assert.equal(win('GET', '/api/never-heard-of-it'), 'read')
+    // Total over everything slice 21 adds: a public share route never reaches `classify` (it takes no session), but should
+    // anything ask, every method and path gets one of the windows that exist — and the address windows are never chosen by a path.
+    for (const method of ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']) {
+      for (const path of ['/api/s/tok', '/api/s/tok/image/img-1.png', '/api/s/tok/report', '/api/shares', '/api/shares/tok', '/api/settings/defaults', '/api/settings/export', '/api/settings/export/download', '/api/settings/delete', '/api/admin/reports/r1', '/api/projects/p1/status', '/api/projects/p1/share', '/', '', '/api/s/']) {
+        const windows = classify(method, path)
+        assert.ok(windows.length >= 1 && windows.every((w) => (R.RATE_BUCKETS as readonly string[]).includes(w)), `${method} ${path} → ${windows.join('+')}`)
+        assert.ok(!windows.includes('anonMedia') && !windows.includes('report'), `${method} ${path}: the address windows are taken by the public route itself`)
+      }
+    }
+    assert.equal(win('POST', '/api/settings/delete'), 'edit', 'leaving takes an edit window and nothing paid')
+    assert.equal(win('POST', '/api/settings/export'), 'edit')
+    assert.equal(win('GET', '/api/settings/export/download'), 'read')
+    assert.equal(win('POST', '/api/admin/reports/r1'), 'edit')
+    assert.equal(win('GET', '/api/projects/p1/status'), 'read', 'the light poll is a read, not a picture')
 
     // The client address: a header the caller writes must not move them out of their window.
     const xff = (value: string | null) => new Headers(value === null ? {} : { 'x-forwarded-for': value })
@@ -474,7 +488,7 @@ try {
     assert.deepEqual([s0.globalDailyUsd, s0.globalTotalUsd, s0.trustedProxyHops, s0.allowlist.length], [5, null, 1, 0])
     assert.deepEqual(
       Object.fromEntries(Object.entries(s0.rates).map(([k, v]) => [k, `${v.limit}/${v.windowMs / 60_000}min`])),
-      { text: '10/1min', image: '6/1min', upload: '20/60min', edit: '120/1min', read: '240/1min', media: '1200/1min', anon: '60/1min' }
+      { text: '10/1min', image: '6/1min', upload: '20/60min', edit: '120/1min', read: '240/1min', media: '1200/1min', anon: '60/1min', anonMedia: '600/1min', report: '6/60min' }
     )
     const s1 = limitsSettings({ ALLOWLIST_EMAILS: ' A@X.com, b@y.org ,, a@x.com', GLOBAL_DAILY_USD_CAP: '0.01', GLOBAL_TOTAL_USD_CAP: '20', QUOTA_FREE_IMAGES: '3', USER_DAILY_USD_ALLOW: '2.5', RATE_READ_PER_MIN: '7', QUOTA_ALLOW_AUDIO_CHARS: ' ' })
     assert.deepEqual([s1.allowlist, s1.globalDailyUsd, s1.globalTotalUsd, s1.plans.free.image, s1.plans.allowlisted.dailyUsd, s1.rates.read.limit, s1.plans.allowlisted.audioChars], [['a@x.com', 'b@y.org'], 0.01, 20, 3, 2.5, 7, 20000], 'case-insensitive allowlist, de-duplicated; blank = default')
@@ -1217,6 +1231,52 @@ try {
     await limitByAddress(rq, 'edit')
     await assert.rejects(limitByAddress(rq, 'edit'), (e: unknown) => e instanceof Refused && e.status === 429 && e.extra.code === 'rate')
 
+    // Slice 21: the share page's two windows are separate counters per client address — pictures 3 a minute and reports
+    // 2 an hour here — and neither touches the signed-out `anon` window or the signed-in ones.
+    delete env.RATE_EDIT_PER_MIN
+    env.RATE_ANON_MEDIA_PER_MIN = '3'
+    env.RATE_REPORT_PER_HOUR = '2'
+    const visitor = (ip: string, path = '/api/s/tok/report') => call(path.endsWith('report') ? 'POST' : 'GET', path, undefined, undefined, { 'x-forwarded-for': `${ip.split('.')[3]}.6.6.6, ${ip}` })
+    const byAddress = async (n: number, bucket: RateBucket, ip: string, path?: string) => {
+      const seen: string[] = []
+      for (let i = 0; i < n; i++) {
+        try {
+          await limitByAddress(visitor(ip, path), bucket)
+          seen.push('ok')
+        } catch (err) {
+          assert.ok(err instanceof Refused)
+          seen.push(String(err.status))
+        }
+      }
+      return seen
+    }
+    const picture = '/api/s/tok/image/img-1.png'
+    assert.deepEqual(await byAddress(4, 'anonMedia', '203.0.113.80', picture), ['ok', 'ok', 'ok', '429'], 'a shared manga’s pictures: the fourth in a minute is refused (3 here)')
+    assert.deepEqual(await byAddress(1, 'anonMedia', '203.0.113.81', picture), ['ok'], 'another address has its own')
+    assert.deepEqual(await byAddress(3, 'anon', '203.0.113.80'), ['ok', 'ok', 'ok'], 'and the pictures did not spend the same address’s `anon` window')
+    assert.deepEqual(await byAddress(3, 'report', '203.0.113.80'), ['ok', 'ok', '429'], 'reports: the third in an hour is refused (2 here), beside full picture and data windows')
+    assert.deepEqual(await byAddress(1, 'report', '203.0.113.82'), ['ok'])
+    let reportRefusal: RefusedT | null = null
+    try {
+      await limitByAddress(visitor('203.0.113.80'), 'report')
+    } catch (err) {
+      reportRefusal = err as RefusedT
+    }
+    assert.ok(reportRefusal && reportRefusal.status === 429 && reportRefusal.extra.code === 'rate' && reportRefusal.extra.retryAfterSec !== undefined && reportRefusal.extra.retryAfterSec > 60, 'an hour-long window says so (Retry-After in the thousands of seconds)')
+    assert.match(reportRefusal.message, /^You’re going a little fast — try again in \d+ minutes\.$/)
+    now += 59 * 60_000
+    assert.deepEqual(await byAddress(1, 'report', '203.0.113.80'), ['429'], 'still full 59 minutes later')
+    now += 2 * 60_000
+    assert.deepEqual(await byAddress(3, 'report', '203.0.113.80'), ['ok', 'ok', '429'], 'it slides over an hour, not a minute')
+    assert.deepEqual(await byAddress(4, 'anonMedia', '203.0.113.80', picture), ['ok', 'ok', 'ok', '429'], 'and the pictures’ window slid with the clock')
+    // Keys: the address is hashed and the buckets never share a counter.
+    const rl = await redis().keys('inkdesk:rl:*')
+    assert.ok(rl.some((k) => k.startsWith('inkdesk:rl:report:')) && rl.some((k) => k.startsWith('inkdesk:rl:anonMedia:')))
+    assert.ok(rl.every((k) => !/203\.0\.113/.test(k)), 'no raw address is a Redis key')
+    // The report window is the one that matters when Redis is down: it fails CLOSED (section 13 holds that).
+    delete env.RATE_ANON_MEDIA_PER_MIN
+    delete env.RATE_REPORT_PER_HOUR
+
     // Pages take no window; the local desk of a plain clone takes none at all.
     setClock(null)
     await reset()
@@ -1458,6 +1518,13 @@ try {
       const rel = relative(ROOT, file).split('\\').join('/')
       if (rel.startsWith('app/api/health/') || rel.startsWith('app/api/webhooks/')) continue
       const src = await readFile(file, 'utf8')
+      if (rel.startsWith('app/api/s/')) {
+        // Public by design (slice 21): no session, so no `requireUser` and no `classify`; the route takes the address window itself, FIRST.
+        assert.match(src, /limitByAddress\(\s*req\b/, `${rel} takes an address window`)
+        assert.doesNotMatch(src, /requireUser\(/, `${rel} is public: it takes no session`)
+        checked.push(`${rel} → by address`)
+        continue
+      }
       const path = '/' + rel.replace(/^app\//, '').replace(/\/route\.ts$/, '').replace(/\[imageId\]/g, 'img-1.png').replace(/\[id\]/g, 'p1').replace(/\[n\]/g, '0').replace(/\[i\]/g, '1')
       for (const m of src.matchAll(/^export\s+async\s+function\s+(GET|POST|PUT|PATCH|DELETE)\b/gm)) {
         const bucket = classify(m[1], path).join('+')
@@ -1470,7 +1537,7 @@ try {
         const spends = m[1] === 'POST' && (paid || src.includes('spendProject('))
         assert.equal(isSpendingRequest(m[1], path), spends, `${m[1]} ${path}: lib/limits/button.ts isSpendingRequest and the server agree on what spends`)
         // The route reaches the choke point before it does anything else.
-        assert.match(src, /requireUser\(\s*req\s*\)|requireUser\(await|requireUser\(req/, `${rel} asks requireUser(req)`)
+        assert.match(src, /requireUser\(\s*req\s*\)|requireUser\(await|requireUser\(req|requireAdmin\(\s*req\s*\)/, `${rel} asks requireUser(req) (or requireAdmin(req), which does)`)
         checked.push(`${m[1]} ${path} → ${bucket}`)
       }
     }
@@ -1803,6 +1870,12 @@ try {
         assert.equal(await requireUser(call('GET', '/api/projects', FREE)), FREE, 'a read passes its window')
         assert.equal(await requireUser(call('POST', `/api/projects/${p.pid}`, FREE)), FREE, 'an edit passes its window')
         assert.equal(await requireUser(call('GET', '/api/projects/p/image/x.png', FREE)), FREE, 'and so does a picture')
+        // The share page (slice 21): the report form is a public write behind a store write, so a counter store that is down closes it;
+        // a shared manga’s data and pictures, like every other read, go on.
+        const stranger = call('POST', '/api/s/tok/report', undefined, undefined, { 'x-forwarded-for': '203.0.113.99' })
+        await assert.rejects(limitByAddress(stranger, 'report'), (e: unknown) => e instanceof Refused && e.status === 503 && e.message === J.BUSY, 'reports fail CLOSED')
+        await limitByAddress(stranger, 'anonMedia')
+        await limitByAddress(stranger, 'anon')
         // The meter degrades to a sentence rather than an error.
         const usage = await usageRoute.GET(call('GET', '/api/usage', FREE))
         assert.equal(usage.status, 200)
@@ -1811,7 +1884,7 @@ try {
         assert.equal(view.images.limit, 20, 'with the plan’s limits still shown')
       })()
       assert.ok(Date.now() - t0 < 40_000, `all of that took ${Date.now() - t0} ms, not a hang`)
-      ok('Redis down: every spend is refused with the studio-busy sentence and leaves nothing behind (jobs, text calls, projects, uploads); reading, editing and the pictures go on; the meter says busy')
+      ok('Redis down: every spend is refused with the studio-busy sentence and leaves nothing behind (jobs, text calls, projects, uploads) and so is a report; reading, editing, the pictures and a shared manga go on; the meter says busy')
     }
     // Production without Redis (a web service whose generation is closed): nothing can be counted, so nothing can spend.
     await closeProducerRedis().catch(() => {})

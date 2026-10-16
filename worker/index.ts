@@ -1,6 +1,8 @@
 // The `worker` service (v3, slice 18): `npm run worker`. It takes the image
 // jobs the web service writes and puts on the queue, draws them, and writes the
-// results to the same Mongo and buckets — web only enqueues. One process; on
+// results to the same Mongo and buckets — web only enqueues. Since slice 21 it
+// also runs the `account` queue beside the image one — a person's export and the
+// deletion of their account, one at a time (`lib/queue/worker.ts`). One process; on
 // Railway a second service in the same project from the same repository, with
 // its own start command and the variables listed in `devpost/spec.md >
 // Environment and Configuration (v3)`.

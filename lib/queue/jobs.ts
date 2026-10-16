@@ -15,10 +15,15 @@
 
 export type JobKind = 'sheet' | 'panel' | 'cover' | 'text' | 'shot' | 'speech' | 'music' | 'assemble' | 'export' | 'delete-account'
 
-export const QUEUE_NAMES = ['image', 'video', 'audio'] as const
+export const QUEUE_NAMES = ['image', 'video', 'audio', 'account'] as const
 export type QueueName = (typeof QUEUE_NAMES)[number]
 
-/** Which BullMQ queue runs a kind. Only the image kinds have processors in slice 18. */
+/**
+ * Which BullMQ queue runs a kind. The image kinds have processors from slice 18; `account` (slice 21) carries the
+ * two jobs that are about a PERSON rather than a project — an export of their data and the deletion of their
+ * account — on a queue of their own, one at a time per worker, so a long export never waits behind a page of
+ * pictures and a person asking to leave is never behind the studio's busiest hour.
+ */
 export const QUEUE_OF: Record<JobKind, QueueName> = {
   sheet: 'image',
   panel: 'image',
@@ -28,9 +33,18 @@ export const QUEUE_OF: Record<JobKind, QueueName> = {
   assemble: 'video',
   speech: 'audio',
   music: 'audio',
-  export: 'audio',
-  'delete-account': 'audio',
+  export: 'account',
+  'delete-account': 'account',
 }
+
+/** The longest an account job may legitimately hold its claim (slice 21): an export of a big desk, and the deletion that sweeps a person's pictures one by one. Past it nothing renews the lease. */
+export const ACCOUNT_RUN_MS: Record<AccountJobKind, number> = { export: 10 * 60_000, 'delete-account': 15 * 60_000 }
+/** What the inline runner (and the worker) cut an account job off at: the longest of them and a margin for the lease to lapse. */
+export const ACCOUNT_CEILING_MS = Math.max(...Object.values(ACCOUNT_RUN_MS)) + 2 * 60_000
+
+/** The kinds that belong to a person, not a project: they carry no project, reserve nothing and are not capped (`enqueueAccountJob`). */
+export type AccountJobKind = 'export' | 'delete-account'
+export const isAccountKind = (kind: JobKind): kind is AccountJobKind => QUEUE_OF[kind] === 'account'
 
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed'
 
@@ -48,6 +62,9 @@ export type JobPayload =
   | { kind: 'cover'; chapterId: string }
   /** `redraw` is what the person asked for (Redraw sheet = same words); `reuseDna` is what the job will do, and turns true once a fresh draw has saved its words. */
   | { kind: 'sheet'; characterId: string; reuseDna: boolean; redraw: boolean }
+  /** Slice 21: account jobs carry nothing but their kind — the owner on the record is the whole payload. */
+  | { kind: 'export' }
+  | { kind: 'delete-account' }
 
 export type JobRecord = {
   id: string
@@ -56,6 +73,7 @@ export type JobRecord = {
   key: string
   /** Whose work it is. `LOCAL_OWNER` until accounts arrive in slice 19. */
   ownerId: string
+  /** The project it draws for; '' for an account job (slice 21), which belongs to no project. */
   projectId: string
   kind: JobKind
   queue: QueueName
@@ -123,6 +141,7 @@ export const PAUSED = 'The studio has paused generation for now to keep its cost
 export const TOO_MANY = 'You already have a lot inking. Let some of it finish, then try again.'
 export const RESTARTED = 'The studio restarted before this finished. Try again.'
 export const ABANDONED = 'This one stopped before it finished. Try again.'
+export const NO_ACCOUNT_TO_DELETE = 'Deleting an account isn’t available on a desk without accounts.'
 export const TOO_MANY_RESTARTS = 'This kept being interrupted. Try again in a little while.'
 
 // --- Keys -----------------------------------------------------------------------
@@ -131,6 +150,9 @@ export const panelKey = (projectId: string, chapterId: string, pageIndex: number
   `${projectId}:${chapterId}:${pageIndex}:${index}`
 export const coverKey = (projectId: string, chapterId: string) => `${projectId}:${chapterId}:cover`
 export const sheetKey = (projectId: string, characterId: string) => `${projectId}:sheet:${characterId}`
+/** One export, and one deletion, in flight per person (slice 21): asking again returns the job that holds the key. */
+export const exportKey = (ownerId: string) => `export:${ownerId}`
+export const deleteAccountKey = (ownerId: string) => `delete-account:${ownerId}`
 
 // --- Transitions ----------------------------------------------------------------
 
@@ -284,7 +306,9 @@ export function toView(job: JobRecord): JobView {
       ? { chapterId: p.chapterId, pageIndex: p.pageIndex, index: p.index }
       : p.kind === 'cover'
         ? { chapterId: p.chapterId }
-        : { characterId: p.characterId, reuseDna: p.redraw }
+        : p.kind === 'sheet'
+          ? { characterId: p.characterId, reuseDna: p.redraw }
+          : {}
   return { id: job.id, kind: job.kind, status: job.status, outcome: job.outcome, error: job.error, target, updatedAt: job.updatedAt }
 }
 

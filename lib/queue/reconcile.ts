@@ -15,6 +15,11 @@
 //   • An ended job whose reservation was never settled (slice 20: a crash
 //     between its ending and the settle) is settled now — idempotently.
 //   • Records that finished long ago are pruned.
+// Every queue is covered the same way — the entry is looked up on the queue the
+// record names (`job.queue`), so an `export` or `delete-account` job on the
+// `account` queue (slice 21) is put back after a flushed Redis or a lost worker
+// exactly like a picture. A deletion put back is safe to run again: its steps
+// are all idempotent.
 // Nothing here ever draws or pays: it only moves records and queue entries.
 import 'server-only'
 import type { Job } from 'bullmq'

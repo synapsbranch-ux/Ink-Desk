@@ -68,6 +68,19 @@ const securityHeaders = [
   ...(production ? [{ key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains' }] : []),
 ]
 
+// Slice 21: the public share page (`/s/<token>`) and its data and pictures
+// (`/api/s/<token>/…`) are for the people a link was given to, not for search
+// engines: `X-Robots-Tag: noindex, nofollow` on both (the page also says so in
+// its metadata, the header covers the image and JSON routes that have none),
+// and `Referrer-Policy: no-referrer` on the page, so a link a reader follows
+// out of a shared manga never carries the secret token in its Referer. The CSP
+// above is untouched on purpose: the share page loads nothing from a third
+// party (its pictures are streamed by the studio's own route, `img-src 'self'`).
+// A later entry overrides an earlier one for the same key, so these come after
+// the site-wide list; `check:auth` reads this function and holds all of it.
+const robotsHeader = { key: 'X-Robots-Tag', value: 'noindex, nofollow' }
+const sharePageHeaders = [robotsHeader, { key: 'Referrer-Policy', value: 'no-referrer' }]
+
 const nextConfig: NextConfig = {
   // No `X-Powered-By: Next.js` advertising the stack.
   poweredByHeader: false,
@@ -75,7 +88,11 @@ const nextConfig: NextConfig = {
   // run time; bundled, they break. Left to Node's own resolution (v3, slice 18).
   serverExternalPackages: ['bullmq', 'ioredis'],
   async headers() {
-    return [{ source: '/:path*', headers: securityHeaders }]
+    return [
+      { source: '/:path*', headers: securityHeaders },
+      { source: '/s/:path*', headers: sharePageHeaders },
+      { source: '/api/s/:path*', headers: [robotsHeader] },
+    ]
   },
   experimental: {
     // Once `proxy.ts` exists (slice 19) it buffers every body; nothing the

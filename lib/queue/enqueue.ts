@@ -21,6 +21,10 @@
 //   • Redis is down, or not configured                       → 503
 //   • this person has `QUEUE_USER_INFLIGHT` jobs in flight   → 429  (SEC-08, CR-10)
 //   • the whole studio has `QUEUE_MAX_WAITING` in flight     → 503
+// Account jobs (slice 21: an export of a person's data, the deletion of their
+// account) go through `enqueueAccountJob` below instead: no project, no
+// reservation, and none of the refusals above except the last — a person must
+// always be able to take their data and leave, whatever the studio is doing.
 // Fairness: a person's jobs go on the queue with a priority equal to how many
 // they already have in flight, so someone with one panel waiting goes ahead of
 // someone whose Generate all queued twenty-four.
@@ -33,12 +37,28 @@ import { singletons } from '../singleton'
 import { store } from '../store'
 import { creditsBreakerOpen } from './breaker'
 import { endJob } from './ending'
-import { ABANDONED, BUSY, KEEP_FINISHED_MS, LOCAL_OWNER, PAUSED, TOO_MANY, abandon, finish, newJob, priorityFor, type JobRecord, type NewJob } from './jobs'
+import {
+  ABANDONED, BUSY, KEEP_FINISHED_MS, LOCAL_OWNER, NO_ACCOUNT_TO_DELETE, PAUSED, TOO_MANY,
+  abandon, deleteAccountKey, exportKey, finish, isAccountKind, newJob, priorityFor,
+  type AccountJobKind, type JobRecord, type NewJob,
+} from './jobs'
 import { within } from './redis'
 import { addToQueue } from './queues'
 import { isJobLive } from './status'
 
 const ACTIVE = ['queued', 'running'] as const
+
+/**
+ * Room left in a listing for account jobs, which the caps do not count (a person has at most two in flight — their
+ * export and their deletion — but the studio-wide listing cannot know how many people are leaving at once).
+ */
+const ACCOUNT_HEADROOM = 50
+
+/** The active jobs that count against the caps: picture work. An export or a deletion neither waits behind it nor holds it up. */
+async function activeWork(filter: { ownerId?: string }, limit: number): Promise<JobRecord[]> {
+  const jobs = await store.jobs.listJobs({ ...filter, status: ACTIVE, limit: limit + ACCOUNT_HEADROOM })
+  return jobs.filter((j) => !isAccountKind(j.kind))
+}
 
 export type Enqueued = { job: JobRecord; created: boolean }
 
@@ -67,9 +87,9 @@ export async function assertCanEnqueue(ownerId: string): Promise<void> {
   const settings = queueSettings()
   if (await creditsBreakerOpen()) throw new Refused(PAUSED, 503, { code: 'paused' })
   if (settings.mode === 'bullmq' && !settings.redisUrl) throw new Refused(BUSY, 503)
-  const mine = await store.jobs.listJobs({ ownerId, status: ACTIVE, limit: settings.userInflight + 1 })
+  const mine = await activeWork({ ownerId }, settings.userInflight + 1)
   if (mine.length >= settings.userInflight) throw new Refused(TOO_MANY, 429)
-  const everyone = await store.jobs.listJobs({ status: ACTIVE, limit: settings.maxWaiting + 1 })
+  const everyone = await activeWork({}, settings.maxWaiting + 1)
   if (everyone.length >= settings.maxWaiting) throw new Refused(BUSY, 503)
 }
 
@@ -149,8 +169,8 @@ export async function enqueueJob(request: NewJob): Promise<Enqueued> {
   // The caps were checked before the insert, and requests racing each other all
   // saw room. Count again now that this one is in; a request that put the count
   // over backs out (two racers may both back out, which is the safe direction).
-  const mine = await store.jobs.listJobs({ ownerId: input.ownerId, status: ACTIVE, limit: settings.userInflight + 2 })
-  const everyone = mine.length > settings.userInflight ? mine : await store.jobs.listJobs({ status: ACTIVE, limit: settings.maxWaiting + 2 })
+  const mine = await activeWork({ ownerId: input.ownerId }, settings.userInflight + 2)
+  const everyone = mine.length > settings.userInflight ? mine : await activeWork({}, settings.maxWaiting + 2)
   const overOwner = mine.length > settings.userInflight
   if (overOwner || everyone.length > settings.maxWaiting) {
     await endJob(job.id, (j) => finish(j, { outcome: 'cancelled', error: overOwner ? TOO_MANY : BUSY }, new Date())).catch(() => {})
@@ -169,13 +189,57 @@ export async function enqueueJob(request: NewJob): Promise<Enqueued> {
   return { job, created: true }
 }
 
+/**
+ * Put an account job on the `account` queue (slice 21): an `export` of a person's data, or the `delete-account` that
+ * ends their account. The account-level sibling of `enqueueJob`, and deliberately lighter:
+ *
+ *   • no project (`projectId` is ''), and the owner is exactly who is named — the route has already proved it is the caller;
+ *   • one in flight per person and kind: the dedupe key (`export:<owner>`, `delete-account:<owner>`) hands back the job
+ *     that already holds it, so a second click, the Clerk webhook and a retry all find the same job;
+ *   • NO reservation — it draws nothing and calls no paid provider, so the limits layer is never asked (`reservation: none`);
+ *   • exempt from GENERATION_ENABLED (the route does not check it), from the credit breaker, from the per-person
+ *     in-flight cap and from the studio-wide waiting cap: a person must always be able to take their data and leave,
+ *     paused studio or not;
+ *   • but when the queue is Redis and Redis is not there, it refuses with the studio-busy sentence like any other work,
+ *     and leaves no record behind (the record is ended `cancelled`, so the reconciler never queues it later).
+ *
+ * A deletion is refused on a desk with sign-in off: its one owner, `local`, would be the whole desk.
+ */
+export async function enqueueAccountJob(request: { ownerId: string; kind: AccountJobKind }): Promise<Enqueued> {
+  const { ownerId, kind } = request
+  if (!ownerId) throw new Error('an account job needs an owner')
+  if (kind === 'delete-account' && ownerId === LOCAL_OWNER) throw new Refused(NO_ACCOUNT_TO_DELETE, 409)
+  const settings = queueSettings()
+  if (settings.mode === 'bullmq' && !settings.redisUrl) throw new Refused(BUSY, 503)
+
+  const key = kind === 'export' ? exportKey(ownerId) : deleteAccountKey(ownerId)
+  const existing = await activeJob(key)
+  if (existing) return { job: existing, created: false }
+  prune()
+
+  // Written before it is queued, like every job: never a queued job without a record.
+  const inserted = await store.jobs.insertJob(newJob({ key, ownerId, projectId: '', kind, payload: { kind }, reservation: 'none' }, randomUUID(), new Date()))
+  if (!inserted.created) return inserted // another request took the key first: its job is the answer
+  const job = inserted.job
+  try {
+    await dispatch(job, priorityFor(0))
+  } catch (err) {
+    await endJob(job.id, (j) => finish(j, { outcome: 'cancelled', error: BUSY }, new Date())).catch(() => {})
+    console.error(`[queue] could not queue a ${kind} job:`, err instanceof Error ? err.message : err)
+    throw err instanceof Refused ? err : new Refused(BUSY, 503)
+  }
+  return { job, created: true }
+}
+
 /** Hand a written record to whatever runs it: the in-process runner, or BullMQ. */
 async function dispatch(job: JobRecord, priority: number): Promise<void> {
   if (queueSettings().mode === 'inline') {
     // Loaded here, not at the top: the processors import the panel engine, which imports this file.
     const { processJob } = await import('./processors')
     const workerId = `inline-${singletons.serverRunId.slice(0, 8)}`
-    singletons.queue.enqueue(job.id, async () => {
+    // An account job has a lane of its own: an export is minutes long and must not hold an image slot.
+    const lane = job.queue === 'account' ? singletons.accountQueue : singletons.queue
+    lane.enqueue(job.id, async () => {
       try {
         await processJob(job.id, { workerId })
       } catch (err) {

@@ -200,7 +200,7 @@ try {
   //     is named when it is missing and never echoed; the numbers are checked like the others.
   {
     const { queueSettings, imageConcurrency } = config
-    assert.deepEqual(queueSettings({}), { mode: 'inline', redisUrl: null, imageConcurrency: 2, userInflight: 30, maxWaiting: 200, retryBackoffMs: 5000, graceMs: 90_000 })
+    assert.deepEqual(queueSettings({}), { mode: 'inline', redisUrl: null, imageConcurrency: 2, accountConcurrency: 1, userInflight: 30, maxWaiting: 200, retryBackoffMs: 5000, graceMs: 90_000 })
     assert.equal(queueSettings({ INKDESK_QUEUE: 'bullmq', REDIS_URL: 'redis://redis.railway.internal:6379' }).mode, 'bullmq')
     assert.equal(queueSettings({ NODE_ENV: 'production', REDIS_URL: 'redis://h:6379', GENERATION_ENABLED: 'true' }).mode, 'bullmq', 'production defaults to the real queue')
     assert.match(refusal(() => queueSettings({ INKDESK_QUEUE: 'bullmq' }, 'worker')).message, /REDIS_URL is not set/, 'a worker cannot start without Redis')
@@ -221,6 +221,78 @@ try {
     assert.equal(parseConfig({ INKDESK_QUEUE: 'inline' }).queue.mode, 'inline')
     refusal(() => parseConfig({ INKDESK_QUEUE: 'bullmq', GENERATION_ENABLED: 'true' }))
     console.log('  ok  the queue: inline outside production, bullmq in it; Redis named when missing and never echoed; the queue numbers are validated')
+  }
+
+  // 4c. Slice 21's settings: who administers, whether video is open, the share page's two request windows and the
+  //     account lane. Blank is the default, a bad value is refused by name and never repeated, every accessor reads fresh.
+  {
+    const { adminEmails, videoEnabled, limitsSettings, queueSettings } = config
+    // ADMIN_EMAILS: a comma list like ALLOWLIST_EMAILS — case-insensitive, de-duplicated, blank = nobody.
+    assert.deepEqual(adminEmails({}), [], 'unset: nobody')
+    assert.deepEqual(adminEmails({ ADMIN_EMAILS: '  ' }), [], 'blank: nobody')
+    assert.deepEqual(adminEmails({ ADMIN_EMAILS: ' Boss@Example.COM, you@x.org ,, boss@example.com' }), ['boss@example.com', 'you@x.org'])
+    assert.deepEqual(adminEmails({ ADMIN_EMAILS: 'fine@x.org,not-an-address' }), [], 'a malformed list names nobody — a typo can never promote anyone')
+    const SECRET = 'sneaky-value-456'
+    const badAdmins = refusal(() => parseConfig({ ADMIN_EMAILS: `fine@x.org,${SECRET}` }))
+    assert.match(badAdmins.message, /ADMIN_EMAILS must be a comma-separated list of email addresses/)
+    assert.ok(!badAdmins.message.includes(SECRET), 'the value is never repeated')
+    assert.doesNotThrow(() => limitsSettings({ ADMIN_EMAILS: SECRET }), 'a typo in the admin list never stops a request window being taken')
+    assert.deepEqual(parseConfig({ ADMIN_EMAILS: 'A@b.co' }).adminEmails, ['a@b.co'])
+    // Read fresh on every call: changing the environment changes the answer, with no restart and no memo.
+    delete process.env.ADMIN_EMAILS
+    assert.deepEqual(adminEmails(), [])
+    process.env.ADMIN_EMAILS = 'first@x.org'
+    assert.deepEqual(adminEmails(), ['first@x.org'])
+    process.env.ADMIN_EMAILS = 'second@x.org'
+    assert.deepEqual(adminEmails(), ['second@x.org'])
+    delete process.env.ADMIN_EMAILS
+
+    // VIDEO_ENABLED: off unless exactly true.
+    assert.equal(videoEnabled({}), false, 'unset: off')
+    assert.equal(videoEnabled({ VIDEO_ENABLED: '' }), false)
+    assert.equal(videoEnabled({ VIDEO_ENABLED: ' true ' }), true)
+    assert.equal(videoEnabled({ VIDEO_ENABLED: 'false' }), false)
+    assert.equal(videoEnabled({ NODE_ENV: 'development', VIDEO_ENABLED: 'yes' }), false, 'a value it does not know keeps video closed')
+    assert.equal(videoEnabled({ VIDEO_ENABLED: 'TRUE' }), false, 'only the exact word opens it')
+    const badVideo = refusal(() => parseConfig({ VIDEO_ENABLED: SECRET }))
+    assert.match(badVideo.message, /VIDEO_ENABLED must be true or false/)
+    assert.ok(!badVideo.message.includes(SECRET))
+    assert.equal(parseConfig({}).videoEnabled, false)
+    assert.equal(parseConfig({ VIDEO_ENABLED: 'true' }).videoEnabled, true)
+    process.env.VIDEO_ENABLED = 'true'
+    assert.equal(videoEnabled(), true)
+    process.env.VIDEO_ENABLED = 'false'
+    assert.equal(videoEnabled(), false, 'read fresh')
+    delete process.env.VIDEO_ENABLED
+    assert.equal(appConfig().videoEnabled, false)
+    process.env.ADMIN_EMAILS = 'memo@x.org'
+    process.env.VIDEO_ENABLED = 'true'
+    assert.deepEqual([appConfig().adminEmails, appConfig().videoEnabled], [['memo@x.org'], true], 'appConfig’s memo is keyed on these too')
+    delete process.env.ADMIN_EMAILS
+    delete process.env.VIDEO_ENABLED
+
+    // The two new request windows join the others with the same rules.
+    const rates = Object.fromEntries(Object.entries(limitsSettings({}).rates).map(([k, v]) => [k, `${v.limit}/${v.windowMs / 60_000}min`]))
+    assert.equal(rates.report, '6/60min', 'reports: 6 an hour')
+    assert.equal(rates.anonMedia, '600/1min', 'a shared manga’s pictures: 600 a minute')
+    assert.deepEqual(Object.keys(rates).sort(), ['anon', 'anonMedia', 'edit', 'image', 'media', 'read', 'report', 'text', 'upload'])
+    assert.equal(limitsSettings({ RATE_REPORT_PER_HOUR: '' }).rates.report.limit, 6, 'blank is the default, never 0')
+    assert.equal(limitsSettings({ RATE_ANON_MEDIA_PER_MIN: '' }).rates.anonMedia.limit, 600)
+    assert.equal(limitsSettings({ RATE_REPORT_PER_HOUR: ' 2 ', RATE_ANON_MEDIA_PER_MIN: '30' }).rates.report.limit, 2)
+    assert.equal(limitsSettings({ RATE_REPORT_PER_HOUR: '2', RATE_ANON_MEDIA_PER_MIN: '30' }).rates.anonMedia.limit, 30)
+    for (const name of ['RATE_REPORT_PER_HOUR', 'RATE_ANON_MEDIA_PER_MIN'] as const) {
+      for (const bad of ['0', '-1', '1.5', 'many', SECRET, '1000001']) {
+        for (const fn of [() => limitsSettings({ [name]: bad }), () => parseConfig({ [name]: bad })]) {
+          const err = refusal(fn)
+          assert.ok(err.message.includes(`${name} must be a whole number from 1 to`), `${name}=${bad} is refused by name`)
+          assert.ok(!err.message.includes(bad) || bad.length < 3, `${name}'s value is never repeated`)
+        }
+      }
+    }
+    // The account lane: one at a time, not a setting.
+    assert.equal(queueSettings({}).accountConcurrency, 1)
+    assert.equal(queueSettings({ QUEUE_CONCURRENCY_IMAGE: '8' }).accountConcurrency, 1, 'the image lane’s width does not widen it')
+    console.log('  ok  slice 21’s settings: ADMIN_EMAILS (case-insensitive list, blank = nobody, typo = nobody), VIDEO_ENABLED (only true opens it), RATE_REPORT_PER_HOUR 6 and RATE_ANON_MEDIA_PER_MIN 600 — blank is the default, bad is refused by name, all read fresh; the account lane is one wide')
   }
 
   // 5. The generation flag.
@@ -296,7 +368,7 @@ try {
   // 9. .env.example documents every name of the mapping and the flag, and
   //    carries no value for any of them.
   const example = await readFile(new URL('../.env.example', import.meta.url), 'utf8')
-  for (const name of [...CLOUD_VARIABLES, 'GENERATION_ENABLED', 'INKDESK_STORAGE', 'PANEL_CONCURRENCY', 'GENERATION_TIMEOUT_MS', 'INKDESK_QUEUE', 'REDIS_URL', 'QUEUE_CONCURRENCY_IMAGE', 'QUEUE_USER_INFLIGHT', 'QUEUE_MAX_WAITING', 'QUEUE_RETRY_BACKOFF_MS', 'WORKER_GRACE_MS', 'IMAGE_RETRY_DELAY_MS']) {
+  for (const name of [...CLOUD_VARIABLES, 'GENERATION_ENABLED', 'INKDESK_STORAGE', 'PANEL_CONCURRENCY', 'GENERATION_TIMEOUT_MS', 'INKDESK_QUEUE', 'REDIS_URL', 'QUEUE_CONCURRENCY_IMAGE', 'QUEUE_USER_INFLIGHT', 'QUEUE_MAX_WAITING', 'QUEUE_RETRY_BACKOFF_MS', 'WORKER_GRACE_MS', 'IMAGE_RETRY_DELAY_MS', 'ADMIN_EMAILS', 'VIDEO_ENABLED', 'RATE_ANON_MEDIA_PER_MIN', 'RATE_REPORT_PER_HOUR']) {
     assert.ok(new RegExp(`\\b${name}\\b`).test(example), `.env.example names ${name}`)
   }
   for (const name of [...CLOUD_VARIABLES, 'GENERATION_ENABLED', 'REDIS_URL']) {

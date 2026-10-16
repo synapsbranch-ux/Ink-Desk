@@ -231,7 +231,15 @@ export function clerkSettings(env: Env = process.env): ClerkSettings {
 
 // --- Request rules (the proxy's, pure so the checks can call them) -----------
 
-/** The API routes anyone may call: the deploy's health check and Clerk's webhooks (signed, checked in the route). */
+/**
+ * The API routes anyone may call: the deploy's health check and Clerk's webhooks (signed, checked in the route).
+ *
+ * `/api/s/` — the public share routes of slice 21 — is deliberately NOT here. It needs no session either (a
+ * stranger holding a link has none), but this list also skips the proxy's Origin check, and a share route that
+ * WRITES (the report form) must keep it: a page on another site may not post reports on a visitor's behalf.
+ * Nothing in the proxy needs to name `/api/s/`: an API route answers for itself in clerk mode (`isApi`), so it
+ * passes without a redirect, while `isCrossOrigin` still judges its writes. `check:auth` holds both facts.
+ */
 export const PUBLIC_API_PREFIXES = ['/api/health', '/api/webhooks/'] as const
 
 /** Pages a signed-out visitor may open. `/s/` is the public share page (slice 21). */

@@ -19,6 +19,8 @@
 //                        checks and a bare dev desk) or `bullmq` (a `worker`
 //                        service runs them; the only mode in production)
 //   image concurrency    QUEUE_CONCURRENCY_IMAGE, else PANEL_CONCURRENCY
+//   admins               ADMIN_EMAILS (slice 21; see `adminEmails`)
+//   video                VIDEO_ENABLED (slice 21; see `videoEnabled`)
 //
 // Server only (SEC-15): importing this from a client component is a build
 // error. The checks run under tsx, where `scripts/server-only.mts` resolves the
@@ -216,6 +218,9 @@ const NUMBERS = {
   RATE_READ_PER_MIN: { schema: wholeNumber(1, 100_000), fallback: 240, rule: 'a whole number from 1 to 100000' },
   RATE_MEDIA_PER_MIN: { schema: wholeNumber(1, 1_000_000), fallback: 1_200, rule: 'a whole number from 1 to 1000000' },
   RATE_ANON_PER_MIN: { schema: wholeNumber(1, 100_000), fallback: 60, rule: 'a whole number from 1 to 100000' },
+  // Slice 21: the share page's pictures per client address (a reader page is dozens, and a page of a shared manga is read by one address behind a school's NAT), and the report form.
+  RATE_ANON_MEDIA_PER_MIN: { schema: wholeNumber(1, 1_000_000), fallback: 600, rule: 'a whole number from 1 to 1000000' },
+  RATE_REPORT_PER_HOUR: { schema: wholeNumber(1, 100_000), fallback: 6, rule: 'a whole number from 1 to 100000' },
   TRUSTED_PROXY_HOPS: { schema: wholeNumber(0, 5), fallback: 1, rule: 'a whole number from 0 to 5' },
 } as const
 
@@ -261,6 +266,16 @@ export function generationEnabled(env: Env = process.env): boolean {
   return raw === 'true'
 }
 
+/**
+ * Whether video is open (VIDEO_ENABLED, default off — slice 22 builds it; until
+ * then the dashboard hides its Videos section and no route makes one). Read
+ * fresh on every call. Only `true` opens it: a value other than true or false
+ * is refused at boot, and read here anyway it keeps video closed.
+ */
+export function videoEnabled(env: Env = process.env): boolean {
+  return env.VIDEO_ENABLED?.trim() === 'true'
+}
+
 // --- The queue ------------------------------------------------------------------
 
 export type QueueMode = 'inline' | 'bullmq'
@@ -270,6 +285,13 @@ export type QueueSettings = {
   /** Null on the inline queue — and on a production web service with generation closed and no Redis yet. */
   redisUrl: string | null
   imageConcurrency: number
+  /**
+   * How many account jobs (an export, a deletion) a worker runs at once. Fixed
+   * at one, not a setting: an export racing the deletion of the same person
+   * could write a file after the deletion swept the folder, and nothing about
+   * a person leaving needs to be quick (`lib/queue/jobs.ts > QUEUE_OF`).
+   */
+  accountConcurrency: number
   /** How many jobs one person may have queued or running at once. */
   userInflight: number
   /** How many jobs may be queued or running across everyone before the studio says it is busy. */
@@ -279,6 +301,9 @@ export type QueueSettings = {
   /** How long a worker told to stop lets what it is drawing finish before it gives up on it. */
   graceMs: number
 }
+
+/** The `account` queue runs one job at a time per worker. */
+export const ACCOUNT_CONCURRENCY = 1
 
 const REDIS_URL = z.string().regex(/^rediss?:\/\/\S+$/i)
 
@@ -320,6 +345,7 @@ export function queueSettings(env: Env = process.env, role: 'web' | 'worker' = '
     mode: queueMode(env),
     redisUrl: pick(env, REDIS_NAMES) ?? null,
     imageConcurrency: imageConcurrency(env),
+    accountConcurrency: ACCOUNT_CONCURRENCY,
     userInflight: readNumber(env, 'QUEUE_USER_INFLIGHT'),
     maxWaiting: readNumber(env, 'QUEUE_MAX_WAITING'),
     retryBackoffMs: readNumber(env, 'QUEUE_RETRY_BACKOFF_MS'),
@@ -348,7 +374,9 @@ export function queueSettings(env: Env = process.env, role: 'web' | 'worker' = '
 //   USER_DAILY_USD_FREE / USER_DAILY_USD_ALLOW   one person's spend a day
 //   RATE_*                 the request windows (text 10/min, image 6/min, upload
 //                          20/hour, edit 120/min, read 240/min; pictures served
-//                          1200/min; signed-out callers 60/min per client)
+//                          1200/min; signed-out callers 60/min per client; and,
+//                          per client address, a shared manga's pictures 600/min
+//                          and reports 6/hour — slice 21)
 //   TRUSTED_PROXY_HOPS     how many proxies in front of the app append to
 //                          X-Forwarded-For, default 1 (Railway's edge)
 //   CLIENT_IP_HEADER       x-forwarded-for (default) or x-real-ip: which header
@@ -372,6 +400,9 @@ const DOLLARS = {
 /** The limits settings that are not plain numbers. */
 const LIMIT_OTHER = ['INKDESK_LIMITS', 'ALLOWLIST_EMAILS', 'CLIENT_IP_HEADER'] as const
 
+/** Slice 21's settings that are not limits: who administers, and whether video is open. */
+const STUDIO_OTHER = ['ADMIN_EMAILS', 'VIDEO_ENABLED'] as const
+
 function dollarProblem(env: Env, name: keyof typeof DOLLARS): string | null {
   const raw = env[name]?.trim()
   if (!raw) return null
@@ -385,12 +416,30 @@ function readDollars(env: Env, name: keyof typeof DOLLARS): number | null {
 
 const EMAIL = z.string().regex(/^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/)
 
-/** The allowlist as a list of lower-cased addresses; `null` when an entry is not an address. */
-function readAllowlist(env: Env): string[] | null {
-  const raw = env.ALLOWLIST_EMAILS?.trim()
+/** A comma list of addresses as lower-cased, de-duplicated entries; `null` when an entry is not an address. Blank is an empty list. */
+function readEmailList(env: Env, name: 'ALLOWLIST_EMAILS' | 'ADMIN_EMAILS'): string[] | null {
+  const raw = env[name]?.trim()
   if (!raw) return []
   const entries = raw.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean)
   return entries.every((e) => EMAIL.safeParse(e).success) ? [...new Set(entries)] : null
+}
+
+/** The allowlist as a list of lower-cased addresses; `null` when an entry is not an address. */
+function readAllowlist(env: Env): string[] | null {
+  return readEmailList(env, 'ALLOWLIST_EMAILS')
+}
+
+/**
+ * Who may open the admin pages (ADMIN_EMAILS, slice 21): a comma list,
+ * case-insensitive, matched against the VERIFIED email in `store.users`
+ * exactly as ALLOWLIST_EMAILS is (`lib/auth/admin.ts`). Read fresh on every
+ * call, never memoised. Blank is nobody — an unset list in production gives
+ * no one the admin pages, which is the safe default. A malformed list is
+ * refused at boot by name; read here anyway it names nobody, so a typo can
+ * never promote anyone.
+ */
+export function adminEmails(env: Env = process.env): readonly string[] {
+  return readEmailList(env, 'ADMIN_EMAILS') ?? []
 }
 
 /** Is the sign-in mode `off`? Never throws: an unreadable mode is the boot's to refuse, and counts as on here. */
@@ -429,6 +478,15 @@ function limitsProblems(env: Env): string[] {
     const problem = dollarProblem(env, name)
     if (problem) problems.push(problem)
   }
+  return problems
+}
+
+/** Problems with slice 21's settings (not part of the limits: a typo in the admin list must not stop a window being taken). */
+function studioProblems(env: Env): string[] {
+  const problems: string[] = []
+  if (readEmailList(env, 'ADMIN_EMAILS') === null) problems.push('ADMIN_EMAILS must be a comma-separated list of email addresses')
+  const video = env.VIDEO_ENABLED?.trim()
+  if (video && !FLAG.safeParse(video).success) problems.push('VIDEO_ENABLED must be true or false')
   return problems
 }
 
@@ -489,6 +547,8 @@ export function limitsSettings(env: Env = process.env): LimitsSettings {
       read: { limit: n('RATE_READ_PER_MIN'), windowMs: MINUTE },
       media: { limit: n('RATE_MEDIA_PER_MIN'), windowMs: MINUTE },
       anon: { limit: n('RATE_ANON_PER_MIN'), windowMs: MINUTE },
+      anonMedia: { limit: n('RATE_ANON_MEDIA_PER_MIN'), windowMs: MINUTE },
+      report: { limit: n('RATE_REPORT_PER_HOUR'), windowMs: 60 * MINUTE },
     },
     trustedProxyHops: n('TRUSTED_PROXY_HOPS'),
     clientIpHeader: env.CLIENT_IP_HEADER?.trim() === 'x-real-ip' ? 'x-real-ip' : 'x-forwarded-for',
@@ -504,6 +564,10 @@ export type AppConfig = {
   panelConcurrency: number
   generationTimeoutMs: number
   generationEnabled: boolean
+  /** Video is closed unless VIDEO_ENABLED=true (slice 21; the dashboard hides its Videos section while it is). */
+  videoEnabled: boolean
+  /** Lower-cased addresses that may open the admin pages; empty = nobody. */
+  adminEmails: readonly string[]
   queue: QueueSettings
   limits: LimitsSettings
 }
@@ -516,6 +580,7 @@ const READ = [
   'GENERATION_ENABLED',
   ...Object.keys(NUMBERS),
   ...LIMIT_OTHER,
+  ...STUDIO_OTHER,
   ...Object.keys(DOLLARS),
   ...CLOUD_VARIABLES,
   ...REDIS_NAMES,
@@ -536,6 +601,7 @@ export function parseConfig(env: Env = process.env, role: 'web' | 'worker' = 'we
   // The queue's own numbers were just checked above; its mode and Redis here.
   for (const problem of queueProblems(env, role)) problems.push(problem)
   problems.push(...limitsProblems(env))
+  problems.push(...studioProblems(env))
   if (problems.length > 0) throw new ConfigError([...new Set(problems)])
   return {
     storage: storage as StorageMode,
@@ -543,6 +609,8 @@ export function parseConfig(env: Env = process.env, role: 'web' | 'worker' = 'we
     panelConcurrency: panelConcurrency(env),
     generationTimeoutMs: generationTimeoutMs(env),
     generationEnabled: generationEnabled(env),
+    videoEnabled: videoEnabled(env),
+    adminEmails: adminEmails(env),
     queue: queueSettings(env, role),
     limits: limitsSettings(env),
   }

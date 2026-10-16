@@ -16,8 +16,13 @@ export const SPEND_KINDS = ['image', 'project', 'videoSeconds', 'audioChars'] as
 /** How many of each kind a request would use. */
 export type Units = Partial<Record<SpendKind, number>>
 
-/** The five request windows (`spec.md`: paid text 10/min, paid image 6/min, uploads 20/hour, edits 120/min, reads 240/min), plus two the studio adds: pictures served, and signed-out callers. */
-export const RATE_BUCKETS = ['text', 'image', 'upload', 'edit', 'read', 'media', 'anon'] as const
+/**
+ * The five request windows (`spec.md`: paid text 10/min, paid image 6/min, uploads 20/hour, edits 120/min, reads 240/min),
+ * plus the ones the studio adds: pictures served (`media`) and signed-out callers (`anon`) — and, in slice 21, the two
+ * that belong to the public share routes, keyed by client address like `anon`: pictures of a shared manga (`anonMedia`,
+ * 600 a minute) and the report form (`report`, 6 an hour; it fails CLOSED, see `requests.ts`).
+ */
+export const RATE_BUCKETS = ['text', 'image', 'upload', 'edit', 'read', 'media', 'anon', 'anonMedia', 'report'] as const
 export type RateBucket = (typeof RATE_BUCKETS)[number]
 
 // --- Money ----------------------------------------------------------------------

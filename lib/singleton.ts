@@ -5,7 +5,8 @@
 // four generations instead of two. `globalThis` survives both.
 // See `devpost/spec.md > Components > Singletons and the Dev Server`.
 import { randomUUID } from 'node:crypto'
-import { generationTimeoutMs, imageConcurrency } from './config'
+import { ACCOUNT_CONCURRENCY, generationTimeoutMs, imageConcurrency } from './config'
+import { ACCOUNT_CEILING_MS } from './queue/jobs'
 import { createQueue, type Queue } from './queue/memory'
 
 type InkDeskGlobals = {
@@ -18,6 +19,8 @@ type InkDeskGlobals = {
   /** The inline queue (`INKDESK_QUEUE=inline`): this process runs the jobs, `QUEUE_CONCURRENCY_IMAGE` wide
    *  (else `PANEL_CONCURRENCY`). Under `bullmq` nothing is queued here; a worker service runs them. */
   queue: Queue
+  /** The inline queue's `account` lane (slice 21): an export or a deletion runs here, one at a time, never in an image slot. */
+  accountQueue: Queue
 }
 
 const g = globalThis as typeof globalThis & { __inkdesk?: InkDeskGlobals }
@@ -29,4 +32,8 @@ export const singletons: InkDeskGlobals = (g.__inkdesk ??= {
   // The ceiling (CR-6) is past a job's own retried image call, so it only
   // ever frees a slot that something stuck is holding.
   queue: createQueue(imageConcurrency(), 2 * generationTimeoutMs() + 60_000),
+  accountQueue: createQueue(ACCOUNT_CONCURRENCY, ACCOUNT_CEILING_MS),
 })
+
+// A dev server that was already running when this lane was added still holds the older object on `globalThis`.
+singletons.accountQueue ??= createQueue(ACCOUNT_CONCURRENCY, ACCOUNT_CEILING_MS)

@@ -16,6 +16,13 @@
 // him; her job is hers. The account records, the v1 migration (off mode
 // only) and `scripts/claim-projects.mts` are held here too.
 //
+// Slice 21 adds three more kinds of route to the walk: a share is its owner's
+// (`ownedShare`; bob gets "There is no such share." for alice's, a revoked one
+// and one that never was, word for word), the admin routes answer anyone who is
+// not an admin with 404 "There is no such page." and never 403, and the public
+// share routes (`app/api/s/**`) take no session at all — an unknown token and a
+// revoked one answer the same, and an active one hands out nothing of its owner.
+//
 // The cloud half: with INKDESK_STORAGE=cloud and INKDESK_CHECK_CLOUD=yes the
 // same check runs on MongoDB and an S3-compatible bucket — only ones on this
 // machine (localhost), on a scratch database dropped at the end, because a
@@ -27,6 +34,7 @@ import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { randomBytes } from 'node:crypto'
 import sharp from 'sharp'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -116,7 +124,8 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 const { store } = await import('../lib/store')
 const { Refused } = await import('../lib/errors')
 const { GENERATION_CLOSED } = await import('../lib/generation')
-const { ownedJob, ownedProject, assertImageInProject, projectImageIds, NO_SUCH_PROJECT } = await import('../lib/auth/access')
+const { ownedJob, ownedProject, ownedShare, assertImageInProject, projectImageIds, NO_SUCH_PROJECT, NO_SUCH_SHARE } = await import('../lib/auth/access')
+const { forgetAdmins, NO_SUCH_PAGE } = await import('../lib/auth/admin')
 const { imageUrl } = await import('../lib/image-url')
 const { enqueueJob } = await import('../lib/queue/enqueue')
 const { LOCAL_OWNER, isActive } = await import('../lib/queue/jobs')
@@ -174,6 +183,8 @@ async function call(handler: Handler, method: string, params: Record<string, str
 type Route = { path: string; params: string[]; methods: Record<string, Handler> }
 /** Callable without signing in: the deploy's health check and Clerk's signed webhooks. */
 const PUBLIC = (path: string) => path === 'health' || path.startsWith('health/') || path.startsWith('webhooks/')
+/** Public by design (slice 21): the share page's data. Held in its own section below — no session, an address window instead. */
+const SESSIONLESS = (path: string) => path.startsWith('s/')
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
 
 async function routeFiles(at: string): Promise<string[]> {
@@ -188,12 +199,15 @@ async function routeFiles(at: string): Promise<string[]> {
 
 const API = join(ROOT, 'app', 'api')
 const routes: Route[] = []
+const sessionless: Route[] = []
 for (const file of (await routeFiles(API)).sort()) {
   const path = relative(API, dirname(file)).split(sep).join('/')
   if (PUBLIC(path)) continue
   const mod = (await import(pathToFileURL(file).href)) as Record<string, unknown>
   const methods = Object.fromEntries(METHODS.filter((m) => typeof mod[m] === 'function').map((m) => [m, mod[m] as Handler]))
-  routes.push({ path, params: [...path.matchAll(/\[(\.\.\.)?([^\]]+)\]/g)].map((m) => m[2]), methods })
+  const route = { path, params: [...path.matchAll(/\[(\.\.\.)?([^\]]+)\]/g)].map((m) => m[2]), methods }
+  if (SESSIONLESS(path)) sessionless.push(route)
+  else routes.push(route)
 }
 assert.ok(routes.some((r) => r.path === 'projects/[id]/image/[imageId]'), 'the owner-checked image route is on disk')
 
@@ -321,7 +335,27 @@ try {
   assert.equal(outbound.length, 0)
   ok('jobs carry their project’s owner; ownedJob refuses anyone else with a 404; listJobs filters by owner')
 
-  const values = (projectId: string, imageId: string) => ({ id: projectId, n: '0', i: '0', imageId, jobId: aliceJob.id })
+  // A share of alice's (slice 21): one active share per project, addressed by its token alone.
+  const BASE62 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+  const newToken = () => Array.from(randomBytes(22), (b) => BASE62[b % 62]).join('')
+  const shareAt = new Date().toISOString()
+  const shareOf = async (ownerId: string, projectId: string, token = newToken()) =>
+    (
+      await store.shares.create({
+        token,
+        ownerId,
+        kind: 'manga',
+        projectId,
+        videoId: null,
+        snapshot: { kind: 'manga', title: 'A shared chapter', reading: 'rtl', cover: null, pages: [], takenAt: shareAt },
+        createdAt: shareAt,
+        updatedAt: shareAt,
+        revokedAt: null,
+      })
+    ).share
+  const aliceShare = await shareOf(ALICE, alice.id)
+
+  const values = (projectId: string, imageId: string) => ({ id: projectId, n: '0', i: '0', imageId, jobId: aliceJob.id, token: aliceShare.token })
   const before = await snapshot(alice.id)
   const toBob: Reply[] = []
 
@@ -342,7 +376,8 @@ try {
   ok(`no one signed in (or a name that is not an account's) → 401 on all ${count} handlers under app/api/ outside the public allow-list, body unread`)
 
   // --- 2. Bob, on everything of alice's ------------------------------------------------
-  const owned = routes.filter((r) => r.params.includes('id') || r.params.includes('jobId'))
+  // (The admin routes have an [id] too — a report’s — and their own section below.)
+  const owned = routes.filter((r) => (r.params.includes('id') || r.params.includes('jobId')) && !r.path.startsWith('admin/'))
   let tried = 0
   for (const flag of ['false', undefined]) {
     if (flag) env.GENERATION_ENABLED = flag
@@ -433,6 +468,116 @@ try {
   const sent = outbound.length
   await waitForJobs(alice.id)
   ok(`alice gets past the sign-in and owner checks on all ${passed} handlers (a paid route then stops at the closed flag), sees every one of her four kinds of picture and her spend, and reaches the provider when generation is open`)
+
+  // --- 3b. Shares, admins and the public routes (slice 21) --------------------------------
+  {
+    // ownedShare: the owner's active share; everything else is the unknown share’s 404, word for word.
+    assert.equal(NO_SUCH_SHARE, 'There is no such share.')
+    assert.equal((await ownedShare(ALICE, aliceShare.token)).token, aliceShare.token)
+    const missingShare = (e: unknown) => e instanceof Refused && e.status === 404 && e.message === NO_SUCH_SHARE
+    await assert.rejects(ownedShare(BOB, aliceShare.token), missingShare, 'bob → alice’s share')
+    await assert.rejects(ownedShare(LOCAL_OWNER, aliceShare.token), missingShare, 'with accounts on, `local` owns nothing')
+    for (const token of [newToken(), '', 'x', '../../etc/passwd', 'a'.repeat(200)]) await assert.rejects(ownedShare(ALICE, token), missingShare, `unknown or malformed token ${token.slice(0, 12)}`)
+    const bobsShare = await shareOf(BOB, bobs.id)
+    await assert.rejects(ownedShare(ALICE, bobsShare.token), missingShare, 'alice → bob’s share')
+    // A revoked share is dead for its owner’s operations too — unless the caller asks for the revoked record to stay idempotent.
+    const doomed = await shareOf(ALICE, (await makeOwned(ALICE, 'Alice’s second')).id)
+    await store.shares.revoke(doomed.token, new Date().toISOString())
+    await assert.rejects(ownedShare(ALICE, doomed.token), missingShare, 'a revoked share is “no such share” to its own owner')
+    const again = await ownedShare(ALICE, doomed.token, { includeRevoked: true })
+    assert.deepEqual([again.snapshot, again.revokedAt === null], [null, false], 'includeRevoked hands back the revoked record, snapshot dropped')
+    await assert.rejects(ownedShare(BOB, doomed.token, { includeRevoked: true }), missingShare, 'and never to anyone else')
+    assert.deepEqual((await store.shares.listActiveOf(ALICE)).map((x) => x.token), [aliceShare.token], 'only the active one lists')
+    ok('ownedShare: the owner’s active share; bob’s, local’s, a malformed token’s and an unknown one’s are “There is no such share.”; a revoked share is dead to its owner unless includeRevoked asks for the revoked record (never for anyone else)')
+
+    // The owner-managed routes: bob gets the unknown share’s 404 on alice’s — before his body is read — and alice’s is untouched.
+    const shareRoutes = routes.filter((r) => r.path.startsWith('shares/[token]'))
+    const shareBefore = JSON.stringify(await store.shares.get(aliceShare.token))
+    let sharesTried = 0
+    for (const route of shareRoutes) {
+      for (const [method, handler] of Object.entries(route.methods)) {
+        for (const token of [aliceShare.token, bobsShare.token === aliceShare.token ? '' : newToken(), doomed.token]) {
+          const r = await call(handler, method, { token }, BOB, method === 'GET' ? undefined : undefined)
+          assert.equal(r.status, 404, `${method} /api/${route.path} as bob on ${token === aliceShare.token ? 'alice’s share' : token === doomed.token ? 'a revoked one' : 'an unknown one'}: ${r.text.slice(0, 160)}`)
+          assert.equal(r.json?.error, NO_SUCH_SHARE, `${method} /api/${route.path}: word for word the unknown share’s sentence`)
+          assert.equal(r.pulled, 0, `${method} /api/${route.path}: the body is not read`)
+          sharesTried++
+        }
+      }
+    }
+    assert.equal(JSON.stringify(await store.shares.get(aliceShare.token)), shareBefore, 'alice’s share did not change')
+    // Alice gets past the checks on a share of her own, one per method (a DELETE ends it, so each gets its own project and share).
+    for (const route of shareRoutes) {
+      for (const [method, handler] of Object.entries(route.methods)) {
+        const mine = await shareOf(ALICE, (await makeOwned(ALICE, `For ${method}`)).id)
+        const r = await call(handler, method, { token: mine.token }, ALICE, method === 'GET' ? undefined : {})
+        assert.notEqual(r.status, 401, `${method} /api/${route.path} as alice`)
+        assert.ok(!(r.status === 404 && r.json?.error === NO_SUCH_SHARE), `${method} /api/${route.path} as alice: ${r.text.slice(0, 160)}`)
+      }
+    }
+    if (shareRoutes.length === 0) console.log('  --  (no app/api/shares/[token] route on disk yet: the owner-managed share routes were not walked)')
+    else ok(`ownedShare is the unknown share’s 404 for bob, for local, for a revoked share, for a malformed token; ${sharesTried} attempts by bob on ${shareRoutes.length} share route${shareRoutes.length === 1 ? '' : 's'} are “${NO_SUCH_SHARE}” with the body unread and nothing changed; alice gets past`)
+
+    // The admin routes: anyone who is not an admin — alice and bob alike — is told there is no such page, never 403; an admin gets past.
+    const adminRoutes = routes.filter((r) => r.path.startsWith('admin/'))
+    const CAROL = 'user_carol'
+    await store.users.upsert({ id: CAROL, email: 'Carol@Example.Invalid', createdAt: shareAt })
+    let adminTried = 0
+    for (const adminList of [undefined, 'carol@example.invalid']) {
+      if (adminList === undefined) delete env.ADMIN_EMAILS
+      else env.ADMIN_EMAILS = adminList
+      forgetAdmins()
+      for (const route of adminRoutes) {
+        for (const [method, handler] of Object.entries(route.methods)) {
+          const params = paramsFor(route, values(alice.id, alice.images.sheet))
+          for (const who of [ALICE, BOB]) {
+            const r = await call(handler, method, params, who)
+            assert.equal(r.status, 404, `${method} /api/${route.path} as ${who}: ${r.text.slice(0, 160)}`)
+            assert.equal(r.json?.error, NO_SUCH_PAGE, `${method} /api/${route.path}: the unknown page’s sentence`)
+            assert.equal(r.pulled, 0, `${method} /api/${route.path}: the body is not read`)
+            adminTried++
+          }
+          const carol = await call(handler, method, params, CAROL, method === 'GET' ? undefined : {})
+          if (adminList === undefined) assert.deepEqual([carol.status, carol.json?.error], [404, NO_SUCH_PAGE], `${method} /api/${route.path}: with a blank list, carol is nobody`)
+          else {
+            assert.notEqual(carol.status, 401, `${method} /api/${route.path} as carol`)
+            assert.notEqual(carol.json?.error, NO_SUCH_PAGE, `${method} /api/${route.path}: an admin gets past the guard (${carol.status} ${carol.text.slice(0, 120)})`)
+          }
+        }
+      }
+    }
+    delete env.ADMIN_EMAILS
+    forgetAdmins()
+    if (adminRoutes.length === 0) console.log('  --  (no app/api/admin route on disk yet: the admin routes were not walked)')
+    else ok(`${adminRoutes.length} admin route${adminRoutes.length === 1 ? '' : 's'}: ${adminTried} attempts by non-admins are 404 “${NO_SUCH_PAGE}” (never 403, body unread); with the list set, an admin gets past`)
+
+    // The public routes: no session. An unknown token and a revoked one answer the same; an active share hands out nothing of its owner.
+    const revoked = (await store.shares.revoke((await shareOf(ALICE, (await makeOwned(ALICE, 'To be revoked')).id)).token, new Date().toISOString())) as { token: string }
+    let publicTried = 0
+    const plain = async (handler: Handler, method: string, token: string, route: Route) => {
+      const params = Object.fromEntries(route.params.map((name) => [name, name === 'token' ? token : 'img-1.png']))
+      const headers: Record<string, string> = { 'content-type': 'application/json' }
+      const req = method === 'GET' ? new Request('http://check/api/s', { method, headers }) : new Request('http://check/api/s', { method, headers, body: JSON.stringify({ reason: 'other', note: 'x' }) })
+      const res = await handler(req, { params: Promise.resolve(params) })
+      return { status: res.status, text: await res.text(), cache: res.headers.get('cache-control') }
+    }
+    for (const route of sessionless) {
+      for (const [method, handler] of Object.entries(route.methods)) {
+        const unknown = await plain(handler, method, newToken(), route)
+        const dead = await plain(handler, method, revoked.token, route)
+        const live = await plain(handler, method, aliceShare.token, route)
+        for (const r of [unknown, dead, live]) assert.ok(r.status !== 401 && r.status < 500, `${method} /api/${route.path} takes no session and does not fail: ${r.status} ${r.text.slice(0, 120)}`)
+        assert.deepEqual([dead.status, dead.text], [unknown.status, unknown.text], `${method} /api/${route.path}: a revoked token answers exactly like an unknown one`)
+        if (method === 'GET') assert.equal(unknown.status, 404, `${method} /api/${route.path}: an unknown token is a 404`)
+        for (const text of [unknown.text, dead.text, live.text]) {
+          assert.ok(!text.includes(ALICE) && !text.includes(alice.id), `${method} /api/${route.path}: nothing of the owner or the project’s id`)
+        }
+        publicTried++
+      }
+    }
+    if (sessionless.length === 0) console.log('  --  (no app/api/s route on disk yet: the public share routes were not walked)')
+    else ok(`${sessionless.length} public share route${sessionless.length === 1 ? '' : 's'}, ${publicTried} handlers: no session needed, a revoked token answers byte for byte like an unknown one, and neither the owner nor the project’s id is ever in an answer`)
+  }
 
   // --- 4. The account records ----------------------------------------------------------
   const created = '2026-10-14T09:00:00.000Z'

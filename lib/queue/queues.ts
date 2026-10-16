@@ -3,7 +3,8 @@
 // id of its Mongo record — the record is the truth, so a job read back from a
 // flushed or rebuilt Redis is never missing what it needs. Server only.
 //
-// `image` runs panels, sheets and covers. `video` and `audio` exist as names
+// `image` runs panels, sheets and covers. `account` (slice 21) runs a person's
+// export and the deletion of their account. `video` and `audio` exist as names
 // from the start (`lib/queue/jobs.ts > QUEUE_OF`) and get processors in
 // slice 22.
 import 'server-only'

@@ -6,14 +6,20 @@
 //   MongoDB  <database>.projects   { _id: <project id>, rev: n, project: Project }
 //   MongoDB  <database>.jobs       { _id: <job id>, rev: n, activeKey?: <key>, ...the job's fields } (v3, slice 18)
 //   MongoDB  <database>.users      { _id: <Clerk user id>, email, createdAt, updatedAt, deletedAt } (v3, slice 19)
+//   MongoDB  <database>.shares     { _id: <token>, activeProject?: <project id>, ...the share's fields } (v3, slice 21)
+//   MongoDB  <database>.reports    { _id: <uuid>, token, reason, note, ipHash, at, handledAt } (v3, slice 21)
+//   MongoDB  <database>.settings   { _id: <Clerk user id>, defaultStyle, readingDirection, voices?, updatedAt } (v3, slice 21)
+//   MongoDB  <database>.videos     { _id: <video id>, ownerId, projectId, ...the video's fields } (v3, slice 21; slice 22 fills it)
 //   bucket   <project-files bucket>/<prefix><kind>-<uuid>.<ext>   the same ids the local store writes,
 //            under S3_KEY_PREFIX (default `inkdesk/`), never at the bucket's root (SEC-13)
+//   bucket   <outputs bucket>/<prefix>outputs/<key>   exports and rendered videos (v3, slice 21); the `outputs/`
+//            folder keeps an output key from ever being an image id or the bucket probe, whichever bucket it shares
 //
 // The settings come from `lib/config.ts`, which maps the learner's names
 // (DB_URL, DB_DATABASE, S3_BUCKET_PROJECT_FILES, S3_BUCKET_COMPILE_OUTPUTS)
 // onto what this file needs. Images and uploads go to the project-files
-// bucket; the outputs bucket is exposed for rendered videos and exports, and
-// nothing writes to it yet. Every MongoDB and S3 call has a timeout (CR-6),
+// bucket; the outputs bucket holds exports and rendered videos (`store.outputs`,
+// since slice 21). Every MongoDB and S3 call has a timeout (CR-6),
 // and so does every object body after its headers: a hung socket ends in the
 // calm sentence, never a hang.
 //
@@ -30,6 +36,10 @@
 //      from racing each other — a contention reducer, and nothing depends on
 //      it. The job records (`jobs`) follow the same rule, plus a unique sparse
 //      index on `activeKey` so two racing inserts for one key cannot both win.
+//      The shares (slice 21) use the same trick for "one active share per
+//      project": `activeProject` is on a share only while it is active, under a
+//      unique sparse index, so the database itself decides a race between two
+//      creates — and revoking removes the field in the same write that marks it.
 //
 // The browser still only ever sees `/api/projects/<id>/image/<imageId>` (owner
 // checked, slice 19); the bucket is never public.
@@ -38,11 +48,17 @@
 // error. The checks run under tsx, where `scripts/server-only.mts` resolves the
 // package the way Next's server does.
 import 'server-only'
-import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import { randomUUID } from 'node:crypto'
+import { createReadStream } from 'node:fs'
+import { open, readFile, rm, stat } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { MongoClient, MongoNetworkError, MongoServerError, MongoServerSelectionError, type Collection, type Db, type Filter, type MongoClientOptions } from 'mongodb'
 import { ConfigError, cloudSettings, type CloudSettings } from '../config'
 import { ProviderError, Refused } from '../errors'
 import { BUSY, LOCAL_OWNER, isActive, type JobRecord } from '../queue/jobs'
+import type { ReportRecord, ShareRecord, UserSettings, VideoRecord } from '../share/types'
 import { singletons } from '../singleton'
 import type { Project, ProjectSummary } from '../types'
 import { missingCloudEnv, missingCloudSentence } from './env'
@@ -53,17 +69,40 @@ import {
   claimable,
   deleted,
   isImageId,
+  isOutputKey,
   isProjectId,
+  isRecordId,
+  isShareToken,
   isUserId,
   keepOwner,
   mediaTypeOf,
+  outputMediaType,
   projectProblem,
+  reportLimit,
+  requireOutputFolder,
   summarize,
   unreadableProject,
   unreadableSummary,
   upserted,
 } from './local'
-import type { BlobKind, BlobStream, Check, Claim, JobFilter, JobStore, ProjectOwner, Store, StoreHealth, UserRecord, UserStore } from './index'
+import type {
+  BlobKind,
+  BlobStream,
+  Check,
+  Claim,
+  JobFilter,
+  JobStore,
+  OutputStore,
+  ProjectOwner,
+  ReportStore,
+  SettingsStore,
+  ShareStore,
+  Store,
+  StoreHealth,
+  UserRecord,
+  UserStore,
+  VideoStore,
+} from './index'
 
 export type ProjectDoc = { _id: string; rev: number; project: Project }
 
@@ -73,15 +112,31 @@ export type JobDoc = { _id: string; rev: number; activeKey?: string } & Omit<Job
 /** An account as stored: its record, with the id as `_id`. */
 export type UserDoc = { _id: string } & Omit<UserRecord, 'id'>
 
+/** A share as stored: its record with the token as `_id`, and `activeProject` — the project's id while the share is ACTIVE, ABSENT once it is revoked (and for a video share). */
+export type ShareDoc = { _id: string; activeProject?: string } & Omit<ShareRecord, 'token'>
+
+/** A report as stored: its record, with the id as `_id`. */
+export type ReportDoc = { _id: string } & Omit<ReportRecord, 'id'>
+
+/** A person's defaults as stored: with the user id as `_id`. */
+export type SettingsDoc = { _id: string } & Omit<UserSettings, 'userId'>
+
+/** A video as stored: its record, with the id as `_id`. */
+export type VideoDoc = { _id: string } & Omit<VideoRecord, 'id'>
+
 type Cloud = {
   client: MongoClient
   projects: Collection<ProjectDoc>
   jobs: Collection<JobDoc>
   users: Collection<UserDoc>
+  shares: Collection<ShareDoc>
+  reports: Collection<ReportDoc>
+  settings: Collection<SettingsDoc>
+  videos: Collection<VideoDoc>
   s3: S3Client
   /** Images and uploads. */
   bucket: string
-  /** Rendered videos and exports — exposed, not written yet. */
+  /** Exports and rendered videos (`store.outputs`). */
   outputsBucket: string
   /** Every key starts with this; an image id never carries a slash, so no id reaches outside it. */
   prefix: string
@@ -293,6 +348,30 @@ async function ensureJobIndexes(db: Db): Promise<void> {
   )
 }
 
+/**
+ * The indexes of slice 21's collections, made once per connection and
+ * idempotent, a failure logged and not fatal like the jobs'. The unique sparse
+ * `activeProject` is what makes "one active share per project" a fact of the
+ * database: the index keeps only documents that HAVE the field, and a share has
+ * it only while it is active (a partial index on `revokedAt: null` would say the
+ * same, but equality with null is not a form partial indexes promise to
+ * support; a field that is simply absent is, and `activeKey` has worked this
+ * way since slice 18).
+ */
+async function ensureShareIndexes(db: Db): Promise<void> {
+  const shares = db.collection<ShareDoc>('shares')
+  const reports = db.collection<ReportDoc>('reports')
+  const videos = db.collection<VideoDoc>('videos')
+  const made: { name: string; make: () => Promise<unknown> }[] = [
+    { name: 'shares.activeProject_unique_sparse', make: () => shares.createIndex({ activeProject: 1 }, { unique: true, sparse: true, name: 'activeProject_unique_sparse' }) },
+    { name: 'shares.ownerId_revokedAt_createdAt', make: () => shares.createIndex({ ownerId: 1, revokedAt: 1, createdAt: -1 }, { name: 'ownerId_revokedAt_createdAt' }) },
+    { name: 'reports.at', make: () => reports.createIndex({ at: -1 }, { name: 'at' }) },
+    { name: 'reports.token', make: () => reports.createIndex({ token: 1 }, { name: 'token' }) },
+    { name: 'videos.ownerId_createdAt', make: () => videos.createIndex({ ownerId: 1, createdAt: -1 }, { name: 'ownerId_createdAt' }) },
+  ]
+  await Promise.all(made.map(({ name, make }) => make().catch((err: unknown) => console.warn(`[store] the index ${name} couldn’t be created:`, err instanceof Error ? err.message : err))))
+}
+
 async function connect(settings: CloudSettings): Promise<Cloud> {
   let client: MongoClient | undefined
   try {
@@ -328,6 +407,7 @@ async function connect(settings: CloudSettings): Promise<Cloud> {
     .createIndex(OWNER_INDEX, { name: 'owner_updatedAt' })
     .catch((err: unknown) => console.warn('[store] the owner index couldn’t be created:', err instanceof Error ? err.message : err))
   await ensureJobIndexes(client.db(settings.mongoDb))
+  await ensureShareIndexes(client.db(settings.mongoDb))
   const s3 = s3Client(settings)
   const bucket = settings.projectFilesBucket
   const probeKey = settings.keyPrefix + BUCKET_PROBE_KEY
@@ -353,6 +433,10 @@ async function connect(settings: CloudSettings): Promise<Cloud> {
     projects: client.db(settings.mongoDb).collection<ProjectDoc>('projects'),
     jobs: client.db(settings.mongoDb).collection<JobDoc>('jobs'),
     users: client.db(settings.mongoDb).collection<UserDoc>('users'),
+    shares: client.db(settings.mongoDb).collection<ShareDoc>('shares'),
+    reports: client.db(settings.mongoDb).collection<ReportDoc>('reports'),
+    settings: client.db(settings.mongoDb).collection<SettingsDoc>('settings'),
+    videos: client.db(settings.mongoDb).collection<VideoDoc>('videos'),
     s3,
     bucket,
     outputsBucket: settings.outputsBucket,
@@ -412,6 +496,22 @@ function mongoJobs<T>(op: (jobs: Collection<JobDoc>) => Promise<T>): Promise<T> 
 
 function mongoUsers<T>(op: (users: Collection<UserDoc>) => Promise<T>): Promise<T> {
   return mongoCall((c) => op(c.users))
+}
+
+function mongoShares<T>(op: (shares: Collection<ShareDoc>) => Promise<T>): Promise<T> {
+  return mongoCall((c) => op(c.shares))
+}
+
+function mongoReports<T>(op: (reports: Collection<ReportDoc>) => Promise<T>): Promise<T> {
+  return mongoCall((c) => op(c.reports))
+}
+
+function mongoSettings<T>(op: (settings: Collection<SettingsDoc>) => Promise<T>): Promise<T> {
+  return mongoCall((c) => op(c.settings))
+}
+
+function mongoVideos<T>(op: (videos: Collection<VideoDoc>) => Promise<T>): Promise<T> {
+  return mongoCall((c) => op(c.videos))
 }
 
 // --- Projects -------------------------------------------------------------------
@@ -653,6 +753,27 @@ async function claimProject(id: string, ownerId: string): Promise<Claim> {
   throw new Refused(OWNED_BY_ANOTHER)
 }
 
+/** The ids of every project `ownerId` owns — a document that fails the project check included, as the projection never reads the project itself. Sorted in the process: an `_id` sort next to an owner filter would scan the collection. */
+async function projectsOf(ownerId: string): Promise<{ id: string }[]> {
+  const docs = await mongo((projects) => projects.find(ownerFilter(ownerId), { projection: { _id: 1 } }).toArray())
+  return docs.map((doc) => ({ id: doc._id })).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+}
+
+/** When a project last changed and whose it is: two fields by projection, so a poll never pulls the project out of the database (CR-8). A document that can't be read as a project is dated by whatever it still says, else the epoch. */
+async function projectStamp(id: string): Promise<{ ownerId: string; updatedAt: string } | null> {
+  if (!isProjectId(id)) return null
+  const doc = await mongo((projects) => projects.findOne({ _id: id }, { projection: { _id: 1, 'project.ownerId': 1, 'project.updatedAt': 1 } }))
+  if (!doc) return null
+  const project = doc.project as Partial<Project> | undefined
+  return { ownerId: typeof project?.ownerId === 'string' ? project.ownerId : LOCAL_OWNER, updatedAt: typeof project?.updatedAt === 'string' ? project.updatedAt : new Date(0).toISOString() }
+}
+
+/** Remove the project's document and only that; the pictures are the caller's to delete first. One that is not there is already gone. */
+async function deleteProject(id: string): Promise<void> {
+  if (!isProjectId(id)) return
+  await mongo((projects) => projects.deleteOne({ _id: id }))
+}
+
 // --- Users ------------------------------------------------------------------------
 //
 // One document per account. Each write is one conditional update, so a late or
@@ -731,12 +852,12 @@ function fromDoc(doc: JobDoc): JobRecord {
   return { id: doc._id, ...without(doc, ['_id', 'rev', 'activeKey']) } as JobRecord
 }
 
-/** A duplicate-key error on the index named by `field` (`_id` or `activeKey`). */
-function duplicateOn(err: unknown, field: '_id' | 'activeKey'): boolean {
+/** A duplicate-key error on the index named by `field` (`_id`, `activeKey` or, for a share, `activeProject`). */
+function duplicateOn(err: unknown, field: '_id' | 'activeKey' | 'activeProject'): boolean {
   if (!(err instanceof MongoServerError) || err.code !== 11000) return false
   const pattern = (err as MongoServerError & { keyPattern?: Record<string, unknown> }).keyPattern
   if (pattern) return field in pattern
-  return field === '_id' ? /\b_id_\b/.test(err.message) : /activeKey/.test(err.message)
+  return field === '_id' ? /\b_id_\b/.test(err.message) : err.message.includes(field)
 }
 
 /** How many times an insert looks again for the holder of its key, when the holder ended between the refusal and the look. */
@@ -843,6 +964,352 @@ const jobs: JobStore = {
       })
     )
     return result.deletedCount
+  },
+
+  async deleteJob(id) {
+    const result = await mongoJobs((collection) => collection.deleteOne({ _id: id }))
+    return result.deletedCount > 0
+  },
+
+  async deleteJobsOf(ownerId, exceptId) {
+    const result = await mongoJobs((collection) => collection.deleteMany(exceptId === undefined ? { ownerId } : { ownerId, _id: { $ne: exceptId } }))
+    return result.deletedCount
+  },
+}
+
+// --- Shares -----------------------------------------------------------------------
+//
+// One document per share, the token as `_id`. Create is one `insertOne`: the
+// unique sparse `activeProject` index decides a race between two creates for
+// one project, and the loser reads the winner. Refresh and revoke are single
+// conditional updates, so none of them needs a read-modify-write loop.
+
+const fromShareDoc = (doc: ShareDoc): ShareRecord => ({
+  token: doc._id,
+  ownerId: doc.ownerId,
+  kind: doc.kind,
+  projectId: doc.projectId ?? null,
+  videoId: doc.videoId ?? null,
+  snapshot: doc.snapshot ?? null,
+  createdAt: doc.createdAt,
+  updatedAt: doc.updatedAt,
+  revokedAt: doc.revokedAt ?? null,
+})
+
+/** The stored form of a record: `activeProject` only for a manga share that is still active. */
+function toShareDoc(record: ShareRecord): ShareDoc {
+  const { token, ...fields } = plain(record)
+  return { _id: token, ...(fields.revokedAt === null && typeof fields.projectId === 'string' ? { activeProject: fields.projectId } : {}), ...fields }
+}
+
+/** A listing of shares is bounded; a person with this many active shares has found a bug before we have. */
+const SHARE_LIST_LIMIT = 500
+
+const shares: ShareStore = {
+  async create(record) {
+    if (!isShareToken(record.token)) throw new Error('Not a share token')
+    const doc = toShareDoc(record)
+    for (let attempt = 1; attempt <= MAX_INSERT_ATTEMPTS; attempt++) {
+      try {
+        await mongoShares((collection) => collection.insertOne(doc))
+        return { share: fromShareDoc(doc), created: true }
+      } catch (err) {
+        // A taken token is never overwritten: a revoked one is dead for good.
+        if (duplicateOn(err, '_id')) throw new Error('that share token is already taken')
+        if (!duplicateOn(err, 'activeProject')) throw err
+      }
+      // The project already has an active share — the unique index decided, not a read.
+      const holder = await mongoShares((collection) => collection.findOne({ activeProject: doc.activeProject }))
+      if (holder) return { share: fromShareDoc(holder), created: false }
+      // It was revoked between the refusal and the look; the project is free now, so try again.
+    }
+    throw new ProviderError(BUSY, 'provider', `shares/${record.projectId}: the project’s share kept changing hands under ${MAX_INSERT_ATTEMPTS} attempts`)
+  },
+
+  async get(token) {
+    if (!isShareToken(token)) return null
+    const doc = await mongoShares((collection) => collection.findOne({ _id: token }))
+    return doc ? fromShareDoc(doc) : null
+  },
+
+  async activeForProject(projectId) {
+    if (typeof projectId !== 'string') return null
+    const doc = await mongoShares((collection) => collection.findOne({ activeProject: projectId }))
+    return doc ? fromShareDoc(doc) : null
+  },
+
+  async listActiveOf(ownerId) {
+    const docs = await mongoShares((collection) => collection.find({ ownerId, revokedAt: null }).sort({ createdAt: -1, _id: -1 }).limit(SHARE_LIST_LIMIT).toArray())
+    return docs.map(fromShareDoc)
+  },
+
+  async refresh(token, snapshot, now) {
+    if (!isShareToken(token)) return null
+    // Only an active share: a revoked token stays dead.
+    const doc = await mongoShares((collection) =>
+      collection.findOneAndUpdate({ _id: token, revokedAt: null }, { $set: { snapshot: plain(snapshot), updatedAt: now } }, { returnDocument: 'after' })
+    )
+    return doc ? fromShareDoc(doc) : null
+  },
+
+  async revoke(token, now) {
+    if (!isShareToken(token)) return null
+    // One write: the time, the snapshot gone and the project freed to be shared again.
+    const doc = await mongoShares((collection) =>
+      collection.findOneAndUpdate({ _id: token, revokedAt: null }, { $set: { revokedAt: now, updatedAt: now, snapshot: null }, $unset: { activeProject: '' } }, { returnDocument: 'after' })
+    )
+    if (doc) return fromShareDoc(doc)
+    // Already revoked (the first time stands) — or never there.
+    const existing = await mongoShares((collection) => collection.findOne({ _id: token }))
+    return existing ? fromShareDoc(existing) : null
+  },
+
+  async deleteAllOf(ownerId) {
+    const docs = await mongoShares((collection) => collection.find({ ownerId }, { projection: { _id: 1 } }).toArray())
+    const tokens = docs.map((doc) => doc._id)
+    if (tokens.length > 0) await mongoShares((collection) => collection.deleteMany({ _id: { $in: tokens } }))
+    return tokens.sort()
+  },
+}
+
+// --- Reports, settings, videos --------------------------------------------------------
+
+const fromReportDoc = (doc: ReportDoc): ReportRecord => ({ id: doc._id, token: doc.token, reason: doc.reason, note: doc.note, ipHash: doc.ipHash, at: doc.at, handledAt: doc.handledAt ?? null })
+
+/** Tokens per `deleteMany`: a query this long is still one small message. */
+const TOKEN_CHUNK = 500
+
+const reports: ReportStore = {
+  async add(report) {
+    if (!isRecordId(report.id)) throw new Error('Not a report id')
+    const { id, ...fields } = plain(report)
+    try {
+      await mongoReports((collection) => collection.insertOne({ _id: id, ...fields }))
+    } catch (err) {
+      if (duplicateOn(err, '_id')) throw new Error('that report id is already taken')
+      throw err
+    }
+  },
+
+  async list(opts = {}) {
+    const docs = await mongoReports((collection) =>
+      collection
+        .find(opts.unhandledOnly ? { handledAt: null } : {})
+        .sort({ at: -1, _id: -1 })
+        .limit(reportLimit(opts.limit))
+        .toArray()
+    )
+    return docs.map(fromReportDoc)
+  },
+
+  async get(id) {
+    if (!isRecordId(id)) return null
+    const doc = await mongoReports((collection) => collection.findOne({ _id: id }))
+    return doc ? fromReportDoc(doc) : null
+  },
+
+  async markHandled(id, now) {
+    if (!isRecordId(id)) return null
+    const doc = await mongoReports((collection) => collection.findOneAndUpdate({ _id: id, handledAt: null }, { $set: { handledAt: now } }, { returnDocument: 'after' }))
+    if (doc) return fromReportDoc(doc)
+    const existing = await mongoReports((collection) => collection.findOne({ _id: id })) // handled already: the first time stands
+    return existing ? fromReportDoc(existing) : null
+  },
+
+  async deleteForTokens(tokens) {
+    let removed = 0
+    const wanted = [...new Set(tokens)]
+    for (let i = 0; i < wanted.length; i += TOKEN_CHUNK) {
+      const chunk = wanted.slice(i, i + TOKEN_CHUNK)
+      removed += (await mongoReports((collection) => collection.deleteMany({ token: { $in: chunk } }))).deletedCount
+    }
+    return removed
+  },
+}
+
+const settings: SettingsStore = {
+  async get(userId) {
+    if (!isUserId(userId)) return null
+    const doc = await mongoSettings((collection) => collection.findOne({ _id: userId }))
+    if (!doc) return null
+    const { _id, ...fields } = doc
+    return { userId: _id, ...fields }
+  },
+
+  async put(next) {
+    if (!isUserId(next.userId)) throw new Refused(NOT_A_USER, 400)
+    const { userId, ...fields } = plain(next)
+    await mongoSettings((collection) => collection.replaceOne({ _id: userId }, { ...fields }, { upsert: true }))
+  },
+
+  async delete(userId) {
+    if (!isUserId(userId)) return
+    await mongoSettings((collection) => collection.deleteOne({ _id: userId }))
+  },
+}
+
+const fromVideoDoc = (doc: VideoDoc): VideoRecord => {
+  const { _id, ...fields } = doc
+  return { id: _id, ...fields }
+}
+
+const videos: VideoStore = {
+  async put(video) {
+    if (!isRecordId(video.id)) throw new Error('Not a video id')
+    const { id, ...fields } = plain(video)
+    await mongoVideos((collection) => collection.replaceOne({ _id: id }, { ...fields }, { upsert: true }))
+  },
+
+  async get(id) {
+    if (!isRecordId(id)) return null
+    const doc = await mongoVideos((collection) => collection.findOne({ _id: id }))
+    return doc ? fromVideoDoc(doc) : null
+  },
+
+  async listOf(ownerId) {
+    const docs = await mongoVideos((collection) => collection.find({ ownerId }).sort({ createdAt: -1, _id: -1 }).limit(SHARE_LIST_LIMIT).toArray())
+    return docs.map(fromVideoDoc)
+  },
+
+  async deleteAllOf(ownerId) {
+    const docs = await mongoVideos((collection) => collection.find({ ownerId }).toArray())
+    if (docs.length > 0) await mongoVideos((collection) => collection.deleteMany({ _id: { $in: docs.map((doc) => doc._id) } }))
+    return docs.map(fromVideoDoc)
+  },
+}
+
+// --- Outputs ----------------------------------------------------------------------
+//
+// The outputs bucket, under the key prefix and an `outputs/` folder of its own.
+// The folder is why two buckets or one makes no difference to correctness: an
+// output key can never be an image id (those have no slash) or the probe object.
+// The key rules are the local store's (`isOutputKey`), so a hostile key names
+// nothing here either.
+
+/** The object key in the bucket for an output key. Exported for the slices that hand a file to the browser or to a worker by key. */
+export function outputObjectKey(prefix: string, key: string): string {
+  return `${prefix}outputs/${key}`
+}
+
+/** Up to this size a file or a stream is held in memory for the upload, so the SDK can retry it; bigger ones stream from disk. */
+const OUTPUT_BUFFER_MAX = 64 * 1024 * 1024
+
+/** A listing page is 1000 keys; a prefix bigger than this many pages is cut off with a warning (nothing here comes close). */
+const MAX_LIST_PAGES = 100
+
+/** Parallel deletes: gentle on a small bucket, and an account's outputs are a handful. */
+const DELETE_PARALLEL = 8
+
+/** Every object under the folder `folder` (already checked), keys relative to the outputs folder. */
+async function listOutputs(folder: string): Promise<{ key: string; bytes: number; modifiedAt: string }[]> {
+  const { s3, outputsBucket, prefix } = await cloud()
+  const root = outputObjectKey(prefix, '')
+  const found: { key: string; bytes: number; modifiedAt: string }[] = []
+  let token: string | undefined
+  for (let page = 0; page < MAX_LIST_PAGES; page++) {
+    const result = await s3.send(new ListObjectsV2Command({ Bucket: outputsBucket, Prefix: root + folder, ContinuationToken: token }))
+    for (const object of result.Contents ?? []) {
+      if (!object.Key || !object.Key.startsWith(root)) continue
+      found.push({ key: object.Key.slice(root.length), bytes: object.Size ?? 0, modifiedAt: (object.LastModified ?? new Date(0)).toISOString() })
+    }
+    if (!result.IsTruncated || !result.NextContinuationToken) return found.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
+    token = result.NextContinuationToken
+  }
+  console.warn(`[store] outputs/${folder} lists more than ${MAX_LIST_PAGES * 1000} objects; the rest are not shown`)
+  return found.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
+}
+
+const outputs: OutputStore = {
+  async put(key, body, mediaType) {
+    if (!isOutputKey(key)) throw new Error(`Not an output key: ${JSON.stringify(key).slice(0, 80)}`)
+    const { s3, outputsBucket, prefix } = await cloud()
+    const Key = outputObjectKey(prefix, key)
+    if (Buffer.isBuffer(body)) {
+      await s3.send(new PutObjectCommand({ Bucket: outputsBucket, Key, Body: body, ContentType: mediaType }))
+      return { bytes: body.length }
+    }
+    // A file the caller made, or a stream of bytes spooled to one: S3 wants a stream's length up front, and a body
+    // that is held can be sent again if the SDK retries.
+    let spooled: string | null = null
+    try {
+      let path: string
+      if (typeof body === 'string') path = body
+      else {
+        spooled = join(tmpdir(), `inkdesk-output-${randomUUID()}.tmp`)
+        path = spooled
+        const handle = await open(spooled, 'wx')
+        try {
+          for await (const chunk of body) await handle.writeFile(chunk)
+        } finally {
+          await handle.close()
+        }
+      }
+      const { size } = await stat(path)
+      if (size <= OUTPUT_BUFFER_MAX) {
+        await s3.send(new PutObjectCommand({ Bucket: outputsBucket, Key, Body: await readFile(path), ContentType: mediaType }))
+      } else {
+        // Too big to hold: stream it, and send it again from the start if the first try fails (a consumed stream cannot be replayed).
+        for (let attempt = 1; ; attempt++) {
+          const stream = createReadStream(path)
+          try {
+            await s3.send(new PutObjectCommand({ Bucket: outputsBucket, Key, Body: stream, ContentLength: size, ContentType: mediaType }))
+            break
+          } catch (err) {
+            if (attempt >= 3) throw err
+          } finally {
+            stream.destroy()
+          }
+        }
+      }
+      return { bytes: size }
+    } finally {
+      if (spooled) await rm(spooled, { force: true }).catch(() => {})
+    }
+  },
+
+  async open(key) {
+    if (!isOutputKey(key)) return null
+    const { s3, outputsBucket, prefix } = await cloud()
+    try {
+      const object = await s3.send(new GetObjectCommand({ Bucket: outputsBucket, Key: outputObjectKey(prefix, key) }))
+      if (!object.Body) return null
+      const body = idleLimited(object.Body.transformToWebStream() as ReadableStream<Uint8Array>)
+      return { body, bytes: object.ContentLength ?? null, mediaType: object.ContentType || outputMediaType(key) }
+    } catch (err) {
+      if (isMissingObject(err)) return null
+      throw err
+    }
+  },
+
+  async delete(key) {
+    if (!isOutputKey(key)) return
+    const { s3, outputsBucket, prefix } = await cloud()
+    try {
+      await s3.send(new DeleteObjectCommand({ Bucket: outputsBucket, Key: outputObjectKey(prefix, key) }))
+    } catch (err) {
+      if (!isMissingObject(err)) throw err
+    }
+  },
+
+  async deletePrefix(folderOrPrefix) {
+    const folder = requireOutputFolder(folderOrPrefix)
+    if (folder === '') throw new Error('deletePrefix needs a folder; an empty prefix would delete every output')
+    const { s3, outputsBucket, prefix } = await cloud()
+    const objects = await listOutputs(folder)
+    for (let i = 0; i < objects.length; i += DELETE_PARALLEL) {
+      await Promise.all(
+        objects.slice(i, i + DELETE_PARALLEL).map((object) =>
+          s3.send(new DeleteObjectCommand({ Bucket: outputsBucket, Key: outputObjectKey(prefix, object.key) })).catch((err: unknown) => {
+            if (!isMissingObject(err)) throw err
+          })
+        )
+      )
+    }
+    return objects.length
+  },
+
+  async list(folderOrPrefix) {
+    return listOutputs(requireOutputFolder(folderOrPrefix))
   },
 }
 
@@ -951,12 +1418,20 @@ export const cloudStore: Store = {
   projectOwners,
   projectOwner,
   claimProject,
+  deleteProject,
+  projectStamp,
+  projectsOf,
   putBlob,
   getBlob,
   openBlob,
   deleteBlob,
   jobs,
   users,
+  shares,
+  reports,
+  settings,
+  videos,
+  outputs,
   health,
 }
 

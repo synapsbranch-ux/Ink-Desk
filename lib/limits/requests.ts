@@ -9,6 +9,15 @@
 // provider, and a counter write per anonymous request would hand a flooder a
 // way to load Redis. Server only.
 //
+// PUBLIC ROUTES (slice 21: `/api/s/*`, the share page's data). They never call
+// `requireUser` — a stranger holding a link has no session — so `classify` never
+// sees them, and the route itself takes its window FIRST, before it reads the
+// store or a body: `limitByAddress(req, 'anon')` for the snapshot,
+// `'anonMedia'` for a picture, `'report'` for the report form. The proxy still
+// runs the Origin check on their writes (`/api/s/*` is NOT in
+// `PUBLIC_API_PREFIXES`, which skips it), and `check:auth` walks `app/api` and
+// fails a public route that takes no address window.
+//
 //   text     paid text calls                         10 a minute
 //   image    paid image routes (a Generate all is one request; the quota counts the pictures)   6 a minute
 //   upload   a picture put on the shelf              20 an hour
@@ -16,10 +25,15 @@
 //   read     every other read                        240 a minute
 //   media    pictures served (a page of the reader is dozens)   1200 a minute
 //   anon     routes with no signed-in person, per client address   60 a minute
+//   anonMedia  a shared manga's pictures, per client address      600 a minute
+//   report   the share page's report form, per client address     6 an hour
 //
 // Redis down: the windows that guard SPENDING (text, image, upload) fail
-// CLOSED with the studio-busy sentence; plain edits and reads fail OPEN, so a
-// reader and the editing of what is already there keep working
+// CLOSED with the studio-busy sentence, and so does `report` — a form anyone can
+// post to, with a store write behind it, must not become unlimited the moment
+// the counter store is down; plain edits and reads, the signed-out `anon` window
+// and the share page's pictures (`anonMedia`) fail OPEN, so a reader, and a
+// shared manga that is being read, keep working
 // (`devpost/spec.md > Failure Modes (v3)`).
 //
 // THE CLIENT ADDRESS. An address the caller can write is worthless as a key, so
@@ -37,7 +51,16 @@
 // appends. Once the learner has seen on the live domain that the edge overwrites
 // X-Real-IP, CLIENT_IP_HEADER=x-real-ip switches to it. IPv6
 // addresses are keyed by their /64 (one subscriber holds the whole prefix), and
-// the key is an HMAC of the address, so a raw address is never written to Redis.
+// the key is an HMAC of the address, so a raw address is never written to Redis
+// (the same key is the `ipHash` a report stores: never the address).
+//
+// For a public route the same rule has a consequence worth knowing: when no
+// address can be read (TRUSTED_PROXY_HOPS=0, or an edge that does not append),
+// every caller shares the one `unknown` key PER BUCKET — so, misconfigured, the
+// whole world shares 6 reports an hour and 600 pictures a minute. That is the
+// safe direction (it can only make strangers wait together, never escape), and
+// the health of the address rule is a deploy check: open a share on the live
+// domain from two networks and see them counted apart.
 import 'server-only'
 import { createHmac } from 'node:crypto'
 import { isIP } from 'node:net'
@@ -79,8 +102,8 @@ export function classify(method: string, pathname: string): RateBucket[] {
   return ['edit']
 }
 
-/** The windows that guard spending: Redis down closes them. */
-const FAIL_CLOSED = new Set<RateBucket>(['text', 'image', 'upload'])
+/** The windows that guard spending, and the report form (a public write): Redis down closes them. */
+const FAIL_CLOSED = new Set<RateBucket>(['text', 'image', 'upload', 'report'])
 
 // --- The client address ---------------------------------------------------------------
 
@@ -161,7 +184,12 @@ export async function limitRequest(req: Request, userId: string): Promise<void> 
   for (const bucket of taken.length > 0 ? taken : (['edit'] as const)) await hit(bucket, userId)
 }
 
-/** A window keyed by the client's address, for routes with no signed-in person (a share view, a report, sign-up). */
+/**
+ * A window keyed by the client's address, for routes with no signed-in person (a share view, a report, sign-up).
+ * `anon` for data, `anonMedia` for pictures, `report` for the report form; any bucket works (it is the key that
+ * differs: a hash of the trusted-hop address, never the caller's own claim). Throws `Refused` — 429 with
+ * `Retry-After` when the window is full, 503 when the counter store is down and the bucket fails closed.
+ */
 export async function limitByAddress(req: Request, bucket: RateBucket = 'anon'): Promise<void> {
   await hit(bucket, clientKey(req.headers))
 }

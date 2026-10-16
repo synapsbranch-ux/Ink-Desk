@@ -14,7 +14,7 @@ import { read } from '../chapter'
 import { store, type Check } from '../store'
 import { endJob } from './ending'
 import type { Desk, PageRef } from '../types'
-import { ABANDON_GRACE_MS, ABANDONED, BUSY, abandon, isLive, visibleJobs, SHOW_FAILED_MS, type Activity, type JobRecord, type QueueState } from './jobs'
+import { ABANDON_GRACE_MS, ABANDONED, ACCOUNT_RUN_MS, BUSY, abandon, isLive, visibleJobs, SHOW_FAILED_MS, type AccountJobKind, type Activity, type JobRecord, type QueueState } from './jobs'
 import { producerRedis, redisKey, within } from './redis'
 
 const ACTIVE = ['queued', 'running'] as const
@@ -24,8 +24,11 @@ const ACTIVE = ['queued', 'running'] as const
  * call and margin — and, for a sheet, the Claude call before it (two attempts
  * of 150 s, then the fallback's two of 120 s). Past it nothing renews the lease
  * and the stale floor lets the claim go (CR-13). With no kind: the longest.
+ * The account kinds (slice 21) have their own, fixed: export 10 minutes, deletion 15.
  */
-export function maxRunMs(kind: 'panel' | 'cover' | 'sheet' = 'sheet'): number {
+export function maxRunMs(kind: 'panel' | 'cover' | 'sheet' | AccountJobKind = 'sheet'): number {
+  // An account job (slice 21) draws nothing: a fixed ceiling, an export's ten minutes or a deletion's fifteen.
+  if (kind === 'export' || kind === 'delete-account') return ACCOUNT_RUN_MS[kind]
   return 2 * generationTimeoutMs() + 180_000 + (kind === 'sheet' ? 2 * 150_000 + 2 * 120_000 : 0)
 }
 

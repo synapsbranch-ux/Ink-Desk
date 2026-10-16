@@ -41,6 +41,15 @@ next-env.d.ts
 /data/**/*.lock
 /data/**/*.lock.d/
 
+# Slice 21's runtime records on the local desk: public shares, visitor reports,
+# a person's defaults, trailer records, and what the studio makes (exports,
+# videos). Working state of a running studio, like the jobs — never the record.
+/data/shares/
+/data/reports/
+/data/settings/
+/data/videos/
+/data/outputs/
+
 # Clerk's keyless development keys (slice 19): written by the SDK when it runs
 # with no keys, and they are credentials.
 .clerk/

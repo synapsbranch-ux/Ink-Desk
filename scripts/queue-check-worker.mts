@@ -1,5 +1,6 @@
 // A worker in a process of its own (its claim's lease is short, so the rescuer waits seconds, not the production lease), for `check:queue` to kill. It claims the
-// first job it is given exactly as a real worker does, tells the parent which
+// first job it is given — from the image lane or, since slice 21, the account
+// lane (it takes both, as a real worker does) — exactly as a real worker does, tells the parent which
 // one, then hangs — the way a worker that is killed mid-job looks to Redis:
 // its lock stops being renewed and nothing finishes the record. Not a script
 // anyone runs by hand.
@@ -13,6 +14,7 @@ const workerId = process.env.CHECK_WORKER_ID ?? 'doomed'
 await startWorker({
   workerId,
   concurrency: 1,
+  accountConcurrency: 1,
   lockDurationMs: 1_500,
   stalledIntervalMs: 1_000,
   heartbeatMs: 500,
