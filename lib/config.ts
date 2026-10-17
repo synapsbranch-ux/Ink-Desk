@@ -202,10 +202,16 @@ const NUMBERS = {
   QUEUE_RETRY_BACKOFF_MS: { schema: wholeNumber(0, 60_000), fallback: 5_000, rule: 'a whole number of milliseconds from 0 to 60000' },
   WORKER_GRACE_MS: { schema: wholeNumber(0, 600_000), fallback: 90_000, rule: 'a whole number of milliseconds from 0 to 600000' },
   GENERATION_TIMEOUT_MS: { schema: wholeNumber(30_000, 900_000), fallback: 360_000, rule: 'a whole number of milliseconds from 30000 to 900000' },
+  // Video (slice 22): trailers a worker makes at once (each runs its shots side by side), how many shots of one trailer
+  // may be with the provider at once, how often a shot is asked after, and how long one may take before it is given up on.
+  QUEUE_CONCURRENCY_VIDEO: { schema: wholeNumber(1, 4), fallback: 1, rule: 'a whole number from 1 to 4' },
+  VIDEO_SHOT_PARALLEL: { schema: wholeNumber(1, 4), fallback: 4, rule: 'a whole number from 1 to 4' },
+  VIDEO_POLL_MS: { schema: wholeNumber(1_000, 60_000), fallback: 5_000, rule: 'a whole number of milliseconds from 1000 to 60000' },
+  VIDEO_SHOT_TIMEOUT_MS: { schema: wholeNumber(60_000, 1_800_000), fallback: 720_000, rule: 'a whole number of milliseconds from 60000 to 1800000' },
   // Limits (slice 20): the per-plan daily quotas, the request windows, the proxy.
   QUOTA_FREE_IMAGES: { schema: wholeNumber(0, 100_000), fallback: 20, rule: 'a whole number from 0 to 100000' },
   QUOTA_FREE_PROJECTS: { schema: wholeNumber(0, 1_000), fallback: 1, rule: 'a whole number from 0 to 1000' },
-  QUOTA_FREE_VIDEO_SECONDS: { schema: wholeNumber(0, 100_000), fallback: 15, rule: 'a whole number from 0 to 100000' },
+  QUOTA_FREE_VIDEO_SECONDS: { schema: wholeNumber(0, 100_000), fallback: 20, rule: 'a whole number from 0 to 100000' },
   QUOTA_FREE_AUDIO_CHARS: { schema: wholeNumber(0, 10_000_000), fallback: 2_000, rule: 'a whole number from 0 to 10000000' },
   QUOTA_ALLOW_IMAGES: { schema: wholeNumber(0, 100_000), fallback: 150, rule: 'a whole number from 0 to 100000' },
   QUOTA_ALLOW_PROJECTS: { schema: wholeNumber(0, 1_000), fallback: 10, rule: 'a whole number from 0 to 1000' },
@@ -276,6 +282,77 @@ export function videoEnabled(env: Env = process.env): boolean {
   return env.VIDEO_ENABLED?.trim() === 'true'
 }
 
+// --- The trailer's models (v3, slice 22) ---------------------------------------
+//
+//   VIDEO_MODEL          the Seedance model; unset: seedance-2.0 in production, seedance-2.0-fast in development
+//   VIDEO_RESOLUTION     480p | 720p | 1080p; unset: 720p in production, 480p in development
+//   VIDEO_MOTION_METHOD  A (the panel as the first frame) | B (the panel and the character's sheet as references);
+//                        unset: B — PROVISIONAL, until the learner's verdict on the slice 17 motion test
+//   TTS_MODEL            default elevenlabs/eleven-v4
+//   MUSIC_MODEL          default google/lyria-3-clip-preview
+//   VIDEO_FAIL_SHOT      0–3, development only: that panel's first attempt is refused before anything is spent, so a
+//                        retry can be seen. Ignored in production.
+// Development runs the cheap model at 480p (about $0.04 a second); the claim and the filming run seedance-2.0 at 720p.
+const VIDEO_RESOLUTIONS = ['480p', '720p', '1080p'] as const
+const MODEL_ID = z.string().regex(/^[a-z0-9][a-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._:-]*$/)
+
+export type VideoSettings = {
+  model: string
+  resolution: (typeof VIDEO_RESOLUTIONS)[number]
+  method: 'A' | 'B'
+  ttsModel: string
+  musicModel: string
+  /** Trailers a worker (or the inline queue) makes at once. */
+  concurrency: number
+  /** Shots of one trailer with the provider at once. */
+  shotParallel: number
+  pollMs: number
+  shotTimeoutMs: number
+  /** The panel whose first attempt is refused, in development; null otherwise. */
+  failShot: number | null
+}
+
+function videoProblems(env: Env): string[] {
+  const problems: string[] = []
+  const model = env.VIDEO_MODEL?.trim()
+  if (model && !MODEL_ID.safeParse(model).success) problems.push('VIDEO_MODEL must be a model id like bytedance/seedance-2.0')
+  const resolution = env.VIDEO_RESOLUTION?.trim()
+  if (resolution && !(VIDEO_RESOLUTIONS as readonly string[]).includes(resolution)) problems.push('VIDEO_RESOLUTION must be 480p, 720p or 1080p')
+  const method = env.VIDEO_MOTION_METHOD?.trim()
+  if (method && method !== 'A' && method !== 'B') problems.push('VIDEO_MOTION_METHOD must be A or B')
+  for (const name of ['TTS_MODEL', 'MUSIC_MODEL'] as const) {
+    const value = env[name]?.trim()
+    if (value && !MODEL_ID.safeParse(value).success) problems.push(`${name} must be a model id like elevenlabs/eleven-v4`)
+  }
+  const fail = env.VIDEO_FAIL_SHOT?.trim()
+  if (fail && !/^[0-3]$/.test(fail)) problems.push('VIDEO_FAIL_SHOT must be 0, 1, 2 or 3')
+  for (const name of ['QUEUE_CONCURRENCY_VIDEO', 'VIDEO_SHOT_PARALLEL', 'VIDEO_POLL_MS', 'VIDEO_SHOT_TIMEOUT_MS'] as const) {
+    const problem = numberProblem(env, name)
+    if (problem) problems.push(problem)
+  }
+  return problems
+}
+
+/** The trailer's settings from `env`, read fresh on every call; throws `ConfigError` on a malformed value (by name, never by value). */
+export function videoSettings(env: Env = process.env): VideoSettings {
+  const problems = videoProblems(env)
+  if (problems.length > 0) throw new ConfigError(problems)
+  const production = env.NODE_ENV === 'production'
+  const fail = env.VIDEO_FAIL_SHOT?.trim()
+  return {
+    model: env.VIDEO_MODEL?.trim() || (production ? 'bytedance/seedance-2.0' : 'bytedance/seedance-2.0-fast'),
+    resolution: (env.VIDEO_RESOLUTION?.trim() as VideoSettings['resolution'] | undefined) || (production ? '720p' : '480p'),
+    method: env.VIDEO_MOTION_METHOD?.trim() === 'A' ? 'A' : 'B',
+    ttsModel: env.TTS_MODEL?.trim() || 'elevenlabs/eleven-v4',
+    musicModel: env.MUSIC_MODEL?.trim() || 'google/lyria-3-clip-preview',
+    concurrency: readNumber(env, 'QUEUE_CONCURRENCY_VIDEO'),
+    shotParallel: readNumber(env, 'VIDEO_SHOT_PARALLEL'),
+    pollMs: readNumber(env, 'VIDEO_POLL_MS'),
+    shotTimeoutMs: readNumber(env, 'VIDEO_SHOT_TIMEOUT_MS'),
+    failShot: !production && fail ? Number(fail) : null,
+  }
+}
+
 // --- The queue ------------------------------------------------------------------
 
 export type QueueMode = 'inline' | 'bullmq'
@@ -285,6 +362,8 @@ export type QueueSettings = {
   /** Null on the inline queue — and on a production web service with generation closed and no Redis yet. */
   redisUrl: string | null
   imageConcurrency: number
+  /** How many trailers a worker (or the inline queue) makes at once (QUEUE_CONCURRENCY_VIDEO, default 1). */
+  videoConcurrency: number
   /**
    * How many account jobs (an export, a deletion) a worker runs at once. Fixed
    * at one, not a setting: an export racing the deletion of the same person
@@ -336,7 +415,7 @@ function queueProblems(env: Env, role: 'web' | 'worker'): string[] {
 /** The queue's settings from `env`; throws `ConfigError`. `role: 'worker'` refuses a missing Redis outright. */
 export function queueSettings(env: Env = process.env, role: 'web' | 'worker' = 'web'): QueueSettings {
   const problems = queueProblems(env, role)
-  for (const name of ['PANEL_CONCURRENCY', 'QUEUE_CONCURRENCY_IMAGE', 'QUEUE_USER_INFLIGHT', 'QUEUE_MAX_WAITING', 'QUEUE_RETRY_BACKOFF_MS', 'WORKER_GRACE_MS'] as const) {
+  for (const name of ['PANEL_CONCURRENCY', 'QUEUE_CONCURRENCY_IMAGE', 'QUEUE_CONCURRENCY_VIDEO', 'QUEUE_USER_INFLIGHT', 'QUEUE_MAX_WAITING', 'QUEUE_RETRY_BACKOFF_MS', 'WORKER_GRACE_MS'] as const) {
     const problem = numberProblem(env, name)
     if (problem) problems.push(problem)
   }
@@ -345,6 +424,7 @@ export function queueSettings(env: Env = process.env, role: 'web' | 'worker' = '
     mode: queueMode(env),
     redisUrl: pick(env, REDIS_NAMES) ?? null,
     imageConcurrency: imageConcurrency(env),
+    videoConcurrency: readNumber(env, 'QUEUE_CONCURRENCY_VIDEO'),
     accountConcurrency: ACCOUNT_CONCURRENCY,
     userInflight: readNumber(env, 'QUEUE_USER_INFLIGHT'),
     maxWaiting: readNumber(env, 'QUEUE_MAX_WAITING'),
@@ -401,7 +481,7 @@ const DOLLARS = {
 const LIMIT_OTHER = ['INKDESK_LIMITS', 'ALLOWLIST_EMAILS', 'CLIENT_IP_HEADER'] as const
 
 /** Slice 21's settings that are not limits: who administers, and whether video is open. */
-const STUDIO_OTHER = ['ADMIN_EMAILS', 'VIDEO_ENABLED'] as const
+const STUDIO_OTHER = ['ADMIN_EMAILS', 'VIDEO_ENABLED', 'VIDEO_MODEL', 'VIDEO_RESOLUTION', 'VIDEO_MOTION_METHOD', 'VIDEO_FAIL_SHOT', 'TTS_MODEL', 'MUSIC_MODEL'] as const
 
 function dollarProblem(env: Env, name: keyof typeof DOLLARS): string | null {
   const raw = env[name]?.trim()
@@ -487,6 +567,7 @@ function studioProblems(env: Env): string[] {
   if (readEmailList(env, 'ADMIN_EMAILS') === null) problems.push('ADMIN_EMAILS must be a comma-separated list of email addresses')
   const video = env.VIDEO_ENABLED?.trim()
   if (video && !FLAG.safeParse(video).success) problems.push('VIDEO_ENABLED must be true or false')
+  problems.push(...videoProblems(env))
   return problems
 }
 

@@ -13,7 +13,7 @@
 
 // --- What a job is --------------------------------------------------------------
 
-export type JobKind = 'sheet' | 'panel' | 'cover' | 'text' | 'shot' | 'speech' | 'music' | 'assemble' | 'export' | 'delete-account'
+export type JobKind = 'sheet' | 'panel' | 'cover' | 'text' | 'trailer' | 'shot' | 'speech' | 'music' | 'assemble' | 'export' | 'delete-account'
 
 export const QUEUE_NAMES = ['image', 'video', 'audio', 'account'] as const
 export type QueueName = (typeof QUEUE_NAMES)[number]
@@ -29,6 +29,10 @@ export const QUEUE_OF: Record<JobKind, QueueName> = {
   panel: 'image',
   cover: 'image',
   text: 'image',
+  // Slice 22: one job carries a whole trailer — its shots, voices, music and assembly run inside it, each part
+  // checkpointed on the video record (`lib/video/run.ts`), so a crash resumes and nothing paid for is paid for twice.
+  // `shot`, `speech`, `music` and `assemble` stay as names; no record is ever written with them.
+  trailer: 'video',
   shot: 'video',
   assemble: 'video',
   speech: 'audio',
@@ -36,6 +40,9 @@ export const QUEUE_OF: Record<JobKind, QueueName> = {
   export: 'account',
   'delete-account': 'account',
 }
+
+/** The longest a trailer job may hold its claim (slice 22): the slowest shot measured took four minutes, a retry can wait out a busy provider, and the assembly follows. Past it nothing renews the lease. */
+export const TRAILER_RUN_MS = 25 * 60_000
 
 /** The longest an account job may legitimately hold its claim (slice 21): an export of a big desk, and the deletion that sweeps a person's pictures one by one. Past it nothing renews the lease. */
 export const ACCOUNT_RUN_MS: Record<AccountJobKind, number> = { export: 10 * 60_000, 'delete-account': 15 * 60_000 }
@@ -65,6 +72,13 @@ export type JobPayload =
   /** Slice 21: account jobs carry nothing but their kind — the owner on the record is the whole payload. */
   | { kind: 'export' }
   | { kind: 'delete-account' }
+  /**
+   * Slice 22: animate a page. `only` names the shots to (re)make — a person's Try again on one shot — and is absent for
+   * the first run, which makes every shot, voice line and the music that is not done. `baselineUsd` is what the video
+   * record had already billed when this job first started; the worker saves it on its first run so a redelivered job
+   * counts only its own spend.
+   */
+  | { kind: 'trailer'; videoId: string; only?: number[]; baselineUsd?: number }
 
 export type JobRecord = {
   id: string
@@ -150,6 +164,8 @@ export const panelKey = (projectId: string, chapterId: string, pageIndex: number
   `${projectId}:${chapterId}:${pageIndex}:${index}`
 export const coverKey = (projectId: string, chapterId: string) => `${projectId}:${chapterId}:cover`
 export const sheetKey = (projectId: string, characterId: string) => `${projectId}:sheet:${characterId}`
+/** One trailer in flight per person (slice 22): asking again, for this page or another, returns the job that holds the key. */
+export const trailerKey = (ownerId: string) => `trailer:${ownerId}`
 /** One export, and one deletion, in flight per person (slice 21): asking again returns the job that holds the key. */
 export const exportKey = (ownerId: string) => `export:${ownerId}`
 export const deleteAccountKey = (ownerId: string) => `delete-account:${ownerId}`
@@ -295,7 +311,7 @@ export type JobView = {
   outcome: JobOutcome | null
   /** The sentence for a failed one. */
   error: string | null
-  target: { chapterId?: string; pageIndex?: number; index?: number; characterId?: string; reuseDna?: boolean }
+  target: { chapterId?: string; pageIndex?: number; index?: number; characterId?: string; reuseDna?: boolean; videoId?: string }
   updatedAt: string
 }
 
@@ -308,7 +324,9 @@ export function toView(job: JobRecord): JobView {
         ? { chapterId: p.chapterId }
         : p.kind === 'sheet'
           ? { characterId: p.characterId, reuseDna: p.redraw }
-          : {}
+          : p.kind === 'trailer'
+            ? { videoId: p.videoId }
+            : {}
   return { id: job.id, kind: job.kind, status: job.status, outcome: job.outcome, error: job.error, target, updatedAt: job.updatedAt }
 }
 

@@ -46,6 +46,9 @@ export type Character = {
   /** v2 (slice 10): set when the sheet is the storyteller's own uploaded
    *  picture rather than a generated sheet. Absent = drawn, as in v1. */
   source?: 'imported'
+  /** v3 (slice 22): the ElevenLabs voice this character speaks in, chosen the
+   *  first time a page is animated and kept — a trailer never changes it. */
+  voice?: string
 }
 
 export type PanelStatus = 'empty' | 'inking' | 'done' | 'failed' | 'refused'

@@ -483,7 +483,7 @@ try {
 
     // The settings.
     const s0 = limitsSettings({})
-    assert.deepEqual(s0.plans.free, { image: 20, project: 1, videoSeconds: 15, audioChars: 2000, dailyUsd: 1 })
+    assert.deepEqual(s0.plans.free, { image: 20, project: 1, videoSeconds: 20, audioChars: 2000, dailyUsd: 1 })
     assert.deepEqual(s0.plans.allowlisted, { image: 150, project: 10, videoSeconds: 120, audioChars: 20000, dailyUsd: 10 })
     assert.deepEqual([s0.globalDailyUsd, s0.globalTotalUsd, s0.trustedProxyHops, s0.allowlist.length], [5, null, 1, 0])
     assert.deepEqual(
