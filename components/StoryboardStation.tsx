@@ -20,7 +20,12 @@
 // the reset time — the panels' own buttons are shut with a few words each —
 // and the arrival does not queue the blank panels it already knows would be
 // refused; they keep their Draw panel buttons.
+//
+// Slice 22: with video open (`VIDEO_ENABLED`) the Animate station sits under the
+// four panels once the page is written — shut, with its reason, until all four
+// panels have their pictures. See `components/AnimateStation.tsx`.
 import { useEffect, useRef } from 'react'
+import { AnimateStation } from '@/components/AnimateStation'
 import { PageScript } from '@/components/PageScript'
 import { PageSwitcher } from '@/components/PageSwitcher'
 import { Panel } from '@/components/Panel'
@@ -31,6 +36,7 @@ import type { Gates } from '@/lib/gates'
 import { useSpend } from '@/lib/limits/use-usage'
 import type { PanelEdit } from '@/lib/patch'
 import { pagesComplete } from '@/lib/plan'
+import { pageIsComplete } from '@/lib/video/plan'
 import { PANEL_LAYOUT } from '@/lib/prompts'
 import type { Activity } from '@/lib/queue/jobs'
 import type { Chapter } from '@/lib/types'
@@ -60,6 +66,8 @@ type Props = {
   starting: boolean
   startNotice: string | null
   onGoReader: () => void
+  /** Animating pages is open on this desk (`VIDEO_ENABLED`); without it there is no Animate station at all. */
+  videoEnabled?: boolean
 }
 
 export function StoryboardStation({
@@ -81,6 +89,7 @@ export function StoryboardStation({
   starting,
   startNotice,
   onGoReader,
+  videoEnabled = false,
 }: Props) {
   const script = chapter.script
   const plan = chapter.plan
@@ -193,6 +202,10 @@ export function StoryboardStation({
             onGeneratePage={onGeneratePage}
           />
         </div>
+
+        {videoEnabled && script && (
+          <AnimateStation projectId={chapter.address.projectId} page={pageIndex} complete={pageIsComplete(script)} />
+        )}
 
         <StationFooter
           gate={gates.reader}

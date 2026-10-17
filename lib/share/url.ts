@@ -28,6 +28,11 @@ export function shareImageUrl(token: string, imageId: string): string {
   return `/api/s/${encodeURIComponent(token)}/image/${encodeURIComponent(imageId)}`
 }
 
+/** `/api/s/<token>/file/<name>` — a shared trailer's video, poster or captions (slice 22): streamed with HTTP Range, never a bucket key or a signed URL. */
+export function shareFileUrl(token: string, name: 'final.mp4' | 'poster.jpg' | 'captions.vtt'): string {
+  return `/api/s/${encodeURIComponent(token)}/file/${name}`
+}
+
 /** An origin we are willing to put in a link: http(s) only, nothing else of the URL. */
 function originOfUrl(value: string): string | null {
   try {

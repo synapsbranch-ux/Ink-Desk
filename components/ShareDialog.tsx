@@ -19,21 +19,31 @@
 // focus returns to the button that opened it. Results are announced
 // (`role="status"` / `role="alert"`). Every failure ends in a sentence with a way
 // forward. Implements `devpost/prd.md > Sharing (v3)`.
+//
+// Slice 22 gives it a second subject. Called with a `videoId` instead of a
+// `projectId` it is the same dialog for a finished trailer, against
+// `/api/videos/<id>/share` (the same three requests, the same `ShareView`): the
+// words say what a trailer link holds (the video, its captions, its title) and
+// there is no Update share, because a trailer never changes after it is made.
+// `onChange` tells the screen behind it whether the subject is shared now, so a
+// button there can say so without asking again.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { apiFetch } from '@/components/api-fetch'
 import type { ShareView } from '@/lib/share/types'
 import '../app/s/share.css'
 
 type Props = {
-  projectId: string
-  /** The chapter has a drawn cover or a complete page, so there is something to publish. */
+  /** The chapter has a drawn cover or a complete page (or the trailer is finished), so there is something to publish. */
   readable: boolean
   onClose: () => void
-}
+  /** The share as it stands after the dialog read or changed it (null: not shared). */
+  onChange?: (share: ShareView | null) => void
+} & ({ projectId: string; videoId?: undefined } | { videoId: string; projectId?: undefined })
 
 type Busy = 'create' | 'update' | 'unpublish' | null
 
 const NOTHING_YET = 'There’s nothing to share yet. Ink the cover or a whole page first, then share it.'
+const TRAILER_NOT_READY = 'The trailer isn’t finished yet. Share it once it is.'
 const READ_FAILED = 'The share couldn’t be read just now. Try again in a moment.'
 const FAILED: Record<Exclude<Busy, null>, string> = {
   create: 'The link couldn’t be made just now. Try again in a moment.',
@@ -47,8 +57,15 @@ async function sentenceOf(res: Response, fallback: string): Promise<string> {
   return typeof body?.error === 'string' && body.error.length > 0 && body.error.length < 300 ? body.error : fallback
 }
 
-export function ShareDialog({ projectId, readable, onClose }: Props) {
-  const url = `/api/projects/${encodeURIComponent(projectId)}/share`
+export function ShareDialog({ projectId, videoId, readable, onClose, onChange }: Props) {
+  const isVideo = videoId !== undefined
+  const url = isVideo ? `/api/videos/${encodeURIComponent(videoId)}/share` : `/api/projects/${encodeURIComponent(projectId)}/share`
+  const nothingYet = isVideo ? TRAILER_NOT_READY : NOTHING_YET
+  // The parent's callback is read through a ref: a new function each render must not make the dialog read the share again.
+  const changed = useRef(onChange)
+  useEffect(() => {
+    changed.current = onChange
+  })
   const [state, setState] = useState<'loading' | 'ready' | 'failed'>('loading')
   const [share, setShare] = useState<ShareView | null>(null)
   const [busy, setBusy] = useState<Busy>(null)
@@ -66,6 +83,7 @@ export function ShareDialog({ projectId, readable, onClose }: Props) {
       const body = (await res.json().catch(() => null)) as { share?: ShareView | null } | null
       if (!res.ok || !body || !('share' in body)) throw new Error('unreadable')
       setShare(body.share ?? null)
+      changed.current?.(body.share ?? null)
       setState('ready')
     } catch {
       setState('failed')
@@ -107,6 +125,7 @@ export function ShareDialog({ projectId, readable, onClose }: Props) {
         return
       }
       setShare(body.share ?? null)
+      changed.current?.(body.share ?? null)
       setAsking(false)
     } catch {
       setProblem(FAILED[what])
@@ -197,14 +216,21 @@ export function ShareDialog({ projectId, readable, onClose }: Props) {
 
         {state === 'ready' && !share && (
           <>
-            <p className="confirm-body">
-              Anyone with the link can read this chapter: its title, its cover and its finished pages, with the lettering. Nothing else of
-              yours goes with it: not your story notes, your characters’ descriptions, your costs or your name. Later changes don’t reach
-              the link until you update it, and you can take it down whenever you like.
-            </p>
+            {isVideo ? (
+              <p className="confirm-body">
+                Anyone with the link can watch this trailer: its title, the video and its captions. Nothing else of yours goes with it: not
+                your story notes, your characters’ descriptions, your costs or your name. You can take the link down whenever you like.
+              </p>
+            ) : (
+              <p className="confirm-body">
+                Anyone with the link can read this chapter: its title, its cover and its finished pages, with the lettering. Nothing else of
+                yours goes with it: not your story notes, your characters’ descriptions, your costs or your name. Later changes don’t reach
+                the link until you update it, and you can take it down whenever you like.
+              </p>
+            )}
             {!readable && (
               <p className="notice" id="share-reason">
-                {NOTHING_YET}
+                {nothingYet}
               </p>
             )}
             {problem && (
@@ -222,7 +248,7 @@ export function ShareDialog({ projectId, readable, onClose }: Props) {
                 data-autofocus={readable ? true : undefined}
                 disabled={busy !== null || !readable}
                 aria-describedby={readable ? undefined : 'share-reason'}
-                title={readable ? undefined : NOTHING_YET}
+                title={readable ? undefined : nothingYet}
                 onClick={() => void act('create')}
               >
                 {busy === 'create' ? 'Making the link…' : 'Share publicly'}
@@ -234,8 +260,8 @@ export function ShareDialog({ projectId, readable, onClose }: Props) {
         {state === 'ready' && share && !asking && (
           <>
             <p className="confirm-body">
-              Anyone with this link can read “{share.title}”
-              {share.pages > 0 ? ` — ${share.pages} ${share.pages === 1 ? 'page' : 'pages'}` : ''}. Shared{' '}
+              Anyone with this link can {isVideo ? 'watch' : 'read'} “{share.title}”
+              {!isVideo && share.pages > 0 ? ` — ${share.pages} ${share.pages === 1 ? 'page' : 'pages'}` : ''}. Shared{' '}
               {new Date(share.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}.
             </p>
             <div className="share-link-row">
@@ -265,7 +291,7 @@ export function ShareDialog({ projectId, readable, onClose }: Props) {
                 The chapter has changed since you shared it. Readers still see the earlier version until you update the share.
               </p>
             )}
-            {share.stale && !readable && <p className="notice">{NOTHING_YET}</p>}
+            {share.stale && !readable && <p className="notice">{nothingYet}</p>}
             {problem && (
               <p className="notice" role="alert">
                 {problem}

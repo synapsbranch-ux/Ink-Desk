@@ -13,7 +13,10 @@
 // them, a person's defaults, the trailer records and the outputs (exports and
 // rendered videos) — the types are in `lib/share/types.ts` — and can delete
 // what an account deletion has to reach (a project's record, a person's job
-// records) and answer the studio's light poll (`projectStamp`).
+// records) and answer the studio's light poll (`projectStamp`). Since slice 22
+// a trailer record can be changed safely by two writers (`videos.update`, a
+// compare-and-set on `rev`) and an output can be read by byte range
+// (`outputs.open(key, range)`), which a phone will not play a video without.
 // See `devpost/spec.md > Storage Adapter (v2)`.
 //
 // The mode is read once, at module load, like `INKDESK_DATA_DIR`: the checks
@@ -32,8 +35,23 @@ import type { Project, ProjectSummary } from '../types'
 
 export type BlobKind = 'sheet' | 'panel' | 'cover' | 'asset'
 
-/** One stored image, ready to stream: never held whole in memory (CR-17). */
-export type BlobStream = { body: ReadableStream<Uint8Array>; bytes: number | null; mediaType: string }
+/**
+ * One stored image, ready to stream: never held whole in memory (CR-17). A stream opened for a RANGE (slice 22, a
+ * video player asking for the middle of a file) carries it as served: `start`/`end` are inclusive byte offsets and
+ * `total` the whole object's size, so a route can answer 206 with `Content-Range: bytes start-end/total`; then
+ * `bytes` is the length of THIS part (`end - start + 1`). A whole object has no `range`.
+ */
+export type BlobStream = {
+  body: ReadableStream<Uint8Array>
+  bytes: number | null
+  mediaType: string
+  range?: { start: number; end: number; total: number }
+}
+
+/** The part of an object a reader asks for: `end` is inclusive, and absent means "to the end" — the two forms of an HTTP `Range: bytes=a-b` / `bytes=a-`. */
+export type ByteRange = { start: number; end?: number }
+
+export { RangeNotSatisfiable } from './local'
 
 /** What `/api/health` reports for each outside system: `n/a` where the mode doesn't use it. */
 export type Check = 'ok' | 'down' | 'n/a'
@@ -143,12 +161,26 @@ export interface SettingsStore {
   delete(userId: string): Promise<void>
 }
 
-/** The trailers (slice 22 fills them) — `videos` in Mongo, `data/videos/` on a local desk. */
+/**
+ * The trailers (slice 22) — `videos` in Mongo, `data/videos/` on a local desk. One record carries a whole trailer's
+ * progress, and two writers change it at once (the worker's four shots, and the web when a person retries one), so
+ * every change after the first write goes through `update`.
+ */
 export interface VideoStore {
+  /** Write the record whole: creation, and a lone writer's replacement. It carries its own `rev` (0 where it has none). The worker never uses it — `update` is the only safe way to change a record two writers can reach. */
   put(video: VideoRecord): Promise<void>
+  /**
+   * Read → `fn` → write only if the record did not change in between, re-running `fn` on the fresher record if it
+   * did (`rev` is the compare-and-set counter; a record written before it existed reads as 0). `fn` must be pure.
+   * It returns the next record, or null to leave the record as it is — then this resolves null, and so it does for
+   * a record that does not exist. Every write bumps `rev`; the id cannot change. Resolves the record as written.
+   */
+  update(id: string, fn: (video: VideoRecord) => VideoRecord | null): Promise<VideoRecord | null>
   get(id: string): Promise<VideoRecord | null>
   /** Newest first. */
   listOf(ownerId: string): Promise<VideoRecord[]>
+  /** Delete one record and hand it back (null if there was none): a refused Confirm leaves no record, and Remove ends one. */
+  delete(id: string): Promise<VideoRecord | null>
   /** Delete the owner's video records and hand them back, so the caller can delete the files they name. */
   deleteAllOf(ownerId: string): Promise<VideoRecord[]>
 }
@@ -166,8 +198,12 @@ export interface VideoStore {
 export interface OutputStore {
   /** `body` is bytes, a stream of them, or the path of a temp file (copied — the caller still owns, and removes, it). A key is written whole or not at all. */
   put(key: string, body: Buffer | AsyncIterable<Uint8Array> | string, mediaType: string): Promise<{ bytes: number }>
-  /** The object as a stream, never read whole; null when there is none. */
-  open(key: string): Promise<BlobStream | null>
+  /**
+   * The object as a stream, never read whole; null when there is none. With a `range` only those bytes are read
+   * (`end` past the last byte is cut back to it, as HTTP does); a range that starts at or after the end — or on an
+   * empty object — throws `RangeNotSatisfiable`, which carries the object's size so the route can answer 416.
+   */
+  open(key: string, range?: ByteRange): Promise<BlobStream | null>
   /** A missing key is not an error. */
   delete(key: string): Promise<void>
   /** Delete everything under the folder `prefix` (never an empty one); how many objects went. */
@@ -261,7 +297,7 @@ function refusing(sentence: string): Store {
     shares: { create: refuse, get: refuse, activeForProject: refuse, listActiveOf: refuse, refresh: refuse, revoke: refuse, deleteAllOf: refuse },
     reports: { add: refuse, list: refuse, get: refuse, markHandled: refuse, deleteForTokens: refuse },
     settings: { get: refuse, put: refuse, delete: refuse },
-    videos: { put: refuse, get: refuse, listOf: refuse, deleteAllOf: refuse },
+    videos: { delete: refuse, put: refuse, update: refuse, get: refuse, listOf: refuse, deleteAllOf: refuse },
     outputs: { put: refuse, open: refuse, delete: refuse, deletePrefix: refuse, list: refuse },
     health: async () => ({ mongo: 'down', bucket: 'down' }),
   }
@@ -323,13 +359,15 @@ function lazyCloud(): Store {
     },
     videos: {
       put: async (video) => (await load()).videos.put(video),
+      delete: async (id) => (await load()).videos.delete(id),
+      update: async (id, fn) => (await load()).videos.update(id, fn),
       get: async (id) => (await load()).videos.get(id),
       listOf: async (ownerId) => (await load()).videos.listOf(ownerId),
       deleteAllOf: async (ownerId) => (await load()).videos.deleteAllOf(ownerId),
     },
     outputs: {
       put: async (key, body, mediaType) => (await load()).outputs.put(key, body, mediaType),
-      open: async (key) => (await load()).outputs.open(key),
+      open: async (key, range) => (await load()).outputs.open(key, range),
       delete: async (key) => (await load()).outputs.delete(key),
       deletePrefix: async (prefix) => (await load()).outputs.deletePrefix(prefix),
       list: async (prefix) => (await load()).outputs.list(prefix),

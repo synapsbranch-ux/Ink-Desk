@@ -13,17 +13,18 @@
 // `requireUser` — a stranger holding a link has no session — so `classify` never
 // sees them, and the route itself takes its window FIRST, before it reads the
 // store or a body: `limitByAddress(req, 'anon')` for the snapshot,
-// `'anonMedia'` for a picture, `'report'` for the report form. The proxy still
+// `'anonMedia'` for a picture or a shared trailer's file (`/api/s/<token>/file/<name>`, slice 22 — a player asks one range at a time), `'report'` for the report form. The proxy still
 // runs the Origin check on their writes (`/api/s/*` is NOT in
 // `PUBLIC_API_PREFIXES`, which skips it), and `check:auth` walks `app/api` and
 // fails a public route that takes no address window.
 //
 //   text     paid text calls                         10 a minute
-//   image    paid image routes (a Generate all is one request; the quota counts the pictures)   6 a minute
+//   image    paid image routes (a Generate all is one request; the quota counts the pictures) and, since slice 22,
+//            Animate a page and a trailer's Try again (one request each; the quota counts the seconds)   6 a minute
 //   upload   a picture put on the shelf              20 an hour
 //   edit     every other change                      120 a minute
 //   read     every other read                        240 a minute
-//   media    pictures served (a page of the reader is dozens)   1200 a minute
+//   media    pictures and trailer files served (a page of the reader is dozens; a player asks one range at a time)   1200 a minute
 //   anon     routes with no signed-in person, per client address   60 a minute
 //   anonMedia  a shared manga's pictures, per client address      600 a minute
 //   report   the share page's report form, per client address     6 an hour
@@ -82,7 +83,15 @@ const IMAGE_ROUTES = [
 /** Rewrite asks Claude to rephrase, then draws: it takes a window of each. */
 const REWRITE = new RegExp(`${PROJECT}/pages/[^/]+/panels/[^/]+/rewrite$`)
 const UPLOAD = new RegExp(`${PROJECT}/assets$`)
-const MEDIA = [/^\/api\/image\/[^/]+$/, new RegExp(`${PROJECT}/image/[^/]+$`)]
+/**
+ * The trailer's paid POSTs (slice 22), taken from the IMAGE window: Animate a page (a trailer's seconds, voices and
+ * music are held for the whole plan when it is confirmed) and a trailer's Try again on one shot (`POST /api/videos/<id>`,
+ * body `{action: 'retry'}`). By METHOD as well as path, because `DELETE /api/videos/<id>` shares the second one's path
+ * and spends nothing: it is an edit. The estimate (`GET …/animate`) and the polls (`GET /api/videos/**`) are reads.
+ */
+const PAID_POSTS = [new RegExp(`${PROJECT}/pages/[^/]+/animate$`), /^\/api\/videos\/[^/]+$/]
+/** The pictures and the trailer's files (`final.mp4`, `poster.jpg`, `captions.vtt`) are served from the media window: a player asks for a file again and again, one range at a time. */
+const MEDIA = [/^\/api\/image\/[^/]+$/, new RegExp(`${PROJECT}/image/[^/]+$`), /^\/api\/videos\/[^/]+\/file\/[^/]+$/]
 
 const SAFE = new Set(['GET', 'HEAD', 'OPTIONS'])
 
@@ -95,6 +104,7 @@ const SAFE = new Set(['GET', 'HEAD', 'OPTIONS'])
 export function classify(method: string, pathname: string): RateBucket[] {
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname
   if (SAFE.has(method.toUpperCase())) return MEDIA.some((re) => re.test(path)) ? ['media'] : ['read']
+  if (method.toUpperCase() === 'POST' && PAID_POSTS.some((re) => re.test(path))) return ['image']
   if (REWRITE.test(path)) return ['text', 'image']
   if (TEXT_ROUTES.some((re) => re.test(path))) return ['text']
   if (IMAGE_ROUTES.some((re) => re.test(path))) return ['image']

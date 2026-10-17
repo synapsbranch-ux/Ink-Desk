@@ -2,7 +2,10 @@
 // jobs the web service writes and puts on the queue, draws them, and writes the
 // results to the same Mongo and buckets — web only enqueues. Since slice 21 it
 // also runs the `account` queue beside the image one — a person's export and the
-// deletion of their account, one at a time (`lib/queue/worker.ts`). One process; on
+// deletion of their account, one at a time — and, since slice 22, the `video`
+// queue: a trailer (its shots, voices, music and ffmpeg assembly in one job),
+// QUEUE_CONCURRENCY_VIDEO at a time (`lib/queue/worker.ts`). The worker is the
+// service that needs `ffmpeg` and `ffprobe` on its PATH. One process; on
 // Railway a second service in the same project from the same repository, with
 // its own start command and the variables listed in `devpost/spec.md >
 // Environment and Configuration (v3)`.
@@ -11,7 +14,7 @@
 // package.json): the library modules import `server-only`, which refuses to
 // load outside Next unless resolved the way Next's server does.
 import { workerAuthProblems } from '../lib/auth/config'
-import { ConfigError, parseConfig } from '../lib/config'
+import { ConfigError, parseConfig, videoSettings } from '../lib/config'
 import { closeQueues } from '../lib/queue/queues'
 import { closeProducerRedis } from '../lib/queue/redis'
 import { startWorker } from '../lib/queue/worker'
@@ -20,6 +23,8 @@ async function main() {
   let config
   try {
     config = parseConfig(process.env, 'worker')
+    // The trailer's models, resolution and motion method (slice 22): a worker that would film with a malformed one is refused here, not on the first trailer.
+    videoSettings()
     // Deleting an account deletes its Clerk user, so a worker in clerk mode needs CLERK_SECRET_KEY: refused here, not on the first deletion.
     const auth = workerAuthProblems()
     if (auth.length > 0) throw new ConfigError(auth)

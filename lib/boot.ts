@@ -2,7 +2,7 @@
 // never sees `process.exit` (Next compiles the hook for both runtimes).
 import 'server-only'
 import { isProduction } from './auth/config'
-import { ConfigError, appConfig, authSettings } from './config'
+import { ConfigError, appConfig, authSettings, videoSettings } from './config'
 
 export function boot() {
   try {
@@ -21,7 +21,9 @@ export function boot() {
     }
     const config = read(appConfig)
     const auth = read(() => authSettings())
-    if (!config || !auth) throw new ConfigError(problems)
+    // The trailer's models, resolution and motion method (slice 22) have their own rules beside the numbers `appConfig` checks.
+    const video = read(() => videoSettings())
+    if (!config || !auth || !video) throw new ConfigError(problems)
     console.log(`[config] storage: ${config.storage} · queue: ${config.queue.mode} · generation: ${config.generationEnabled ? 'on' : 'off'} · sign-in: ${auth.mode} · limits: ${config.limits.enabled ? 'on' : 'off'}`)
     if (config.queue.mode === 'inline') void sweepInlineJobs()
     else if (config.queue.redisUrl) void warmRedis()

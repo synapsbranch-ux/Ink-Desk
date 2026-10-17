@@ -16,7 +16,8 @@
 // and a Videos section sits between Projects and Library, drawn only when the
 // page hands it a list (video is closed unless `VIDEO_ENABLED`). A trailer
 // being made refreshes the page every few seconds while the tab is visible, so
-// its bar moves without a reload. Every new prop is optional, so an older
+// its bar moves without a reload; since slice 22 a finished one has a Play button
+// (the card opens the player in a dialog, with Share and Remove). Every new prop is optional, so an older
 // caller renders the v2 desk. A brand-new account sees the one card that says
 // what to do first and nothing else — no empty shelves to explain.
 import Image from 'next/image'
@@ -245,7 +246,10 @@ export function Dashboard({
                 <h2 id="desk-videos" className="station-title is-small">
                   Trailers, one per finished page
                 </h2>
-                <p className="station-lede">Each is made from a page that is fully inked, and opens the project it came from.</p>
+                <p className="station-lede">
+                  Each is made from a page that is fully inked. Play a finished one here, or open the project it came from to make it
+                  again.
+                </p>
               </div>
               {videos.length === 0 ? (
                 <p className="asset-empty">

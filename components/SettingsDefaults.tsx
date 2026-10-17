@@ -4,20 +4,37 @@
 // direction the reader opens a manga in. The style list reuses the New-project
 // dialog's own words and rows (`STYLE_PRESETS`, `.preset-*`), with one more row
 // for "no preference" — New project then starts on the studio's own default.
-// Saving is one `PUT /api/settings/defaults` with both fields; the answer
+// Saving is one `PUT /api/settings/defaults` with every field; the answer
 // replaces what is shown, so the form always says what is really saved. The
 // status line announces "Saved" (or the reason it was not) to a screen reader.
 //
-// Honest about what is not here: the voice a character speaks with arrives with
-// Animate (slice 22), so there is no control for it yet, and the page says so
-// instead of showing a disabled one.
+// Slice 22 adds the two voices a trailer speaks in: the lead character's and the
+// counterpart's (`VOICES`, the premade voices `lib/video/plan.ts` names). A
+// character takes the voice for its part the first time it speaks in a trailer
+// and keeps it after, so changing a default never changes a trailer already
+// made. "Chosen for me" means the studio picks one that suits the character's
+// description. There is no preview button: a voice sample costs money, so the
+// names are all there is to go on.
 import { useState } from 'react'
 import { apiFetch } from '@/components/api-fetch'
 import { DEFAULT_STYLE_PRESET_ID, STYLE_PRESETS, STYLE_PRESET_IDS, type StylePresetId } from '@/lib/styles'
 import type { SettingsView } from '@/lib/settings'
+import { isVoiceName, VOICES } from '@/lib/video/plan'
 
 type Choice = StylePresetId | 'none'
 type Direction = SettingsView['readingDirection']
+/** A voice, or '' for "chosen for me". */
+type VoiceChoice = string
+type Voices = { lead: VoiceChoice; counterpart: VoiceChoice }
+/** The page hands in the settings as the server read them; the voices are the saved ones, when there are any. */
+type Initial = SettingsView & { voices?: { lead?: string | null; counterpart?: string | null } }
+
+const voicesOf = (v: Initial['voices']): Voices => ({
+  lead: isVoiceName(v?.lead) ? v.lead : '',
+  counterpart: isVoiceName(v?.counterpart) ? v.counterpart : '',
+})
+
+const voiceLabel = (name: string) => name.charAt(0).toUpperCase() + name.slice(1)
 
 const DIRECTIONS: { value: Direction; label: string; blurb: string }[] = [
   { value: 'rtl', label: 'Right to left', blurb: 'The way manga is read: the first page is on the right.' },
@@ -26,15 +43,17 @@ const DIRECTIONS: { value: Direction; label: string; blurb: string }[] = [
 
 const SAVE_FAILED = 'Your defaults couldn’t be saved just now. Try again in a moment.'
 
-export function SettingsDefaults({ initial }: { initial: SettingsView }) {
+export function SettingsDefaults({ initial }: { initial: Initial }) {
   const [style, setStyle] = useState<Choice>(initial.defaultStyle ?? 'none')
   const [direction, setDirection] = useState<Direction>(initial.readingDirection)
+  const [voices, setVoices] = useState<Voices>(() => voicesOf(initial.voices))
   // What the server last said it holds: the form is "dirty" when it differs.
-  const [saved, setSaved] = useState({ style: (initial.defaultStyle ?? 'none') as Choice, direction: initial.readingDirection })
+  const [saved, setSaved] = useState({ style: (initial.defaultStyle ?? 'none') as Choice, direction: initial.readingDirection, voices: voicesOf(initial.voices) })
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState<{ kind: 'saved' | 'error'; text: string } | null>(null)
 
-  const dirty = style !== saved.style || direction !== saved.direction
+  const dirty =
+    style !== saved.style || direction !== saved.direction || voices.lead !== saved.voices.lead || voices.counterpart !== saved.voices.counterpart
 
   const save = async () => {
     setBusy(true)
@@ -43,17 +62,26 @@ export function SettingsDefaults({ initial }: { initial: SettingsView }) {
       const res = await apiFetch('/api/settings/defaults', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ defaultStyle: style === 'none' ? null : style, readingDirection: direction }),
+        body: JSON.stringify({
+          defaultStyle: style === 'none' ? null : style,
+          readingDirection: direction,
+          voices: { lead: voices.lead || null, counterpart: voices.counterpart || null },
+        }),
       })
-      const body = (await res.json().catch(() => null)) as { settings?: SettingsView; error?: unknown } | null
+      const body = (await res.json().catch(() => null)) as { settings?: Initial; error?: unknown } | null
       if (!res.ok || !body?.settings) {
         const sentence = typeof body?.error === 'string' && body.error.length < 300 ? body.error : SAVE_FAILED
         setStatus({ kind: 'error', text: sentence })
         return
       }
-      const now = { style: (body.settings.defaultStyle ?? 'none') as Choice, direction: body.settings.readingDirection }
+      const now = {
+        style: (body.settings.defaultStyle ?? 'none') as Choice,
+        direction: body.settings.readingDirection,
+        voices: voicesOf(body.settings.voices),
+      }
       setStyle(now.style)
       setDirection(now.direction)
+      setVoices(now.voices)
       setSaved(now)
       setStatus({ kind: 'saved', text: 'Saved' })
     } catch {
@@ -69,6 +97,10 @@ export function SettingsDefaults({ initial }: { initial: SettingsView }) {
   }
   const pickDirection = (v: Direction) => {
     setDirection(v)
+    setStatus(null)
+  }
+  const pickVoice = (part: keyof Voices, v: VoiceChoice) => {
+    setVoices((all) => ({ ...all, [part]: v }))
     setStatus(null)
   }
 
@@ -135,10 +167,35 @@ export function SettingsDefaults({ initial }: { initial: SettingsView }) {
         </fieldset>
       </section>
 
-      <p className="settings-voices">
-        <strong>Voices.</strong> Choosing a voice for each kind of character arrives with Animate, the trailer maker. There is nothing to
-        set here yet.
-      </p>
+      <section className="card settings-card" aria-labelledby="defaults-voices-title">
+        <h2 className="settings-card-title" id="defaults-voices-title">
+          Voices for trailers
+        </h2>
+        <p className="settings-note">
+          When a character speaks in a trailer for the first time, it takes the voice for its part here and keeps it from then on. Trailers
+          you have already made keep the voices they have. “Chosen for me” picks a voice that suits the character’s description.
+        </p>
+        <div className="voice-pickers">
+          {(
+            [
+              ['lead', 'Lead character’s voice'],
+              ['counterpart', 'Counterpart’s voice'],
+            ] as const
+          ).map(([part, label]) => (
+            <label key={part} className="field voice-field">
+              <span className="field-label">{label}</span>
+              <select className="input voice-select" value={voices[part]} disabled={busy} onChange={(e) => pickVoice(part, e.target.value)}>
+                <option value="">Chosen for me</option>
+                {VOICES.map((name) => (
+                  <option key={name} value={name}>
+                    {voiceLabel(name)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
+        </div>
+      </section>
 
       <div className="settings-actions">
         <button type="submit" className="btn btn-stamp" disabled={busy || !dirty}>

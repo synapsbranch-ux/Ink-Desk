@@ -187,6 +187,7 @@ const { emptyProject } = await import('../lib/types')
 const { LOCAL_OWNER } = await import('../lib/queue/jobs')
 import type { JobRecord } from '../lib/queue/jobs'
 import type { MangaSnapshot, ReportRecord, ShareRecord, UserSettings, VideoRecord } from '../lib/share/types'
+import type { TrailerPlan } from '../lib/video/types'
 
 const ALICE = 'user_alice'
 const BOB = 'user_bob'
@@ -194,6 +195,21 @@ const T0 = Date.parse('2026-10-16T09:00:00.000Z')
 /** A clock the check controls: `at(0)` is the start, each step a second later. */
 const at = (n: number) => new Date(T0 + n * 1000).toISOString()
 const UNIQUE_TITLE = 'Zebra-Quartz Morning Edition'
+
+/** A plan with no shots in it: the store keeps whatever shape it is given, and these checks are about the store. */
+const PLAN: TrailerPlan = { title: 'Trailer', page: 0, model: 'bytedance/seedance-2.0-fast', resolution: '480p', method: 'B', shots: [], shotSeconds: 0, introSeconds: 3, outroSeconds: 2, runSeconds: 12, speechChars: 0 }
+
+/** The fields a trailer record has had since slice 22 (the plan, the parts, `rev`), for a literal that is about something else. */
+const videoParts = (): Pick<VideoRecord, 'rev' | 'plan' | 'shots' | 'speech' | 'music' | 'phase' | 'warnings' | 'captionsKey'> => ({
+  rev: 0,
+  plan: PLAN,
+  shots: [],
+  speech: [],
+  music: { state: 'queued', blobKey: null, seconds: null, costUsd: 0, error: null },
+  phase: null,
+  warnings: [],
+  captionsKey: null,
+})
 
 function snapshotOf(title: string, pages = 1): MangaSnapshot {
   return {
@@ -221,7 +237,7 @@ function shareOf(over: Partial<ShareRecord> & { projectId: string | null }): Sha
     ownerId: ALICE,
     kind: over.projectId === null ? 'video' : 'manga',
     videoId: null,
-    snapshot: over.projectId === null ? { kind: 'video', title: 'Trailer', posterImageId: null, seconds: 12, takenAt: at(0) } : snapshotOf(UNIQUE_TITLE),
+    snapshot: over.projectId === null ? { kind: 'video', title: 'Trailer', seconds: 12, hasCaptions: false, takenAt: at(0) } : snapshotOf(UNIQUE_TITLE),
     createdAt: at(0),
     updatedAt: at(0),
     revokedAt: null,
@@ -509,6 +525,7 @@ try {
       error: null,
       createdAt: at(n),
       updatedAt: at(n),
+      ...videoParts(),
       ...over,
     })
     const [a1, a2, a3, b1] = [video(1), video(3), video(2), video(4, BOB)]
@@ -531,6 +548,53 @@ try {
     assert.deepEqual((await store.videos.listOf(BOB)).map((v) => v.id), [b1.id], 'bob’s is untouched')
     assert.deepEqual(await store.videos.deleteAllOf(ALICE), [])
     ok(`${where} videos: put / get / listOf (newest first, per owner) / deleteAllOf hands the records back`)
+
+    // update (slice 22): read → fn → write, `rev` the compare-and-set counter, bumped by every write.
+    {
+      const first = video(20, ALICE)
+      await store.videos.put(first)
+      // A record written before `rev` existed reads as 0, however it comes back — and its first update lands.
+      const legacy = video(21, ALICE)
+      const bare: Partial<VideoRecord> = { ...legacy }
+      delete bare.rev
+      if (!CLOUD) await writeFile(join(dir, 'videos', `${legacy.id}.json`), JSON.stringify(bare)) // the file as slice 21 would have left it: no rev at all
+      else await store.videos.put(bare as VideoRecord)
+      assert.equal((await store.videos.get(legacy.id))?.rev, 0, 'a record with no rev reads as rev 0')
+      assert.deepEqual((await store.videos.listOf(ALICE)).map((v) => v.rev), [0, 0], 'and so does a listing')
+      const lifted = await store.videos.update(legacy.id, (v) => ({ ...v, costUsd: 1 }))
+      assert.deepEqual([lifted?.rev, lifted?.costUsd], [1, 1], 'the first update of such a record lands and makes it rev 1')
+      assert.equal((await store.videos.get(legacy.id))?.rev, 1)
+
+      // What fn is handed is the record as stored; the result is what is stored, with the id and rev under the store’s control.
+      let handed: VideoRecord | null = null
+      const next = await store.videos.update(first.id, (v) => ((handed = v), { ...v, status: 'making', phase: 'shots', id: crypto.randomUUID(), rev: 99 }))
+      assert.deepEqual(handed, first, 'fn saw the stored record')
+      assert.deepEqual([next?.id, next?.rev, next?.status, next?.phase], [first.id, 1, 'making', 'shots'], 'the id cannot change and rev counts writes, whatever fn put in them')
+      assert.deepEqual(await store.videos.get(first.id), next, 'what update returns is what is stored')
+      assert.equal((await store.videos.listOf(ALICE)).length, 2, 'and no record was added')
+
+      // null from fn: left as it is, nothing written, rev unchanged; no such record: null and fn never runs.
+      assert.equal(await store.videos.update(first.id, () => null), null)
+      assert.equal((await store.videos.get(first.id))?.rev, 1, 'a null fn writes nothing')
+      assert.equal(await store.videos.update(crypto.randomUUID(), () => assert.fail('no such video')), null)
+      assert.equal(await store.videos.update('../x', () => assert.fail('not an id')), null, 'an id that is not an id names nothing')
+
+      // Two writers at once (the worker’s shots, the web’s Try again): every update lands, none is lost.
+      const seen: number[] = []
+      const results = await Promise.all(Array.from({ length: 12 }, () => store.videos.update(first.id, (v) => (seen.push(v.costUsd), { ...v, costUsd: v.costUsd + 1 }))))
+      const after = await store.videos.get(first.id)
+      assert.deepEqual([after?.costUsd, after?.rev], [12, 13], 'twelve concurrent updates all landed: twelve increments, twelve revs')
+      assert.deepEqual(results.map((r) => r?.rev).sort((a, b) => (a ?? 0) - (b ?? 0)), Array.from({ length: 12 }, (_, i) => i + 2), 'each saw its own, distinct rev')
+      // fn runs on the FRESHEST record every time (here, under the lock; on Mongo a stale rev re-runs it): an increment never starts from a stale value.
+      if (!CLOUD) assert.deepEqual([...seen].sort((a, b) => a - b), Array.from({ length: 12 }, (_, i) => i), 'each fn call saw the previous call’s result')
+      else assert.ok(new Set(seen).size === 12 || seen.length > 12, 'on Mongo a lost race re-runs fn on the fresher record')
+      // put keeps working beside it: the record it writes carries the rev it was given.
+      await store.videos.put({ ...after!, rev: 40, error: 'put' })
+      assert.deepEqual([(await store.videos.get(first.id))?.rev, (await store.videos.get(first.id))?.error], [40, 'put'])
+      assert.equal((await store.videos.update(first.id, (v) => v))?.rev, 41, 'and update goes on from there')
+      await store.videos.deleteAllOf(ALICE)
+      ok(`${where} videos.update: fn sees the stored record, rev counts writes (a record from before it reads as 0), a null fn or a missing record writes nothing, twelve concurrent updates all land`)
+    }
   }
 
   // =====================================================================================
@@ -570,6 +634,45 @@ try {
     assert.equal(streamed?.[0], 0)
     assert.equal(streamed?.[39_999], 39)
     assert.equal((await store.outputs.open(key2))?.mediaType, 'video/mp4')
+
+    // A byte range (slice 22: a phone will not play a video it cannot seek in). `end` is inclusive, as in HTTP.
+    {
+      const { RangeNotSatisfiable } = await import('../lib/store')
+      const rangeKey = `videos/${ALICE}/clip-range/final.mp4`
+      await store.outputs.put(rangeKey, Buffer.from('abcdefghij'), 'video/mp4')
+      const part = async (range?: { start: number; end?: number }) => {
+        const o = await store.outputs.open(rangeKey, range)
+        assert.ok(o, 'the object is there')
+        return { text: Buffer.from(await new Response(o.body).arrayBuffer()).toString(), bytes: o.bytes, range: o.range, mediaType: o.mediaType }
+      }
+      assert.deepEqual(await part({ start: 0, end: 3 }), { text: 'abcd', bytes: 4, range: { start: 0, end: 3, total: 10 }, mediaType: 'video/mp4' }, 'the first bytes')
+      assert.deepEqual(await part({ start: 4, end: 6 }), { text: 'efg', bytes: 3, range: { start: 4, end: 6, total: 10 }, mediaType: 'video/mp4' }, 'the middle')
+      assert.deepEqual(await part({ start: 7 }), { text: 'hij', bytes: 3, range: { start: 7, end: 9, total: 10 }, mediaType: 'video/mp4' }, 'open-ended: to the last byte')
+      assert.deepEqual(await part({ start: 8, end: 999 }), { text: 'ij', bytes: 2, range: { start: 8, end: 9, total: 10 }, mediaType: 'video/mp4' }, 'an end past the last byte is cut back to it')
+      assert.deepEqual(await part({ start: 9, end: 9 }), { text: 'j', bytes: 1, range: { start: 9, end: 9, total: 10 }, mediaType: 'video/mp4' }, 'the last byte alone')
+      assert.deepEqual(await part({ start: 0 }), { text: 'abcdefghij', bytes: 10, range: { start: 0, end: 9, total: 10 }, mediaType: 'video/mp4' }, 'the whole object, asked as a range, still says it is one')
+      assert.deepEqual(await part(), { text: 'abcdefghij', bytes: 10, range: undefined, mediaType: 'video/mp4' }, 'no range: the whole object, and no range on the stream')
+      // Past the end: reported with the size, so the route can answer 416 with Content-Range: bytes */10.
+      for (const range of [{ start: 10 }, { start: 10, end: 12 }, { start: 5000 }]) {
+        await assert.rejects(store.outputs.open(rangeKey, range), (e: unknown) => e instanceof RangeNotSatisfiable && e.total === 10 && e.status === 416, JSON.stringify(range))
+      }
+      // A range that is not a range names nothing the object has.
+      for (const range of [{ start: -1 }, { start: 3, end: 2 }, { start: 1.5 }, { start: Number.NaN }, { start: 0, end: Number.POSITIVE_INFINITY }]) {
+        await assert.rejects(store.outputs.open(rangeKey, range), (e: unknown) => e instanceof RangeNotSatisfiable, JSON.stringify(range))
+      }
+      assert.equal(await store.outputs.open(`videos/${ALICE}/clip-range/missing.mp4`, { start: 0, end: 3 }), null, 'a range on an object that is not there is null, not 416')
+      assert.equal(await store.outputs.open('../etc/passwd', { start: 0 }), null, 'and an unsafe key still names nothing')
+      // An empty object has no byte to start at.
+      await store.outputs.put(`videos/${ALICE}/clip-range/empty.mp4`, Buffer.alloc(0), 'video/mp4')
+      await assert.rejects(store.outputs.open(`videos/${ALICE}/clip-range/empty.mp4`, { start: 0 }), (e: unknown) => e instanceof RangeNotSatisfiable && e.total === 0)
+      // A bigger object: the middle megabyte-ish of a stream, byte for byte.
+      const big = randomBytes(300_000)
+      await store.outputs.put(`videos/${ALICE}/clip-range/big.mp4`, big, 'video/mp4')
+      const bigPart = await store.outputs.open(`videos/${ALICE}/clip-range/big.mp4`, { start: 123_456, end: 234_567 })
+      assert.deepEqual(Buffer.from(await new Response(bigPart!.body).arrayBuffer()), big.subarray(123_456, 234_568), 'a long range is the same bytes as the file’s')
+      await store.outputs.deletePrefix(`videos/${ALICE}/clip-range/`)
+      ok(`${where} outputs.open(key, range): the first bytes, the middle, open-ended, an end past the last byte, the last byte, the whole; a start past the end (or an empty object, or a malformed range) is RangeNotSatisfiable with the size; a missing object is null`)
+    }
 
     // The path of a temp file: copied, the caller keeps (and removes) its own.
     const tmpFile = join(dir, 'caller-temp.bin')
@@ -996,7 +1099,7 @@ try {
     await store.outputs.put(videoKeys[0], pngOf(tag, 50), 'image/png')
     await store.outputs.put(videoKeys[1], Buffer.from(`MARK-${tag}-video`), 'video/mp4')
     await store.outputs.put(videoKeys[2], Buffer.from(`MARK-${tag}-orphan`), 'application/octet-stream')
-    await store.videos.put({ id: crypto.randomUUID(), ownerId: owner, projectId: p1, page: 0, status: 'done', seconds: 9, costUsd: 0.5, posterKey: videoKeys[0], finalKey: videoKeys[1], error: null, createdAt: at(6), updatedAt: at(6) })
+    await store.videos.put({ id: crypto.randomUUID(), ownerId: owner, projectId: p1, page: 0, status: 'done', seconds: 9, costUsd: 0.5, posterKey: videoKeys[0], finalKey: videoKeys[1], error: null, createdAt: at(6), updatedAt: at(6), ...videoParts() })
     const outputKeys = opts.stale === false ? [] : [`exports/${owner}/stale-${tag.toLowerCase()}.zip`]
     for (const key of outputKeys) await store.outputs.put(key, Buffer.from(`PK-old-${tag}`), 'application/zip')
 

@@ -25,6 +25,16 @@
 // taken now would differ from the one published (`snapshotsDiffer`), not when
 // the project's timestamp moved — walking to another station touches the
 // project but changes nothing a reader sees.
+//
+// A shared TRAILER (slice 22) has the smallest snapshot of all: a title (the
+// project's title and the page, "The Lantern Keeper · Page 2"), its length, whether
+// it has captions and when it was taken — `VideoSnapshot`. The files are never
+// named in it: a visitor reaches them only through the share's own `videoId`,
+// by the three fixed names (`/api/s/<token>/file/final.mp4`). `publicVideo` is
+// the same allow-list as `publicManga`, run over whatever the store returned,
+// and a trailer can only be shared once it is DONE: there is nothing to watch
+// before that (`buildVideoSnapshot`). A trailer never changes after it is made,
+// so its share is never "stale".
 // See `devpost/spec.md > Sharing (v3)` and `devpost/prd.md > Sharing (v3)`.
 import { bubbleLayout, clampBubble } from '../bubble'
 import { Refused } from '../errors'
@@ -34,7 +44,7 @@ import { chapterTitle, isPageComplete, readingMode } from '../reader'
 import { currentImageId } from '../script'
 import { isImageId } from '../store/local'
 import type { BubbleLayout, Panel, Project } from '../types'
-import type { MangaSnapshot, ShareReading, SnapshotPage, SnapshotPanel } from './types'
+import type { MangaSnapshot, ShareReading, SnapshotPage, SnapshotPanel, VideoRecord, VideoSnapshot } from './types'
 
 /** What a manga share holds at most — a project never gets near these; they bound a hand-edited record. */
 export const SNAPSHOT_LIMITS = {
@@ -45,6 +55,12 @@ export const SNAPSHOT_LIMITS = {
   shot: 60,
   pages: 12,
 } as const
+
+/** What a trailer share holds at most: its title, and a length no trailer comes near (a hand-edited record is bounded). */
+export const VIDEO_SNAPSHOT_LIMITS = { title: 200, projectTitle: 150, seconds: 3600 } as const
+
+/** The sentence for a trailer that is not ready to be shared: still being made, or it didn't finish. */
+export const VIDEO_NOT_DONE = 'This trailer isn’t finished yet. Share it once it’s ready to play.'
 
 /** The sentence for a project with nothing to publish yet. */
 export const NOTHING_READABLE = 'There’s nothing to share yet. Ink the cover or a whole page first, then share it.'
@@ -211,4 +227,41 @@ function stable(value: unknown): string {
 /** Would the reader see something different? Everything but the time the snapshot was taken is compared. */
 export function snapshotsDiffer(published: MangaSnapshot, current: MangaSnapshot): boolean {
   return stable({ ...published, takenAt: '' }) !== stable({ ...current, takenAt: '' })
+}
+
+// --- A trailer (slice 22) ------------------------------------------------------------
+
+/** A length in seconds as a share may state it: finite, not negative, one decimal, bounded. */
+function secondsOf(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return 0
+  return Math.min(VIDEO_SNAPSHOT_LIMITS.seconds, Math.round(value * 10) / 10)
+}
+
+/**
+ * The snapshot of a DONE trailer: its title (the project's, then the page), its measured length and whether captions
+ * exist. A trailer that is not done — or whose file is missing from its own record — is the 409 "not finished yet".
+ */
+export function buildVideoSnapshot(video: VideoRecord, now: Date | string): VideoSnapshot {
+  if (video.status !== 'done' || !video.finalKey) throw new Refused(VIDEO_NOT_DONE, 409)
+  const project = cleanText(video.plan.title, VIDEO_SNAPSHOT_LIMITS.projectTitle) || 'Untitled chapter'
+  return {
+    kind: 'video',
+    title: cleanText(`${project} · Page ${video.page + 1}`, VIDEO_SNAPSHOT_LIMITS.title),
+    seconds: secondsOf(video.seconds),
+    hasCaptions: video.captionsKey !== null,
+    takenAt: typeof now === 'string' ? now : now.toISOString(),
+  }
+}
+
+/** A snapshot as the PUBLIC may see a trailer: the allow-list re-applied to whatever the store returned. Null for a record that is not a trailer snapshot. */
+export function publicVideo(raw: unknown): VideoSnapshot | null {
+  const s = raw as Partial<VideoSnapshot> | null
+  if (typeof s !== 'object' || s === null || s.kind !== 'video') return null
+  return {
+    kind: 'video',
+    title: cleanText(s.title, VIDEO_SNAPSHOT_LIMITS.title) || 'Untitled trailer',
+    seconds: secondsOf(s.seconds),
+    hasCaptions: s.hasCaptions === true,
+    takenAt: typeof s.takenAt === 'string' ? cleanText(s.takenAt, 40) : '',
+  }
 }

@@ -13,7 +13,7 @@
 import 'server-only'
 import { Refused } from '../errors'
 import { LOCAL_OWNER, type JobRecord } from '../queue/jobs'
-import type { ShareRecord } from '../share/types'
+import type { ShareRecord, VideoRecord } from '../share/types'
 import { store } from '../store'
 import type { Project } from '../types'
 import { authMode } from './config'
@@ -24,6 +24,8 @@ export const NO_SUCH_IMAGE = 'There is no such image.'
 export const NO_SUCH_JOB = 'There is no such job.'
 /** A share that is unknown, someone else's, or (for the owner's own operations) no longer published. */
 export const NO_SUCH_SHARE = 'There is no such share.'
+/** A trailer that is unknown, malformed or someone else's — one sentence for all three (slice 22). */
+export const NO_SUCH_VIDEO = 'There is no such video.'
 
 /** Does `userId` own a record whose owner is `ownerId` (absent = `local`)? `local` owns nothing once accounts are on. */
 export function owns(userId: string, ownerId: string | null | undefined): boolean {
@@ -107,4 +109,20 @@ export async function ownedShare(userId: string, token: string, opts: { includeR
   if (!share || !owns(userId, share.ownerId)) throw new Refused(NO_SUCH_SHARE, 404)
   if (share.revokedAt !== null && !opts.includeRevoked) throw new Refused(NO_SUCH_SHARE, 404)
   return share
+}
+
+/** What a trailer's id looks like: the uuid the animate route makes, and nothing a path or a query could be hidden in. */
+const VIDEO_ID = /^[A-Za-z0-9_-]{8,64}$/
+
+/**
+ * The caller's trailer, or the 404 a missing one gets (slice 22). Someone else's, an unknown id and a malformed one
+ * are the same sentence and the same status, so ids cannot be probed — and, as for a project, this runs before a
+ * body is read, a file is opened or a provider is asked for anything. The record is returned as stored: the routes
+ * decide what of it a browser may see (`viewOfVideo`).
+ */
+export async function ownedVideo(userId: string, videoId: string): Promise<VideoRecord> {
+  if (typeof videoId !== 'string' || !VIDEO_ID.test(videoId)) throw new Refused(NO_SUCH_VIDEO, 404)
+  const video = await store.videos.get(videoId)
+  if (!video || !owns(userId, video.ownerId)) throw new Refused(NO_SUCH_VIDEO, 404)
+  return video
 }

@@ -19,7 +19,12 @@
 // record names (`job.queue`), so an `export` or `delete-account` job on the
 // `account` queue (slice 21) is put back after a flushed Redis or a lost worker
 // exactly like a picture. A deletion put back is safe to run again: its steps
-// are all idempotent.
+// are all idempotent. So is a `trailer` on the `video` queue (slice 22): put back
+// after a flushed Redis, it resumes from its video record — a shot already
+// submitted is polled by its provider id, a shot already done is skipped, and
+// one that was being submitted when the worker died is marked orphaned, never
+// paid for a second time on its own. One claimed `MAX_CLAIMS` times is failed
+// like any other, and its hold released.
 // Nothing here ever draws or pays: it only moves records and queue entries.
 import 'server-only'
 import type { Job } from 'bullmq'

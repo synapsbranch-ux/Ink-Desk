@@ -10,7 +10,7 @@
 //   data/shares/<token>.json             one public share each, a revoked one with no snapshot (v3, slice 21)
 //   data/reports/<id>.json               one visitor report each (v3, slice 21)
 //   data/settings/<userId>.json          one person's defaults (v3, slice 21)
-//   data/videos/<id>.json                one trailer record each — slice 22 fills them (v3, slice 21)
+//   data/videos/<id>.json                one trailer record each, with a `rev` that counts its writes (v3, slice 21; slice 22 fills them)
 //   data/outputs/<key>                   exports and rendered videos, by key, e.g. exports/<owner>/<job>.zip (v3, slice 21)
 //   data/outputs/.tmp/                   a write in progress, renamed into place when whole; never listed
 //   data/chapter.json                    the v1 desk, read once, never modified
@@ -35,6 +35,14 @@
 // and a check script). Reads take no lock — a rename means they see the old
 // file or the new one. The outputs are files the studio makes: written to
 // `.tmp/` and renamed, so a reader never meets half of a zip.
+//
+// Slice 22 adds two things. `videos.update(id, fn)` is `updateProject` for the
+// trailer record — the worker's shots and the web's Try again write one record
+// at once — under the videos folder's lock, `rev` bumped by every write. And
+// `outputs.open(key, range)` reads only the bytes asked for (`createReadStream`
+// with `start`/`end`), because a phone will not play a video it cannot seek in;
+// a range past the end is `RangeNotSatisfiable`, which carries the size so the
+// route can answer 416.
 
 // A project file that can't be read (CR-14) — a torn write, a crash before the
 // disk caught up — opens from its backup, with a warning. With no good backup
@@ -61,6 +69,7 @@ import type { Project, ProjectSummary } from '../types'
 import type {
   BlobKind,
   BlobStream,
+  ByteRange,
   Claim,
   JobFilter,
   JobStore,
@@ -1054,18 +1063,53 @@ const VIDEOS_LOCK = join(VIDEOS_DIR, '.videos_dir.lock')
 /** Put and delete-all share the folder's lock, so a record written while an account is being deleted is either seen by the deletion or refused by nothing — never half. */
 const videosLocked = <T>(fn: () => Promise<T>): Promise<T> => withFileLock(VIDEOS_LOCK, fn, { busy: BUSY })
 
+/** A video record as it reads: one written before `rev` existed (slice 22) is at 0. */
+const withRev = (video: VideoRecord): VideoRecord => (Number.isInteger(video.rev) && video.rev >= 0 ? video : { ...video, rev: 0 })
+
 const videos: VideoStore = {
   async put(video) {
     if (!isRecordId(video.id)) throw new Error('Not a video id')
-    await videosLocked(() => writeAtomic(VIDEOS_DIR, `${video.id}.json`, video))
+    await videosLocked(() => writeAtomic(VIDEOS_DIR, `${video.id}.json`, withRev(video)))
   },
 
-  get: (id) => readRecord<VideoRecord>(VIDEOS_DIR, id),
+  // The whole folder shares one lock (a few records, a few writers): inside it the read is the freshest there is and
+  // nothing can move between it and the write, so the `rev` compare-and-set of the Mongo store is, here, the lock
+  // itself — `fn` runs once, on the record as it stands. `rev` is still bumped, so a reader that holds an earlier copy
+  // (the web, polling) can tell a record moved, and the two stores number their writes the same way.
+  async update(id, fn) {
+    if (!isRecordId(id)) return null
+    return videosLocked(async () => {
+      const current = await readRecord<VideoRecord>(VIDEOS_DIR, id)
+      if (!current) return null
+      const before = withRev(current)
+      const next = fn(before)
+      if (next === null) return null
+      const written: VideoRecord = { ...next, id, rev: before.rev + 1 } // the id is the file; `rev` counts writes, whatever `fn` put there
+      await writeAtomic(VIDEOS_DIR, `${id}.json`, written)
+      return written
+    })
+  },
+
+  async get(id) {
+    const record = await readRecord<VideoRecord>(VIDEOS_DIR, id)
+    return record ? withRev(record) : null
+  },
 
   async listOf(ownerId) {
     return (await readRecords<VideoRecord>(VIDEOS_DIR))
       .filter((video) => video.ownerId === ownerId)
+      .map(withRev)
       .sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : a.id < b.id ? 1 : a.id > b.id ? -1 : 0))
+  },
+
+  async delete(id) {
+    if (!isRecordId(id)) return null
+    return videosLocked(async () => {
+      const current = await readRecord<VideoRecord>(VIDEOS_DIR, id)
+      if (!current) return null
+      await removeFile(join(VIDEOS_DIR, `${id}.json`))
+      return withRev(current)
+    })
   },
 
   async deleteAllOf(ownerId) {
@@ -1176,6 +1220,31 @@ export function requireOutputFolder(prefix: string): string {
   return folder
 }
 
+/**
+ * A byte range that names nothing the object has (slice 22): it starts at or past the last byte, or the object is
+ * empty. A `Refused` with HTTP's own status, so an error handler that knows nothing of ranges still answers 416; the
+ * route that does adds the `Content-Range` header for an unsatisfied range, from `total`. Shared with the cloud store.
+ */
+export class RangeNotSatisfiable extends Refused {
+  constructor(readonly total: number) {
+    super('That part of the file isn’t there.', 416)
+    this.name = 'RangeNotSatisfiable'
+  }
+}
+
+/** Is this a range a reader can ask for: whole, non-negative offsets, `end` not before `start`. */
+export function isByteRange(range: unknown): range is ByteRange {
+  if (typeof range !== 'object' || range === null) return false
+  const { start, end } = range as ByteRange
+  return Number.isSafeInteger(start) && start >= 0 && (end === undefined || (Number.isSafeInteger(end) && end >= start))
+}
+
+/** The bytes of an object of `total` bytes that `range` names, `end` cut back to the last byte; throws `RangeNotSatisfiable` for none. Shared with the cloud store. */
+export function resolveRange(range: ByteRange, total: number): { start: number; end: number; total: number } {
+  if (!isByteRange(range) || range.start >= total) throw new RangeNotSatisfiable(total)
+  return { start: range.start, end: Math.min(range.end ?? total - 1, total - 1), total }
+}
+
 const outputs: OutputStore = {
   // The media type is not kept beside a local file (see `outputMediaType`): the key's extension says it.
   async put(key, body) {
@@ -1208,12 +1277,17 @@ const outputs: OutputStore = {
     }
   },
 
-  async open(key) {
+  async open(key, range) {
     if (!isOutputKey(key)) return null
     const real = outputPath(key)
     try {
       const info = await stat(real)
       if (!info.isFile()) return null
+      if (range !== undefined) {
+        const part = resolveRange(range, info.size)
+        const body = Readable.toWeb(createReadStream(real, { start: part.start, end: part.end })) as ReadableStream<Uint8Array>
+        return { body, bytes: part.end - part.start + 1, mediaType: outputMediaType(key), range: part }
+      }
       const body = Readable.toWeb(createReadStream(real)) as ReadableStream<Uint8Array>
       return { body, bytes: info.size, mediaType: outputMediaType(key) }
     } catch (err) {

@@ -22,14 +22,24 @@ import { limitsEnabled } from '../config'
 import { store } from '../store'
 import { LOCAL_OWNER, reservationOf, settled, type JobRecord, type ReservationState } from '../queue/jobs'
 import { backend } from './backend'
-import { jobSpend } from './estimate'
+import { jobSpend, type Spend } from './estimate'
 import { release, reserve, settle } from './hold'
 
-/** Reserve for a job that is about to be written. `none` when limits are off or the kind spends nothing here. Throws `Refused`. */
-export async function holdForJob(job: { id: string; ownerId: string; kind: JobRecord['kind'] }): Promise<{ reservation: ReservationState; reservedUsd: number }> {
+/**
+ * Reserve for a job that is about to be written. `none` when limits are off or the kind spends nothing here. Throws `Refused`.
+ *
+ * `spend` is what the caller says the job will use, for the kinds whose spend is not fixed by the kind (slice 22: a
+ * `trailer`, held for its whole plan at once). A `trailer` with limits on and no `spend` is a bug in the caller, not a
+ * person's mistake — it would run unmetered — so it throws a plain Error and nothing is held.
+ */
+export async function holdForJob(job: { id: string; ownerId: string; kind: JobRecord['kind']; spend?: Spend }): Promise<{ reservation: ReservationState; reservedUsd: number }> {
   if (!limitsEnabled()) return { reservation: 'none', reservedUsd: 0 }
-  const spend = jobSpend(job.kind)
+  if (job.kind === 'trailer' && !job.spend) throw new Error('a trailer job must be enqueued with the spend its plan will use (limits are on)')
+  const spend = job.spend ?? jobSpend(job.kind)
   if (!spend) return { reservation: 'none', reservedUsd: 0 }
+  if (!Number.isFinite(spend.usd) || spend.usd < 0 || Object.values(spend.units).some((n) => !Number.isFinite(n) || (n ?? 0) < 0)) {
+    throw new Error(`a job's spend must be finite and not negative, got ${JSON.stringify(spend)}`)
+  }
   await reserve({ id: job.id, userId: job.ownerId || LOCAL_OWNER, units: spend.units, usd: spend.usd })
   return { reservation: 'held', reservedUsd: spend.usd }
 }

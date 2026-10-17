@@ -15,6 +15,12 @@
 // parallel requests cannot over-spend. Every ending of the job settles or
 // releases the hold (`ending.ts`); a back-out here is one of those endings.
 //
+// Slice 22 adds one thing to that hold: a `trailer` (a whole animated page in one
+// job) carries its own `spend` — the seconds of its shots, the characters of its
+// lines, the dollars of its plan — worked out by the route from the plan, and the
+// ONE hold taken here covers all of it. A trailer lives on the `video` queue, so
+// `dispatch` gives it its own lane on the inline queue too.
+//
 // Refusals, each one a calm sentence and a status the studio already shows:
 //   • the studio's daily/total cap, or the person's quota/dollar cap → 503 / 429
 //   • the credit breaker is open (a 402 was seen)            → 503
@@ -32,6 +38,7 @@ import 'server-only'
 import { randomUUID } from 'node:crypto'
 import { queueSettings } from '../config'
 import { Refused } from '../errors'
+import type { Spend } from '../limits/estimate'
 import { holdForJob, releaseUnlinked, sweepUnsettled } from '../limits/jobs'
 import { singletons } from '../singleton'
 import { store } from '../store'
@@ -61,6 +68,13 @@ async function activeWork(filter: { ownerId?: string }, limit: number): Promise<
 }
 
 export type Enqueued = { job: JobRecord; created: boolean }
+
+/**
+ * A request for work: a `NewJob`, plus — for a kind whose spend is not fixed by its kind (slice 22: a `trailer`) —
+ * the `spend` its plan will use. The route works it out from the plan (`planUses`, `planUsd`) and the one hold taken
+ * here covers the whole job; a `trailer` asked for without it, with limits on, is a bug and throws (`holdForJob`).
+ */
+export type NewWork = NewJob & { spend?: Spend }
 
 /** The job that holds this key right now, if there is a live one. A dead one (lease lapsed, nothing to renew it) is let go on the way — judged again on the fresh record, so a worker that renewed in between is not abandoned. */
 export async function activeJob(key: string): Promise<JobRecord | null> {
@@ -133,9 +147,10 @@ async function ownerFor(input: NewJob): Promise<string> {
   return (await store.readProject(input.projectId)).ownerId ?? LOCAL_OWNER
 }
 
-export async function enqueueJob(request: NewJob): Promise<Enqueued> {
+export async function enqueueJob(request: NewWork): Promise<Enqueued> {
   const settings = queueSettings()
-  const input: NewJob = { ...request, ownerId: await ownerFor(request) }
+  const { spend, ...asked } = request
+  const input: NewJob = { ...asked, ownerId: await ownerFor(asked) }
 
   const existing = await activeJob(input.key)
   if (existing) return { job: existing, created: false }
@@ -148,8 +163,9 @@ export async function enqueueJob(request: NewJob): Promise<Enqueued> {
   // read first, so the only thing between the hold and the record is the write itself: a process that dies in
   // that gap leaves a hold nothing tracks (a unit and an estimate until the day resets), and the gap is one write wide.
   const id = randomUUID()
-  const stranded = await strandedPicture(input.key)
-  const hold = await holdForJob({ id, ownerId: input.ownerId, kind: input.kind })
+  // A picture an earlier job paid for and never landed is for the picture kinds; a trailer keeps its parts on its video record.
+  const stranded = input.kind === 'trailer' ? {} : await strandedPicture(input.key)
+  const hold = await holdForJob({ id, ownerId: input.ownerId, kind: input.kind, spend })
 
   // Written before it is queued, so there is never a queued job without a record.
   let inserted: Enqueued
@@ -237,8 +253,9 @@ async function dispatch(job: JobRecord, priority: number): Promise<void> {
     // Loaded here, not at the top: the processors import the panel engine, which imports this file.
     const { processJob } = await import('./processors')
     const workerId = `inline-${singletons.serverRunId.slice(0, 8)}`
-    // An account job has a lane of its own: an export is minutes long and must not hold an image slot.
-    const lane = job.queue === 'account' ? singletons.accountQueue : singletons.queue
+    // An account job and a trailer each have a lane of their own: an export is minutes long and a trailer up to
+    // twenty-five, and neither may hold an image slot — nor wait behind a page of pictures.
+    const lane = job.queue === 'account' ? singletons.accountQueue : job.queue === 'video' ? singletons.videoQueue : singletons.queue
     lane.enqueue(job.id, async () => {
       try {
         await processJob(job.id, { workerId })

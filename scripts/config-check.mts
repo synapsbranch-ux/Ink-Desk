@@ -200,7 +200,7 @@ try {
   //     is named when it is missing and never echoed; the numbers are checked like the others.
   {
     const { queueSettings, imageConcurrency } = config
-    assert.deepEqual(queueSettings({}), { mode: 'inline', redisUrl: null, imageConcurrency: 2, accountConcurrency: 1, userInflight: 30, maxWaiting: 200, retryBackoffMs: 5000, graceMs: 90_000 })
+    assert.deepEqual(queueSettings({}), { mode: 'inline', redisUrl: null, imageConcurrency: 2, videoConcurrency: 1, accountConcurrency: 1, userInflight: 30, maxWaiting: 200, retryBackoffMs: 5000, graceMs: 90_000 })
     assert.equal(queueSettings({ INKDESK_QUEUE: 'bullmq', REDIS_URL: 'redis://redis.railway.internal:6379' }).mode, 'bullmq')
     assert.equal(queueSettings({ NODE_ENV: 'production', REDIS_URL: 'redis://h:6379', GENERATION_ENABLED: 'true' }).mode, 'bullmq', 'production defaults to the real queue')
     assert.match(refusal(() => queueSettings({ INKDESK_QUEUE: 'bullmq' }, 'worker')).message, /REDIS_URL is not set/, 'a worker cannot start without Redis')

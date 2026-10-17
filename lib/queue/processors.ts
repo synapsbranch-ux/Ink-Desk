@@ -17,6 +17,13 @@
 //      — then BullMQ retries and the retry attaches the stored picture.
 //   4. FINISH — `done`, or `failed` with the sentence the card shows.
 //
+// Slice 22 adds the `trailer` kind (lib/video/run.ts): one job makes a whole trailer — its shots side by side, the
+// voices, the music, the assembly — checkpointing every part on the video record, so a redelivery resumes and nothing
+// paid for is paid for twice. Its differences: it runs on the `video` lane; its ceiling is `TRAILER_RUN_MS`; and the
+// credit breaker is NOT checked at the door. A trailer may have nothing left to pay for (a retry of a shot, an
+// assembly of parts already bought), and failing that at the door would strand work that is already paid for — so the
+// runner asks the breaker itself, before each paid call, and a trailer with nothing to buy runs on.
+//
 // Slice 21 adds the account kinds, `export` and `delete-account` (lib/account):
 // the same four steps, with three differences. They call no paid provider, so
 // the credit breaker does not stop them; their ceiling is the account lane's
@@ -91,8 +98,8 @@ async function run(jobId: string, ctx: { workerId: string; maxRunMs?: number }):
   const tag = `${job.kind} ${job.id.slice(0, 8)}`
 
   // A job that only has to attach a picture it already paid for calls nobody, so the breaker does not stop it.
-  // An account job calls no provider at all: the breaker has nothing to say about it.
-  if (!isAccountKind(job.kind) && !job.resultImageId && (await creditsBreakerOpen())) {
+  // An account job calls no provider at all: the breaker has nothing to say about it. A trailer asks the breaker itself, before each paid call (see above).
+  if (!isAccountKind(job.kind) && job.kind !== 'trailer' && !job.resultImageId && (await creditsBreakerOpen())) {
     // Fail it without calling anyone: the account is out of credit (CR-10).
     console.warn(`[worker] ${tag} — credit breaker open; not calling the provider`)
     await end(job, { outcome: 'failed', error: PAUSED })
@@ -100,7 +107,7 @@ async function run(jobId: string, ctx: { workerId: string; maxRunMs?: number }):
   }
 
   // The heartbeat: renew the lease while the work runs.
-  const deadline = Date.now() + (ctx.maxRunMs ?? maxRunMs(job.kind === 'panel' || job.kind === 'cover' || isAccountKind(job.kind) ? job.kind : 'sheet'))
+  const deadline = Date.now() + (ctx.maxRunMs ?? maxRunMs(job.kind === 'panel' || job.kind === 'cover' || job.kind === 'trailer' || isAccountKind(job.kind) ? job.kind : 'sheet'))
   const beat = setInterval(() => {
     if (Date.now() > deadline) return
     store.jobs.updateJob(job.id, (j) => renew(j, workerId, new Date())).catch((err: unknown) => {
@@ -144,6 +151,8 @@ async function work(job: JobRecord, run: JobRun): Promise<Outcome> {
       return inkCover(job.projectId, run)
     case 'sheet':
       return drawSheet(job.projectId, p.characterId, p.reuseDna, run)
+    case 'trailer':
+      return videoRunners.trailer(job, run)
     case 'export':
       return accountRunners.export(job, run)
     case 'delete-account':
@@ -161,6 +170,15 @@ async function work(job: JobRecord, run: JobRun): Promise<Outcome> {
 export const accountRunners: Record<AccountJobKind, (job: JobRecord, run: JobRun) => Promise<Outcome>> = {
   export: async (job, run) => (await import('../account')).runExport(job, run),
   'delete-account': async (job, run) => (await import('../account')).runDeleteAccount(job, run),
+}
+
+/**
+ * The trailer runner (`lib/video`), looked up on every job and loaded on first use, like the account runners: it pulls in
+ * ffmpeg, sharp and the provider clients, which a web bundle that only enqueues must not carry. In an object so
+ * `check:video` and `check:queue` can stand in for it without a provider or a film.
+ */
+export const videoRunners: { trailer: (job: JobRecord, run: JobRun) => Promise<Outcome> } = {
+  trailer: async (job, run) => (await import('../video/run')).runTrailer(job, run),
 }
 
 /** The deletion succeeded, so its own record goes too — the last trace of the person. A store that blips here leaves a finished record the reconciler prunes after a week; it is not worth failing a deletion that is complete. */

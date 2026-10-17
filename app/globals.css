@@ -3370,3 +3370,424 @@ input.cast-role:disabled,
     font-size: 24px;
   }
 }
+
+/* --- Animate a page (v3, slice 22) ------------------------------------------
+   The Animate station under the four panels, its shot cards, the trailer
+   player (studio, dashboard dialog and the public page share it), and the
+   voice pickers in Settings. Built on the studio's tokens and classes (.card,
+   .tag, .ink-bar, .notice, .spend-note, the buttons, the confirm dialog's
+   frame); only what they do not give is here. Every control is 44 px high on
+   touch and under 721 px, nothing scrolls sideways at 390, 768 or 1280 px, and
+   every animation stops under prefers-reduced-motion. */
+
+.animate {
+  gap: var(--space-4);
+  padding: var(--space-4);
+  min-width: 0;
+}
+.animate-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.animate-title {
+  font-family: var(--font-heading), Georgia, serif;
+  font-weight: 600;
+  font-size: 28px;
+  line-height: 1.15;
+}
+.animate-lede {
+  margin: 0;
+  max-width: 620px;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--neutral-800);
+}
+.animate-sub {
+  margin: 0;
+  font-family: var(--font-heading), Georgia, serif;
+  font-weight: 600;
+  font-size: 19px;
+}
+.animate-sub:focus {
+  outline: none;
+}
+.animate-sub:focus-visible {
+  outline: 2px solid var(--hanko);
+  outline-offset: 3px;
+}
+.animate-line {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--neutral-900);
+  text-wrap: pretty;
+}
+.animate-line.is-failed {
+  color: var(--hanko-800);
+}
+.animate-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.animate-start {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+.animate-why {
+  max-width: 560px;
+}
+.animate-player {
+  max-width: 880px;
+}
+
+/* The estimate: the facts as a quiet list, the money last. */
+.animate-estimate {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: 640px;
+}
+.estimate-shots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.estimate-facts {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--divider);
+  background: #fff;
+  font-size: 15px;
+}
+.estimate-facts > div {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: var(--space-3);
+}
+.estimate-facts dt {
+  color: var(--neutral-700);
+}
+.estimate-facts dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.estimate-aside {
+  color: var(--neutral-700);
+  font-size: 13px;
+}
+.estimate-fine {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--neutral-700);
+  overflow-wrap: anywhere;
+}
+.animate-estimate,
+.animate-actions {
+  /* The studio's footer is pinned to the bottom of the screen: what scrolls into view stops short of it. */
+  scroll-margin-bottom: 120px;
+}
+.animate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+/* The four shot cards. */
+.shot-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  align-items: start;
+}
+.shot-card {
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+  min-width: 0;
+  box-shadow: 3px 3px 0 color-mix(in srgb, var(--ink) 10%, transparent);
+}
+.shot-thumb {
+  aspect-ratio: 3 / 2;
+  display: grid;
+  place-items: center;
+  border-bottom: 1px solid var(--ink);
+  background: var(--halftone-sketch), var(--neutral-200);
+  overflow: hidden;
+}
+.shot-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.shot-card.is-queued .shot-thumb img {
+  opacity: 0.55;
+}
+.shot-thumb-label {
+  font-family: var(--font-heading), Georgia, serif;
+  font-style: italic;
+  font-size: 13px;
+  color: var(--neutral-700);
+}
+.shot-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  min-width: 0;
+}
+.shot-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+.shot-name {
+  font-family: var(--font-heading), Georgia, serif;
+  font-weight: 600;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.shot-note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--neutral-700);
+  overflow-wrap: anywhere;
+}
+.shot-note.is-failed {
+  color: var(--hanko-800);
+}
+.shot-card.is-failed {
+  border-color: var(--hanko-700);
+}
+.shot-card.is-failed .shot-state {
+  color: var(--hanko-800);
+  border-color: var(--hanko-700);
+}
+.shot-retry {
+  align-self: flex-start;
+  min-height: 44px;
+}
+.shot-card .spend-note {
+  font-size: 13px;
+}
+/* A shot being animated: a short fill slides back and forth, since the studio does not know how far along it is. */
+.shot-wait {
+  height: 5px;
+}
+.shot-wait .ink-bar-fill {
+  width: 35%;
+  transition: none;
+  animation: shot-wait 1.6s ease-in-out infinite alternate;
+}
+@keyframes shot-wait {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(185%);
+  }
+}
+
+/* The trailer's own bar: a number when the server has one. */
+.animate-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.animate-progress .ink-bar {
+  flex: 1;
+  min-width: 0;
+}
+.animate-progress-figure {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--neutral-700);
+}
+.animate-progress.is-unknown .ink-bar-fill {
+  width: 35%;
+  transition: none;
+  animation: shot-wait 1.6s ease-in-out infinite alternate;
+}
+.animate-warnings {
+  margin: 0;
+  padding-left: 1.2em;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--neutral-800);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shot-wait .ink-bar-fill,
+  .animate-progress.is-unknown .ink-bar-fill {
+    animation: none;
+    width: 100%;
+    background: repeating-linear-gradient(135deg, var(--neutral-500) 0 4px, transparent 4px 8px);
+  }
+}
+
+@media (max-width: 960px) {
+  .shot-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 560px) {
+  .animate {
+    padding: var(--space-3);
+  }
+  .animate-title {
+    font-size: 24px;
+  }
+  /* A phone: the four cards stack, each with its picture beside its words. */
+  .shot-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .shot-card {
+    flex-direction: row;
+  }
+  .shot-thumb {
+    flex: 0 0 112px;
+    aspect-ratio: auto;
+    border-bottom: 0;
+    border-right: 1px solid var(--ink);
+  }
+  .estimate-facts > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+  .animate-actions .btn,
+  .animate-start .btn {
+    flex: 1 1 140px;
+  }
+}
+
+/* The player. Native controls; the box keeps a 16:9 shape whether or not the file has loaded. */
+.video-player {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  border: 2px solid var(--ink);
+  background: var(--ink);
+  box-shadow: 5px 5px 0 color-mix(in srgb, var(--ink) 12%, transparent);
+}
+.video-player-media {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+}
+.video-player-fail {
+  aspect-ratio: 16 / 9;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--neutral-100);
+  text-align: center;
+}
+.video-player-fail p {
+  margin: 0;
+  max-width: 420px;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+/* The dialog the dashboard's Play opens: the confirm card's frame, wide enough for a player. */
+.confirm-card.video-dialog {
+  width: 100%;
+  max-width: 880px;
+  max-height: calc(100dvh - 2 * var(--space-6));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-4);
+}
+.video-dialog:focus {
+  outline: none;
+}
+.video-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.video-dialog-head .confirm-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.video-dialog .video-note-line {
+  margin: 0;
+  font-size: 14px;
+  color: var(--neutral-700);
+}
+.video-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.video-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+.video-actions .btn {
+  min-height: 44px;
+}
+@media (max-width: 720px) {
+  .confirm-overlay:has(.video-dialog) {
+    padding: var(--space-3);
+  }
+}
+
+/* The public trailer page. */
+.shared-video {
+  max-width: 960px;
+  width: 100%;
+  min-width: 0;
+}
+.shared-video-note {
+  margin: 0;
+}
+
+/* Settings › Defaults: the two voices. */
+.voice-pickers {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+.voice-field {
+  margin-bottom: 0;
+}
+.voice-select {
+  min-height: 44px;
+}
+@media (max-width: 560px) {
+  .voice-pickers {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Settings › Sharing: a trailer's poster is wide, not tall. */
+.share-row-thumb.is-video {
+  aspect-ratio: 16 / 9;
+}

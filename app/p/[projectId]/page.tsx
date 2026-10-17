@@ -11,12 +11,18 @@
 // way a manga first opens. That read is decoration — a store that cannot answer
 // it, or a person who never saved anything, opens the Reader right to left as
 // it always did — so it can never keep the studio from opening.
+//
+// Slice 22: it also tells the studio whether animating pages is open on this desk
+// (`VIDEO_ENABLED`), which decides whether the Page station carries the Animate
+// station at all. It is the desk's own flag, read on the server: the browser is
+// given nothing else of the video settings.
 import { notFound } from 'next/navigation'
 import { AuthControls } from '@/components/AuthControls'
 import { DeskNotice } from '@/components/DeskNotice'
 import { pageUser, SIGNED_OUT_SENTENCE } from '@/components/page-user'
 import { Studio } from '@/components/Studio'
 import { ownedProject } from '@/lib/auth/access'
+import { videoEnabled } from '@/lib/config'
 import { configSentence, ProviderError, Refused } from '@/lib/errors'
 import { DEFAULT_READING_DIRECTION, readSettings, type ReadingDirection } from '@/lib/settings'
 import { isProjectId } from '@/lib/store/local'
@@ -51,5 +57,5 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
     }
     throw err
   }
-  return <Studio projectId={projectId} account={<AuthControls />} defaultReading={await readingOf(userId)} />
+  return <Studio projectId={projectId} account={<AuthControls />} defaultReading={await readingOf(userId)} videoEnabled={videoEnabled()} />
 }

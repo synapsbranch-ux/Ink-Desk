@@ -40,8 +40,17 @@ export function imageEstimateUsd(kind: 'sheet' | 'panel' | 'cover'): number {
   return Math.max(MIN_SPEND_USD, perImage(quality).usd)
 }
 
-/** What a job of this kind uses and is held for, or null for a kind that spends nothing here yet (the video and audio kinds arrive with slice 22). */
-export function jobSpend(kind: JobKind): { units: Units; usd: number } | null {
+/** What a spend uses (units of each quota) and is held for (dollars). */
+export type Spend = { units: Units; usd: number }
+
+/**
+ * What a job of this kind uses and is held for, or null for a kind whose spend is not fixed by its kind. A picture's
+ * is one unit at the configured quality; a `trailer` (slice 22) is null on purpose: its spend is a sum over its plan —
+ * the seconds of every shot, the characters of every line, `planUsd(plan)` — which the route works out and hands to
+ * `enqueueJob` as `spend`, and a retry of one shot holds only that shot's. The kinds that arrive with no processor of
+ * their own (`shot`, `speech`, `music`, `assemble`) spend nothing here.
+ */
+export function jobSpend(kind: JobKind): Spend | null {
   switch (kind) {
     case 'sheet':
     case 'panel':

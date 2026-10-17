@@ -85,3 +85,13 @@
   border-color: var(--hanko-700);
   color: var(--hanko-800);
 }
+
+/* Slice 22: a finished trailer's Play button sits under the card's link (never inside it). */
+.video-card-actions {
+  display: flex;
+  padding: 0 var(--space-4) var(--space-4);
+}
+.video-card-actions .btn {
+  min-height: 44px;
+  flex: 1;
+}

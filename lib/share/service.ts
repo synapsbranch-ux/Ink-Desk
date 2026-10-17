@@ -1,5 +1,7 @@
 // Sharing, the owner's side (v3, slice 21): publish a manga, update what was
-// published, take it down, and list what a person has out. The routes call this
+// published, take it down, and list what a person has out. Slice 22 adds the
+// second kind: a finished TRAILER (`createVideoShare`, `shareViewOfVideo`,
+// `unpublishVideo`) — see the end of this file. The routes call this
 // after they have proved the project (or the share) is the caller's; nothing
 // here checks who is asking.
 //
@@ -24,8 +26,8 @@ import { Refused } from '../errors'
 import { store } from '../store'
 import type { Project } from '../types'
 import { pinnedBy, releasePictures, revokeShare } from './pins'
-import { buildMangaSnapshot, NothingReadable, publicManga, snapshotImageIds, snapshotsDiffer } from './snapshot'
-import type { MangaSnapshot, ShareRecord, ShareView } from './types'
+import { buildMangaSnapshot, buildVideoSnapshot, NothingReadable, publicManga, publicVideo, snapshotImageIds, snapshotsDiffer } from './snapshot'
+import type { MangaSnapshot, ShareRecord, ShareView, VideoRecord } from './types'
 import { sharePath, shareUrl } from './url'
 
 const BASE62 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
@@ -67,14 +69,17 @@ export async function assertNoInput(req: Request): Promise<void> {
 export function viewOf(share: ShareRecord, origin: string, stale: boolean): ShareView {
   const snapshot = share.snapshot
   const manga = snapshot?.kind === 'manga' ? publicManga(snapshot) : null
+  const video = snapshot?.kind === 'video' ? publicVideo(snapshot) : null
   return {
     token: share.token,
     url: shareUrl(origin, share.token),
     path: sharePath(share.token),
     kind: share.kind,
-    title: manga?.title ?? (snapshot?.kind === 'video' ? snapshot.title : 'Untitled chapter'),
+    title: manga?.title ?? video?.title ?? 'Untitled chapter',
     projectId: share.projectId,
-    cover: manga ? (manga.cover?.imageId ?? null) : snapshot?.kind === 'video' ? snapshot.posterImageId : null,
+    // A manga's cover is a picture id the share's image route serves. A trailer has none to name: its poster is
+    // `shareFileUrl(token, 'poster.jpg')`, which the screens build from the token.
+    cover: manga ? (manga.cover?.imageId ?? null) : null,
     pages: manga ? manga.pages.length : 0,
     createdAt: share.createdAt,
     updatedAt: share.updatedAt,
@@ -200,4 +205,80 @@ export async function unpublishToken(token: string): Promise<void> {
 export async function listShareViews(userId: string, origin: string): Promise<ShareView[]> {
   const shares = await store.shares.listActiveOf(userId)
   return Promise.all(shares.map(async (share) => viewOf(share, origin, await staleOf(share))))
+}
+
+// --- A trailer's share (slice 22) --------------------------------------------------------
+//
+// The same record and the same routes' shape as a manga's — kind `video`, `projectId` null, `videoId` the trailer —
+// but a trailer is never "stale" (it does not change once it is made), only a DONE one can be shared, and there are
+// no pictures to pin or release. The store enforces one active share per PROJECT only; "one per trailer" is kept
+// here: creations for one trailer take turns inside this process (`oneAtATime`), so a double click or two tabs end on
+// one share; and across processes, two that still race are settled after the write — the NEWER withdraws itself,
+// never the older, whose link may already be in someone's hands.
+
+/** Oldest first: the share that was there first is the one that stays. */
+const oldestFirst = (a: ShareRecord, b: ShareRecord) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.token < b.token ? -1 : a.token > b.token ? 1 : 0)
+
+/** The owner's active shares of this trailer, oldest first (normally one). */
+async function activeSharesOfVideo(ownerId: string, videoId: string): Promise<ShareRecord[]> {
+  return (await store.shares.listActiveOf(ownerId)).filter((share) => share.kind === 'video' && share.videoId === videoId).sort(oldestFirst)
+}
+
+/** The trailer's active share as its owner's view of it, or null. A trailer is never stale. */
+export async function shareViewOfVideo(userId: string, video: VideoRecord, origin: string): Promise<ShareView | null> {
+  const [share] = await activeSharesOfVideo(video.ownerId, video.id)
+  if (!share || !owns(userId, share.ownerId)) return null
+  return viewOf(share, origin, false)
+}
+
+/**
+ * Publish a trailer (idempotent): its active share if it has one, else a new snapshot under a new token. Only a DONE
+ * trailer can be shared — anything else is the 409 "not finished yet". If two clicks raced and both wrote a share, the
+ * NEWER one withdraws itself (never the older: its link may already be in someone's hands), so they end on one.
+ */
+export function createVideoShare(userId: string, video: VideoRecord, origin: string): Promise<ShareView> {
+  return oneAtATime(video.id, () => createVideoShareNow(userId, video, origin))
+}
+
+/** Creations for one trailer take turns within this process; the chain is dropped once it is idle. */
+const turns = new Map<string, Promise<unknown>>()
+function oneAtATime<T>(key: string, work: () => Promise<T>): Promise<T> {
+  const run = (turns.get(key) ?? Promise.resolve()).catch(() => {}).then(work)
+  const tail = run.catch(() => {})
+  turns.set(key, tail)
+  void tail.then(() => {
+    if (turns.get(key) === tail) turns.delete(key)
+  })
+  return run
+}
+
+async function createVideoShareNow(userId: string, video: VideoRecord, origin: string): Promise<ShareView> {
+  const [existing] = await activeSharesOfVideo(video.ownerId, video.id)
+  if (existing && owns(userId, existing.ownerId)) return viewOf(existing, origin, false)
+
+  const now = new Date().toISOString()
+  const snapshot = buildVideoSnapshot(video, now) // throws the 409 for a trailer that is not done
+  const { share } = await store.shares.create({
+    token: newShareToken(),
+    ownerId: userId,
+    kind: 'video',
+    projectId: null,
+    videoId: video.id,
+    snapshot,
+    createdAt: now,
+    updatedAt: now,
+    revokedAt: null,
+  })
+  const [first] = await activeSharesOfVideo(video.ownerId, video.id)
+  if (first && first.token !== share.token && oldestFirst(first, share) < 0) {
+    await revokeShare(share, new Date().toISOString())
+    return viewOf(first, origin, false)
+  }
+  return viewOf(share, origin, false)
+}
+
+/** Take a trailer's share(s) down (idempotent; a trailer deleted or unpublished leaves no live address). */
+export async function unpublishVideo(video: Pick<VideoRecord, 'id' | 'ownerId'>): Promise<void> {
+  const now = new Date().toISOString()
+  for (const share of await activeSharesOfVideo(video.ownerId, video.id)) await revokeShare(share, now)
 }

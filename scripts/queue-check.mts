@@ -24,6 +24,12 @@
 // breaker or a closed studio; the reconciler puts it back; the inline queue runs
 // it in a lane of its own; a deletion that ends done deletes its own record.
 //
+// Slice 22 adds the `video` queue (a trailer): ONE job per trailer on a lane of its
+// own — the worker's `video` lane, the inline queue's `videoQueue` — so a trailer
+// that runs twenty minutes never holds a picture slot and a page of pictures never
+// waits behind it; the credit breaker does not stop it at the door (its runner asks
+// before each paid call); the reconciler puts it back by the queue its record names.
+//
 // Needs `redis-server` on the PATH (or INKDESK_CHECK_REDIS_URL pointing at a
 // scratch Redis this check may FLUSHALL). Without either it says so and stops.
 import './server-only.mts' // first: lets server modules load outside Next (SEC-15)
@@ -967,7 +973,7 @@ try {
       const both = await startWorker({ workerId: 'both', concurrency: 2, process: slow, ...small })
       handles.push(both)
       const beat2 = JSON.parse((await redis().get(HEARTBEAT_KEY)) ?? 'null') as { lanes: Record<string, number> }
-      assert.deepEqual(beat2.lanes, { image: 2, account: 1 }, 'both lanes by default, the account lane one wide')
+      assert.deepEqual(beat2.lanes, { image: 2, video: 1, account: 1 }, 'every lane by default, the video and account lanes one wide')
       const ids: string[] = []
       for (const owner of ['user_h1', 'user_h2', 'user_h3']) ids.push((await enqueueAccountJob({ ownerId: owner, kind: 'export' })).job.id)
       for (let i = 0; i < 4; i++) ids.push((await enqueueJob({ key: `lane:slow${i}`, ownerId: 'user_h4', projectId: p.pid, kind: 'panel', payload: panelFor(p, i) })).job.id)
@@ -976,7 +982,7 @@ try {
       assert.ok(peak.image >= 2, `and the pictures still ran ${peak.image} wide beside them`)
       for (const h of handles.splice(0)) await h.close(1_000)
       await reset()
-      ok('the worker takes two lanes: a worker without the account lane leaves an account job queued, the account lane never takes a picture, three exports run one at a time while pictures run two wide, and the heartbeat names the lanes')
+      ok('the worker takes its lanes: a worker without the account lane leaves an account job queued, the account lane never takes a picture, three exports run one at a time while pictures run two wide, and the heartbeat names the lanes')
     }
 
     // (d) A killed worker: BullMQ’s stalled recovery hands the account job to another worker, like a picture.
@@ -1145,6 +1151,215 @@ try {
         env.INKDESK_QUEUE = 'bullmq'
       }
       ok('INKDESK_QUEUE=inline runs account jobs in the web process in their own lane, one at a time, never in an image slot, with nothing sent to Redis')
+      await reset()
+    }
+  }
+
+  // 13c. The video queue (slice 22): a trailer is ONE job, on a lane of its own. -----------------------------------------
+  {
+    const { processJob, videoRunners } = await import('../lib/queue/processors')
+    const { tripCredits } = await import('../lib/queue/breaker')
+    const { endJob } = await import('../lib/queue/ending')
+    await reset()
+    const panelFor = (p: { addr: { chapterId: string } }, index = 0) => ({ kind: 'panel' as const, chapterId: p.addr.chapterId, pageIndex: 0, index })
+    const finishDone = (jobId: string) => endJob(jobId, (j) => J.finish(j, { outcome: 'done' }, new Date()))
+    const claimBy = (jobId: string, workerId: string) => store.jobs.updateJob(jobId, (j) => J.claim(j, workerId, new Date()))
+    const small = { lockDurationMs: 5_000, stalledIntervalMs: 1_000, heartbeatMs: 300, reconcileMs: 600_000, reconcileDelayMs: 600_000 }
+    const realTrailer = videoRunners.trailer
+    const trailer = (owner: string, over: { videoId?: string; only?: number[] } = {}) =>
+      enqueueJob({ key: J.trailerKey(owner), ownerId: owner, projectId: 'a-project', kind: 'trailer', payload: { kind: 'trailer', videoId: over.videoId ?? crypto.randomUUID(), ...(over.only ? { only: over.only } : {}) } })
+
+    // (a) The pure side and the door: the queue's name, the key, the ceiling, the record, one in flight per person.
+    {
+      assert.equal(J.QUEUE_OF.trailer, 'video')
+      assert.equal(J.trailerKey('user_a'), 'trailer:user_a')
+      assert.equal(maxRunMs('trailer'), J.TRAILER_RUN_MS, 'a trailer’s heartbeat runs for TRAILER_RUN_MS')
+      assert.ok(maxRunMs('trailer') > maxRunMs('sheet') && maxRunMs('trailer') > J.ACCOUNT_RUN_MS['delete-account'], 'longer than a sheet or a deletion')
+      const a = await trailer('user_t1')
+      assert.equal(a.created, true)
+      assert.deepEqual([a.job.queue, a.job.kind, a.job.status, a.job.reservation, a.job.projectId, a.job.key], ['video', 'trailer', 'queued', 'none', 'a-project', 'trailer:user_t1'])
+      assert.ok(await bullQueue('video').getJob(a.job.id), 'it is on the video queue')
+      assert.equal(await bullQueue('image').getJob(a.job.id), undefined, 'and not on the image queue')
+      const again = await trailer('user_t1')
+      assert.deepEqual([again.created, again.job.id], [false, a.job.id], 'one trailer in flight per person: asking again is the job that holds the key')
+      const other = await trailer('user_t2')
+      assert.equal(other.created, true, 'another person has their own')
+      assert.deepEqual(J.toView(a.job).target, { videoId: (a.job.payload as { videoId: string }).videoId })
+      await reset()
+    }
+
+    // (b) Lanes: a worker without the video lane leaves a trailer where it is, the video lane takes only trailers, the heartbeat names it.
+    {
+      const p = await lockedPage('VideoLanes')
+      const t = await trailer('user_t3')
+      const pic = await enqueueJob({ key: 'vlane:pic', ownerId: 'user_t3', projectId: p.pid, kind: 'panel', payload: panelFor(p) })
+      const handled: string[] = []
+      const standIn = async (jobId: string, ctx: { workerId: string }) => {
+        handled.push(jobId)
+        await claimBy(jobId, ctx.workerId)
+        await sleep(40)
+        await finishDone(jobId)
+      }
+      const imageOnly = await startWorker({ workerId: 'img-only-2', lanes: ['image'], process: standIn, ...small })
+      handles.push(imageOnly)
+      await until('the picture to be handled', async () => (await store.jobs.getJob(pic.job.id))!.status === 'done')
+      await sleep(700)
+      assert.equal((await store.jobs.getJob(t.job.id))!.status, 'queued', 'a worker with no video lane leaves the trailer queued')
+      const videoOnly = await startWorker({ workerId: 'vid-only', lanes: ['video'], process: standIn, ...small })
+      handles.push(videoOnly)
+      await until('the trailer to be handled', async () => (await store.jobs.getJob(t.job.id))!.status === 'done')
+      assert.deepEqual([(await store.jobs.getJob(t.job.id))!.workerId, (await store.jobs.getJob(pic.job.id))!.workerId], ['vid-only', 'img-only-2'])
+      const beat = JSON.parse((await redis().get(HEARTBEAT_KEY)) ?? 'null') as { lanes: Record<string, number> }
+      assert.deepEqual(beat.lanes, { video: 1 }, 'the heartbeat names the video lane, one wide')
+      for (const h of handles.splice(0)) await h.close(1_000)
+      await reset()
+
+      // One trailer at a time per worker by default (QUEUE_CONCURRENCY_VIDEO), while pictures run two wide beside it;
+      // `videoConcurrency` widens only the video lane.
+      const peakOf = async (videoConcurrency: number | undefined) => {
+        const live = { video: 0, image: 0 }
+        const peak = { video: 0, image: 0 }
+        const slow = async (jobId: string, ctx: { workerId: string }) => {
+          const queue = (await store.jobs.getJob(jobId))!.queue as 'video' | 'image'
+          live[queue]++
+          peak[queue] = Math.max(peak[queue], live[queue])
+          await claimBy(jobId, ctx.workerId)
+          await sleep(350)
+          live[queue]--
+          await finishDone(jobId)
+        }
+        const worker = await startWorker({ workerId: `peak-${videoConcurrency ?? 'default'}`, concurrency: 2, ...(videoConcurrency ? { videoConcurrency } : {}), process: slow, ...small })
+        handles.push(worker)
+        const ids: string[] = []
+        for (const owner of ['user_v1', 'user_v2', 'user_v3']) ids.push((await trailer(owner)).job.id)
+        for (let i = 0; i < 4; i++) ids.push((await enqueueJob({ key: `vlane:slow${i}`, ownerId: 'user_v4', projectId: p.pid, kind: 'panel', payload: panelFor(p, i) })).job.id)
+        await until('all seven to finish', async () => (await Promise.all(ids.map((id) => store.jobs.getJob(id)))).every((j) => j?.status === 'done'), 20_000)
+        for (const h of handles.splice(0)) await h.close(1_000)
+        await reset()
+        return peak
+      }
+      const narrow = await peakOf(undefined)
+      assert.equal(narrow.video, 1, 'three trailers, never two at once by default')
+      assert.ok(narrow.image >= 2, `and the pictures still ran ${narrow.image} wide beside them`)
+      const wide = await peakOf(2)
+      assert.equal(wide.video, 2, 'videoConcurrency: 2 runs two trailers at once')
+      assert.ok(wide.image >= 2)
+      ok('the worker’s video lane: a worker without it leaves a trailer queued, the lane takes only trailers, three trailers run one at a time while pictures run two wide beside them (two wide with videoConcurrency 2), and the heartbeat names it')
+    }
+
+    // (c) The reconciler puts a trailer back on the video queue, by the queue its record names.
+    {
+      const orphan = await trailer('user_t4')
+      await redis().flushall()
+      assert.equal(await bullQueue('video').getJob(orphan.job.id), undefined)
+      const old = new Date(Date.now() - J.REQUEUE_AFTER_MS - 5_000).toISOString()
+      await store.jobs.updateJob(orphan.job.id, (j) => ({ ...j, updatedAt: old }))
+      assert.equal((await reconcileOnce('vid-1')).requeued, 1)
+      assert.ok(await bullQueue('video').getJob(orphan.job.id), 'it is back on the video queue')
+      assert.equal(await bullQueue('image').getJob(orphan.job.id), undefined, 'and not on the image queue')
+      const gone = new Date(Date.now() - 5_000).toISOString()
+      await store.jobs.updateJob(orphan.job.id, (j) => ({ ...J.claim(j, 'dead-worker', new Date())!, leaseUntil: gone, updatedAt: gone }))
+      await bullQueue('video').obliterate({ force: true })
+      await redis().del(redisKey('lock', 'reconcile'))
+      assert.equal((await reconcileOnce('vid-2')).requeued, 1)
+      assert.equal((await store.jobs.getJob(orphan.job.id))!.status, 'queued')
+      assert.ok(await bullQueue('video').getJob(orphan.job.id))
+      await store.jobs.updateJob(orphan.job.id, (j) => ({ ...j, attempts: 6, updatedAt: old }))
+      await bullQueue('video').obliterate({ force: true })
+      await redis().del(redisKey('lock', 'reconcile'))
+      assert.equal((await reconcileOnce('vid-3')).failed, 1)
+      const poisoned = (await store.jobs.getJob(orphan.job.id))!
+      assert.deepEqual([poisoned.status, poisoned.error], ['failed', J.TOO_MANY_RESTARTS])
+      ok('the reconciler re-enqueues a trailer a flushed Redis forgot, and one whose worker died, on the video queue; a poison one is failed with a sentence')
+      await reset()
+    }
+
+    // (d) The processor: the runner is looked up per job, the credit breaker does not stop a trailer at the door, the outcome is the job's.
+    {
+      const seen: string[] = []
+      videoRunners.trailer = async (job, run) => {
+        seen.push(`${job.kind} ${job.payload.kind === 'trailer' ? (job.payload.only ?? []).join(',') : '?'} ${run.jobId === job.id}`)
+        await run.patchPayload({ baselineUsd: 0.25 })
+        return { outcome: 'done', costUsd: 0.3 }
+      }
+      try {
+        const t = await trailer('user_t5', { only: [2] })
+        await tripCredits() // the credits ran out after it was queued
+        assert.equal(await creditsBreakerOpen(), true)
+        assert.equal(await processJob(t.job.id, { workerId: 'direct' }), 'done', 'the open credit breaker does not fail a trailer at the door: a retry or an assembly of parts already paid for must still run')
+        const ran = (await store.jobs.getJob(t.job.id))!
+        assert.deepEqual([ran.status, ran.outcome, ran.costUsd, ran.attempts, ran.workerId, ran.leaseUntil], ['done', 'done', 0.3, 1, 'direct', null])
+        assert.deepEqual(ran.payload, { kind: 'trailer', videoId: (t.job.payload as { videoId: string }).videoId, only: [2], baselineUsd: 0.25 }, 'the runner saved its baseline on the job through patchPayload')
+        assert.deepEqual(seen, ['trailer 2 true'])
+        // A picture job under the same open breaker is still failed at the door (it would only call the provider).
+        const p = await lockedPage('BreakerStill')
+        const pic = await enqueueJob({ key: 'vlane:breaker', ownerId: 'local', projectId: p.pid, kind: 'panel', payload: panelFor(p) }).catch((e: unknown) => e)
+        assert.ok(pic instanceof Refused && pic.extra.code === 'paused', 'and new work is still refused at the door while the breaker is open')
+        resetBreaker()
+        await redis().del(redisKey('breaker', 'credits'))
+
+        videoRunners.trailer = async () => ({ outcome: 'failed', error: 'The trailer didn’t come together. Try again.' })
+        const f = await trailer('user_t6')
+        assert.equal(await processJob(f.job.id, { workerId: 'direct' }), 'failed')
+        const failed = (await store.jobs.getJob(f.job.id))!
+        assert.deepEqual([failed.status, failed.outcome, failed.error], ['failed', 'failed', 'The trailer didn’t come together. Try again.'])
+        assert.equal((await trailer('user_t6')).created, true, 'and the key is free again')
+
+        // A runner that throws (the store went away mid-trailer): the job stays claimed for BullMQ to retry; the retry finishes it.
+        let thrown = 0
+        videoRunners.trailer = async () => {
+          if (thrown++ === 0) throw new Error('the store went away')
+          return { outcome: 'done' }
+        }
+        const t7 = await trailer('user_t7')
+        await assert.rejects(processJob(t7.job.id, { workerId: 'direct' }), /the store went away/)
+        assert.deepEqual([(await store.jobs.getJob(t7.job.id))!.status, (await store.jobs.getJob(t7.job.id))!.attempts], ['running', 1])
+        assert.equal(await processJob(t7.job.id, { workerId: 'direct' }), 'done')
+        // A redelivery of a finished trailer is a no-op: nothing is run twice.
+        const calls = thrown
+        assert.equal(await processJob(t7.job.id, { workerId: 'direct' }), 'skipped')
+        assert.equal(thrown, calls)
+      } finally {
+        videoRunners.trailer = realTrailer
+        resetBreaker()
+      }
+      ok('the processor runs a trailer through the runner it looks up — claim, patchPayload, finish — with no credit-breaker check at the door; a failed outcome keeps its sentence and frees the key, a thrown error is retried, a redelivery of a finished one is skipped')
+      await reset()
+    }
+
+    // (e) The inline queue runs a trailer in a lane of its own — not in an image slot, not behind a picture.
+    {
+      env.INKDESK_QUEUE = 'inline'
+      let open!: () => void
+      const gate = new Promise<void>((resolve) => (open = resolve))
+      videoRunners.trailer = async () => {
+        await gate
+        return { outcome: 'done' }
+      }
+      try {
+        assert.equal(singletons.videoQueue.concurrency, 1, 'one trailer at a time by default')
+        const p = await lockedPage('InlineVideo')
+        const a = await trailer('user_oli2')
+        const b = await trailer('user_pam2')
+        await until('the first trailer to be running', () => singletons.videoQueue.running().length === 1)
+        assert.deepEqual(singletons.videoQueue.running(), [a.job.id])
+        assert.deepEqual(singletons.videoQueue.waiting(), [b.job.id], 'one at a time')
+        assert.deepEqual(singletons.queue.running(), [], 'the image lane is not touched')
+        assert.deepEqual(singletons.accountQueue.running(), [], 'nor the account lane')
+        // A picture is drawn and lands while the trailer is still running: it does not wait for it, nor does it take its slot.
+        assert.equal(await queuePanel(p.addr, 0), true)
+        await until('the picture to land beside the running trailer', async () => (await p.read()).script![0].status === 'done')
+        assert.deepEqual(singletons.videoQueue.running(), [a.job.id], 'the trailer is still running')
+        assert.equal((await store.jobs.getJob(a.job.id))!.status, 'running')
+        assert.equal(await bullQueue('video').getJob(a.job.id), undefined, 'and nothing went to Redis')
+        open()
+        await until('both trailers to finish', async () => (await Promise.all([a, b].map((x) => store.jobs.getJob(x.job.id)))).every((j) => j?.status === 'done'))
+        await until('the lane to be free', () => singletons.videoQueue.running().length === 0)
+      } finally {
+        videoRunners.trailer = realTrailer
+        env.INKDESK_QUEUE = 'bullmq'
+      }
+      ok('INKDESK_QUEUE=inline runs a trailer in the web process in its own lane, one at a time, while a picture lands beside it — never in an image slot, with nothing sent to Redis')
       await reset()
     }
   }

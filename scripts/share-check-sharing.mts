@@ -1072,7 +1072,7 @@ try {
     const t = newShareToken()
     await store.shares.create({
       token: t, ownerId: ALICE, kind: 'video', projectId: null, videoId: crypto.randomUUID(),
-      snapshot: { kind: 'video', title: 'A trailer', posterImageId: null, seconds: 24, takenAt: at }, createdAt: at, updatedAt: at, revokedAt: null,
+      snapshot: { kind: 'video', title: 'A trailer', seconds: 24, hasCaptions: false, takenAt: at }, createdAt: at, updatedAt: at, revokedAt: null,
     })
     const j = await open(publicJson.GET, { token: t })
     assert.deepEqual(j.json, { kind: 'video', title: 'A trailer', seconds: 24, takenAt: at })

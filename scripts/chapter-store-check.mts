@@ -28,8 +28,14 @@
 // 150 increments on one project, lose none (300 land, the file parses, no temp
 // file or lock is left); two processes racing `insertJob` for one key produce
 // exactly one job; two processes creating one project id, or migrating one v1
-// desk, produce exactly one. The children are this same file run with
-// `--child <role>`.
+// desk, produce exactly one — and, since slice 22, two processes each doing 40
+// `videos.update`s on one trailer record lose none (80 land, `rev` counts them).
+// The children are this same file run with `--child <role>`.
+//
+// Slice 22, without a server: `videoUpdate` (the trailer record's compare-and-
+// set) against a collection that loses races on purpose — and one whose document
+// has no `rev` yet — and the Range plumbing of the outputs bucket (the header it
+// sends, the reply it parses, the refusal it recognises).
 //
 // Then, only when a Mongo URL is set (MONGODB_URI or DB_URL, with the database
 // and the `S3_*` variables) AND `INKDESK_CHECK_CLOUD=yes` — a shell can carry
@@ -599,6 +605,71 @@ try {
   assert.ok(MAX_UPDATE_ATTEMPTS >= 8, 'room for two writers and a polling GET')
   console.log('  ok  jobUpdate: a lost race re-reads and re-runs fn, the ending write frees the key, a null fn or a missing job writes nothing, bounded')
 
+  // 13b. Slice 22, the trailer record without a server: `videoUpdate` is `jobUpdate`'s loop on `rev`.
+  //      A lost race re-reads and re-runs fn on what the other writer left, a document with NO rev
+  //      (written before slice 22) is at 0 and its first update is not refused for ever, a null fn or a
+  //      missing record writes nothing, and the loop is bounded. The bucket's Range plumbing: the header
+  //      it sends, the Content-Range it parses (and refuses to guess), the refusal it recognises.
+  const { videoUpdate, parseContentRange, rangeHeader, isInvalidRange } = await import('../lib/store/cloud')
+  type StubVideo = { _id: string; rev?: number; ownerId: string; costUsd: number; status: string }
+  const stubVideo = (losses: number, withRev = true) => {
+    const state = { doc: { _id: 'stub-video', ownerId: 'o', costUsd: 0, status: 'queued', ...(withRev ? { rev: 0 } : {}) } as StubVideo, toLose: losses, filters: [] as unknown[], sets: [] as Record<string, unknown>[] }
+    return {
+      state,
+      async findOne() {
+        return structuredClone(state.doc)
+      },
+      async findOneAndUpdate(filter: { _id: string; rev?: number; $or?: unknown[] }, update: { $set: Record<string, unknown>; $inc: { rev: 1 } }) {
+        state.filters.push(filter)
+        if (state.toLose > 0) {
+          state.toLose--
+          state.doc.costUsd += 1 // the other process writes between our read and our write
+          state.doc.rev = (state.doc.rev ?? 0) + 1
+        }
+        const matches = filter.$or ? state.doc.rev === undefined || state.doc.rev === 0 : filter.rev === state.doc.rev
+        if (!matches) return null
+        state.sets.push(update.$set)
+        Object.assign(state.doc, update.$set)
+        state.doc.rev = (state.doc.rev ?? 0) + update.$inc.rev
+        return { _id: state.doc._id }
+      },
+    }
+  }
+  const videoLossy = stubVideo(2)
+  let videoRuns = 0
+  const wonVideo = await videoUpdate(videoLossy as never, 'stub-video', (v) => (videoRuns++, { ...v, status: 'making', costUsd: v.costUsd + 10 }), async () => {})
+  assert.equal(videoRuns, 3, 'fn ran once per attempt: two lost races, one win')
+  assert.deepEqual([wonVideo?.status, wonVideo?.costUsd, wonVideo?.rev, wonVideo?.id], ['making', 12, 3, 'stub-video'], 'the other writer’s two changes survived inside the third attempt’s result')
+  assert.deepEqual([videoLossy.state.doc.costUsd, videoLossy.state.doc.rev], [12, 3], 'and in the stored document')
+  assert.ok(videoLossy.state.sets.every((set) => !('rev' in set) && !('_id' in set) && !('id' in set)), 'the write sets neither rev (it is $inc’d) nor the id')
+  const noRev = stubVideo(0, false)
+  const first = await videoUpdate(noRev as never, 'stub-video', (v) => ({ ...v, status: 'done' }), async () => {})
+  assert.deepEqual([first?.rev, first?.status, noRev.state.doc.rev], [1, 'done', 1], 'a document with no rev is at 0: its first update lands and makes it rev 1')
+  assert.deepEqual(noRev.state.filters[0], { _id: 'stub-video', $or: [{ rev: 0 }, { rev: { $exists: false } }] }, 'by a filter that matches a missing rev')
+  const videoRev = videoLossy.state.doc.rev
+  assert.equal(await videoUpdate(videoLossy as never, 'stub-video', () => null, async () => {}), null, 'a null fn leaves the record')
+  assert.equal(await videoUpdate({ ...videoLossy, findOne: async () => null } as never, 'nope', () => assert.fail('no such video'), async () => {}), null, 'a missing record is null, fn never runs')
+  assert.equal(videoLossy.state.doc.rev, videoRev, 'nothing was written')
+  const starvedVideo = stubVideo(Infinity)
+  let starvedVideoRuns = 0
+  await assert.rejects(
+    videoUpdate(starvedVideo as never, 'stub-video', (v) => (starvedVideoRuns++, v), async () => {}),
+    (err: unknown) => err instanceof ProviderError && err.kind === 'provider' && /busy/i.test(err.message)
+  )
+  assert.equal(starvedVideoRuns, MAX_UPDATE_ATTEMPTS, 'bounded: it gives up after MAX_UPDATE_ATTEMPTS')
+  assert.equal(rangeHeader({ start: 3, end: 5 }), 'bytes=3-5')
+  assert.equal(rangeHeader({ start: 7 }), 'bytes=7-', 'open-ended')
+  assert.deepEqual(parseContentRange('bytes 0-9/100'), { start: 0, end: 9, total: 100 })
+  assert.deepEqual(parseContentRange(' bytes 90-99/100 '), { start: 90, end: 99, total: 100 })
+  for (const bad of [undefined, '', 'bytes */100', 'bytes 0-9/*', 'bytes 5-4/100', 'bytes 0-100/100', 'items 0-9/100', 'bytes 0-9', 'bytes -5/100', 'bytes 0-9/100 extra']) {
+    assert.equal(parseContentRange(bad), null, `a reply that does not say which bytes it sent is not served as a part: ${String(bad)}`)
+  }
+  assert.equal(isInvalidRange({ name: 'InvalidRange' }), true)
+  assert.equal(isInvalidRange({ name: 'Other', $metadata: { httpStatusCode: 416 } }), true)
+  assert.equal(isInvalidRange({ name: 'NoSuchKey', $metadata: { httpStatusCode: 404 } }), false)
+  assert.equal(isInvalidRange(null), false)
+  console.log('  ok  videoUpdate: a lost race re-reads and re-runs fn, a record with no rev updates from 0, a null fn or a missing record writes nothing, bounded; the bucket’s Range header, Content-Range parsing and 416 are exact')
+
   // 14. Two processes, one local desk (CR-3). Each child does its share after a
   //     common start time, so they really overlap: 150 increments each on one
   //     project (300 must land), 25 inserts each for the same 25 keys (one
@@ -608,13 +679,19 @@ try {
   const { CLOUD_VARIABLES: CLOUD_NAMES } = await import('../lib/config')
   const localEnv = { ...process.env, INKDESK_DATA_DIR: dir, INKDESK_STORAGE: 'local' } as Record<string, string | undefined>
   for (const name of [...CLOUD_NAMES, 'OPENROUTER_API_KEY', 'ANTHROPIC_API_KEY']) delete localEnv[name] // a local child never needs a secret
+  const videoId = crypto.randomUUID()
+  await localStore.videos.put({
+    id: videoId, ownerId: 'x-child', projectId: 'xproc', page: 0, status: 'making', seconds: 12, costUsd: 0, posterKey: null, finalKey: null, captionsKey: null, error: null, createdAt: at, updatedAt: at,
+    rev: 0, plan: { title: 't', page: 0, model: 'm/m', resolution: '480p', method: 'B', shots: [], shotSeconds: 0, introSeconds: 3, outroSeconds: 2, runSeconds: 12, speechChars: 0 },
+    shots: [], speech: [], music: { state: 'queued', blobKey: null, seconds: null, costUsd: 0, error: null }, phase: 'shots', warnings: [],
+  })
   await localStore.createProject(emptyProject({ id: 'xproc', chapterId: 'c', title: 'two processes', stylePresetId: 'manga-bw', serverRunId: 'run' }))
   const freshDir = await mkdtemp(join(tmpdir(), 'inkdesk-store-migrate-'))
   try {
     await writeFile(join(freshDir, 'chapter.json'), JSON.stringify(v1, null, 2))
     const startAt = Date.now() + 7_000
     const job = (role: string, ...args: (string | number)[]) => child([role, 'local', ...args.map(String), String(startAt)], localEnv)
-    const [inc1, inc2, ins1, ins2, mk1, mk2, mig1, mig2] = await Promise.all([
+    const [inc1, inc2, ins1, ins2, mk1, mk2, mig1, mig2, vid1, vid2] = await Promise.all([
       job('increments', 'xproc', 150, 3),
       job('increments', 'xproc', 150, 3),
       job('insert', 'x:key-', 25),
@@ -623,6 +700,8 @@ try {
       job('create', 'xproc-new'),
       child(['migrate', 'local', String(startAt)], { ...localEnv, INKDESK_DATA_DIR: freshDir }),
       child(['migrate', 'local', String(startAt)], { ...localEnv, INKDESK_DATA_DIR: freshDir }),
+      job('videoincs', videoId, 40, 2),
+      job('videoincs', videoId, 40, 2),
     ])
     for (const r of [inc1, inc2]) assert.deepEqual(r, { done: 150, errors: [] }, 'every increment of both processes succeeded — none failed to rename, none threw')
     const xproc = await localStore.readProject('xproc')
@@ -648,6 +727,12 @@ try {
       assert.equal(entry.ids.size, 1, `${key}: both processes were told the same job`)
     }
     assert.equal((await localStore.jobs.listJobs({ ownerId: 'x-child', limit: 100 })).length, 25, 'and 25 job files exist, not 50')
+    for (const r of [vid1, vid2]) assert.deepEqual(r, { done: 40, errors: [] }, 'every video update of both processes succeeded')
+    const trailer = await localStore.videos.get(videoId)
+    assert.deepEqual([trailer?.costUsd, trailer?.rev], [80, 80], `80 updates from two processes on one trailer record: ${trailer?.costUsd} landed, rev ${trailer?.rev}`)
+    assert.deepEqual((await readdir(join(dir, 'videos'))).filter((name) => !name.endsWith('.json')), [], 'and no temp file or lock is left in videos/')
+    console.log('  ok  two processes, 40 videos.update each on one trailer record: all 80 land, rev counts them, nothing left behind')
+
     console.log('  ok  two processes racing insertJob on 25 keys: exactly one job per key, both told the same one')
 
     assert.deepEqual([mk1.outcome, mk2.outcome].sort(), ['created', 'exists'], 'two processes creating one project id: one wins, one is refused')
@@ -1237,6 +1322,22 @@ async function runChild([role, mode, ...rest]: string[]): Promise<void> {
       for (let i = 0; i < count; i++) {
         try {
           await store.updateProject(id, (p) => ({ ...p, usage: { ...p.usage, images: p.usage.images + 1 } }))
+          done++
+        } catch (err) {
+          errors.push(message(err))
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: lanes }, () => lane(total / lanes)))
+    result = { done, errors }
+  } else if (role === 'videoincs') {
+    const [id, total, lanes] = [rest[0], Number(rest[1]), Number(rest[2])]
+    const errors: string[] = []
+    let done = 0
+    const lane = async (count: number) => {
+      for (let i = 0; i < count; i++) {
+        try {
+          await store.videos.update(id, (v) => ({ ...v, costUsd: v.costUsd + 1 }))
           done++
         } catch (err) {
           errors.push(message(err))

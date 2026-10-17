@@ -38,6 +38,10 @@
 // decisions are `lib/poll.ts` (pure, `scripts/poll-check.mts`); this file
 // supplies the reads. The project page also hands in the person's reading
 // direction, which the Reader opens a manga in.
+//
+// Slice 22: `videoEnabled` (the desk's `VIDEO_ENABLED`) is handed to the Page
+// station, which then carries the Animate station under the four panels. The
+// trailer polls itself (`AnimateStation`), so nothing about it lives here.
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { apiFetch, PROJECT_GONE_EVENT } from '@/components/api-fetch'
@@ -87,6 +91,8 @@ type Props = {
   account?: React.ReactNode
   /** The direction the Reader opens a manga in: the person's setting (Settings › Defaults); right to left when they have none. */
   defaultReading?: 'rtl' | 'ltr'
+  /** Animating pages is open on this desk (`VIDEO_ENABLED`, slice 22): the Page station then carries the Animate station. */
+  videoEnabled?: boolean
 }
 
 /** The status reply, if it is one: a rev and an activity, nothing the studio would trip on. */
@@ -98,7 +104,7 @@ function asStatus(data: unknown): StatusReply | null {
   return { rev, activity: activity as Activity }
 }
 
-export function Studio({ projectId, account = null, defaultReading = 'rtl' }: Props) {
+export function Studio({ projectId, account = null, defaultReading = 'rtl', videoEnabled = false }: Props) {
   const router = useRouter()
   const api = `/api/projects/${projectId}`
 
@@ -823,6 +829,7 @@ export function Studio({ projectId, account = null, defaultReading = 'rtl' }: Pr
             starting={starting === page}
             startNotice={startNotice}
             onGoReader={() => goTo('reader')}
+            videoEnabled={videoEnabled}
           />
         ) : (
           <ReaderStation

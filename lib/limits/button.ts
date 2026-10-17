@@ -56,11 +56,12 @@ export type UsageChange = { url?: string; status?: number; refusal?: Pick<Refusa
 
 /**
  * Is this request one that can spend? Reserved on the server before it starts,
- * so the meter has moved by the time it answers. Edits (`POST /api/projects/<id>`),
- * reads and uploads are not: they would make the meter poll on every keystroke.
+ * so the meter has moved by the time it answers. Slice 22 adds Animate a page and a
+ * trailer's Try again (`POST /api/videos/<id>`; its DELETE is not a POST). Edits
+ * (`POST /api/projects/<id>`), reads and uploads are not: they would make the meter poll on every keystroke.
  */
 const SPENDING_PATH =
-  /^\/api\/projects(?:\/[^/]+\/(?:synopsis|cast(?:\/reroll)?|sheet|import|plan|cover|pages\/(?:\d+|all)\/(?:start|script)|pages\/\d+\/panels\/\d+(?:\/rewrite)?))?$/
+  /^\/api\/(?:projects(?:\/[^/]+\/(?:synopsis|cast(?:\/reroll)?|sheet|import|plan|cover|pages\/(?:\d+|all)\/(?:start|script)|pages\/\d+\/panels\/\d+(?:\/rewrite)?|pages\/\d+\/animate))?|videos\/[^/]+)$/
 
 export function isSpendingRequest(method: string | undefined, pathname: string): boolean {
   return (method ?? 'GET').toUpperCase() === 'POST' && SPENDING_PATH.test(pathname)

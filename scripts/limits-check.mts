@@ -444,11 +444,28 @@ try {
     assert.equal(win('POST', '/api/projects/p1/pages/0/panels/1/rewrite'), 'text+image', 'Rewrite asks Claude and then draws')
     assert.equal(win('POST', '/api/projects/p1/sheet/'), 'image', 'a trailing slash is the same route')
     assert.equal(win('DELETE', '/api/projects/p1'), 'edit', 'a route nobody classified is limited as an edit from its first day')
+    // Slice 22: Animate a page and a trailer's Try again are paid IMAGE-window requests; the estimate, the polls and the files are reads and media.
+    assert.equal(win('POST', '/api/projects/p1/pages/0/animate'), 'image', 'Animate a page is a paid request')
+    assert.equal(win('POST', '/api/projects/p1/pages/0/animate/'), 'image', 'a trailing slash is the same route')
+    assert.equal(win('POST', '/api/videos/v1'), 'image', 'a trailer’s Try again is a paid request')
+    assert.equal(win('DELETE', '/api/videos/v1'), 'edit', 'removing a trailer shares its path and spends nothing: an edit')
+    assert.equal(win('POST', '/api/videos/v1/share'), 'edit', 'sharing a trailer is an edit, not a spend')
+    assert.equal(win('DELETE', '/api/videos/v1/share'), 'edit')
+    assert.equal(win('GET', '/api/projects/p1/pages/0/animate'), 'read', 'the estimate never spends')
+    assert.equal(win('GET', '/api/projects/p1/videos'), 'read')
+    assert.equal(win('GET', '/api/videos/v1'), 'read', 'the poll is a read')
+    assert.equal(win('GET', '/api/videos/v1/share'), 'read')
+    for (const name of ['final.mp4', 'poster.jpg', 'captions.vtt']) {
+      assert.equal(win('GET', `/api/videos/v1/file/${name}`), 'media', `${name} is served from the media window, like a picture`)
+      assert.equal(win('HEAD', `/api/videos/v1/file/${name}`), 'media', 'and so is its HEAD')
+    }
+    assert.equal(win('POST', '/api/videos/v1/file/final.mp4'), 'edit', 'nothing is posted to a file; a stray POST is an edit, never a free paid window')
+    assert.equal(win('POST', '/api/projects/p1/pages/0/animate/extra'), 'edit', 'only the exact route is paid')
     assert.equal(win('GET', '/api/never-heard-of-it'), 'read')
     // Total over everything slice 21 adds: a public share route never reaches `classify` (it takes no session), but should
     // anything ask, every method and path gets one of the windows that exist — and the address windows are never chosen by a path.
     for (const method of ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']) {
-      for (const path of ['/api/s/tok', '/api/s/tok/image/img-1.png', '/api/s/tok/report', '/api/shares', '/api/shares/tok', '/api/settings/defaults', '/api/settings/export', '/api/settings/export/download', '/api/settings/delete', '/api/admin/reports/r1', '/api/projects/p1/status', '/api/projects/p1/share', '/', '', '/api/s/']) {
+      for (const path of ['/api/s/tok', '/api/s/tok/image/img-1.png', '/api/s/tok/report', '/api/shares', '/api/shares/tok', '/api/settings/defaults', '/api/settings/export', '/api/settings/export/download', '/api/settings/delete', '/api/admin/reports/r1', '/api/projects/p1/status', '/api/projects/p1/share', '/api/s/tok/file/final.mp4', '/api/videos/v1', '/api/videos/v1/file/final.mp4', '/api/videos/v1/share', '/api/projects/p1/videos', '/api/projects/p1/pages/0/animate', '/', '', '/api/s/']) {
         const windows = classify(method, path)
         assert.ok(windows.length >= 1 && windows.every((w) => (R.RATE_BUCKETS as readonly string[]).includes(w)), `${method} ${path} → ${windows.join('+')}`)
         assert.ok(!windows.includes('anonMedia') && !windows.includes('report'), `${method} ${path}: the address windows are taken by the public route itself`)
@@ -738,7 +755,7 @@ try {
     let view = await agree(FREE)
     assert.deepEqual(
       [view.plan, view.metering, view.images, view.projects.limit, view.videoSeconds.limit, view.audioChars.limit, view.spend.todayLimitUsd, view.paused, view.blocked, view.warn],
-      ['free', true, { used: 0, limit: 20 }, 1, 15, 2000, 1, null, null, false],
+      ['free', true, { used: 0, limit: 20 }, 1, 20, 2000, 1, null, null, false],
       'a free day, as configured'
     )
     assert.equal(view.projects.used, 0, 'a project made by a fixture, not through the route, is not counted')
@@ -1534,6 +1551,10 @@ try {
     }
     await walk(join(ROOT, 'app', 'api'))
     assert.ok(routes.length >= 15)
+    // Slice 22: the animate and retry routes keep their spending in `lib/video/animate.ts` (`startTrailer`, `retryShot`), which asks the studio to be open and goes through the queue's door; the walk reads that file with them.
+    const animateSrc = await readFile(join(ROOT, 'lib', 'video', 'animate.ts'), 'utf8')
+    assert.match(animateSrc, /assertGenerationEnabled\(\)/)
+    assert.match(animateSrc, /enqueueJob\(/)
     const checked: string[] = []
     for (const file of routes) {
       const rel = relative(ROOT, file).split('\\').join('/')
@@ -1546,16 +1567,19 @@ try {
         checked.push(`${rel} → by address`)
         continue
       }
-      const path = '/' + rel.replace(/^app\//, '').replace(/\/route\.ts$/, '').replace(/\[imageId\]/g, 'img-1.png').replace(/\[id\]/g, 'p1').replace(/\[n\]/g, '0').replace(/\[i\]/g, '1')
-      for (const m of src.matchAll(/^export\s+async\s+function\s+(GET|POST|PUT|PATCH|DELETE)\b/gm)) {
+      const path = '/' + rel.replace(/^app\//, '').replace(/\/route\.ts$/, '').replace(/\[imageId\]/g, 'img-1.png').replace(/\[videoId\]/g, 'v1').replace(/\[name\]/g, 'final.mp4').replace(/\[id\]/g, 'p1').replace(/\[n\]/g, '0').replace(/\[i\]/g, '1')
+      // Each handler is judged by its own body (slice 22: `/api/videos/<id>` has a paid POST and a free DELETE in one file).
+      const handlers = [...src.matchAll(/^export\s+async\s+function\s+(GET|POST|PUT|PATCH|DELETE)\b/gm)]
+      for (const [at, m] of handlers.entries()) {
         const bucket = classify(m[1], path).join('+')
-        const paid = /assertGenerationEnabled\(\)/.test(src)
+        const body = src.slice(m.index, handlers[at + 1]?.index ?? src.length)
+        const paid = /assertGenerationEnabled\(\)/.test(body) || /\b(startTrailer|retryShot)\(/.test(body)
         if (m[1] === 'GET') assert.ok(bucket === 'read' || bucket === 'media', `${m[1]} ${path} is a read`)
         else if (paid) assert.match(bucket, /^(text|image|text\+image)$/, `${m[1]} ${path} can spend, so it takes a paid window — not "${bucket}"`)
-        else if (/readForm|UPLOAD_LIMIT_BYTES/.test(src)) assert.equal(bucket, 'upload', `${path} takes uploads`)
+        else if (/readForm|UPLOAD_LIMIT_BYTES/.test(body)) assert.equal(bucket, 'upload', `${path} takes uploads`)
         else assert.equal(bucket, 'edit', `${m[1]} ${path}`)
         // The screens' half of the contract: what the server holds a spend for, the browser announces as a spend (the meter reads again) — and nothing else does.
-        const spends = m[1] === 'POST' && (paid || src.includes('spendProject('))
+        const spends = m[1] === 'POST' && (paid || body.includes('spendProject('))
         assert.equal(isSpendingRequest(m[1], path), spends, `${m[1]} ${path}: lib/limits/button.ts isSpendingRequest and the server agree on what spends`)
         // The route reaches the choke point before it does anything else.
         assert.match(src, /requireUser\(\s*req\s*\)|requireUser\(await|requireUser\(req|requireAdmin\(\s*req\s*\)/, `${rel} asks requireUser(req) (or requireAdmin(req), which does)`)
@@ -1563,6 +1587,16 @@ try {
       }
     }
     assert.ok(checked.some((c) => c.endsWith('→ text+image')) && checked.some((c) => c.endsWith('→ upload')) && checked.some((c) => c.includes('/usage →')))
+    // Slice 22: the two routes that spend a trailer's seconds are named — their POST asks for the studio to be open (that is what makes the walk above call them paid) and sits in the image window.
+    for (const rel of ['app/api/projects/[id]/pages/[n]/animate/route.ts', 'app/api/videos/[videoId]/route.ts']) {
+      const file = routes.find((f) => relative(ROOT, f).split('\\').join('/') === rel)
+      if (!file) continue // the route is another package's; once it exists it is held to this
+      const src = await readFile(file, 'utf8')
+      const post = src.match(/^export\s+async\s+function\s+POST\b[\s\S]*?(?=^export\s+async\s+function\s|(?![\s\S]))/m)?.[0] ?? ''
+      assert.match(post, /assertGenerationEnabled\(\)|\b(startTrailer|retryShot)\(/, `${rel}: POST spends, so it asks assertGenerationEnabled() (directly or through lib/video/animate.ts)`)
+      assert.match(post + animateSrc, /enqueueJob\(/, `${rel}: POST spends through the queue, whose door holds the plan’s seconds`)
+      assert.ok(checked.some((c) => c.startsWith('POST /api/') && c.endsWith('→ image') && c.includes(rel.includes('animate') ? '/animate' : '/api/videos/')), `${rel}: its POST is in the image window`)
+    }
     // The spending routes reserve through the door: a spending route that calls a provider has to be behind spendText or the queue.
     for (const file of routes) {
       const src = await readFile(file, 'utf8')
@@ -1849,6 +1883,86 @@ try {
       ok('12 13 16  the style sheet keeps the cover line, the panels’ reasons, the meter’s label and the tablet header from overflowing')
     }
     await reset()
+  }
+
+  // 12b. A trailer holds ONCE, for its whole plan (slice 22) ------------------------------------------------------------------------------------
+  {
+    await reset()
+    env.INKDESK_QUEUE = 'bullmq' // no worker: the check runs the job itself, the way a worker would
+    const { videoRunners, processJob } = await import('../lib/queue/processors')
+    const { jobSpend } = await import('../lib/limits/estimate')
+    const { trailerKey } = J
+    const seconds = async () => (await backend().counters(FREE)).quota.videoSeconds
+    const chars = async () => (await backend().counters(FREE)).quota.audioChars
+    const dollars = async () => (await backend().counters(FREE)).userDayMicros
+    const plan = { units: { videoSeconds: 16, audioChars: 200 }, usd: 0.8 }
+    const trailer = (extra: Record<string, unknown> = {}, owner = FREE) =>
+      enqueueJob({ key: trailerKey(owner), ownerId: owner, projectId: 'project-for-a-trailer', kind: 'trailer', payload: { kind: 'trailer', videoId: randomUUID() }, ...extra } as Parameters<typeof enqueueJob>[0])
+    const realTrailer = videoRunners.trailer
+    try {
+      assert.equal(jobSpend('trailer'), null, 'a trailer’s spend is not fixed by its kind: the route hands it over')
+      assert.equal(J.QUEUE_OF.trailer, 'video')
+
+      // Limits on and no spend named: a bug in the caller. Nothing is held, nothing is written.
+      await assert.rejects(trailer(), (e: unknown) => e instanceof Error && !(e instanceof Refused) && /spend/.test(e.message), 'a trailer enqueued without its spend throws a plain error')
+      await assert.rejects(holdForJob({ id: 'no-spend', ownerId: FREE, kind: 'trailer' }), /spend/)
+      assert.deepEqual([await seconds(), await chars(), await dollars()], [0, 0, 0], 'and holds nothing')
+      assert.equal((await store.jobs.listJobs({ ownerId: FREE })).length, 0, 'and leaves no record')
+      await assert.rejects(holdForJob({ id: 'bad', ownerId: FREE, kind: 'trailer', spend: { units: { videoSeconds: -1 }, usd: 1 } }), /spend/, 'a spend that is not a plain non-negative number is refused too')
+      await assert.rejects(holdForJob({ id: 'bad2', ownerId: FREE, kind: 'trailer', spend: { units: { videoSeconds: 4 }, usd: Number.NaN } }), /spend/)
+
+      // With its plan: ONE hold for the lot — the seconds, the characters and the dollars — taken at the door.
+      let seen: { seconds: number; chars: number; micros: number; breakerOpen: boolean } | null = null
+      videoRunners.trailer = async () => {
+        seen = { seconds: await seconds(), chars: await chars(), micros: await dollars(), breakerOpen: await creditsBreakerOpen() }
+        return { outcome: 'done', costUsd: 0.6 }
+      }
+      const queued = await trailer({ spend: plan })
+      assert.equal(queued.created, true)
+      assert.deepEqual([queued.job.queue, queued.job.reservation, queued.job.reservedUsd, queued.job.status], ['video', 'held', 0.8, 'queued'])
+      assert.deepEqual([await seconds(), await chars(), await dollars()], [16, 200, 800_000], 'the whole plan is held at once')
+      const again = await trailer({ spend: plan })
+      assert.deepEqual([again.created, again.job.id], [false, queued.job.id], 'a second ask while one is in flight is that job, and holds nothing more')
+      assert.deepEqual([await seconds(), await dollars()], [16, 800_000])
+
+      // The breaker is open when a worker takes it: an image job would be failed at the door, a trailer is not
+      // (its runner asks the breaker itself, before each paid call — a retry of paid parts must still run).
+      await tripCredits()
+      assert.equal(await creditsBreakerOpen(), true)
+      assert.equal(await processJob(queued.job.id, { workerId: 'w-video' }), 'done')
+      assert.deepEqual(seen, { seconds: 16, chars: 200, micros: 800_000, breakerOpen: true }, 'it ran, held, with the breaker open')
+      const ended = (await store.jobs.getJob(queued.job.id))!
+      assert.deepEqual([ended.status, ended.outcome, ended.reservation, ended.costUsd], ['done', 'done', 'settled', 0.6])
+      assert.deepEqual([await seconds(), await chars(), await dollars()], [16, 200, 600_000], 'done settles the dollars to the real cost; the seconds and characters stay used')
+      await redis().del(redisKey('breaker', 'credits'))
+      resetBreaker()
+
+      // A second trailer that no longer fits the day's seconds is refused whole, at the door, before anything is written.
+      const jobsBefore = (await store.jobs.listJobs({ ownerId: FREE })).length
+      await assert.rejects(trailer({ spend: plan }), (e: unknown) => e instanceof Refused && e.status === 429 && e.extra.code === 'quota' && /seconds of video/.test(e.message), '16 + 16 > 20: refused as the quota')
+      assert.equal((await store.jobs.listJobs({ ownerId: FREE })).length, jobsBefore, 'and no record')
+      assert.deepEqual([await seconds(), await chars()], [16, 200])
+      // A retry of one shot holds only that shot’s seconds (its own, smaller hold) — and fits.
+      const retry = await trailer({ spend: { units: { videoSeconds: 4 }, usd: 0.2 }, payload: { kind: 'trailer', videoId: randomUUID(), only: [2] } })
+      assert.deepEqual([retry.created, retry.job.reservedUsd, await seconds(), await chars()], [true, 0.2, 20, 200], 'the retry takes four seconds and no characters')
+
+      // Failed (nothing could be made, nothing billed): the whole hold comes back, seconds included.
+      videoRunners.trailer = async () => ({ outcome: 'failed', error: 'The studio could not make this one. Try again.' })
+      assert.equal(await processJob(retry.job.id, { workerId: 'w-video' }), 'failed')
+      const failed = (await store.jobs.getJob(retry.job.id))!
+      assert.deepEqual([failed.status, failed.reservation, failed.error], ['failed', 'settled', 'The studio could not make this one. Try again.'])
+      assert.deepEqual([await seconds(), await chars(), await dollars()], [16, 200, 600_000], 'a failed trailer gives back its seconds and its dollars')
+      // A trailer that crashed after it was billed keeps the dollars: the cost is on the job, the unit comes back.
+      const paid = await trailer({ spend: { units: { videoSeconds: 4 }, usd: 0.2 }, payload: { kind: 'trailer', videoId: randomUUID(), only: [1] } })
+      await endJob(paid.job.id, (j) => J.claim(j, 'w-video', new Date()))
+      await endJob(paid.job.id, (j) => J.finish(j, { outcome: 'failed', error: 'x', costUsd: 0.17 }, new Date()))
+      assert.deepEqual([await seconds(), await dollars()], [16, 770_000], 'billed dollars stay counted when a trailer fails')
+    } finally {
+      videoRunners.trailer = realTrailer
+      await redis().del(redisKey('breaker', 'credits'))
+      resetBreaker()
+    }
+    ok('a trailer is held once for its whole plan (seconds, characters, dollars), refused whole when the day cannot cover it, run with the credit breaker open, settled to its cost when done and released when it fails — and one enqueued without its spend is a bug, not a free trailer')
   }
 
   // 13. Redis down: spending fails closed, reading fails open -----------------------------------------------------------------------------------------

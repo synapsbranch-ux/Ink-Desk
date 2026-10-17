@@ -10,10 +10,14 @@
 // `onFailed` ends the record. That replaced the `serverRunId` demote rule
 // (CR-1). What keeps the second run from paying again is in `processors.ts`.
 //
-// Two lanes, one process (slice 21): `Worker('image')` takes pictures, the same
-// as before; `Worker('account')` takes an export or an account deletion, ONE at
-// a time, so a person leaving (or taking their data) is never queued behind the
-// studio's busiest hour, and a ten-minute export never holds a picture slot.
+// Three lanes, one process (slices 21, 22): `Worker('image')` takes pictures, the
+// same as before; `Worker('account')` takes an export or an account deletion, ONE
+// at a time, so a person leaving (or taking their data) is never queued behind the
+// studio's busiest hour, and a ten-minute export never holds a picture slot;
+// `Worker('video')` takes a trailer — QUEUE_CONCURRENCY_VIDEO at a time (default
+// one; each trailer runs its own shots side by side) with a ceiling past
+// `TRAILER_RUN_MS`, so a trailer that takes twenty minutes never holds a picture
+// slot, and a page of pictures never waits behind a film.
 // They share everything that is about the PROCESS and nothing that is about the
 // work: one heartbeat (no key, no worker), one reconciler, one close — but each
 // lane has its own Redis connection, concurrency and run ceiling.
@@ -23,21 +27,23 @@ import { UnrecoverableError, Worker, type Job } from 'bullmq'
 import IORedis from 'ioredis'
 import { queueSettings } from '../config'
 import { endJob } from './ending'
-import { ACCOUNT_CEILING_MS, TOO_MANY_RESTARTS, finish } from './jobs'
+import { ACCOUNT_CEILING_MS, TOO_MANY_RESTARTS, TRAILER_RUN_MS, finish } from './jobs'
 import { processJob } from './processors'
 import { reconcileOnce } from './reconcile'
 import { PREFIX, baseOptions, producerRedis } from './redis'
 import { HEARTBEAT_KEY, HEARTBEAT_TTL_S, maxRunMs } from './status'
 
 /** The queues a worker can take from: the ones with processors. */
-export type Lane = 'image' | 'account'
+export type Lane = 'image' | 'video' | 'account'
 
 export type WorkerOptions = {
   /** Image jobs at once (default: the queue settings'). */
   concurrency?: number
+  /** Trailers at once (default: the queue settings', QUEUE_CONCURRENCY_VIDEO, 1). */
+  videoConcurrency?: number
   /** Account jobs at once (default 1). */
   accountConcurrency?: number
-  /** Which lanes to take from (default both); the checks start a worker on one to show the other is left alone. */
+  /** Which lanes to take from (default all three); the checks start a worker on one to show the other is left alone. */
   lanes?: readonly Lane[]
   workerId?: string
   /** A stand-in for `processJob`, for the checks. */
@@ -47,7 +53,7 @@ export type WorkerOptions = {
   maxStalledCount?: number
   heartbeatMs?: number
   reconcileMs?: number
-  /** A job still running after this long is failed and its slot freed (default: the longest a job may take, plus two minutes; an account job's own longest). */
+  /** A job still running after this long is failed and its slot freed (default: the longest a job may take, plus two minutes; a trailer's own `TRAILER_RUN_MS` and an account job's own longest). */
   jobCeilingMs?: number
   /** First reconcile after this long; the worker is up by then. */
   reconcileDelayMs?: number
@@ -64,9 +70,17 @@ export async function startWorker(opts: WorkerOptions = {}): Promise<WorkerHandl
   if (settings.mode !== 'bullmq' || !settings.redisUrl) throw new Error('the worker needs INKDESK_QUEUE=bullmq and REDIS_URL')
   const workerId = opts.workerId ?? `worker-${randomUUID().slice(0, 8)}`
   const run = opts.process ?? ((jobId, ctx) => processJob(jobId, ctx))
-  const lanes = opts.lanes ?? (['image', 'account'] as const)
-  const concurrencyOf: Record<Lane, number> = { image: opts.concurrency ?? settings.imageConcurrency, account: opts.accountConcurrency ?? settings.accountConcurrency }
-  const ceilingOf: Record<Lane, number> = { image: opts.jobCeilingMs ?? maxRunMs() + 120_000, account: opts.jobCeilingMs ?? ACCOUNT_CEILING_MS }
+  const lanes = opts.lanes ?? (['image', 'video', 'account'] as const)
+  const concurrencyOf: Record<Lane, number> = {
+    image: opts.concurrency ?? settings.imageConcurrency,
+    video: opts.videoConcurrency ?? settings.videoConcurrency,
+    account: opts.accountConcurrency ?? settings.accountConcurrency,
+  }
+  const ceilingOf: Record<Lane, number> = {
+    image: opts.jobCeilingMs ?? maxRunMs() + 120_000,
+    video: opts.jobCeilingMs ?? TRAILER_RUN_MS + 120_000,
+    account: opts.jobCeilingMs ?? ACCOUNT_CEILING_MS,
+  }
 
   // One lane: a BullMQ worker over its own connection (BullMQ requires `maxRetriesPerRequest: null` there).
   const connections: IORedis[] = []

@@ -10,9 +10,11 @@
 //   · which projects have an active public share (the "Shared" tag; ids only,
 //     the card never shows or manages the link — that lives in the Reader and
 //     in Settings),
-//   · the person's videos, only while `VIDEO_ENABLED` is true (slice 22 fills
-//     the store; the poster has no route yet, so `posterUrl` is null and
-//     `progress` is null), newest first,
+//   · the person's trailers, only while `VIDEO_ENABLED` is true, newest first
+//     (slice 22): each one's real poster address and, while one is being made,
+//     its progress — and a trailer whose job is gone (the studio restarted) is
+//     ended as failed first (`settleStaleVideo`), so the desk never shows a
+//     spinner that will not end,
 //   · their saved default style, which New project preselects.
 // A read that fails is logged (its message, never a secret) and the desk opens
 // as it did before that feature existed.
@@ -30,6 +32,8 @@ import { configSentence, ProviderError } from '@/lib/errors'
 import { readSettings } from '@/lib/settings'
 import type { VideoSummary } from '@/lib/share/types'
 import { store } from '@/lib/store'
+import { summaryOfVideo } from '@/lib/video/record'
+import { settleStaleVideo } from '@/lib/video/status'
 
 /** A decorative read that fails is a missing tag, not a missing desk. */
 async function orElse<T>(what: string, read: () => Promise<T>, fallback: T): Promise<T> {
@@ -64,25 +68,15 @@ export default async function DeskPage() {
   const withVideo = videoEnabled()
   const [shares, videoRecords, settings] = await Promise.all([
     orElse('the active shares', () => store.shares.listActiveOf(userId), []),
-    withVideo ? orElse('the videos', () => store.videos.listOf(userId), []) : Promise.resolve([]),
+    withVideo
+      ? orElse('the videos', async () => Promise.all((await store.videos.listOf(userId)).map((video) => settleStaleVideo(video))), [])
+      : Promise.resolve([]),
     orElse('the saved defaults', () => readSettings(userId), null),
   ])
   const sharedProjectIds = shares.flatMap((s) => (s.kind === 'manga' && s.projectId ? [s.projectId] : []))
-  // Newest first, whatever order the store lists them in. The poster has no
-  // route until slice 22, and a running video reports no progress yet.
+  // Newest first, whatever order the store lists them in.
   const videos: VideoSummary[] | undefined = withVideo
-    ? [...videoRecords]
-        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-        .map((v) => ({
-          id: v.id,
-          projectId: v.projectId,
-          page: v.page,
-          status: v.status,
-          seconds: v.seconds,
-          createdAt: v.createdAt,
-          posterUrl: null,
-          progress: null,
-        }))
+    ? [...videoRecords].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(summaryOfVideo)
     : undefined
 
   // The panel quality is the server's setting; the dialog only prices it.

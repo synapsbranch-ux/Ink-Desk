@@ -9,7 +9,7 @@
 //   MongoDB  <database>.shares     { _id: <token>, activeProject?: <project id>, ...the share's fields } (v3, slice 21)
 //   MongoDB  <database>.reports    { _id: <uuid>, token, reason, note, ipHash, at, handledAt } (v3, slice 21)
 //   MongoDB  <database>.settings   { _id: <Clerk user id>, defaultStyle, readingDirection, voices?, updatedAt } (v3, slice 21)
-//   MongoDB  <database>.videos     { _id: <video id>, ownerId, projectId, ...the video's fields } (v3, slice 21; slice 22 fills it)
+//   MongoDB  <database>.videos     { _id: <video id>, rev: n, ownerId, projectId, ...the video's fields } (v3, slice 21; slice 22 fills it)
 //   bucket   <project-files bucket>/<prefix><kind>-<uuid>.<ext>   the same ids the local store writes,
 //            under S3_KEY_PREFIX (default `inkdesk/`), never at the bucket's root (SEC-13)
 //   bucket   <outputs bucket>/<prefix>outputs/<key>   exports and rendered videos (v3, slice 21); the `outputs/`
@@ -36,6 +36,10 @@
 //      from racing each other — a contention reducer, and nothing depends on
 //      it. The job records (`jobs`) follow the same rule, plus a unique sparse
 //      index on `activeKey` so two racing inserts for one key cannot both win.
+//      The trailer records (`videos`, slice 22) too: the worker's four shots and
+//      the web (a person's Try again) write one record at once, so
+//      `videos.update` is the same loop on `rev` — a record from before `rev`
+//      existed reads as 0.
 //      The shares (slice 21) use the same trick for "one active share per
 //      project": `activeProject` is on a share only while it is active, under a
 //      unique sparse index, so the database itself decides a race between two
@@ -66,8 +70,10 @@ import {
   JOB_LIST_LIMIT,
   NOT_A_USER,
   OWNED_BY_ANOTHER,
+  RangeNotSatisfiable,
   claimable,
   deleted,
+  isByteRange,
   isImageId,
   isOutputKey,
   isProjectId,
@@ -88,6 +94,7 @@ import {
 import type {
   BlobKind,
   BlobStream,
+  ByteRange,
   Check,
   Claim,
   JobFilter,
@@ -122,7 +129,8 @@ export type ReportDoc = { _id: string } & Omit<ReportRecord, 'id'>
 export type SettingsDoc = { _id: string } & Omit<UserSettings, 'userId'>
 
 /** A video as stored: its record, with the id as `_id`. */
-export type VideoDoc = { _id: string } & Omit<VideoRecord, 'id'>
+/** `rev` is optional because a document from before slice 22 has none; it reads as 0. */
+export type VideoDoc = { _id: string } & Omit<VideoRecord, 'id' | 'rev'> & { rev?: number }
 
 type Cloud = {
   client: MongoClient
@@ -1224,16 +1232,64 @@ const settings: SettingsStore = {
   },
 }
 
+/** A video document as a record: one stored before `rev` existed (slice 22) reads as 0. */
 const fromVideoDoc = (doc: VideoDoc): VideoRecord => {
   const { _id, ...fields } = doc
-  return { id: _id, ...fields }
+  return { id: _id, ...fields, rev: typeof fields.rev === 'number' ? fields.rev : 0 }
+}
+
+/** The two collection calls a video update needs — narrow, so `check:store` can drive a lost race on purpose. */
+export type VideoRevCollection = {
+  findOne(filter: { _id: string }): Promise<VideoDoc | null>
+  findOneAndUpdate(
+    filter: { _id: string; rev: number } | { _id: string; $or: [{ rev: 0 }, { rev: { $exists: false } }] },
+    update: { $set: Record<string, unknown>; $inc: { rev: 1 } },
+    options: { projection: { _id: 1 } }
+  ): Promise<unknown>
+}
+
+/**
+ * One video update with optimistic concurrency, the same loop as `jobUpdate`: read → `fn` → write only if `rev`
+ * hasn't moved, `fn` run again on the fresher record when it had. A document with no `rev` (written before slice 22)
+ * is at 0, and the filter says so (`rev: 0` or no `rev` at all), so the first update of an old record
+ * is not refused for ever. `fn` returning null leaves the record alone and resolves null, and so does a missing one.
+ */
+export async function videoUpdate(
+  videos: VideoRevCollection,
+  id: string,
+  fn: (video: VideoRecord) => VideoRecord | null,
+  pause: (attempt: number) => Promise<void> = jitteredPause
+): Promise<VideoRecord | null> {
+  return casLoop<VideoRecord | null>(
+    async () => {
+      const doc = await videos.findOne({ _id: id })
+      if (!doc) return { won: true, value: null }
+      const before = fromVideoDoc(doc)
+      const next = fn(before)
+      if (next === null) return { won: true, value: null }
+      const fields = without(plain({ ...next, id }), ['id', 'rev']) // the id is `_id`; `rev` moves by `$inc`, whatever `fn` put there
+      const won = await videos.findOneAndUpdate(
+        before.rev === 0 ? { _id: id, $or: [{ rev: 0 }, { rev: { $exists: false } }] } : { _id: id, rev: before.rev },
+        { $set: fields, $inc: { rev: 1 } },
+        { projection: { _id: 1 } }
+      )
+      return won ? { won: true, value: { ...next, id, rev: before.rev + 1 } } : { won: false }
+    },
+    { sentence: BUSY, what: `videos/${id}`, whom: 'video' },
+    pause
+  )
 }
 
 const videos: VideoStore = {
   async put(video) {
     if (!isRecordId(video.id)) throw new Error('Not a video id')
     const { id, ...fields } = plain(video)
-    await mongoVideos((collection) => collection.replaceOne({ _id: id }, { ...fields }, { upsert: true }))
+    await mongoVideos((collection) => collection.replaceOne({ _id: id }, { ...fields, rev: typeof fields.rev === 'number' ? fields.rev : 0 }, { upsert: true }))
+  },
+
+  async update(id, fn) {
+    if (!isRecordId(id)) return null
+    return inProcess(`video:${id}`, () => mongoVideos((collection) => videoUpdate(collection, id, fn)), false)
   },
 
   async get(id) {
@@ -1245,6 +1301,12 @@ const videos: VideoStore = {
   async listOf(ownerId) {
     const docs = await mongoVideos((collection) => collection.find({ ownerId }).sort({ createdAt: -1, _id: -1 }).limit(SHARE_LIST_LIMIT).toArray())
     return docs.map(fromVideoDoc)
+  },
+
+  async delete(id) {
+    if (!isRecordId(id)) return null
+    const doc = await mongoVideos((collection) => collection.findOneAndDelete({ _id: id }))
+    return doc ? fromVideoDoc(doc) : null
   },
 
   async deleteAllOf(ownerId) {
@@ -1295,6 +1357,38 @@ async function listOutputs(folder: string): Promise<{ key: string; bytes: number
   return found.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
 }
 
+/** The `Range` header for a part: `bytes=a-b`, or `bytes=a-` to the end. */
+export function rangeHeader(range: ByteRange): string {
+  return `bytes=${range.start}-${range.end ?? ''}`
+}
+
+/** `bytes 0-9/100` as the bucket answers it; null for anything else (an unknown total, `*`, a different unit). */
+export function parseContentRange(header: string | undefined): { start: number; end: number; total: number } | null {
+  const match = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(header?.trim() ?? '')
+  if (!match) return null
+  const [start, end, total] = [Number(match[1]), Number(match[2]), Number(match[3])]
+  return Number.isSafeInteger(start) && Number.isSafeInteger(end) && Number.isSafeInteger(total) && start <= end && end < total ? { start, end, total } : null
+}
+
+/** The bucket's own refusal of a range that starts past the end (or on an empty object). */
+export function isInvalidRange(err: unknown): boolean {
+  const e = err as { name?: string; $metadata?: { httpStatusCode?: number } } | null
+  return e?.name === 'InvalidRange' || e?.$metadata?.httpStatusCode === 416
+}
+
+/** A range that cannot be satisfied: say so with the object's size — read from its head — or null if the object is not there at all. */
+async function openUnsatisfied(key: string): Promise<never | null> {
+  const { s3, outputsBucket, prefix } = await cloud()
+  try {
+    const head = await s3.send(new HeadObjectCommand({ Bucket: outputsBucket, Key: outputObjectKey(prefix, key) }))
+    throw new RangeNotSatisfiable(head.ContentLength ?? 0)
+  } catch (err) {
+    if (err instanceof RangeNotSatisfiable) throw err
+    if (isMissingObject(err) || (err as { $metadata?: { httpStatusCode?: number } } | null)?.$metadata?.httpStatusCode === 404) return null
+    throw err
+  }
+}
+
 const outputs: OutputStore = {
   async put(key, body, mediaType) {
     if (!isOutputKey(key)) throw new Error(`Not an output key: ${JSON.stringify(key).slice(0, 80)}`)
@@ -1333,16 +1427,27 @@ const outputs: OutputStore = {
     }
   },
 
-  async open(key) {
+  async open(key, range) {
     if (!isOutputKey(key)) return null
+    if (range !== undefined && !isByteRange(range)) return openUnsatisfied(key)
     const { s3, outputsBucket, prefix } = await cloud()
+    const Key = outputObjectKey(prefix, key)
     try {
-      const object = await s3.send(new GetObjectCommand({ Bucket: outputsBucket, Key: outputObjectKey(prefix, key) }))
+      const object = await s3.send(new GetObjectCommand({ Bucket: outputsBucket, Key, ...(range ? { Range: rangeHeader(range) } : {}) }))
       if (!object.Body) return null
       const body = idleLimited(object.Body.transformToWebStream() as ReadableStream<Uint8Array>)
-      return { body, bytes: object.ContentLength ?? null, mediaType: object.ContentType || outputMediaType(key) }
+      const mediaType = object.ContentType || outputMediaType(key)
+      if (!range) return { body, bytes: object.ContentLength ?? null, mediaType }
+      // The bucket says which bytes it sent and how many there are in all; a reply that does not say is not served as a part.
+      const part = parseContentRange(object.ContentRange)
+      if (!part) {
+        void body.cancel().catch(() => {})
+        throw new ProviderError(BUSY, 'provider', `outputs/${key}: the bucket answered a range request with no Content-Range`)
+      }
+      return { body, bytes: part.end - part.start + 1, mediaType, range: part }
     } catch (err) {
       if (isMissingObject(err)) return null
+      if (isInvalidRange(err)) return openUnsatisfied(key)
       throw err
     }
   },

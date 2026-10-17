@@ -3,7 +3,7 @@
 // Graph image under its other name.
 import OpenGraphImage from './opengraph-image'
 
-export const alt = 'A manga shared from Ink Desk'
+export const alt = 'Shared from Ink Desk'
 export const size = { width: 1200, height: 630 }
 export const contentType = 'image/png'
 

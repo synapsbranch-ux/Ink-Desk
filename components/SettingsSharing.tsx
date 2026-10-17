@@ -12,13 +12,15 @@
 // "alert" for a failure), so one slow request never freezes the rest. The link
 // is a read-only field, so when the clipboard is not available (an insecure
 // address, a blocked permission) the person can still select and copy it.
-// Pictures are the link's own picture route (the cover the link shows, which the project may have redrawn past), never a bucket address. Implements
+// Pictures are the link's own picture route (the cover the link shows, which the project may have redrawn past), never a bucket address.
+// Slice 22: a trailer's link is a row like the others — tagged "Trailer", with its poster from the link's own file route, Copy link,
+// Open and Unpublish; it has no Update share, because a trailer never changes after it is made. Implements
 // `devpost/prd.md > Settings (v3)` (Sharing) and `> Sharing (v3)`.
 import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { apiFetch } from '@/components/api-fetch'
 import { SettingsDialog } from '@/components/SettingsDialog'
-import { shareImageUrl } from '@/lib/share/url'
+import { shareFileUrl, shareImageUrl } from '@/lib/share/url'
 import type { ShareView } from '@/lib/share/types'
 
 const LIST_FAILED = 'Your shared links couldn’t be listed just now. Try again in a moment.'
@@ -167,8 +169,9 @@ export function SettingsSharing() {
         <div className="card settings-card">
           <h2 className="settings-card-title">Nothing is shared</h2>
           <p className="settings-note">
-            A shared link lets anyone with it read a finished chapter, without an account. To make one, open a project, go to Ink &amp;
-            Publish and choose Share publicly.
+            A shared link lets anyone with it read a finished chapter or watch a trailer, without an account. To share a chapter, open a
+            project, go to Ink &amp; Publish and choose Share publicly. To share a trailer, make one from a finished page and choose
+            Share under it.
           </p>
           <div className="settings-actions">
             <Link className="btn btn-primary" href="/">
@@ -187,12 +190,16 @@ export function SettingsSharing() {
             const updated = share.updatedAt !== share.createdAt ? day(share.updatedAt) : ''
             return (
               <li key={share.token} className="card share-row">
-                <div className="share-row-thumb">
+                <div className={`share-row-thumb${share.kind === 'video' ? ' is-video' : ''}`}>
                   {share.cover ? (
-                    // eslint-disable-next-line @next/next/no-img-element -- the cover the link shows, served by the link's own picture route: the project may have redrawn past it
-                    <img src={shareImageUrl(share.token, share.cover)} alt="" loading="lazy" />
+                    // eslint-disable-next-line @next/next/no-img-element -- the cover (or a trailer's poster) the link shows, served by the link's own route: the project may have redrawn past it
+                    <img
+                      src={share.kind === 'video' ? shareFileUrl(share.token, 'poster.jpg') : shareImageUrl(share.token, share.cover)}
+                      alt=""
+                      loading="lazy"
+                    />
                   ) : (
-                    <span>No cover</span>
+                    <span>{share.kind === 'video' ? 'No poster' : 'No cover'}</span>
                   )}
                 </div>
                 <div className="share-row-body">
@@ -252,7 +259,8 @@ export function SettingsSharing() {
         <SettingsDialog title="Unpublish this link?" busy={Boolean(busy[asking.token])} onClose={() => setAsking(null)}>
           <p className="confirm-body">
             <strong>{asking.title}</strong> will stop working at once: anyone who opens the link sees the same “not found” page as for a
-            link that never existed. This can’t be undone — sharing the chapter again makes a new link.
+            link that never existed. This can’t be undone — sharing the {asking.kind === 'video' ? 'trailer' : 'chapter'} again makes a
+            new link.
           </p>
           <div className="confirm-actions">
             <button type="button" className="btn btn-secondary" data-autofocus disabled={Boolean(busy[asking.token])} onClick={() => setAsking(null)}>

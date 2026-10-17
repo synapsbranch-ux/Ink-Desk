@@ -4,9 +4,10 @@
 // flushed or rebuilt Redis is never missing what it needs. Server only.
 //
 // `image` runs panels, sheets and covers. `account` (slice 21) runs a person's
-// export and the deletion of their account. `video` and `audio` exist as names
-// from the start (`lib/queue/jobs.ts > QUEUE_OF`) and get processors in
-// slice 22.
+// export and the deletion of their account. `video` (slice 22) runs a trailer —
+// one job per trailer, its shots, voices, music and assembly inside it. `audio`
+// exists as a name (`lib/queue/jobs.ts > QUEUE_OF`) for the voice and music
+// kinds that stay unused: a trailer makes its own, inside its job.
 import 'server-only'
 import { Queue, type JobsOptions } from 'bullmq'
 import { queueSettings } from '../config'

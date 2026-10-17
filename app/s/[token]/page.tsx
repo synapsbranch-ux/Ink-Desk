@@ -1,4 +1,4 @@
-// A shared manga, for anyone with the link (v3, slice 21). A Server Component
+// A shared manga — or, since slice 22, a shared trailer — for anyone with the link (v3). A Server Component
 // with no session: a stranger has none, and nothing here asks for one. It
 //
 //   1. waits for a real request (`connection()`): a share can be taken down at
@@ -14,6 +14,9 @@
 //      here is everything a stranger can ever see: the title, the reading
 //      direction, the cover and the complete pages. Not the project, the owner,
 //      the scenario, the cost — they are not in `publicManga`'s output at all.
+//      A trailer's player gets four props — the token, the title, the length
+//      and whether it has captions (`publicVideo`) — and finds its files by the
+//      token alone (`/api/s/<token>/file/final.mp4`).
 //
 // `generateMetadata` gives the title and description for a pasted link, Open
 // Graph and Twitter cards (the preview image is `opengraph-image.tsx`) and
@@ -24,9 +27,10 @@ import { notFound } from 'next/navigation'
 import { connection } from 'next/server'
 import { cache } from 'react'
 import { SharedReader } from '@/components/SharedReader'
+import { SharedVideo } from '@/components/SharedVideo'
 import { metadataOrigin, takeWindow } from '@/lib/share/page'
 import { lookupShare } from '@/lib/share/public'
-import { publicManga } from '@/lib/share/snapshot'
+import { publicManga, publicVideo } from '@/lib/share/snapshot'
 import type { ShareSnapshot } from '@/lib/share/types'
 import '../share.css'
 
@@ -47,6 +51,19 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   // Over the line, the store is not read and the head is the bare one a dead link gets: the window comes first, as on every public route.
   if (await windowOf()) return { metadataBase, title: 'Ink Desk', robots: NOINDEX }
   const snapshot = await snapshotOf(token)
+  const video = publicVideo(snapshot)
+  if (video) {
+    const description = `A trailer shared from Ink Desk${video.seconds > 0 ? ` · ${Math.round(video.seconds)} seconds` : ''}.`
+    return {
+      metadataBase,
+      title: video.title,
+      description,
+      robots: NOINDEX,
+      referrer: 'no-referrer',
+      openGraph: { type: 'video.other', siteName: 'Ink Desk', title: video.title, description, url: `/s/${token}` },
+      twitter: { card: 'summary_large_image', title: video.title, description },
+    }
+  }
   const manga = publicManga(snapshot)
   // A link that is gone (or never was) gets the same bare metadata whichever it is.
   if (!manga) return { metadataBase, title: 'Ink Desk', robots: NOINDEX }
@@ -85,22 +102,8 @@ export default async function SharePage({ params }: Params) {
 
   const snapshot = await snapshotOf(token)
   if (!snapshot) notFound()
-  if (snapshot.kind === 'video') {
-    // Trailers arrive with slice 22; until then a video share says so plainly, with only its title.
-    return (
-      <div className="studio share-gone">
-        <div className="studio-opening">
-          <div className="not-found">
-            <p className="eyebrow">Ink Desk</p>
-            <h1>{snapshot.title}</h1>
-            <p className="notice" role="status">
-              This trailer can’t be played on this page yet.
-            </p>
-          </div>
-        </div>
-      </div>
-    )
-  }
+  const video = publicVideo(snapshot)
+  if (video) return <SharedVideo token={token} title={video.title} seconds={video.seconds} hasCaptions={video.hasCaptions} />
   const manga = publicManga(snapshot)
   if (!manga) notFound()
   return <SharedReader token={token} title={manga.title} reading={manga.reading} cover={manga.cover} pages={manga.pages} />
