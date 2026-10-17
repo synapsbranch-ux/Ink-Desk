@@ -23,6 +23,14 @@
 // share routes (`app/api/s/**`) take no session at all — an unknown token and a
 // revoked one answer the same, and an active one hands out nothing of its owner.
 //
+// Slice 22 adds the trailer: a video is its owner's (`ownedVideo`). Bob gets "There
+// is no such video." for alice's finished trailer — word for word what an id that
+// never existed gets — on EVERY handler of `app/api/videos/**` (the record, its
+// retry/delete, its share, its files, HEAD included), before his body is read, with
+// alice's record and files untouched; on her project's `videos` and `animate`
+// routes he gets the missing project's 404 as for any project route; alice's own
+// GET works (the record, a ranged file, her share).
+//
 // The cloud half: with INKDESK_STORAGE=cloud and INKDESK_CHECK_CLOUD=yes the
 // same check runs on MongoDB and an S3-compatible bucket — only ones on this
 // machine (localhost), on a scratch database dropped at the end, because a
@@ -124,7 +132,9 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 const { store } = await import('../lib/store')
 const { Refused } = await import('../lib/errors')
 const { GENERATION_CLOSED } = await import('../lib/generation')
-const { ownedJob, ownedProject, ownedShare, assertImageInProject, projectImageIds, NO_SUCH_PROJECT, NO_SUCH_SHARE } = await import('../lib/auth/access')
+const { ownedJob, ownedProject, ownedShare, ownedVideo, assertImageInProject, projectImageIds, NO_SUCH_PROJECT, NO_SUCH_SHARE, NO_SUCH_VIDEO } = await import('../lib/auth/access')
+const { newVideoRecord, markVideoDone, videoKeys } = await import('../lib/video/record')
+const { planTrailer } = await import('../lib/video/plan')
 const { forgetAdmins, NO_SUCH_PAGE } = await import('../lib/auth/admin')
 const { imageUrl } = await import('../lib/image-url')
 const { enqueueJob } = await import('../lib/queue/enqueue')
@@ -163,7 +173,7 @@ async function call(handler: Handler, method: string, params: Record<string, str
   if (who) headers['x-inkdesk-test-user'] = who
   let req: Request
   let seen = { pulled: 0 }
-  if (method === 'GET') req = new Request('http://check/api', { method, headers })
+  if (method === 'GET' || method === 'HEAD') req = new Request('http://check/api', { method, headers })
   else if (body !== undefined) req = new Request('http://check/api', { method, headers, body: JSON.stringify(body) })
   else {
     const c = chunked()
@@ -171,7 +181,7 @@ async function call(handler: Handler, method: string, params: Record<string, str
     req = new Request('http://check/api', { method, headers, body: c.stream, duplex: 'half' } as RequestInit)
   }
   const res = await handler(req, { params: Promise.resolve(params) })
-  const text = res.status === 200 && (res.headers.get('content-type') ?? '').startsWith('image/') ? `<${res.headers.get('content-length')} image bytes>` : await res.text()
+  const text = res.status === 200 && ((res.headers.get('content-type') ?? '').startsWith('image/') || (res.headers.get('content-type') ?? '').startsWith('video/')) ? `<${res.headers.get('content-length')} image bytes>` : await res.text()
   let json: Reply['json'] = null
   try {
     json = JSON.parse(text) as Reply['json']
@@ -185,7 +195,7 @@ type Route = { path: string; params: string[]; methods: Record<string, Handler> 
 const PUBLIC = (path: string) => path === 'health' || path.startsWith('health/') || path.startsWith('webhooks/')
 /** Public by design (slice 21): the share page's data. Held in its own section below — no session, an address window instead. */
 const SESSIONLESS = (path: string) => path.startsWith('s/')
-const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
+const METHODS = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE']
 
 async function routeFiles(at: string): Promise<string[]> {
   const found: string[] = []
@@ -264,6 +274,43 @@ async function makeOwned(ownerId: string | undefined, title: string): Promise<{ 
     usage: { images: 3, costUsd: ownerId === ALICE ? ALICE_SPEND : 0.01 },
   }))
   return { id, images }
+}
+
+/** A finished trailer (slice 22) for `ownerId` on `projectId`: its record is `done`, and its three files are in the outputs store. */
+const FINAL_BYTES = Buffer.from('not-really-an-mp4-but-bytes-'.repeat(40))
+async function makeVideo(ownerId: string, projectId: string, images: { panel: string; sheet: string }) {
+  const at = new Date().toISOString()
+  const panel = (index: 0 | 1 | 2 | 3): Panel => ({
+    index,
+    characterId: 'c1',
+    action: 'stands',
+    camera: 'wide',
+    background: 'street',
+    dialogue: index === 1 ? 'Hello.' : '',
+    versions: [{ imageId: images.panel, createdAt: at }],
+    currentVersion: 0,
+    status: 'done',
+    startedAt: null,
+    startedByRun: null,
+  })
+  const plan = planTrailer({
+    title: 'A finished page',
+    page: 0,
+    panels: [panel(0), panel(1), panel(2), panel(3)],
+    characters: [{ id: 'c1', name: 'Aki', dna: 'tall, scar', look: 'tall' }],
+    model: 'bytedance/seedance-2.0',
+    resolution: '480p',
+    method: 'B',
+  })
+  const id = crypto.randomUUID()
+  const keys = videoKeys(ownerId, id)
+  await store.outputs.put(keys.final, FINAL_BYTES, 'video/mp4')
+  await store.outputs.put(keys.poster, png, 'image/jpeg')
+  await store.outputs.put(keys.captions, Buffer.from('WEBVTT\n'), 'text/vtt')
+  const record = markVideoDone(newVideoRecord({ id, ownerId, projectId, plan }), { finalKey: keys.final, posterKey: keys.poster, captionsKey: keys.captions, seconds: 22 }, new Date())
+  assert.ok(record, 'the trailer record can be finished')
+  await store.videos.put(record)
+  return { id, keys }
 }
 
 /** What alice's project and its records look like — compared after bob has tried everything. */
@@ -355,7 +402,21 @@ try {
     ).share
   let aliceShare = await shareOf(ALICE, alice.id)
 
-  const values = (projectId: string, imageId: string) => ({ id: projectId, n: '0', i: '0', imageId, jobId: aliceJob.id, token: aliceShare.token })
+  // A finished trailer of alice's (slice 22), with its files, and a video id that never existed.
+  const aliceVideo = await makeVideo(ALICE, alice.id, alice.images)
+  const NEVER_VIDEO = crypto.randomUUID()
+  const aliceVideoBefore = JSON.stringify(await store.videos.get(aliceVideo.id))
+  assert.equal((await ownedVideo(ALICE, aliceVideo.id)).id, aliceVideo.id)
+  const missingVideo = (e: unknown) => e instanceof Refused && e.status === 404 && e.message === NO_SUCH_VIDEO
+  assert.equal(NO_SUCH_VIDEO, 'There is no such video.')
+  await assert.rejects(ownedVideo(BOB, aliceVideo.id), missingVideo, 'bob → alice’s trailer')
+  await assert.rejects(ownedVideo(LOCAL_OWNER, aliceVideo.id), missingVideo, 'with accounts on, `local` owns nothing')
+  for (const bad of [NEVER_VIDEO, '', 'x', '../../etc/passwd', 'a'.repeat(200), `${aliceVideo.id}/../x`]) await assert.rejects(ownedVideo(ALICE, bad), missingVideo, `unknown or malformed id ${bad.slice(0, 12)}`)
+  const bobsVideo = await makeVideo(BOB, bobs.id, bobs.images)
+  await assert.rejects(ownedVideo(ALICE, bobsVideo.id), missingVideo, 'alice → bob’s trailer')
+  ok('ownedVideo: the owner’s trailer; bob’s, local’s, a malformed id’s and an unknown one’s are “There is no such video.”')
+
+  const values = (projectId: string, imageId: string) => ({ id: projectId, n: '0', i: '0', imageId, jobId: aliceJob.id, token: aliceShare.token, videoId: aliceVideo.id, name: 'final.mp4' })
   const before = await snapshot(alice.id)
   const toBob: Reply[] = []
 
@@ -377,8 +438,10 @@ try {
 
   // --- 2. Bob, on everything of alice's ------------------------------------------------
   // (The admin routes have an [id] too — a report’s — and their own section below.)
-  const owned = routes.filter((r) => (r.params.includes('id') || r.params.includes('jobId')) && !r.path.startsWith('admin/'))
+  const owned = routes.filter((r) => (r.params.includes('id') || r.params.includes('jobId') || r.params.includes('videoId')) && !r.path.startsWith('admin/'))
+  const FILE_NAMES = ['final.mp4', 'poster.jpg', 'captions.vtt', 'nope.txt']
   let tried = 0
+  let videoTried = 0
   for (const flag of ['false', undefined]) {
     if (flag) env.GENERATION_ENABLED = flag
     else delete env.GENERATION_ENABLED
@@ -387,14 +450,23 @@ try {
         // Her project's address with her picture — and, for the image route, bob's own project's address with her picture.
         const attempts = [values(alice.id, alice.images.sheet), values(legacy.id, legacy.images.sheet)]
         if (route.params.includes('imageId')) attempts.push(...Object.values(alice.images).map((img) => values(bobs.id, img)))
+        // A trailer’s file route: every name, the real three and one that is not on the list.
+        if (route.params.includes('name')) attempts.splice(0, attempts.length, ...FILE_NAMES.map((name) => ({ ...values(alice.id, alice.images.sheet), name })))
         for (const v of attempts) {
           const r = await call(handler, method, paramsFor(route, v), BOB)
           toBob.push(r)
           const label = `${method} /api/${route.path} as bob on ${v.id === bobs.id ? 'his own project with alice’s picture' : v.id === legacy.id ? 'a project with no owner' : 'alice’s'} (GENERATION_ENABLED=${flag ?? 'unset'})`
           assert.equal(r.status, 404, `${label}: ${r.text.slice(0, 160)}`)
-          if (r.json) assert.ok(/^There is no such (project|job|image)\.$/.test(r.json.error ?? ''), `${label}: ${r.json.error}`)
+          if (r.json) assert.ok(/^There is no such (project|job|image|video)\.$/.test(r.json.error ?? ''), `${label}: ${r.json.error}`)
           if (route.path.startsWith('projects/[id]') && !route.params.includes('imageId')) assert.equal(r.json?.error, NO_SUCH_PROJECT, `${label}: word for word the missing project's sentence`)
           assert.equal(r.pulled, 0, `${label}: the body is not read`)
+          if (route.path.startsWith('videos/[videoId]')) {
+            // A trailer that is not his: the sentence of a trailer that never existed, word for word (so an id cannot be probed).
+            assert.equal(r.json?.error, NO_SUCH_VIDEO, `${label}: “${NO_SUCH_VIDEO}”`)
+            const never = await call(handler, method, paramsFor(route, { ...v, videoId: NEVER_VIDEO }), BOB)
+            assert.deepEqual([r.status, r.text], [never.status, never.text], `${label}: the same as an id that never existed`)
+            videoTried++
+          }
           tried++
         }
       }
@@ -403,7 +475,11 @@ try {
   delete env.GENERATION_ENABLED
   assert.equal(outbound.length, 0, 'no provider call for bob')
   assert.equal(await snapshot(alice.id), before, 'nothing of alice’s changed: the project, its jobs, the pictures')
-  ok(`bob → 404 "${NO_SUCH_PROJECT}" on all ${tried} attempts (every route with a project or job, generation open and closed: the owner is checked before the flag and the body), no provider call, alice’s project untouched`)
+  assert.equal(JSON.stringify(await store.videos.get(aliceVideo.id)), aliceVideoBefore, 'nor her trailer’s record')
+  for (const key of [aliceVideo.keys.final, aliceVideo.keys.poster, aliceVideo.keys.captions]) assert.ok(await store.outputs.open(key, { start: 0, end: 0 }), 'nor its files')
+  assert.deepEqual((await store.shares.listActiveOf(ALICE)).filter((x) => x.videoId === aliceVideo.id), [], 'and bob’s POST to her trailer’s share published nothing')
+  assert.ok(videoTried >= 3 * 4 + 6, `the trailer routes were walked (${videoTried} attempts)`)
+  ok(`bob → 404 "${NO_SUCH_PROJECT}" (or, on the ${videoTried} attempts at the trailer routes, "${NO_SUCH_VIDEO}", word for word an unknown id’s) on all ${tried} attempts (every route with a project, job or video, generation open and closed: the owner is checked before the flag and the body), no provider call, alice’s project, trailer and files untouched`)
 
   // The old image route: no owner, so nobody gets it with accounts on.
   const oldImage = routes.find((r) => r.path === 'image/[id]')
@@ -427,6 +503,25 @@ try {
   assert.equal(made.status, 200)
   const madeId = (JSON.parse(made.text) as { address: { projectId: string } }).address.projectId
   assert.equal((await store.readProject(madeId)).ownerId, BOB, 'a new project is its creator’s')
+  // His own trailer is his: its record and files open for him, and his project’s list holds his and none of alice’s.
+  {
+    const one = routes.find((r) => r.path === 'videos/[videoId]') as Route
+    const file = routes.find((r) => r.path === 'videos/[videoId]/file/[name]') as Route
+    const listed = routes.find((r) => r.path === 'projects/[id]/videos') as Route
+    const mine = await call(one.methods.GET, 'GET', { videoId: bobsVideo.id }, BOB)
+    toBob.push(mine)
+    assert.equal(mine.status, 200, mine.text.slice(0, 160))
+    const myFile = await call(file.methods.GET, 'GET', { videoId: bobsVideo.id, name: 'final.mp4' }, BOB)
+    toBob.push(myFile)
+    assert.equal(myFile.status, 200)
+    const mineListed = await call(listed.methods.GET, 'GET', { id: bobs.id }, BOB)
+    toBob.push(mineListed)
+    assert.equal(mineListed.status, 200)
+    assert.deepEqual((JSON.parse(mineListed.text) as { videos: { id: string }[] }).videos.map((v) => v.id), [bobsVideo.id], 'bob’s list holds his trailer and none of alice’s')
+    const crossed = await call(file.methods.GET, 'GET', { videoId: bobsVideo.id, name: '..%2F' + aliceVideo.id }, BOB)
+    toBob.push(crossed)
+    assert.equal(crossed.status, 404, 'a name cannot reach another trailer’s file')
+  }
   const deskRoute = routes.find((r) => r.path === 'projects/[id]') as Route
   const bobDesk = await call(deskRoute.methods.GET, 'GET', { id: bobs.id }, BOB)
   toBob.push(bobDesk)
@@ -434,6 +529,7 @@ try {
   for (const r of toBob) {
     assert.ok(!r.text.includes(String(ALICE_SPEND)), 'alice’s spend never reaches bob')
     assert.ok(!r.text.includes(alice.id), 'nor her project’s id')
+    assert.ok(!r.text.includes(aliceVideo.id) && !r.text.includes(aliceVideo.keys.folder), 'nor her trailer’s id or where its files live')
     assert.ok(!Object.values(alice.images).some((img) => r.text.includes(img)), 'nor any of her pictures’ ids')
   }
   assert.ok(toBob.filter((r) => r.status !== 200).every((r) => !r.text.includes('costUsd')), 'no refusal to bob carries a spend at all')
@@ -444,10 +540,13 @@ try {
   let passed = 0
   for (const route of owned) {
     for (const [method, handler] of Object.entries(route.methods)) {
-      const r = await call(handler, method, paramsFor(route, values(alice.id, alice.images.sheet)), ALICE, method === 'GET' ? undefined : {})
+      // A trailer route gets a trailer of its own each time: a DELETE removes it.
+      const v = route.params.includes('videoId') ? { ...values(alice.id, alice.images.sheet), videoId: (await makeVideo(ALICE, alice.id, alice.images)).id } : values(alice.id, alice.images.sheet)
+      const r = await call(handler, method, paramsFor(route, v), ALICE, method === 'GET' || method === 'HEAD' ? undefined : {})
       const label = `${method} /api/${route.path} as alice`
       assert.notEqual(r.status, 401, label)
       assert.ok(!(r.status === 404 && r.json?.error === NO_SUCH_PROJECT), `${label}: ${r.text.slice(0, 160)}`)
+      assert.ok(!(r.status === 404 && r.json?.error === NO_SUCH_VIDEO), `${label}: ${r.text.slice(0, 160)}`)
       if (r.status === 503) assert.equal(r.json?.error, GENERATION_CLOSED, label)
       passed++
     }
@@ -458,6 +557,23 @@ try {
     const r = await call(imageRoute.methods.GET, 'GET', { id: alice.id, imageId: img }, ALICE)
     assert.equal(r.status, 200, `alice’s ${kind} picture`)
     assert.equal(r.text, `<${png.length} image bytes>`)
+  }
+  // Her trailer: the record, a ranged file and her share all open for her.
+  {
+    const one = routes.find((r) => r.path === 'videos/[videoId]') as Route
+    const file = routes.find((r) => r.path === 'videos/[videoId]/file/[name]') as Route
+    const share = routes.find((r) => r.path === 'videos/[videoId]/share') as Route
+    const record = await call(one.methods.GET, 'GET', { videoId: aliceVideo.id }, ALICE)
+    assert.equal(record.status, 200, record.text.slice(0, 160))
+    assert.equal((record.json as unknown as { video: { id: string; status: string } }).video.id, aliceVideo.id, 'alice reads her own trailer')
+    assert.equal((record.json as unknown as { video: { status: string } }).video.status, 'done')
+    for (const name of ['final.mp4', 'poster.jpg', 'captions.vtt']) assert.equal((await call(file.methods.GET, 'GET', { videoId: aliceVideo.id, name }, ALICE)).status, 200, `alice’s ${name}`)
+    const ranged = await file.methods.GET(new Request('http://check/api', { headers: { 'x-inkdesk-test-user': ALICE, range: 'bytes=0-9' } }), { params: Promise.resolve({ videoId: aliceVideo.id, name: 'final.mp4' }) })
+    assert.equal(ranged.status, 206)
+    assert.equal(Buffer.from(await ranged.arrayBuffer()).toString(), FINAL_BYTES.subarray(0, 10).toString())
+    const mine = await call(share.methods.GET, 'GET', { videoId: aliceVideo.id }, ALICE)
+    assert.equal(mine.status, 200)
+    assert.deepEqual(mine.json, { share: null }, 'she has not shared it yet')
   }
   const aliceDesk = await call(deskRoute.methods.GET, 'GET', { id: alice.id }, ALICE)
   assert.equal(aliceDesk.status, 200)
@@ -490,7 +606,10 @@ try {
     const again = await ownedShare(ALICE, doomed.token, { includeRevoked: true })
     assert.deepEqual([again.snapshot, again.revokedAt === null], [null, false], 'includeRevoked hands back the revoked record, snapshot dropped')
     await assert.rejects(ownedShare(BOB, doomed.token, { includeRevoked: true }), missingShare, 'and never to anyone else')
-    assert.deepEqual((await store.shares.listActiveOf(ALICE)).map((x) => x.token), [aliceShare.token], 'only the active one lists')
+    // (Section 3 let alice’s own POST on her trailers’ share routes publish those: they list too, as video shares.)
+    const activeOfAlice = await store.shares.listActiveOf(ALICE)
+    assert.deepEqual(activeOfAlice.filter((x) => x.kind === 'manga').map((x) => x.token), [aliceShare.token], 'only the active one lists')
+    assert.ok(activeOfAlice.filter((x) => x.kind !== 'manga').every((x) => x.kind === 'video' && x.projectId === null && x.videoId !== null), 'and the rest are her trailers’ shares')
     ok('ownedShare: the owner’s active share; bob’s, local’s, a malformed token’s and an unknown one’s are “There is no such share.”; a revoked share is dead to its owner unless includeRevoked asks for the revoked record (never for anyone else)')
 
     // The owner-managed routes: bob gets the unknown share’s 404 on alice’s — before his body is read — and alice’s is untouched.
@@ -560,7 +679,7 @@ try {
     const plain = async (handler: Handler, method: string, token: string, route: Route) => {
       const params = Object.fromEntries(route.params.map((name) => [name, name === 'token' ? token : 'img-1.png']))
       const headers: Record<string, string> = { 'content-type': 'application/json' }
-      const req = method === 'GET' ? new Request('http://check/api/s', { method, headers }) : new Request('http://check/api/s', { method, headers, body: JSON.stringify({ reason: 'other', note: 'x' }) })
+      const req = method === 'GET' || method === 'HEAD' ? new Request('http://check/api/s', { method, headers }) : new Request('http://check/api/s', { method, headers, body: JSON.stringify({ reason: 'other', note: 'x' }) })
       const res = await handler(req, { params: Promise.resolve(params) })
       return { status: res.status, text: await res.text(), cache: res.headers.get('cache-control') }
     }

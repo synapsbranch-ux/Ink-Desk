@@ -33,19 +33,23 @@
 //   5  windows      the address windows apply to the JSON, the pictures, the
 //                   preview and the page, per address
 //   6  XSS          markup in the title, a line and a name renders as text
-//   7  a video      a video share does not break the page, the JSON or the list
+//   7  a video      a video share: the player on the page, the real files (with Range) of its own
+//                   video only, the preview from the poster, and every dead link the same 404
 //
 // The cloud store cannot be exercised from here; this script is the local half.
 import './server-only.mts' // first: lets server modules load outside Next (SEC-15)
 import assert from 'node:assert/strict'
 import { registerHooks } from 'node:module'
+import { execFile } from 'node:child_process'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { promisify } from 'node:util'
 import sharp from 'sharp'
 
 const env = process.env as Record<string, string | undefined>
+const execFileAsync = promisify(execFile)
 const ok = (msg: string) => console.log(`  ok  ${msg}`)
 
 if (env.INKDESK_STORAGE?.trim() === 'cloud') {
@@ -106,7 +110,10 @@ const { store } = await import('../lib/store')
 const { NO_SUCH_PROJECT, NO_SUCH_SHARE } = await import('../lib/auth/access')
 const { emptyProject } = await import('../lib/types')
 const { buildMangaSnapshot, cleanText, NOTHING_READABLE, NothingReadable, publicManga, snapshotImageIds, snapshotsDiffer, SNAPSHOT_LIMITS } = await import('../lib/share/snapshot')
-const { newShareToken, NOT_SHARED } = await import('../lib/share/service')
+const { createVideoShare, newShareToken, NOT_SHARED, unpublishVideo } = await import('../lib/share/service')
+const { newVideoRecord, markVideoDone, videoKeys } = await import('../lib/video/record')
+const { planTrailer } = await import('../lib/video/plan')
+const { Refused } = await import('../lib/errors')
 const { isShareToken } = await import('../lib/share/url')
 const { PANEL_LAYOUT } = await import('../lib/prompts')
 const { landImage } = await import('../lib/images')
@@ -120,6 +127,7 @@ const listRoute = (await import('../app/api/shares/route')) as unknown as Record
 const byToken = (await import('../app/api/shares/[token]/route')) as unknown as Record<'DELETE', Handler>
 const publicJson = (await import('../app/api/s/[token]/route')) as unknown as Record<'GET', Handler>
 const publicImage = (await import('../app/api/s/[token]/image/[imageId]/route')) as unknown as Record<'GET', Handler>
+const fileRoute = (await import('../app/api/s/[token]/file/[name]/route')) as unknown as Record<'GET' | 'HEAD', Handler>
 const sharePage = (await import('../app/s/[token]/page')) as unknown as {
   default: (p: { params: Promise<{ token: string }> }) => Promise<import('react').ReactElement>
   generateMetadata: (p: { params: Promise<{ token: string }> }) => Promise<Record<string, unknown>>
@@ -1066,26 +1074,211 @@ try {
   }
 
   // =====================================================================================
-  // 7. A video share (slice 22 makes them; nothing here may break on one)
+  // 7. A video share (slice 22): a snapshot of {kind,title,seconds,hasCaptions,takenAt}, the player on
+  //    the public page, and the trailer's files served from the SHARE's own video — with Range
   // =====================================================================================
   {
-    const t = newShareToken()
+    // --- A fake share: it names a video that does not exist. The page and the JSON are the snapshot's; no file is served.
+    const fake = newShareToken()
     await store.shares.create({
-      token: t, ownerId: ALICE, kind: 'video', projectId: null, videoId: crypto.randomUUID(),
+      token: fake, ownerId: ALICE, kind: 'video', projectId: null, videoId: crypto.randomUUID(),
       snapshot: { kind: 'video', title: 'A trailer', seconds: 24, hasCaptions: false, takenAt: at }, createdAt: at, updatedAt: at, revokedAt: null,
     })
-    const j = await open(publicJson.GET, { token: t })
-    assert.deepEqual(j.json, { kind: 'video', title: 'A trailer', seconds: 24, takenAt: at })
-    assert.equal((await open(publicImage.GET, { token: t, imageId: alice.ids.cover })).status, 404)
+    const j = await open(publicJson.GET, { token: fake })
+    assert.deepEqual(j.json, { kind: 'video', title: 'A trailer', seconds: 24, hasCaptions: false, takenAt: at }, 'the JSON is the five-key allow-list')
+    assert.equal((await open(publicImage.GET, { token: fake, imageId: alice.ids.cover })).status, 404)
+    asRequest({})
+    const fakePage = renderToStaticMarkup(await sharePage.default({ params: Promise.resolve({ token: fake }) }))
+    assert.ok(fakePage.includes('A trailer'), 'the page carries the snapshot’s title')
+    assert.ok(fakePage.includes('<video') && fakePage.includes(`/api/s/${fake}/file/final.mp4`), 'the page renders the SharedVideo player on the share’s own file route')
+    assert.ok(fakePage.includes(`/api/s/${fake}/file/poster.jpg`), 'with the poster')
+    assert.ok(!fakePage.includes('can’t be played') && !fakePage.includes('can&#x27;t be played'), 'and no longer says the trailer can’t be played')
+    assert.ok(!fakePage.includes('<track'), 'no captions track when the snapshot has none')
+    assert.ok(!fakePage.includes('captions.vtt'), 'and no captions address')
+    const unknown = newShareToken()
+    for (const name of ['final.mp4', 'poster.jpg', 'captions.vtt', 'other.txt']) {
+      const gone = await open(fileRoute.GET, { token: unknown, name })
+      assert.equal(gone.status, 404)
+      const faked = await open(fileRoute.GET, { token: fake, name })
+      assert.equal(faked.status, 404, `a share to a video that does not exist serves no ${name}`)
+      assert.deepEqual([faked.status, faked.text, faked.headers], [gone.status, gone.text, gone.headers], `…and its 404 for ${name} is byte-identical to an unknown token’s`)
+    }
+    assert.equal((await preview.default({ params: Promise.resolve({ token: fake }) })).status, 404, 'no preview for a share whose video is gone')
+
+    // --- A REAL video: a done record with a tiny real mp4 and jpg in the outputs store, under videoKeys(...).
+    const panels = alice.project.chapters[0].pages[0].panels
+    const plan = planTrailer({
+      title: 'The Last Train',
+      page: 0,
+      panels,
+      characters: alice.project.library.characters,
+      model: 'bytedance/seedance-2.0',
+      resolution: '480p',
+      method: 'B',
+    })
+    const vid = crypto.randomUUID()
+    const keys = videoKeys(ALICE, vid)
+    const mp4Path = join(dir, 'tiny.mp4')
+    await execFileAsync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc=size=64x36:rate=12:duration=2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-y', mp4Path])
+    const mp4 = await readFile(mp4Path)
+    assert.ok(mp4.length > 1000, 'a real (tiny) mp4')
+    const jpg = await sharp({ create: { width: 320, height: 180, channels: 3, background: '#2040c0' } }).jpeg().toBuffer()
+    const vtt = Buffer.from('WEBVTT\n\n00:00:03.000 --> 00:00:05.000\nThe train is late.\n')
+    await store.outputs.put(keys.final, mp4, 'video/mp4')
+    await store.outputs.put(keys.poster, jpg, 'image/jpeg')
+    await store.outputs.put(keys.captions, vtt, 'text/vtt')
+    const queued = newVideoRecord({ id: vid, ownerId: ALICE, projectId: alice.project.id, plan })
+    await store.videos.put(queued)
+    await assert.rejects(() => createVideoShare(ALICE, queued, 'http://check'), (err: unknown) => err instanceof Refused && err.status === 409, 'a trailer that is not done cannot be shared')
+    const done = markVideoDone(queued, { finalKey: keys.final, posterKey: keys.poster, captionsKey: keys.captions, seconds: 2 }, new Date())
+    assert.ok(done, 'the record can be finished')
+    await store.videos.put(done)
+
+    const view = await createVideoShare(ALICE, done, 'http://check')
+    assert.equal(view.kind, 'video')
+    assert.equal((await createVideoShare(ALICE, done, 'http://check')).token, view.token, 'sharing a trailer twice is one share')
+    const t = view.token
+    const snap = (await open(publicJson.GET, { token: t })).json as Record<string, unknown>
+    assert.deepEqual(Object.keys(snap).sort(), ['hasCaptions', 'kind', 'seconds', 'takenAt', 'title'])
+    assert.equal(snap.hasCaptions, true)
+    assert.equal(snap.seconds, 2)
+    assert.equal(snap.title, 'The Last Train · Page 1', 'the snapshot title is the project’s title and the page')
+    for (const key of ['ownerId', 'videoId', 'projectId', 'plan', 'shots', 'costUsd', 'finalKey', 'posterKey']) assert.ok(!(key in snap), `the snapshot has no ${key}`)
+
     asRequest({})
     const page = renderToStaticMarkup(await sharePage.default({ params: Promise.resolve({ token: t }) }))
-    assert.ok(page.includes('A trailer') && page.includes('can’t be played'))
-    assert.equal((await preview.default({ params: Promise.resolve({ token: t }) })).status, 404, 'no manga preview for a video (slice 22 brings its own)')
+    assert.ok(page.includes('<video') && page.includes(`/api/s/${t}/file/final.mp4`) && page.includes(`/api/s/${t}/file/poster.jpg`), 'the real share renders the player')
+    assert.ok(page.includes('<track') && page.includes(`/api/s/${t}/file/captions.vtt`), 'with its captions track, because the snapshot says there are captions')
+    assert.ok(!page.includes('can’t be played'))
+    assert.ok(!page.includes(ALICE) && !page.includes(vid) && !page.includes(keys.folder) && !page.includes(alice.project.id), 'and nothing of the owner’s: not the owner, the video’s id, its keys or the project’s id')
+
+    // The files: the whole file, then Range.
+    type FileOpts = { range?: string; method?: 'GET' | 'HEAD'; address?: string }
+    const file = async (token: string, name: string, opts: FileOpts = {}): Promise<Reply> => {
+      const headers: Record<string, string> = {}
+      if (opts.range) headers.range = opts.range
+      if (opts.address) headers['x-forwarded-for'] = opts.address
+      const handler = opts.method === 'HEAD' ? fileRoute.HEAD : fileRoute.GET
+      return reply(await handler(new Request(`http://check/api/s/${token}/file/${name}`, { method: opts.method ?? 'GET', headers }), { params: Promise.resolve({ token, name }) }))
+    }
+    const header = (r: Reply, name: string) => Object.fromEntries(r.headers)[name]
+    const whole = await file(t, 'final.mp4')
+    assert.equal(whole.status, 200)
+    assert.ok(whole.bytes.equals(mp4), 'final.mp4 is the stored file, byte for byte')
+    assert.equal(header(whole, 'content-type'), 'video/mp4')
+    assert.equal(header(whole, 'accept-ranges'), 'bytes')
+    assert.equal(header(whole, 'x-content-type-options'), 'nosniff')
+    assert.equal(header(whole, 'cache-control'), 'no-store')
+    assert.equal(header(whole, 'content-length'), String(mp4.length))
+    const first = await file(t, 'final.mp4', { range: 'bytes=0-99' })
+    assert.equal(first.status, 206, 'a Range request is a 206 (iOS Safari will not play a video without it)')
+    assert.equal(header(first, 'content-range'), `bytes 0-99/${mp4.length}`)
+    assert.equal(header(first, 'content-length'), '100')
+    assert.equal(header(first, 'accept-ranges'), 'bytes')
+    assert.equal(header(first, 'content-type'), 'video/mp4')
+    assert.ok(first.bytes.equals(mp4.subarray(0, 100)), 'and carries exactly those bytes')
+    const probe = await file(t, 'final.mp4', { range: 'bytes=0-1' })
+    assert.equal(probe.status, 206, 'the two-byte probe Safari sends first')
+    assert.equal(header(probe, 'content-range'), `bytes 0-1/${mp4.length}`)
+    const tail = await file(t, 'final.mp4', { range: 'bytes=500-' })
+    assert.equal(tail.status, 206)
+    assert.equal(header(tail, 'content-range'), `bytes 500-${mp4.length - 1}/${mp4.length}`)
+    assert.ok(tail.bytes.equals(mp4.subarray(500)), 'an open-ended range runs to the end')
+    const suffix = await file(t, 'final.mp4', { range: 'bytes=-64' })
+    assert.equal(suffix.status, 206)
+    assert.ok(suffix.bytes.equals(mp4.subarray(mp4.length - 64)), 'a suffix range is the last bytes')
+    const past = await file(t, 'final.mp4', { range: `bytes=${mp4.length + 10}-` })
+    assert.equal(past.status, 416, 'a range past the end is a 416')
+    assert.equal(header(past, 'content-range'), `bytes */${mp4.length}`)
+    const head = await file(t, 'final.mp4', { method: 'HEAD' })
+    assert.equal(head.status, 200)
+    assert.equal(head.bytes.length, 0, 'HEAD has no body')
+    assert.equal(header(head, 'content-length'), String(mp4.length))
+
+    const poster = await file(t, 'poster.jpg')
+    assert.equal(poster.status, 200)
+    assert.equal(header(poster, 'content-type'), 'image/jpeg')
+    assert.equal(header(poster, 'x-content-type-options'), 'nosniff')
+    assert.equal(header(poster, 'cache-control'), 'no-store')
+    assert.ok(poster.bytes.equals(jpg), 'poster.jpg is the stored poster')
+    const posterRange = await file(t, 'poster.jpg', { range: 'bytes=0-9' })
+    assert.equal(posterRange.status, 206)
+    assert.ok(posterRange.bytes.equals(jpg.subarray(0, 10)))
+    const captions = await file(t, 'captions.vtt')
+    assert.equal(captions.status, 200, 'the captions are served when the snapshot says there are some')
+    assert.ok(captions.bytes.equals(vtt))
+    assert.match(header(captions, 'content-type') ?? '', /^text\/vtt/)
+    for (const name of ['other.txt', 'FINAL.MP4', '..%2Ffinal.mp4', 'shots', '']) assert.equal((await file(t, name)).status, 404, `a name off the list (${JSON.stringify(name)}) is a 404`)
+
+    // The preview image is cut from the poster (a solid blue one), not the paper card.
+    asRequest({})
+    const card = await preview.default({ params: Promise.resolve({ token: t }) })
+    assert.equal(card.status, 200, 'the preview image works from the poster')
+    assert.equal(card.headers.get('content-type'), 'image/png')
+    const cardBytes = Buffer.from(await card.arrayBuffer())
+    const cardMeta = await sharp(cardBytes).metadata()
+    assert.deepEqual([cardMeta.width, cardMeta.height], [1200, 630])
+    const [r, g, b] = (await sharp(cardBytes).stats()).channels.map((c) => c.mean)
+    assert.ok(Math.abs(r - 0x20) < 12 && Math.abs(g - 0x40) < 12 && Math.abs(b - 0xc0) < 12, `the preview is the poster’s colour (${r.toFixed(0)},${g.toFixed(0)},${b.toFixed(0)}), not the paper card`)
+
+    // Only the video of THAT share: a share owned by bob that names alice’s video serves nothing of it;
+    // neither does a share to a video that has not finished.
+    const stolen = newShareToken()
+    await store.shares.create({
+      token: stolen, ownerId: BOB, kind: 'video', projectId: null, videoId: vid,
+      snapshot: { kind: 'video', title: 'Not bob’s', seconds: 2, hasCaptions: true, takenAt: at }, createdAt: at, updatedAt: at, revokedAt: null,
+    })
+    for (const name of ['final.mp4', 'poster.jpg', 'captions.vtt']) {
+      const r2 = await file(stolen, name)
+      const ref = await file(unknown, name)
+      assert.deepEqual([r2.status, r2.text, r2.headers], [ref.status, ref.text, ref.headers], `bob’s share to alice’s video serves no ${name}: the dead link’s 404`)
+    }
+    assert.equal((await preview.default({ params: Promise.resolve({ token: stolen }) })).status, 404)
+    const notDoneId = crypto.randomUUID()
+    await store.videos.put(newVideoRecord({ id: notDoneId, ownerId: ALICE, projectId: alice.project.id, plan }))
+    const early = newShareToken()
+    await store.shares.create({
+      token: early, ownerId: ALICE, kind: 'video', projectId: null, videoId: notDoneId,
+      snapshot: { kind: 'video', title: 'Early', seconds: 2, hasCaptions: false, takenAt: at }, createdAt: at, updatedAt: at, revokedAt: null,
+    })
+    const earlyFile = await file(early, 'final.mp4')
+    const refFile = await file(unknown, 'final.mp4')
+    assert.deepEqual([earlyFile.status, earlyFile.text, earlyFile.headers], [refFile.status, refFile.text, refFile.headers], 'a share to a video that is not done serves nothing')
+
+    // The owner’s list still has it; the window applies per address; then unpublish.
     const list = ((await owner(listRoute.GET, 'GET', {}, ALICE)).json as { shares: ShareView[] }).shares
     assert.equal(list.find((s) => s.token === t)?.kind, 'video')
     assert.equal(list.find((s) => s.token === t)?.stale, false)
-    assert.equal((await owner(byToken.DELETE, 'DELETE', { token: t }, ALICE)).status, 200, 'and it can be unpublished from the list')
-    ok('a video share: the JSON gives title and length only, the page says the trailer can’t be played yet, no picture is served for it, it lists and unpublishes')
+    env.RATE_ANON_MEDIA_PER_MIN = '2'
+    const D1 = '203.0.113.77'
+    for (let i = 0; i < 2; i++) assert.equal((await file(t, 'final.mp4', { range: 'bytes=0-9', address: D1 })).status, 206)
+    assert.equal((await file(t, 'final.mp4', { range: 'bytes=0-9', address: D1 })).status, 429, 'the file route takes the media window per address')
+    assert.equal((await file(t, 'final.mp4', { range: 'bytes=0-9', address: '203.0.113.78' })).status, 206, 'another address is untouched')
+    env.RATE_ANON_MEDIA_PER_MIN = '100000'
+
+    // --- Unpublished: byte-identical to a token that never lived, on every public route.
+    const revoked = await owner(byToken.DELETE, 'DELETE', { token: t }, ALICE)
+    assert.equal(revoked.status, 200, 'it can be unpublished from the list')
+    for (const name of ['final.mp4', 'poster.jpg', 'captions.vtt']) {
+      for (const range of [undefined, 'bytes=0-99']) {
+        const dead = await file(t, name, range ? { range } : {})
+        const never = await file(unknown, name, range ? { range } : {})
+        assert.equal(dead.status, 404)
+        assert.deepEqual([dead.status, dead.text, dead.headers], [never.status, never.text, never.headers], `unpublished ${name}${range ? ' (Range)' : ''}: the same 404 as an unknown token`)
+      }
+    }
+    const deadJson = await open(publicJson.GET, { token: t })
+    const neverJson = await open(publicJson.GET, { token: unknown })
+    assert.deepEqual([deadJson.status, deadJson.text, deadJson.headers], [neverJson.status, neverJson.text, neverJson.headers], 'the JSON too')
+    const deadHead = await file(t, 'final.mp4', { method: 'HEAD' })
+    assert.equal(deadHead.status, 404)
+    const deadCard = await preview.default({ params: Promise.resolve({ token: t }) })
+    const neverCard = await preview.default({ params: Promise.resolve({ token: unknown }) })
+    assert.equal(deadCard.status, 404)
+    assert.equal(await deadCard.text(), await neverCard.text())
+    assert.equal((await owner(byToken.DELETE, 'DELETE', { token: fake }, ALICE)).status, 200, 'the fake share unpublishes too')
+    await unpublishVideo(done)
+    ok('a video share: the snapshot is {kind,title,seconds,hasCaptions,takenAt}; the page renders the player (poster, captions track only with captions); a real done video serves final.mp4 (200, and Range → 206/416, HEAD), poster.jpg and captions.vtt from the share’s own video only; the preview image is cut from the poster; a share to a missing, someone else’s or unfinished video, an unpublished token and an unknown one are the same 404 on every public route; the file route takes the media window')
   }
 
   assert.deepEqual(outbound, [], 'nothing left the machine')

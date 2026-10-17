@@ -11,20 +11,26 @@
 //                   never saved reads as "no style, right to left, never saved";
 //                   a stored record naming a style this build does not know reads
 //                   as no style; answers are never cached
-//   2  saving       a PUT stores exactly the two fields and stamps `updatedAt`;
-//                   the same body twice leaves the same values and one record;
-//                   null is a style (no preference); both directions; the answer
-//                   is what a read now gives
-//   3  strict       every body that is not exactly {defaultStyle: known|null,
-//                   readingDirection: 'rtl'|'ltr'} is refused 400 with the
-//                   route's sentence and changes nothing: an unknown style, a
-//                   missing field, an extra key (userId, updatedAt, voices, anything),
-//                   wrong types, an array, a string, invalid JSON, an empty body;
-//                   an oversized body is 413 and its stream is cancelled early
+//   2  saving       a PUT stores the two fields (and `voices` only once one is
+//                   chosen) and stamps `updatedAt`; the same body twice leaves the
+//                   same values and one record; null is a style (no preference);
+//                   both directions; the answer is what a read now gives
+//   3  strict       every body that is not {defaultStyle: known|null,
+//                   readingDirection: 'rtl'|'ltr', voices?: {lead?, counterpart?}}
+//                   is refused 400 with the route's sentence and changes nothing:
+//                   an unknown style, a missing field, an extra key (userId,
+//                   updatedAt, anything — also inside voices), an unknown or
+//                   mistyped voice, wrong types, an array, a string, invalid JSON,
+//                   an empty body; an oversized body is 413 and its stream is
+//                   cancelled early
 //   4  isolation    alice's defaults never reach bob and bob's save never changes
 //                   alice's; there is no way to name another person's record
-//   5  voices       the reserved `voices` survives a save untouched, and a body
-//                   cannot write it
+//   5  voices       voices are real settings (slice 22): every read and reply
+//                   carries {lead, counterpart}, each a premade voice's name or
+//                   null; a PUT's `voices` is a patch (absent keeps, null clears,
+//                   a name sets); an unknown name is 400 and changes nothing; a
+//                   voice this build no longer offers reads as none and is dropped
+//                   by the next save; each person's voices are their own
 //   6  no accounts  with sign-in off the one `local` owner has defaults too
 //   7  copy         the words that make promises, read from source: Privacy and Terms say what
 //                   slice 21 now does (public links, Report, export, Delete account) and no longer
@@ -67,12 +73,14 @@ globalThis.fetch = (async (input: RequestInfo | URL) => {
 
 const { store } = await import('../lib/store')
 const { DEFAULTS_UNREADABLE, readSettings } = await import('../lib/settings')
+const { VOICES } = await import('../lib/video/plan')
 const { SIGN_IN_SENTENCE } = await import('../lib/auth/session')
 const route = (await import('../app/api/settings/defaults/route')) as unknown as Record<'GET' | 'PUT', (req: Request) => Promise<Response>>
 
 const ALICE = 'user_alice'
 const BOB = 'user_bob'
-type View = { defaultStyle: string | null; readingDirection: string; updatedAt: string | null }
+type Voices = { lead: string | null; counterpart: string | null }
+type View = { defaultStyle: string | null; readingDirection: string; voices: Voices; updatedAt: string | null }
 type Reply = { status: number; json: { settings?: View; error?: string } | null; headers: Headers; text: string }
 
 async function call(method: 'GET' | 'PUT', who: string | null, body?: BodyInit | null, extra: Record<string, string> = {}): Promise<Reply> {
@@ -101,13 +109,13 @@ try {
     assert.equal((await put(null, { defaultStyle: null, readingDirection: 'ltr' })).status, 401, 'nobody saves either')
     const first = await call('GET', ALICE)
     assert.equal(first.status, 200)
-    assert.deepEqual(view(first), { defaultStyle: null, readingDirection: 'rtl', updatedAt: null })
+    assert.deepEqual(view(first), { defaultStyle: null, readingDirection: 'rtl', voices: { lead: null, counterpart: null }, updatedAt: null })
     assert.equal(first.headers.get('cache-control'), 'no-store')
     // A retired preset reads as no preference, so New project can never be preselected to something it cannot make.
     await store.settings.put({ userId: BOB, defaultStyle: 'retired-style' as never, readingDirection: 'ltr', updatedAt: '2026-10-01T00:00:00.000Z' })
-    assert.deepEqual(view(await call('GET', BOB)), { defaultStyle: null, readingDirection: 'ltr', updatedAt: '2026-10-01T00:00:00.000Z' })
+    assert.deepEqual(view(await call('GET', BOB)), { defaultStyle: null, readingDirection: 'ltr', voices: { lead: null, counterpart: null }, updatedAt: '2026-10-01T00:00:00.000Z' })
     await store.settings.delete(BOB)
-    ok('nobody → 401 with the one sentence; a person who never saved reads as no style, right to left, never saved; a retired style reads as none; no-store')
+    ok('nobody → 401 with the one sentence; a person who never saved reads as no style, right to left, no voices, never saved; a retired style reads as none; no-store')
   }
 
   // 2. saving ---------------------------------------------------------------------------
@@ -121,7 +129,8 @@ try {
     assert.equal(saved.readingDirection, 'ltr')
     assert.ok(saved.updatedAt && !Number.isNaN(Date.parse(saved.updatedAt)))
     const stored = await store.settings.get(ALICE)
-    assert.deepEqual(Object.keys(stored ?? {}).sort(), ['defaultStyle', 'readingDirection', 'updatedAt', 'userId'], 'exactly the record’s fields, no voices invented')
+    assert.deepEqual(Object.keys(stored ?? {}).sort(), ['defaultStyle', 'readingDirection', 'updatedAt', 'userId'], 'exactly the record’s fields: no voices are invented until one is chosen')
+    assert.deepEqual(saved.voices, { lead: null, counterpart: null }, 'and the reply still says so, as nulls')
     assert.equal(stored?.userId, ALICE)
     assert.deepEqual(view(await call('GET', ALICE)), saved, 'a read gives what the save answered')
 
@@ -132,10 +141,10 @@ try {
     assert.deepEqual(view(await call('GET', ALICE)), again, 'idempotent: the same body twice, the same values')
 
     const none = view(await put(ALICE, { defaultStyle: null, readingDirection: 'rtl' }))
-    assert.deepEqual({ ...none, updatedAt: '' }, { defaultStyle: null, readingDirection: 'rtl', updatedAt: '' }, 'null is a choice: no preference')
+    assert.deepEqual({ ...none, updatedAt: '' }, { defaultStyle: null, readingDirection: 'rtl', voices: { lead: null, counterpart: null }, updatedAt: '' }, 'null is a choice: no preference')
     assert.equal((await readSettings(ALICE)).defaultStyle, null)
     assert.equal(view(await put(ALICE, { defaultStyle: 'manga-bw', readingDirection: 'rtl' })).defaultStyle, 'manga-bw')
-    ok('a save stores exactly the two fields and stamps updatedAt; the same body twice ends the same; null (no preference), both styles and both directions work; the answer is what a read gives')
+    ok('a save stores the two fields (no voices until one is chosen) and stamps updatedAt; the same body twice ends the same; null (no preference), both styles and both directions work; the answer is what a read gives')
   }
 
   // 3. strict -----------------------------------------------------------------------------
@@ -151,7 +160,16 @@ try {
       ['an extra key', { defaultStyle: null, readingDirection: 'rtl', extra: 1 }],
       ['a user id', { defaultStyle: null, readingDirection: 'rtl', userId: BOB }],
       ['a clock', { defaultStyle: null, readingDirection: 'rtl', updatedAt: '2000-01-01T00:00:00.000Z' }],
-      ['reserved voices', { defaultStyle: null, readingDirection: 'rtl', voices: { lead: 'x' } }],
+      ['an unknown lead voice', { defaultStyle: null, readingDirection: 'rtl', voices: { lead: 'x' } }],
+      ['an unknown counterpart voice', { defaultStyle: null, readingDirection: 'rtl', voices: { counterpart: 'morgan' } }],
+      ['a voice in the wrong case', { defaultStyle: null, readingDirection: 'rtl', voices: { lead: 'GEORGE' } }],
+      ['an empty voice name', { defaultStyle: null, readingDirection: 'rtl', voices: { lead: '' } }],
+      ['a voice that is not a string', { defaultStyle: null, readingDirection: 'rtl', voices: { lead: 3 } }],
+      ['a voice list', { defaultStyle: null, readingDirection: 'rtl', voices: { lead: ['george'] } }],
+      ['a third voice', { defaultStyle: null, readingDirection: 'rtl', voices: { lead: 'george', narrator: 'adam' } }],
+      ['voices that are null', { defaultStyle: null, readingDirection: 'rtl', voices: null }],
+      ['voices as a string', { defaultStyle: null, readingDirection: 'rtl', voices: 'george' }],
+      ['voices as an array', { defaultStyle: null, readingDirection: 'rtl', voices: ['george', 'sarah'] }],
       ['wrong types', { defaultStyle: 3, readingDirection: true }],
       ['an array', [{ defaultStyle: null, readingDirection: 'rtl' }]],
       ['a string', '"manga-bw"'],
@@ -206,17 +224,69 @@ try {
 
   // 5. voices -----------------------------------------------------------------------------------
   {
-    await store.settings.put({ userId: ALICE, defaultStyle: 'manga-bw', readingDirection: 'rtl', voices: { lead: 'voice-1', counterpart: 'voice-2' }, updatedAt: '2026-10-01T00:00:00.000Z' })
-    const r = await put(ALICE, { defaultStyle: 'manhwa-colour', readingDirection: 'ltr' })
-    assert.equal(r.status, 200)
-    assert.equal(JSON.stringify(r.json).includes('voice'), false, 'the browser is never given the reserved voices')
+    const [V1, V2, V3] = [VOICES[0], VOICES[8], VOICES[3]]
+    const none: Voices = { lead: null, counterpart: null }
+    const base = { defaultStyle: 'manga-bw', readingDirection: 'rtl' }
+    // Start from a clean record for alice, with no voices.
+    await store.settings.delete(ALICE)
+    assert.deepEqual(view(await call('GET', ALICE)).voices, none, 'nothing chosen reads as two nulls')
+
+    // A name sets (both parts), and the reply is what a read gives.
+    const both = await put(ALICE, { ...base, voices: { lead: V1, counterpart: V2 } })
+    assert.equal(both.status, 200)
+    assert.deepEqual(view(both).voices, { lead: V1, counterpart: V2 })
+    assert.deepEqual((await store.settings.get(ALICE))?.voices, { lead: V1, counterpart: V2 }, 'both are stored')
+    assert.deepEqual(view(await call('GET', ALICE)), view(both), 'the GET carries the voices')
+    assert.deepEqual((await readSettings(ALICE)).voices, { lead: V1, counterpart: V2 })
+
+    // Absent keeps: a save of the style and direction alone (or with empty voices) never drops a voice.
+    const kept = await put(ALICE, { defaultStyle: 'manhwa-colour', readingDirection: 'ltr' })
+    assert.deepEqual(view(kept).voices, { lead: V1, counterpart: V2 }, 'absent `voices` keeps both')
+    assert.equal(view(kept).defaultStyle, 'manhwa-colour')
+    assert.equal(view(kept).readingDirection, 'ltr')
+    assert.deepEqual(view(await put(ALICE, { ...base, voices: {} })).voices, { lead: V1, counterpart: V2 }, 'an empty `voices` keeps both')
+    assert.deepEqual(view(await put(ALICE, { ...base, voices: { lead: V3 } })).voices, { lead: V3, counterpart: V2 }, 'one named part changes only that part')
+    assert.deepEqual(view(await put(ALICE, { ...base, voices: { counterpart: V1 } })).voices, { lead: V3, counterpart: V1 }, 'and the other way round')
+    assert.deepEqual(view(await put(ALICE, { ...base, voices: { lead: V3, counterpart: V1 } })).voices, { lead: V3, counterpart: V1 }, 'the same voices twice end the same')
+
+    // Null clears exactly that part; the stored record keeps no key for a part that is none.
+    const cleared = await put(ALICE, { ...base, voices: { lead: null } })
+    assert.deepEqual(view(cleared).voices, { lead: null, counterpart: V1 }, 'null clears the lead and leaves the counterpart')
+    assert.deepEqual((await store.settings.get(ALICE))?.voices, { counterpart: V1 }, 'and the stored record keeps no lead')
+    assert.deepEqual(view(await call('GET', ALICE)).voices, { lead: null, counterpart: V1 })
+    assert.deepEqual(view(await put(ALICE, { ...base })).voices, { lead: null, counterpart: V1 }, 'a cleared part stays cleared when `voices` is absent')
+    const empty = await put(ALICE, { ...base, voices: { counterpart: null } })
+    assert.deepEqual(view(empty).voices, none)
+    assert.deepEqual(Object.keys((await store.settings.get(ALICE)) ?? {}).sort(), ['defaultStyle', 'readingDirection', 'updatedAt', 'userId'], 'with both cleared the record holds no voices key at all')
+    await put(ALICE, { ...base, voices: { lead: V1, counterpart: V2 } })
+    assert.deepEqual(view(await put(ALICE, { ...base, voices: { lead: null, counterpart: null } })).voices, none, 'both can be cleared in one save')
+
+    // An unknown name is a 400 and changes nothing — not the voices, not the style, not the clock.
+    await put(ALICE, { ...base, voices: { lead: V1, counterpart: V2 } })
+    const before = JSON.stringify(await store.settings.get(ALICE))
+    for (const bad of ['morgan', 'George', 'voice-1', '', ' george', 'george ']) {
+      const r = await put(ALICE, { defaultStyle: 'manhwa-colour', readingDirection: 'ltr', voices: { lead: V3, counterpart: bad } })
+      assert.equal(r.status, 400, `${JSON.stringify(bad)} is not a voice`)
+      assert.equal(r.json?.error, DEFAULTS_UNREADABLE)
+    }
+    assert.equal(JSON.stringify(await store.settings.get(ALICE)), before, 'a refused save changes nothing (the good half of the body is not applied either)')
+
+    // A voice this build no longer offers reads as none, and the next save drops it (keeping the valid part).
+    await store.settings.put({ userId: ALICE, defaultStyle: 'manga-bw', readingDirection: 'rtl', voices: { lead: 'voice-1', counterpart: V2 }, updatedAt: '2026-10-01T00:00:00.000Z' })
+    assert.deepEqual(view(await call('GET', ALICE)).voices, { lead: null, counterpart: V2 }, 'a retired voice reads as none')
+    const dropped = await put(ALICE, { defaultStyle: 'manhwa-colour', readingDirection: 'ltr' })
+    assert.deepEqual(view(dropped).voices, { lead: null, counterpart: V2 })
     const stored = await store.settings.get(ALICE)
-    assert.deepEqual(stored?.voices, { lead: 'voice-1', counterpart: 'voice-2' }, 'the reserved voices survive a save')
+    assert.deepEqual(stored?.voices, { counterpart: V2 }, 'the retired voice is dropped from the record by the next save')
     assert.equal(stored?.defaultStyle, 'manhwa-colour')
     assert.notEqual(stored?.updatedAt, '2026-10-01T00:00:00.000Z', 'updatedAt moved')
-    assert.equal((await put(ALICE, { defaultStyle: null, readingDirection: 'rtl', voices: { lead: 'evil' } })).status, 400, 'a body cannot write them')
-    assert.deepEqual((await store.settings.get(ALICE))?.voices, { lead: 'voice-1', counterpart: 'voice-2' })
-    ok('the reserved voices are carried through a save untouched, never sent to the browser, and cannot be written by a body')
+
+    // Each person's voices are their own.
+    await store.settings.delete(BOB)
+    assert.deepEqual(view(await put(BOB, { ...base, voices: { lead: V3 } })).voices, { lead: V3, counterpart: null })
+    assert.deepEqual(view(await call('GET', ALICE)).voices, { lead: null, counterpart: V2 }, 'bob’s voices never reach alice')
+    assert.deepEqual(view(await call('GET', BOB)).voices, { lead: V3, counterpart: null }, 'nor alice’s bob')
+    ok('voices: every read and reply carries {lead, counterpart}; a name sets, absent keeps, null clears (no key kept for none); an unknown name (any case or spacing) is 400 and changes nothing; a retired voice reads as none and the next save drops it; each person’s voices are their own')
   }
 
   // 6. no accounts ----------------------------------------------------------------------------------
