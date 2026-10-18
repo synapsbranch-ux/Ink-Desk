@@ -6,7 +6,7 @@
 //   INKDESK_MEDIA_TARGET_CONFIRMED=yes npx tsx --env-file=.env scripts/move-media-to-bucket.mts [--include-tracked] [--yes] [--root <dir>]
 //
 // What it uploads:
-//   always             the ignored media — video/out, video/public/capture,
+//   always             the ignored media — video/out, video/public/capture, out/responsive,
 //                      video/public/narration, video/public/music/track.mp3,
 //                      video/public/placeholder — to the OUTPUTS bucket, under
 //                      <prefix>archive/video/…
@@ -65,8 +65,8 @@ try {
 
 // --- What goes where ------------------------------------------------------------
 
-/** Ignored by git: the demo video's footage, voice, music and render. */
-const IGNORED = ['video/out', 'video/public/capture', 'video/public/narration', 'video/public/music/track.mp3', 'video/public/placeholder']
+/** Ignored by git: the demo video's footage, voice, music and render, and the responsive check's screenshots. */
+const IGNORED = ['video/out', 'video/public/capture', 'video/public/narration', 'video/public/music/track.mp3', 'video/public/placeholder', 'out/responsive']
 
 /** Tracked in git today: the generated art and the kernel test. Only with --include-tracked. */
 async function trackedSources(): Promise<string[]> {
@@ -137,7 +137,7 @@ const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`
 const { items, absent } = await plan()
 const total = items.reduce((sum, item) => sum + item.bytes, 0)
 console.log(`${upload ? 'Uploading' : 'Dry run — nothing is uploaded'}: ${items.length} files, ${mb(total)}`)
-console.log(`  outputs bucket:       ${settings.outputsBucket}  ← the ignored video media`)
+console.log(`  outputs bucket:       ${settings.outputsBucket}  ← the ignored video media and screenshots`)
 console.log(`  project-files bucket: ${settings.projectFilesBucket}  ← ${includeTracked ? 'data/images, data/kernel-test, data/filming-*' : 'nothing (add --include-tracked for data/…)'}`)
 for (const source of absent) console.log(`  --  ${source}: not here, skipped`)
 
