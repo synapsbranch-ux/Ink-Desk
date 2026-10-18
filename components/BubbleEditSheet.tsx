@@ -6,12 +6,15 @@
 // bubble, Smaller / Larger, and where the tail points. Every change shows on
 // the panel above at once; Done saves through the same path a drag, a resize
 // and an in-place text edit take on the desktop. Cancel and Escape put the
-// bubble back as it was; a tap outside the sheet is Done. A bottom sheet, so
-// the panel stays in view above it (the bubble scrolls its panel to the top).
+// bubble back as it was; a tap outside the sheet is Done — on its click, so
+// the tap is used up there and never presses what lies under it (a panel's
+// Redraw). A bottom sheet, so the panel stays in view above it, and above a
+// phone's keyboard too (`useSheetViewport`).
 // Implements `devpost/prd.md > Responsive (v3)`; see
 // `devpost/spec.md > Responsive (v3)`.
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
+import { useSheetViewport } from '@/components/use-sheet-viewport'
 import { clampBubble } from '@/lib/bubble'
 import type { BubbleLayout } from '@/lib/types'
 
@@ -136,7 +139,11 @@ export function BubbleEditSheet({ panelNumber, layout, dialogue, onPreview, onDo
   const [draft, setDraft] = useState(layout)
   const [text, setText] = useState(dialogue)
   const sheetRef = useRef<HTMLDivElement>(null)
+  const overlayRef = useRef<HTMLDivElement>(null)
+  // A press that began on the dim, so a text selection dragged out of the sheet doesn't close it.
+  const downOnDim = useRef(false)
   const id = useId()
+  useSheetViewport(overlayRef)
 
   const change = (next: BubbleLayout, words = text) => {
     setDraft(next)
@@ -185,10 +192,15 @@ export function BubbleEditSheet({ panelNumber, layout, dialogue, onPreview, onDo
 
   return createPortal(
     <div
+      ref={overlayRef}
       className="bubble-sheet-overlay"
       role="presentation"
       onPointerDown={(e) => {
-        if (e.target === e.currentTarget) done()
+        downOnDim.current = e.target === e.currentTarget
+      }}
+      onClick={(e) => {
+        if (downOnDim.current && e.target === e.currentTarget) done()
+        downOnDim.current = false
       }}
     >
       <div

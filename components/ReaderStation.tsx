@@ -84,7 +84,8 @@ export function ReaderStation({ chapter, onGoStoryboard, onNewProject, defaultRe
   /** The last failed export's sentence, and which export it was — in the
    *  vertical scroll it shows under the button that was pressed. */
   const [notice, setNotice] = useState<{ text: string; for: Exporting } | null>(null)
-  /** An export the share sheet couldn't open by itself (the tap that started it went stale): it waits for a tap on "Share or save…". */
+  /** An export the share sheet couldn't open by itself (the tap that started it went stale), or whose sheet was
+   *  dismissed: it waits for a tap on "Share or save…", or "Download instead" (a sheet with nowhere to save). */
   const [ready, setReady] = useState<{ file: File; for: Exporting } | null>(null)
   /** The Share dialog (v3, slice 21) is open. */
   const [sharing, setSharing] = useState(false)
@@ -104,7 +105,10 @@ export function ReaderStation({ chapter, onGoStoryboard, onNewProject, defaultRe
       // A phone that can share files saves through the share sheet; anything else downloads.
       const file = shareableFile(blob, filename)
       if (!file) downloadBlob(blob, filename)
-      else if ((await shareFile(file)) === 'needs-tap') setReady({ file, for: what })
+      else {
+        const result = await shareFile(file)
+        if (result === 'needs-tap' || result === 'cancelled') setReady({ file, for: what })
+      }
     } catch (err) {
       // Only our own sentences reach the screen — never a raw browser error.
       console.warn('[export]', err)
@@ -340,7 +344,7 @@ export function ReaderStation({ chapter, onGoStoryboard, onNewProject, defaultRe
   )
 }
 
-/** An export that is ready but needs a tap of its own to reach the share sheet; a download is the other way out. */
+/** An export that is ready but needs a tap of its own to reach the share sheet (or whose sheet was dismissed); a download is the other way out. */
 function ReadyNotice({ ready, onDone }: { ready: { file: File }; onDone: () => void }) {
   const [opening, setOpening] = useState(false)
   return (
@@ -355,7 +359,8 @@ function ReadyNotice({ ready, onDone }: { ready: { file: File }; onDone: () => v
             setOpening(true)
             const result = await shareFile(ready.file)
             setOpening(false)
-            if (result !== 'needs-tap') onDone()
+            // Dismissed again: the notice stays, so the file can still be downloaded.
+            if (result === 'shared' || result === 'downloaded') onDone()
           }}
         >
           Share or save…

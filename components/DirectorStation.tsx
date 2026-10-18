@@ -306,22 +306,28 @@ function PlanDesk({
             {starting === 'all' ? 'Starting…' : 'Generate all'}
           </button>
         </div>
+        {/* Inside the bar: on a phone or tablet it sticks over the page cards, so a refusal or the shut button's
+            reason under it is on screen wherever Generate all was pressed. */}
+        {((!nothingLeft && allSpend.blocked && allSpend.reason) || planNotice || startNotice) && (
+          <div className="plan-bar-notes">
+            {!nothingLeft && <SpendNote spend={allSpend} id="all-reason" />}
+            {planNotice && (
+              <p className="notice" role="alert">
+                {planNotice}
+              </p>
+            )}
+            {startNotice && (
+              <p className="notice" role="alert">
+                {startNotice}
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
-      {!nothingLeft && <SpendNote spend={allSpend} id="all-reason" />}
       {plan.summarized && (
         <p className="helper plan-summarized">
           The scenario was long, so the Director planned from a summary of it.
-        </p>
-      )}
-      {planNotice && (
-        <p className="notice" role="alert">
-          {planNotice}
-        </p>
-      )}
-      {startNotice && (
-        <p className="notice" role="alert">
-          {startNotice}
         </p>
       )}
 

@@ -16,7 +16,7 @@
 // error. The checks run under tsx, where `scripts/server-only.mts` resolves the
 // package the way Next's server does.
 import 'server-only'
-import Anthropic, { APIConnectionError, APIConnectionTimeoutError, APIError } from '@anthropic-ai/sdk'
+import Anthropic, { APIConnectionError, APIError } from '@anthropic-ai/sdk'
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod'
 import { z } from 'zod'
 import { ProviderError } from './errors'
@@ -111,14 +111,49 @@ export async function ask<S extends z.ZodType>(
 //     400 on this model;
 //   • temperature / top_p / top_k are rejected, so none are sent.
 
-let client: Anthropic | null = null
+/** One call's attempts that Anthropic may bill: sent, and either answered 2xx or never answered at all. */
+type Tally = { billable: number }
 
-function anthropic(): Anthropic {
+function anthropic(tally: Tally): Anthropic {
   if (!process.env.ANTHROPIC_API_KEY) throw new ProviderError(NO_CLAUDE_KEY, 'config')
   // One retry, not the SDK's default two: past it, the fallback is the faster answer.
   // And a ceiling per attempt (CR-11): the SDK's default is ten minutes, which a
   // proxy's idle timeout or a platform's request limit would cut off long before.
-  return (client ??= new Anthropic({ maxRetries: 1, timeout: 150_000 }))
+  // A client per call, so its fetch can count that call's attempts (the connection pool is fetch's own, shared).
+  return new Anthropic({ maxRetries: 1, timeout: 150_000, fetch: tallied(tally) })
+}
+
+/**
+ * fetch, counting each attempt that may be billed: a 2xx, or a request that went out and never came back (cut off,
+ * or past the SDK's ceiling). An error status is not billed, and a connection that never opened sent nothing — the
+ * SDK calls undici's connect timeout a timeout too, so the class of its error can't tell the two apart.
+ */
+function tallied(tally: Tally): typeof fetch {
+  return async (input, init) => {
+    try {
+      const res = await globalThis.fetch(input, init)
+      if (res.ok) tally.billable++
+      return res
+    } catch (err) {
+      if (!neverSent(err)) tally.billable++
+      throw err
+    }
+  }
+}
+
+/** Codes of a failure to connect (or to find the host): the request never left this machine. */
+const UNSENT = new Set(['UND_ERR_CONNECT_TIMEOUT', 'ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'EHOSTUNREACH', 'ENETUNREACH'])
+
+function neverSent(err: unknown): boolean {
+  type Failure = { code?: unknown; syscall?: unknown; message?: unknown; cause?: unknown; errors?: unknown }
+  for (let e = err as Failure | undefined, depth = 0; e && typeof e === 'object' && depth < 5; e = e.cause as Failure | undefined, depth++) {
+    if (typeof e.code === 'string' && (UNSENT.has(e.code) || (e.code === 'ETIMEDOUT' && e.syscall === 'connect'))) return true
+    // A port fetch itself refuses to use (an ANTHROPIC_BASE_URL on one): nothing was opened.
+    if (e.message === 'bad port') return true
+    // Several addresses tried, none connected.
+    if (Array.isArray(e.errors) && e.errors.length > 0 && e.errors.every(neverSent)) return true
+  }
+  return false
 }
 
 type ClaudeImage = { type: 'image'; source: { type: 'base64'; media_type: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'; data: string } }
@@ -149,10 +184,11 @@ async function askClaude<S extends z.ZodType>(
     if (meter) meter.costUsd += usd
     return `≈ $${usd.toFixed(4)} (${how})`
   }
+  const tally: Tally = { billable: 0 }
   let res
   try {
     // create, not parse: the parse would throw before the usage could be read (after-audit #5).
-    res = await anthropic().messages.create({
+    res = await anthropic(tally).messages.create({
       model,
       max_tokens: maxTokens,
       thinking: { type: 'between_tools' }, // short calls; latency is on camera
@@ -162,11 +198,16 @@ async function askClaude<S extends z.ZodType>(
     })
   } catch (err) {
     if (err instanceof ProviderError) throw err
-    // A request that was sent and timed out, or a reply the SDK could not read, may still be billed: count the worst case.
-    if (err instanceof APIConnectionTimeoutError || !(err instanceof APIError)) {
-      console.warn(`[text] ${label} — Claude was asked but no usage came back · ${bill(worstCaseUsd(prompt, images, maxTokens), 'estimated')}`)
+    // Each attempt that was sent and never answered (cut off, past the ceiling), or answered with a reply the SDK
+    // could not read, may still be billed: the worst case for each. One that never connected costs nothing.
+    if (tally.billable > 0) {
+      console.warn(`[text] ${label} — Claude was asked but no usage came back · ${bill(tally.billable * worstCaseUsd(prompt, images, maxTokens), 'estimated')}`)
     }
     throw new ProviderError(CLAUDE_BUSY, 'provider', err)
+  }
+  // An earlier attempt sent and never answered (the SDK then retried) may be billed as well.
+  if (tally.billable > 1) {
+    console.warn(`[text] ${label} — an earlier attempt was sent but never answered · ${bill((tally.billable - 1) * worstCaseUsd(prompt, images, maxTokens), 'estimated')}`)
   }
   // Billed from here on, whatever the reply says: counted BEFORE it is read, so a
   // reply cut off at max_tokens, or a refusal, still reaches the caps.

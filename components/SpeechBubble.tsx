@@ -14,20 +14,22 @@
 // it fits its bubble (`components/bubble-fit.ts`), so it is never cut off on a
 // small panel. On a touch screen nothing drags: the bubble is one button that
 // opens the edit sheet (`components/BubbleEditSheet.tsx`), which saves through
-// the same `onLayout` / `onDialogue` as the drag and the in-place edit.
+// the same `onEdit` as the drag and the in-place edit — its words and place as
+// one edit, so the reply to one save can't put the old words back on screen.
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { Rnd } from 'react-rnd'
 import { BubbleEditSheet, sameLayout } from '@/components/BubbleEditSheet'
 import { useCoarsePointer, useLetteringFit } from '@/components/bubble-fit'
 import { bubbleLayout, clampBubble, tailPath } from '@/lib/bubble'
+import type { PanelEdit } from '@/lib/patch'
 import type { BubbleLayout, Panel } from '@/lib/types'
 
 type Props = {
   panel: Pick<Panel, 'index' | 'camera' | 'bubble' | 'dialogue'>
   /** Over a pencil placeholder, before the art has inked in. */
   faint: boolean
-  onLayout: (layout: BubbleLayout) => void
-  onDialogue: (dialogue: string) => void
+  /** A new place, new words, or both at once: one save. */
+  onEdit: (edit: Pick<PanelEdit, 'bubble' | 'dialogue'>) => void
 }
 
 const HANDLE_CLASSES = {
@@ -47,7 +49,7 @@ const CORNERS_ONLY = {
   bottomRight: true,
 }
 
-export function SpeechBubble({ panel, faint, onLayout, onDialogue }: Props) {
+export function SpeechBubble({ panel, faint, onEdit }: Props) {
   // The layer fills the panel; everything is a percentage of it. react-rnd
   // works in pixels, so the layer is measured and kept fresh on resize.
   const layerRef = useRef<HTMLDivElement>(null)
@@ -76,7 +78,7 @@ export function SpeechBubble({ panel, faint, onLayout, onDialogue }: Props) {
   const base = () => liveRef.current ?? bubbleLayout(panel)
   const commit = (next: BubbleLayout) => {
     setLiveLayout(null)
-    onLayout(clampBubble(next))
+    onEdit({ bubble: clampBubble(next) })
   }
 
   // The tail tip: one small handle, pointer-captured so the pull keeps
@@ -97,10 +99,32 @@ export function SpeechBubble({ panel, faint, onLayout, onDialogue }: Props) {
   const [editing, setEditing] = useState(false)
   const [draftWords, setDraftWords] = useState<string | null>(null)
   const words = draftWords ?? panel.dialogue
+  const tapRef = useRef<HTMLButtonElement>(null)
+  const aligned = useRef(false)
   const closeSheet = () => {
     setEditing(false)
     setDraftWords(null)
+    aligned.current = false
   }
+
+  // While the sheet is open the bubble itself stays in view above it: on open the
+  // panel's top goes to the top of the screen, unless that leaves the bubble under
+  // the sheet (a tablet in landscape); then, as it moves, the page follows it.
+  useEffect(() => {
+    if (!editing) return
+    const bubble = tapRef.current
+    const sheet = document.querySelector('.bubble-sheet')
+    const frame = bubble?.closest('.panel')
+    if (!bubble || !sheet || !frame) return
+    const gap = 8
+    const b = bubble.getBoundingClientRect()
+    const room = sheet.getBoundingClientRect().top - gap
+    let by = aligned.current ? 0 : frame.getBoundingClientRect().top
+    aligned.current = true
+    if (b.bottom - by > room) by = b.bottom - room
+    if (b.top - by < gap) by = b.top - gap
+    if (Math.abs(by) >= 1) window.scrollBy({ top: by, behavior: 'smooth' })
+  }, [editing, l.x, l.y, l.w, l.h])
 
   // The lettering fits its box whenever the box or the words change.
   const textRef = useRef<HTMLSpanElement>(null)
@@ -123,6 +147,7 @@ export function SpeechBubble({ panel, faint, onLayout, onDialogue }: Props) {
             // One target over the whole bubble (never under 44 px), the words
             // inside it; the pencil mark says it can be edited.
             <button
+              ref={tapRef}
               type="button"
               className="bubble-tap"
               style={{
@@ -134,10 +159,7 @@ export function SpeechBubble({ panel, faint, onLayout, onDialogue }: Props) {
               aria-label={`Edit panel ${panel.index + 1}’s bubble: “${words}”`}
               aria-haspopup="dialog"
               aria-expanded={editing}
-              onClick={(e) => {
-                setEditing(true)
-                e.currentTarget.closest('.panel')?.scrollIntoView({ block: 'start', behavior: 'smooth' })
-              }}
+              onClick={() => setEditing(true)}
             >
               <span className="bubble-text-wrap" style={{ width: bw * 0.72, height: bh * 0.78 }}>
                 <span key={`${panel.index}-${words}`} ref={textRef} className="bubble-text">
@@ -201,7 +223,7 @@ export function SpeechBubble({ panel, faint, onLayout, onDialogue }: Props) {
                     onInput={refit}
                     onBlur={(e) => {
                       const text = (e.currentTarget.textContent ?? '').trim()
-                      if (text !== panel.dialogue) onDialogue(text)
+                      if (text !== panel.dialogue) onEdit({ dialogue: text })
                     }}
                   >
                     {panel.dialogue}
@@ -238,9 +260,11 @@ export function SpeechBubble({ panel, faint, onLayout, onDialogue }: Props) {
               }}
               onDone={(layout, text) => {
                 closeSheet()
-                if (sameLayout(layout, stored)) setLiveLayout(null)
-                else commit(layout)
-                if (text !== panel.dialogue) onDialogue(text)
+                setLiveLayout(null)
+                const edit: Pick<PanelEdit, 'bubble' | 'dialogue'> = {}
+                if (!sameLayout(layout, stored)) edit.bubble = clampBubble(layout)
+                if (text !== panel.dialogue) edit.dialogue = text
+                if (edit.bubble || edit.dialogue !== undefined) onEdit(edit)
               }}
               onCancel={() => {
                 closeSheet()

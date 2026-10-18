@@ -155,8 +155,7 @@ export function Panel({
           <SpeechBubble
             panel={panel}
             faint={pencilUnder}
-            onLayout={(bubble) => onPanelEdit(panel.index, { bubble })}
-            onDialogue={(dialogue) => onPanelEdit(panel.index, { dialogue })}
+            onEdit={(edit) => onPanelEdit(panel.index, edit)}
           />
         )}
 

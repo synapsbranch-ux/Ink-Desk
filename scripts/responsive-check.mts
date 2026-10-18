@@ -16,8 +16,10 @@
 // Free and offline. Every real credential is dropped from this process before
 // anything loads, and the dev server it starts gets an EXPLICIT minimal
 // environment (PATH, HOME, the proxy and CA variables, the Playwright browsers,
-// NODE_ENV and the INKDESK_* modes) — never this shell's. No OPENROUTER key is
-// given, so no screen can spend even if something were pressed; nothing here
+// NODE_ENV and the INKDESK_* modes) — never this shell's — and every name a
+// `.env*` file sets is given blank, so Next can't fill it from a learner's
+// `.env` (checked with @next/env before the server starts). No OPENROUTER key
+// is given, so no screen can spend even if something were pressed; nothing here
 // presses a spending button (Animate only asks for the estimate, a GET).
 //
 // The desk is a temp COPY of `data/filming-2026-10-14` plus shares, trailers,
@@ -40,6 +42,10 @@
 //                    or file input is measured by its <label>.
 //   text-cut         lettering (.bubble-text, .cover-title, [data-lettering])
 //                    clipped by itself or by a clipping ancestor
+//   behaviour        what a screen's own `check` found wrong with a touch
+//                    (the after-audit's pins: a tap that closes the bubble
+//                    sheet presses nothing under it, the sheet's buttons above
+//                    a keyboard, a refusal in view…)
 // Each violation is assigned to an area by the file that renders the element:
 // the nearest class on it or its ancestors that only one area's files use.
 //
@@ -272,10 +278,30 @@ function claimDistDir(): { dir: string; release: () => void } {
   throw new Error('eight responsive servers are already running here; stop one or use --url')
 }
 
-/** Exactly what the dev server is given — never this shell's environment. */
-function serverEnv(dataDir: string, distDir: string, port: number): NodeJS.ProcessEnv {
+/** Credentials and switches blanked even when no .env file names them (the parent's scrub, above, by name). */
+const ALWAYS_BLANK = ['OPENROUTER_API_KEY', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'ELEVENLABS_API_KEY', 'CLERK_SECRET_KEY', 'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY', 'DB_URL', 'MONGODB_URI', 'REDIS_URL', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY', 'APP_URL', 'ALLOWLIST_EMAILS', 'GENERATION_ENABLED']
+
+/** Every name any `.env*` file in `dir` sets (`.env.example` included). */
+function envFileNames(dir: string): string[] {
+  const names = new Set<string>()
+  for (const file of readdirSync(dir).filter((f) => f.startsWith('.env'))) {
+    try {
+      for (const m of readFileSync(join(dir, file), 'utf8').matchAll(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/gm)) names.add(m[1])
+    } catch {}
+  }
+  return [...names]
+}
+
+/**
+ * Exactly what the dev server is given — never this shell's environment. Next then loads the `.env` files into every
+ * name the environment leaves UNDEFINED (`@next/env`), so a learner's `.env` would hand the server their keys: every
+ * name those files set, and every credential, is given here as blank instead. A blank value is defined, so the file
+ * can't fill it, and blank is the default for every setting (CR-15).
+ */
+function serverEnv(dataDir: string, distDir: string, port: number, envDir = ROOT): NodeJS.ProcessEnv {
   const pass = ['PATH', 'HOME', 'TERM', 'LANG', 'TMPDIR', 'HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY', 'https_proxy', 'http_proxy', 'no_proxy', 'NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'PLAYWRIGHT_BROWSERS_PATH']
   const out: Record<string, string | undefined> = {}
+  for (const name of [...ALWAYS_BLANK, ...envFileNames(envDir)]) out[name] = ''
   for (const name of pass) if (env[name] !== undefined) out[name] = env[name]
   return {
     ...out,
@@ -329,6 +355,29 @@ function untouchTsconfig(distDir: string): void {
     writeFileSync(path, joined)
   } catch {
     // An unreadable tsconfig is not this check's to mend.
+  }
+}
+
+/**
+ * The server's environment, as Next will see it: `@next/env` run on a temp project whose `.env` files hold fake keys,
+ * from the environment `serverEnv` gives. A problem sentence when any of those values would reach the server.
+ */
+async function envLeak(): Promise<string | null> {
+  const dir = await mkdtemp(join(tmpdir(), 'inkdesk-responsive-env-'))
+  try {
+    writeFileSync(join(dir, '.env'), 'OPENROUTER_API_KEY=sk-or-pin\nANTHROPIC_API_KEY=sk-ant-pin\nDB_URL=mongodb://example.invalid/pin\nALLOWLIST_EMAILS=pin@example.com\nINKDESK_STORAGE=cloud\n')
+    writeFileSync(join(dir, '.env.development.local'), 'CLERK_SECRET_KEY=sk_test_pin\nA_LEARNER_TOKEN=pin\n')
+    const script = `const { loadEnvConfig } = require(${JSON.stringify(join(ROOT, 'node_modules/@next/env'))}); loadEnvConfig(${JSON.stringify(dir)}, true, { info() {}, error() {} }); process.stdout.write(JSON.stringify(process.env))`
+    const child = spawn(process.execPath, ['-e', script], { cwd: dir, env: serverEnv(join(dir, 'desk'), '.next-env-check', 0, dir), stdio: ['ignore', 'pipe', 'pipe'] })
+    let text = ''
+    child.stdout?.on('data', (b: Buffer) => (text += b.toString()))
+    const code = await new Promise<number | null>((r) => child.on('close', r))
+    if (code !== 0) return `@next/env could not be run to check the server's environment (exit ${code})`
+    const seen = JSON.parse(text) as Record<string, string>
+    const leaked = Object.entries(seen).filter(([name, value]) => /pin/.test(value) || (name === 'INKDESK_STORAGE' && value !== 'local'))
+    return leaked.length ? `the dev server would take ${leaked.map(([n]) => n).join(', ')} from a .env file` : null
+  } finally {
+    await rm(dir, { recursive: true, force: true })
   }
 }
 
@@ -406,7 +455,7 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
 }
 
 // --- Measuring --------------------------------------------------------------------------------------------
-type Kind = 'sideways-scroll' | 'small-target' | 'text-cut'
+type Kind = 'sideways-scroll' | 'small-target' | 'text-cut' | 'behaviour'
 type Violation = { area: Area; screen: string; width: number; kind: Kind; selector: string; label: string; detail: string; file: string | null }
 type Note = { screen: string; width: number; area: Area; selector: string; label: string; detail: string; file: string | null }
 type WidthResult = {
@@ -509,6 +558,9 @@ async function measureOne(ctx: BrowserContext, base: string, fx: Fixture, screen
   const release = screen.studio ? await studioTurn() : null
   try {
     await screen.run!(sctx)
+    for (const problem of screen.check ? await screen.check(sctx) : []) {
+      result.violations.push({ area: screen.area, screen: screen.name, width, kind: 'behaviour', selector: screen.name, label: '', detail: problem, file: null })
+    }
     if (screen.ready) await page.locator(screen.ready).first().waitFor({ state: 'visible', timeout: 60_000 })
     await page.addStyleTag({ content: HIDE_DEV_CHROME_CSS }).catch(() => {})
     await page.evaluate(SETTLE_SOURCE)
@@ -614,6 +666,12 @@ async function main(): Promise<number> {
   let fx: Fixture
 
   if (!base) {
+    const leak = await envLeak()
+    if (leak) {
+      console.error(`check:responsive: ${leak} — refusing to start it`)
+      return 1
+    }
+    console.log('server environment: no .env value reaches it (checked with @next/env)')
     const dir = await mkdtemp(join(tmpdir(), 'inkdesk-responsive-'))
     if (!opts.keep) cleanups.push(() => rm(dir, { recursive: true, force: true }))
     env.INKDESK_DATA_DIR = join(dir, 'desk')
@@ -789,7 +847,7 @@ function summarize(results: Record<string, ScreenResult>, screens: Screen[], rep
   const byKind = (k: Kind) => violations.filter((v) => v.kind === k).length
   const secs = ((Date.now() - started) / 1000).toFixed(0)
   console.log(
-    `\n${Object.keys(results).length} screens × ${opts.widths.join('/')} px: ${violations.length} violation(s) — ${byKind('sideways-scroll')} sideways, ${byKind('small-target')} small targets, ${byKind('text-cut')} cut text${failures.length ? `; ${failures.length} unfinished` : ''} — ${secs} s`,
+    `\n${Object.keys(results).length} screens × ${opts.widths.join('/')} px: ${violations.length} violation(s) — ${byKind('sideways-scroll')} sideways, ${byKind('small-target')} small targets, ${byKind('text-cut')} cut text, ${byKind('behaviour')} behaviour${failures.length ? `; ${failures.length} unfinished` : ''} — ${secs} s`,
   )
   console.log(`screenshots: ${relative(ROOT, opts.out)}/<width>/<screen>.png · report: ${relative(ROOT, join(opts.out, 'report.json'))} (${report.violations.length} violation(s) across every screen measured so far)`)
   if (failures.length) return 2

@@ -41,6 +41,8 @@ export type Screen = {
   /** Waited for before measuring. */
   ready?: string
   run?(ctx: ScreenCtx): Promise<void>
+  /** After `run`: what a touch did wrong here, one sentence each (a `behaviour` violation); [] when all is well. */
+  check?(ctx: ScreenCtx): Promise<string[]>
   /** Why this screen can't be reached on a check desk; it is listed, never measured. */
   unreachable?: string
 }
@@ -54,6 +56,194 @@ async function openDialog(ctx: ScreenCtx, opener: Locator): Promise<void> {
 }
 
 const button = (page: Page, name: RegExp) => page.getByRole('button', { name }).first()
+
+// --- The after-audit's pins: what a touch does, checked as well as measured ---------------------------
+const SHEET = '.bubble-sheet'
+
+/** Tap the first bubble on the open page and wait for its sheet (and the scroll that brings the panel up). */
+async function openBubbleSheet(c: ScreenCtx): Promise<void> {
+  await c.press(c.page.locator('.bubble-tap').first())
+  await c.page.locator(SHEET).waitFor({ state: 'visible', timeout: 20_000 })
+  await c.page.waitForTimeout(900)
+}
+
+async function cancelBubbleSheet(c: ScreenCtx): Promise<void> {
+  await c.press(c.page.locator(SHEET).getByRole('button', { name: 'Cancel', exact: true }))
+  await c.page.locator(SHEET).waitFor({ state: 'hidden', timeout: 10_000 })
+}
+
+/** Every POST the page sends from now on is held (answered 409 here, never reaching the desk) and listed. */
+async function holdPosts(page: Page): Promise<{ posts: string[]; bodies: string[]; release: () => Promise<void> }> {
+  const posts: string[] = []
+  const bodies: string[] = []
+  const handler = (route: import('playwright').Route) => {
+    const r = route.request()
+    if (r.method() !== 'POST') return route.continue()
+    posts.push(`POST ${new URL(r.url()).pathname}`)
+    bodies.push(r.postData() ?? '')
+    return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'Held by the check.' }) })
+  }
+  await page.route('**/api/**', handler)
+  return { posts, bodies, release: () => page.unroute('**/api/**', handler) }
+}
+
+/**
+ * A tap on the dim above the bubble sheet is Done, and nothing else: the overlay used to close on pointerdown, so the
+ * same tap's click landed on the control now under the finger — a panel's Redraw, a paid call.
+ */
+async function tapOutsideSheet(c: ScreenCtx): Promise<string[]> {
+  if (!c.touch) return []
+  const held = await holdPosts(c.page)
+  try {
+    await openBubbleSheet(c)
+    const target = (await c.page.evaluate(`(() => {
+      const sheet = document.querySelector('${SHEET}').getBoundingClientRect()
+      const open = document.querySelector('.bubble-tap[aria-expanded="true"]')
+      // A panel's own button first (Redraw, Try again…); else a bubble, whose click would open a sheet again.
+      const pick = (root, bubbles) => [...root.querySelectorAll('button:not(:disabled)')]
+        .filter((b) => !b.closest('.bubble-sheet-overlay') && b.classList.contains('bubble-tap') === bubbles)
+        .map((b) => ({ b, r: b.getBoundingClientRect() }))
+        .find(({ r }) => r.width > 0 && r.top >= 0 && r.bottom <= sheet.top - 2)
+      const hit = (open && pick(open.closest('.panel'), false)) || pick(document, false) || pick(document, true)
+      if (!hit) return null
+      const x = hit.r.left + hit.r.width / 2
+      const y = hit.r.top + hit.r.height / 2
+      const under = document.elementFromPoint(x, y)
+      return { x, y, label: hit.b.getAttribute('aria-label') || hit.b.textContent.trim().slice(0, 40), dim: !!under && under.classList.contains('bubble-sheet-overlay') }
+    })()`)) as { x: number; y: number; label: string; dim: boolean } | null
+    if (!target) return ['no button shows above the open bubble sheet to tap through — the pin could not be set up']
+    if (!target.dim) return [`the dim above the bubble sheet doesn't cover “${target.label}”, so a tap there presses it`]
+    await c.page.touchscreen.tap(target.x, target.y)
+    await c.page.waitForTimeout(1200)
+    const problems: string[] = []
+    if (await c.page.locator(SHEET).isVisible()) problems.push(`a tap on the dim over “${target.label}” left a bubble sheet open — it didn't close, or its click pressed the bubble under it`)
+    if (held.posts.length) problems.push(`the tap that closed the bubble sheet also pressed “${target.label}” under it: ${held.posts.join(', ')}`)
+    return problems
+  } finally {
+    await held.release()
+  }
+}
+
+/** With a phone keyboard up (the visual viewport 300 px shorter, the layout viewport unchanged), Done and Cancel stay above the keys. */
+async function sheetOverKeyboard(c: ScreenCtx): Promise<string[]> {
+  if (!c.touch) return []
+  const visible = (await c.page.evaluate(`(() => {
+    const height = innerHeight - 300
+    const vv = Object.assign(new EventTarget(), { height, width: innerWidth, offsetTop: 0, offsetLeft: 0, pageTop: scrollY, pageLeft: 0, scale: 1 })
+    Object.defineProperty(window, 'visualViewport', { value: vv, configurable: true })
+    return height
+  })()`)) as number
+  await openBubbleSheet(c)
+  const bottoms = (await c.page.evaluate(`[...document.querySelectorAll('.bubble-sheet-actions button')].map((b) => ({ name: b.textContent.trim(), bottom: Math.round(b.getBoundingClientRect().bottom) }))`)) as { name: string; bottom: number }[]
+  const problems = bottoms.filter((b) => b.bottom > visible + 1).map((b) => `with a keyboard leaving ${visible}px visible, the bubble sheet's ${b.name} sits at ${b.bottom}px — under the keys`)
+  if (bottoms.length === 0) problems.push('the bubble sheet has no Cancel / Done row')
+  await cancelBubbleSheet(c)
+  return problems
+}
+
+/** The bubble moved to the panel's bottom edge stays above the sheet, so the live preview can be seen (a tablet in landscape too). */
+async function bubbleAboveSheet(c: ScreenCtx): Promise<string[]> {
+  if (!c.touch) return []
+  const sizes = c.width < 600 ? [{ width: c.width, height: 844 }] : [{ width: c.width, height: 1024 }, { width: 1024, height: 768 }]
+  const before = c.page.viewportSize()
+  const problems: string[] = []
+  try {
+    for (const size of sizes) {
+      await c.page.setViewportSize(size)
+      await c.page.waitForTimeout(400)
+      await openBubbleSheet(c)
+      const down = c.page.locator(SHEET).getByRole('button', { name: /^Move the bubble down/ })
+      for (let i = 0; i < 30 && (await down.isEnabled()); i++) await down.tap()
+      await c.page.waitForTimeout(1200)
+      const r = (await c.page.evaluate(`(() => {
+        const b = document.querySelector('.bubble-tap[aria-expanded="true"]').getBoundingClientRect()
+        return { top: Math.round(b.top), bottom: Math.round(b.bottom), sheet: Math.round(document.querySelector('${SHEET}').getBoundingClientRect().top) }
+      })()`)) as { top: number; bottom: number; sheet: number }
+      if (r.bottom > r.sheet + 1 || r.top < 0) problems.push(`at ${size.width}×${size.height}, the bubble moved to the bottom edge is at ${r.top}–${r.bottom}px and the sheet starts at ${r.sheet}px: the live preview is hidden`)
+      await cancelBubbleSheet(c)
+    }
+  } finally {
+    if (before) await c.page.setViewportSize(before)
+  }
+  return problems
+}
+
+/** Done after a move AND new words sends ONE edit with both: two saves at once let the first reply put the old words back. */
+async function doneSavesOnce(c: ScreenCtx): Promise<string[]> {
+  if (!c.touch) return []
+  const held = await holdPosts(c.page)
+  try {
+    await openBubbleSheet(c)
+    const sheet = c.page.locator(SHEET)
+    await sheet.locator('.bubble-sheet-text').fill('Held by the check')
+    const right = sheet.getByRole('button', { name: /^Move the bubble right/ })
+    await c.press((await right.isEnabled()) ? right : sheet.getByRole('button', { name: /^Move the bubble left/ }))
+    await c.press(sheet.getByRole('button', { name: 'Done', exact: true }))
+    await c.page.waitForTimeout(1200)
+    const saves = held.bodies.filter((b) => b.includes('"panels"'))
+    const one = saves.length === 1 && saves[0].includes('"bubble"') && saves[0].includes('"dialogue"')
+    return one ? [] : [`Done after a move and new words sent ${saves.length} save(s), not one with both: ${saves.map((b) => b.slice(0, 90)).join(' · ')}`]
+  } finally {
+    await held.release()
+  }
+}
+
+const HELD_ALL = 'The studio is busy right now — held by the check.'
+
+/** Generate all refused while the plan's bar is stuck over the bottom of the page: the sentence shows on screen, not above it. */
+async function refusalInView(c: ScreenCtx): Promise<string[]> {
+  if (c.width > 960) return [] // the bar sticks at 960 px and under
+  const page = c.page
+  const all = page.getByRole('button', { name: 'Generate all', exact: true })
+  const steps = page.locator('.count-stepper button')
+  let added = false
+  const problems: string[] = []
+  const hold = (route: import('playwright').Route) => route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: HELD_ALL }) })
+  await page.route('**/pages/all/start', hold)
+  try {
+    // One page more than is on the board, so Generate all is open (taken off again below).
+    if (await all.isDisabled()) {
+      await c.press(steps.last())
+      added = true
+      await page.waitForTimeout(1500)
+    }
+    if (await all.isDisabled()) return ['Generate all could not be opened on the manhwa copy — the pin could not be set up']
+    await page.evaluate('window.scrollTo(0, document.documentElement.scrollHeight)')
+    await page.waitForTimeout(500)
+    await c.press(all)
+    const alert = page.locator('[role="alert"]', { hasText: HELD_ALL }).first()
+    await alert.waitFor({ state: 'attached', timeout: 15_000 })
+    await page.waitForTimeout(300)
+    const box = await alert.boundingBox()
+    const { h, y } = (await page.evaluate('({ h: innerHeight, y: Math.round(scrollY) })')) as { h: number; y: number }
+    if (!box || box.y + box.height <= 0 || box.y >= h) {
+      problems.push(`Generate all refused from the bottom of the page (scrolled to ${y}px): its sentence is ${box ? `at ${Math.round(box.y)}–${Math.round(box.y + box.height)}px` : 'not shown'}, off the ${h}px screen`)
+    }
+  } finally {
+    await page.unroute('**/pages/all/start', hold)
+    if (added) {
+      await c.press(steps.first())
+      await page.waitForTimeout(1500)
+    }
+  }
+  return problems
+}
+
+/** Export PNG on a touch screen whose share sheet is dismissed: the file can still be had ("Download instead"). */
+async function exportAfterDismissedShare(c: ScreenCtx): Promise<string[]> {
+  if (!c.touch) return []
+  await c.page.evaluate(`navigator.canShare = () => true; navigator.share = async () => { throw new DOMException('dismissed', 'AbortError') }`)
+  const downloads: string[] = []
+  c.page.on('download', (d) => void downloads.push(d.suggestedFilename()))
+  await c.press(c.page.getByRole('button', { name: /^Export PNG/ }).first())
+  await c.page.waitForFunction(`!document.body.innerText.includes('Compositing')`, null, { timeout: 120_000 })
+  await c.page.waitForTimeout(800)
+  const instead = c.page.getByRole('button', { name: 'Download instead' }).first()
+  if (!(await instead.isVisible())) return ['Export PNG with the share sheet dismissed: no download and no “Download instead” — the file can’t be had']
+  await c.press(instead)
+  await c.page.waitForTimeout(1500)
+  return downloads.length ? [] : ['“Download instead” after a dismissed share sheet downloaded nothing']
+}
 
 export const SCREENS: readonly Screen[] = [
   // --- surfaces -------------------------------------------------------------------
@@ -155,6 +345,15 @@ export const SCREENS: readonly Screen[] = [
   { name: 'studio-story-blank', area: 'planning', who: 'owner', studio: true, what: 'Story on a blank project (pitch inputs)', run: (c) => c.studio(c.fx.blankId, 'story') },
   { name: 'studio-library', area: 'planning', who: 'owner', studio: true, what: 'Library: cast cards and the asset shelf', run: (c) => c.studio(c.fx.projectId, 'cast') },
   { name: 'studio-director', area: 'planning', who: 'owner', studio: true, what: 'Director: the plan, page cards, cover', run: (c) => c.studio(c.fx.projectId, 'director') },
+  {
+    name: 'director-refused-stuck',
+    area: 'planning',
+    who: 'owner',
+    studio: true,
+    what: 'Director (manhwa copy): Generate all refused from the bottom of the page — the sentence in view',
+    run: (c) => c.studio(c.fx.manhwaId, 'director'),
+    check: refusalInView,
+  },
 
   // --- page -----------------------------------------------------------------------------
   { name: 'studio-page', area: 'page', who: 'owner', studio: true, what: 'Page 1: four panels, bubbles, the finished trailer below', ready: '.page-switcher', run: (c) => c.studio(c.fx.projectId, 'storyboard', 0) },
@@ -169,6 +368,33 @@ export const SCREENS: readonly Screen[] = [
       await c.press(c.page.locator('.bubble-text').first())
       await c.page.waitForTimeout(400)
     },
+  },
+  {
+    name: 'bubble-sheet-tap-outside',
+    area: 'page',
+    who: 'owner',
+    studio: true,
+    what: 'Page 2: the bubble sheet closed by a tap on the dim over a panel’s button — the tap presses nothing under it',
+    run: (c) => c.studio(c.fx.projectId, 'storyboard', 1),
+    check: tapOutsideSheet,
+  },
+  {
+    name: 'bubble-sheet-keyboard',
+    area: 'page',
+    who: 'owner',
+    studio: true,
+    what: 'Page 1: the bubble sheet with a phone keyboard up — Done and Cancel above the keys; Done saves place and words as one edit',
+    run: (c) => c.studio(c.fx.projectId, 'storyboard', 0),
+    check: async (c) => [...(await sheetOverKeyboard(c)), ...(await doneSavesOnce(c))],
+  },
+  {
+    name: 'bubble-sheet-preview',
+    area: 'page',
+    who: 'owner',
+    studio: true,
+    what: 'Page 1: the bubble moved to the bottom edge stays above the sheet (a tablet in landscape too)',
+    run: (c) => c.studio(c.fx.projectId, 'storyboard', 0),
+    check: bubbleAboveSheet,
   },
 
   // --- reader -----------------------------------------------------------------------------
@@ -213,6 +439,16 @@ export const SCREENS: readonly Screen[] = [
     },
   },
   { name: 'studio-reader-vertical', area: 'reader', who: 'owner', studio: true, what: 'Ink & Publish, the manhwa vertical scroll', ready: '.reader-sheet', run: (c) => c.studio(c.fx.manhwaId, 'reader') },
+  {
+    name: 'reader-export-dismissed',
+    area: 'reader',
+    who: 'owner',
+    studio: true,
+    what: 'Ink & Publish: Export PNG on a touch screen, the share sheet dismissed — “Download instead” is offered',
+    ready: '.reader-sheet',
+    run: (c) => c.studio(c.fx.projectId, 'reader'),
+    check: exportAfterDismissedShare,
+  },
   {
     name: 'share-dialog',
     area: 'reader',

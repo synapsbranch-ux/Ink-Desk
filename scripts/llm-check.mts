@@ -36,7 +36,7 @@ const { createProject, read: readDesk } = await import('../lib/chapter')
 
 // --- The stub: scripted answers per host, every request recorded ----------
 type Sent = { url: string; headers: Headers; body: Record<string, unknown> }
-type Answer = { status: number; json?: unknown; headers?: Record<string, string> }
+type Answer = { status: number; json?: unknown; headers?: Record<string, string>; throws?: unknown }
 const sent: Sent[] = []
 const anthropicAnswers: Answer[] = []
 const openrouterAnswers: Answer[] = []
@@ -48,6 +48,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const queue = url.startsWith('https://api.anthropic.com') ? anthropicAnswers : url.startsWith('https://openrouter.ai') ? openrouterAnswers : null
   const next = queue?.shift()
   if (!next) throw new Error(`unscripted fetch to ${url}`)
+  if (next.throws) throw next.throws
   return new Response(JSON.stringify(next.json ?? { error: { type: 'error', message: 'stubbed' } }), {
     status: next.status,
     headers: { 'content-type': 'application/json', ...next.headers },
@@ -334,6 +335,36 @@ try {
   assert.ok(unknown.meter.costUsd >= (1024 * 10) / 1e6, `with no usage, at least max_tokens is counted (got ${unknown.meter.costUsd})`)
   assert.match(unknown.log, /\(estimated\)/)
   ok('a Claude reply cut off at max_tokens, or a refusal, is metered from its usage (or the worst case) before the calm error')
+
+  // 13. What is charged is decided by whether the request was SENT, not by the SDK's error class (after-audit,
+  // money). A connection that never opened sent nothing: $0, even when undici calls it a timeout. A request that
+  // went out and lost its connection, or ran past the SDK's ceiling, may be billed: the worst case for EACH such
+  // attempt — and a retry that then answers adds its own tokens on top.
+  const worst = unknown.meter.costUsd
+  process.env.LLM_FALLBACK = 'never'
+  const fetchFailed = (code: string, message: string) => new TypeError('fetch failed', { cause: Object.assign(new Error(message), { code }) })
+  const metered = async (answers: Answer[], fails: boolean) => {
+    anthropicAnswers.push(...answers)
+    const meter = { costUsd: 0 }
+    if (fails) await assert.rejects(writeSynopsis(synopsisInput, meter), (e: unknown) => e instanceof ProviderError)
+    else assert.deepEqual(await writeSynopsis(synopsisInput, meter), SYNOPSIS)
+    assert.equal(toAnthropic(take()).length, answers.length, 'the SDK retried once')
+    return { cost: meter.costUsd, log: terminal() }
+  }
+  const near = (a: number, b: number) => Math.abs(a - b) < 1e-12
+  const connectTimeout = (): Answer => ({ status: 0, throws: fetchFailed('UND_ERR_CONNECT_TIMEOUT', 'Connect Timeout Error (attempted address: api.anthropic.com:443, timeout: 10000ms)') })
+  const neverConnected = await metered([connectTimeout(), connectTimeout()], true)
+  assert.equal(neverConnected.cost, 0, `a connection that never opened sent nothing, so nothing is charged (got ${neverConnected.cost})`)
+  assert.doesNotMatch(neverConnected.log, /no usage came back/)
+  const refused = await metered([connectTimeout(), { status: 0, throws: fetchFailed('ECONNREFUSED', 'connect ECONNREFUSED 10.0.0.1:443') }], true)
+  assert.equal(refused.cost, 0, `nor a refused connection (got ${refused.cost})`)
+  const cutOff = await metered([{ status: 0, throws: fetchFailed('UND_ERR_SOCKET', 'other side closed') }, { status: 0, throws: fetchFailed('ECONNRESET', 'read ECONNRESET') }], true)
+  assert.ok(near(cutOff.cost, 2 * worst), `two requests sent and cut off are two worst cases (got ${cutOff.cost}, one is ${worst})`)
+  assert.match(cutOff.log, /Claude was asked but no usage came back · ≈ \$[\d.]+ \(estimated\)/)
+  const slowThenAnswered = await metered([{ status: 0, throws: new DOMException('This operation was aborted', 'AbortError') }, claudeReply(SYNOPSIS)], false)
+  assert.ok(near(slowThenAnswered.cost, worst + (10 * 2 + 10 * 10) / 1e6), `a timed-out attempt is the worst case, its answered retry its own tokens (got ${slowThenAnswered.cost})`)
+  delete process.env.LLM_FALLBACK
+  ok('a connection that never opened is charged $0; each request sent and never answered is the worst case; an answered retry adds its own tokens')
 
   assert.equal(anthropicAnswers.length + openrouterAnswers.length, 0, 'every scripted answer was consumed')
 } finally {

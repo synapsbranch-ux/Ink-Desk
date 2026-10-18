@@ -81,9 +81,13 @@
 
 /* The edit sheet: a paper sheet from the bottom edge, the panel left in view
    above it. Full width on a phone, a centred sheet on a tablet. */
+/* --sheet-top / --sheet-h (useSheetViewport): the part of the screen a phone's
+   keyboard leaves visible, so Done and Cancel are never under the keys. */
 .bubble-sheet-overlay {
   position: fixed;
-  inset: 0;
+  inset: auto 0;
+  top: var(--sheet-top, 0px);
+  height: var(--sheet-h, 100dvh);
   z-index: 60;
   display: flex;
   align-items: flex-end;
@@ -95,7 +99,7 @@
   flex-direction: column;
   width: 100%;
   max-width: 520px;
-  max-height: min(64dvh, 600px);
+  max-height: min(64dvh, 600px, var(--sheet-h, 100dvh));
   background: var(--paper);
   border: 2px solid var(--ink);
   border-bottom: 0;

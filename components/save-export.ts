@@ -9,7 +9,9 @@
 // The share sheet needs a fresh tap. Compositing can take long enough that the
 // tap which started it no longer counts; then `shareFile` answers 'needs-tap'
 // and the reader offers a "Share or save…" button, whose own tap opens the
-// sheet. See `devpost/security-report.md > Appendix — responsive`, item 7.
+// sheet. A dismissed sheet ('cancelled') offers the same, with "Download
+// instead": an Android sheet may have no plain save target. See
+// `devpost/security-report.md > Appendix — responsive`, item 7.
 import { downloadBlob } from '@/lib/export'
 
 export type SaveResult = 'downloaded' | 'shared' | 'cancelled' | 'needs-tap'

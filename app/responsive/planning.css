@@ -11,6 +11,14 @@
 .plan-bar-why {
   display: none;
 }
+/* The bar's own sentences — the shut button's reason, a refusal — take a row of the bar to themselves, last. */
+.plan-bar-notes {
+  order: 4;
+  flex: 1 1 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
 @media (pointer: coarse), (max-width: 960px) {
   .plan-bar-why {
     display: block;
