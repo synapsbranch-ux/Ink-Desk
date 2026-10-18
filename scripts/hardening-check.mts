@@ -13,11 +13,23 @@
 // same line. GENERATION_ENABLED=false — or unset in production — closes
 // every route that can spend with a 503, before its body is read. Realistic
 // requests, the shapes the studio sends, still pass.
+//
+// Slice 23 (the after-audit) adds two: the image optimizer is off, so
+// `/_next/image` can never fetch and keep a share picture (#1); and every page
+// carries a CSP with a fresh nonce from `proxy.ts`, with no 'unsafe-inline'
+// for scripts (#3).
 import './server-only.mts' // first: lets server modules load outside Next (SEC-15)
+// As Next's own server starts: section 9's config loader installs Next's require hook, after which Next's modules
+// expect the AsyncLocalStorage global this sets.
+import 'next/dist/server/node-environment-baseline.js'
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import type { IncomingMessage } from 'node:http'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 const dir = await mkdtemp(join(tmpdir(), 'inkdesk-hardening-'))
 const env = process.env as Record<string, string | undefined>
@@ -393,6 +405,159 @@ try {
   assert.equal(generationEnabled({ NODE_ENV: 'production' }), false, 'GENERATION_ENABLED unset is closed in production')
   assert.equal(generationEnabled({ NODE_ENV: 'production', GENERATION_ENABLED: 'true' }), true, 'GENERATION_ENABLED=true opens it in production')
   ok(`GENERATION_ENABLED=false → 503 on all ${paid.length} paid routes, body unread, no provider call; unset in production is closed; edits stay open`)
+
+  // 9. Slice 23 (#1): the image optimizer is off. Left open, /_next/image fetched the studio's own /api/** and /s/**
+  // routes and kept each answer in its disk cache, so a share picture outlived its unpublishing, a takedown and the
+  // deletion of the account. Held with Next's own config loader and its own parameter check.
+  {
+    const { default: loadConfig } = await import('next/dist/server/config.js')
+    const { PHASE_PRODUCTION_SERVER } = await import('next/constants.js')
+    const { ImageOptimizerCache } = await import('next/dist/server/image-optimizer.js')
+    const config = await loadConfig(PHASE_PRODUCTION_SERVER, ROOT, { silent: true })
+    // With the optimizer off, Next answers every /_next/image request 404 before it reads a parameter (next-server.js, handleNextImageRequest).
+    assert.equal(config.images.unoptimized, true, 'the image optimizer is off: /_next/image fetches nothing')
+    // Were it ever switched back on, it would still refuse anything but the brand marks.
+    const req = { headers: {} } as IncomingMessage
+    const shareRoutes = ['/api/s/tok123/image/panel-1.png', '/s/tok123/opengraph-image', '/api/s/tok123/file/poster.jpg', '/api/image/img-1.png', '/p/abc', '/api/projects']
+    for (const url of shareRoutes) {
+      const result = ImageOptimizerCache.validateParams(req, { url, w: '640', q: '75' }, config, false)
+      assert.deepEqual(result, { errorMessage: '"url" parameter is not allowed' }, `/_next/image?url=${url} is refused`)
+    }
+    assert.ok(!('errorMessage' in ImageOptimizerCache.validateParams(req, { url: '/brand/inkdesk-mark.svg', w: '64', q: '75' }, config, false)))
+    // Nothing is lost: every <Image> the app renders is a brand mark, an SVG the optimizer never touched anyway.
+    const { execFileSync } = await import('node:child_process')
+    const users = execFileSync('grep', ['-rlE', "from 'next/image'", 'app', 'components', 'lib'], { cwd: ROOT, encoding: 'utf8' }).trim().split('\n')
+    for (const file of users) {
+      const source = await readFile(join(ROOT, file), 'utf8')
+      for (const tag of source.match(/<Image\b[^>]*>/g) ?? []) assert.match(tag, /src="\/brand\/[^"]+\.svg"/, `${file}: ${tag}`)
+    }
+    ok(`the image optimizer is off: /_next/image refuses /api/s/…/image/…, /s/…/opengraph-image and the other ${shareRoutes.length - 2} routes; the ${users.length} files using <Image> show only brand SVGs`)
+  }
+
+  // 10. Slice 23 (#3): every page carries a CSP with a fresh nonce from proxy.ts — scripts only from that nonce and
+  // what it loads ('strict-dynamic'), never 'unsafe-inline'; 'unsafe-eval' in development only. Next reads the nonce
+  // from the request's policy and puts it on its own scripts; the root layout hands it to Clerk.
+  {
+    const { NextRequest } = await import('next/server')
+    const { proxy } = await import('../proxy')
+    const nextConfig = (await import('../next.config')).default
+    const event = { waitUntil() {} } as unknown as import('next/server').NextFetchEvent
+    const APP = 'https://inkdesk.example'
+    const FAPI = 'clerk.inkdesk.example'
+    const withEnv = async (vars: Record<string, string | undefined>, fn: () => Promise<void>) => {
+      const saved = Object.fromEntries(Object.keys(vars).map((k) => [k, env[k]]))
+      for (const [k, v] of Object.entries(vars)) if (v === undefined) delete env[k]
+      else env[k] = v
+      try {
+        await fn()
+      } finally {
+        for (const [k, v] of Object.entries(saved)) if (v === undefined) delete env[k]
+        else env[k] = v
+      }
+    }
+    const directives = (policy: string) => new Map(policy.split('; ').map((d) => [d.split(' ')[0], d.split(' ').slice(1)]))
+    const visit = (url: string, headers: Record<string, string> = {}) =>
+      proxy(new NextRequest(url, { headers: { host: new URL(url).host, accept: 'text/html', 'sec-fetch-dest': 'document', ...headers } }), event)
+    /** The page's nonce, after holding the response's policy against what the page's render is handed. */
+    const nonceOf = (res: Response, what: string) => {
+      const policy = res.headers.get('content-security-policy') ?? ''
+      const script = directives(policy).get('script-src') ?? []
+      const nonces = script.filter((v) => /^'nonce-[A-Za-z0-9+/=]+'$/.test(v))
+      assert.equal(nonces.length, 1, `${what}: one nonce in script-src (policy: ${policy || 'none'})`)
+      const nonce = nonces[0].slice(7, -1)
+      assert.ok(Buffer.from(nonce, 'base64').length >= 16, `${what}: 128 random bits at least`)
+      assert.equal(script[0], "'self'")
+      assert.ok(script.includes("'strict-dynamic'"), `${what}: 'strict-dynamic'`)
+      assert.ok(!script.includes("'unsafe-inline'"), `${what}: no 'unsafe-inline' for scripts`)
+      // NextResponse.next({ request: { headers } }): the render sees both, and Next takes the nonce from the policy.
+      assert.equal(res.headers.get('x-middleware-request-x-nonce'), nonce, `${what}: the render is handed the nonce`)
+      assert.equal(res.headers.get('x-middleware-request-content-security-policy'), policy, `${what}: and the policy`)
+      const overrides = (res.headers.get('x-middleware-override-headers') ?? '').split(',')
+      assert.ok(overrides.includes('x-nonce') && overrides.includes('content-security-policy'), `${what}: as request headers`)
+      return { nonce, policy, script }
+    }
+    /** Everything but script-src is the static policy's, word for word. */
+    const sameOtherwise = (policy: string, staticPolicy: string, what: string) => {
+      const a = directives(policy)
+      const b = directives(staticPolicy)
+      assert.deepEqual([...a.keys()], [...b.keys()], `${what}: the same directives as the static policy`)
+      for (const [name, values] of b) if (name !== 'script-src') assert.deepEqual(a.get(name), values, `${what}: ${name}`)
+    }
+    const staticPolicyOf = async () => {
+      const rules = await nextConfig.headers!()
+      return rules.find((r) => r.source === '/:path*')!.headers.find((h) => h.key === 'Content-Security-Policy')!.value
+    }
+    const PAGES = ['/', '/p/abc', '/s/tok123', '/s/tok123/opengraph-image', '/settings/usage', '/admin/reports', '/terms', '/sign-in']
+
+    // The static header (next.config.ts) covers what the proxy does not shape: API answers, Next's own files, public/.
+    // No nonce there, so no inline script runs at all.
+    const staticPolicy = await staticPolicyOf()
+    assert.deepEqual(directives(staticPolicy).get('script-src'), ["'self'"], 'the static policy: scripts from this origin only, nothing inline')
+    for (const [name, values] of [
+      ['default-src', ["'self'"]],
+      ['style-src', ["'self'", "'unsafe-inline'"]],
+      ['img-src', ["'self'", 'data:', 'blob:']],
+      ['media-src', ["'self'", 'blob:']],
+      ['connect-src', ["'self'"]],
+      ['object-src', ["'none'"]],
+      ['base-uri', ["'self'"]],
+      ['form-action', ["'self'"]],
+      ['frame-ancestors', ["'none'"]],
+    ] as const) assert.deepEqual(directives(staticPolicy).get(name), values, `the static policy keeps ${name}`)
+
+    for (const mode of ['off', 'test'] as const) {
+      await withEnv({ INKDESK_AUTH: mode, NODE_ENV: undefined, APP_URL: undefined }, async () => {
+        const seen = new Set<string>()
+        for (const path of PAGES) {
+          const what = `${mode}: ${path}`
+          const { nonce, policy, script } = nonceOf(await visit(`http://localhost:3000${path}`, { 'x-inkdesk-test-user': 'user_check' }), what)
+          assert.ok(!script.includes("'unsafe-eval'"), `${what}: no 'unsafe-eval' outside development`)
+          sameOtherwise(policy, staticPolicy, what)
+          seen.add(nonce)
+        }
+        assert.equal(seen.size, PAGES.length, `${mode}: a fresh nonce for every request`)
+        // An API answer is not a page: the proxy leaves it the static policy.
+        const api = await visit('http://localhost:3000/api/projects', { 'x-inkdesk-test-user': 'user_check' })
+        assert.equal(api.headers.get('content-security-policy'), null, `${mode}: an API call keeps the static policy`)
+        assert.equal(api.headers.get('x-middleware-request-x-nonce'), null)
+      })
+    }
+    // Development adds 'unsafe-eval' (React's dev build uses eval for its error stacks); nothing else changes.
+    await withEnv({ INKDESK_AUTH: 'off', NODE_ENV: 'development' }, async () => {
+      const { script } = nonceOf(await visit('http://localhost:3000/'), 'development')
+      assert.ok(script.includes("'unsafe-eval'"), "development: 'unsafe-eval'")
+    })
+    // Production signs in through Clerk (fake keys, offline): Clerk's hosts join the policy, the nonce survives Clerk's own
+    // request headers, and a signed-out visitor sent to sign-in is still answered by the proxy.
+    const fakePk = `pk_live_${Buffer.from(`${FAPI}$`).toString('base64')}`
+    await withEnv(
+      { NODE_ENV: 'production', INKDESK_AUTH: 'clerk', NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: fakePk, CLERK_SECRET_KEY: `sk_live_${'c'.repeat(32)}`, APP_URL: APP, CLERK_JWT_KEY: undefined },
+      async () => {
+        for (const path of ['/sign-in', '/sign-up/verify', '/s/tok123', '/s/tok123/opengraph-image', '/terms']) {
+          const what = `clerk: ${path}`
+          const res = await visit(`${APP}${path}`)
+          const { policy, script } = nonceOf(res, what)
+          assert.ok(!script.includes("'unsafe-eval'"), `${what}: no 'unsafe-eval' in production`)
+          assert.ok(script.includes(`https://${FAPI}`) && script.includes('https://challenges.cloudflare.com'), `${what}: Clerk's hosts kept for browsers without 'strict-dynamic'`)
+          const d = directives(policy)
+          assert.ok(d.get('connect-src')!.includes(`https://${FAPI}`), `${what}: Clerk's API`)
+          assert.ok(d.get('img-src')!.includes('https://img.clerk.com'), `${what}: Clerk's avatars`)
+          assert.deepEqual(d.get('frame-src'), ["'self'", `https://${FAPI}`, 'https://challenges.cloudflare.com'], `${what}: Clerk's frames and Turnstile`)
+          assert.deepEqual(d.get('worker-src'), ["'self'", 'blob:'], `${what}: Clerk's session worker`)
+          assert.equal(res.headers.get('x-middleware-request-x-clerk-auth-status'), 'signed-out', `${what}: Clerk’s own request headers still reach the page`)
+        }
+        const signedOut = await visit(`${APP}/p/abc`)
+        assert.ok([302, 307, 308].includes(signedOut.status), `a signed-out page still goes to sign-in, got ${signedOut.status}`)
+      }
+    )
+    assert.deepEqual(outbound, [], 'nothing reached the network')
+    // Every page renders per request, so each one gets its own nonce: the root layout reads the request's headers
+    // (a static page would carry no nonce, and its scripts would be refused), and gives the nonce to Clerk's script.
+    const layout = await readFile(join(ROOT, 'app/layout.tsx'), 'utf8')
+    assert.match(layout, /await headers\(\)/, 'the root layout reads the request, so no page is prerendered without a nonce')
+    assert.match(layout, /nonce=\{nonce\}/, 'Clerk’s script tag carries the nonce')
+    ok(`CSP: ${PAGES.length} pages in off and test mode and 5 in clerk mode each get a fresh nonce, 'strict-dynamic' and no 'unsafe-inline'; the render is handed both; 'unsafe-eval' only in development; API answers keep the static policy, which allows no inline script`)
+  }
 
   console.log('\n  Request hardening check passed.\n')
 } finally {

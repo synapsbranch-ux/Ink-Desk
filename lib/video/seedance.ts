@@ -147,6 +147,8 @@ export type ShotPoll = {
   refused?: boolean
   /** The provider's reason, trimmed, for the terminal only. */
   detail?: string | null
+  /** The provider no longer answers for the job (a 404/410, another 4xx): whether and what it billed is unknown. */
+  unknown?: true
 }
 
 const STATUSES: readonly ShotStatus[] = ['pending', 'in_progress', 'completed', 'failed', 'cancelled', 'expired']
@@ -177,11 +179,11 @@ export async function pollShot(pollingUrl: string): Promise<ShotPoll> {
   if (res.status === 402 || res.status === 401 || res.status === 429 || res.status >= 500) throw await failureOf(res, { label: 'shot poll', busy: BUSY, what: 'video model' })
   if (res.status === 404 || res.status === 410) {
     await res.body?.cancel().catch(() => undefined)
-    return { status: 'failed', costUsd: null, error: SHOT_GONE, unsignedUrls: [], detail: `HTTP ${res.status}` }
+    return { status: 'failed', costUsd: null, error: SHOT_GONE, unsignedUrls: [], detail: `HTTP ${res.status}`, unknown: true }
   }
   if (!res.ok) {
     const detail = await providerText(res)
-    return { status: 'failed', costUsd: null, error: SHOT_FAILED, unsignedUrls: [], detail: `HTTP ${res.status} ${detail.slice(0, 200)}` }
+    return { status: 'failed', costUsd: null, error: SHOT_FAILED, unsignedUrls: [], detail: `HTTP ${res.status} ${detail.slice(0, 200)}`, unknown: true }
   }
   let json: { status?: unknown; usage?: { cost?: unknown }; unsigned_urls?: unknown; error?: unknown }
   try {

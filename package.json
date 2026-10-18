@@ -32,6 +32,7 @@
     "check:share": "tsx scripts/share-check.mts",
     "check:poll": "tsx scripts/poll-check.mts",
     "check:video": "tsx scripts/video-check.mts",
+    "check:judge": "tsx scripts/judge-check.mts",
     "check:responsive": "tsx scripts/responsive-check.mts",
     "video:capture": "npm --prefix video run capture --",
     "video:narrate": "npm --prefix video run narrate --",

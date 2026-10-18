@@ -28,7 +28,9 @@
 //      what was billed and what is with the provider, keeps its seconds used, and
 //      its runner sends nothing new; a provider that stops answering for a while
 //      does not cost a shot; an account deleted mid-trailer leaves no file of
-//      theirs and its spend in the studio's day.
+//      theirs and its spend in the studio's day; a shot sent and never collected
+//      (a timeout, a job gone, a setting, an orphan) counts at the formula's
+//      price, so the job settles there and is never released at $0.
 //   4. The request bodies the code sends: model, resolution, a duration inside
 //      Seedance's range, the ratio, `generate_audio: false`; method A sends the
 //      panel as `first_frame` only, method B the panel and the locked sheet as
@@ -148,6 +150,8 @@ const provider = {
   refusePost: new Set<number>(),
   /** Panels whose job ends `failed`, with the provider's own words. */
   failPoll: new Map<number, string>(),
+  /** Panels whose poll answers 404 (the provider no longer has the job) or 401 (the key refused: a setting). */
+  pollStatus: new Map<number, 401 | 404>(),
   audio: 'ok' as 'ok' | 'down',
   /** The first job answers a polling address on another host: the key must never follow it. */
   strangePollingUrl: true,
@@ -157,6 +161,7 @@ const provider = {
     this.pollErrors.clear()
     this.refusePost.clear()
     this.failPoll.clear()
+    this.pollStatus.clear()
     this.audio = 'ok'
   },
 }
@@ -203,6 +208,8 @@ async function answer(call: Call): Promise<Response> {
     const job = providerJobs.get(poll[1])
     if (!job) return json(404, { error: { message: 'not found' } })
     job.polls++
+    const lost = provider.pollStatus.get(job.panel)
+    if (lost) return json(lost, { error: { message: lost === 404 ? 'not found' : 'invalid key' } })
     if (job.polls <= (provider.pollErrors.get(job.panel) ?? 0)) return json(503, { error: { message: 'upstream unavailable' } })
     if (provider.holdPanels.has(job.panel)) return json(200, { id: job.id, status: 'in_progress' })
     const why = provider.failPoll.get(job.panel)
@@ -292,6 +299,7 @@ const FRANK = 'user_frank'
 const GINA = 'user_gina'
 const HANK = 'user_hank'
 const IVY = 'user_ivy'
+const JUNE = 'user_june'
 const round6 = (n: number) => Math.round(n * 1e6) / 1e6
 const micros = (usd: number) => Math.round(usd * 1e6)
 
@@ -527,6 +535,10 @@ try {
     assert.equal(rec.shotOf(crashed, 1)?.state, 'orphaned')
     assert.equal(rec.shotOf(crashed, 1)?.error, rec.ORPHANED_SHOT)
     assert.equal(rec.markSubmitting(crashed, 1, now), null, 'an orphaned shot is never submitted by the machine')
+    // After-audit #9: it may have been billed, so it carries the formula's price (what owedSince held for it), never $0.
+    const priceOf = (panel: number) => round6(cost.shotUsd(base.plan.model, base.plan.resolution, base.plan.shots[panel].aspect, base.plan.shots[panel].seconds))
+    assert.equal(rec.shotOf(crashed, 1)?.costUsd, priceOf(1), 'an orphaned shot is counted at the formula’s price')
+    assert.equal(crashed.costUsd, priceOf(1))
     for (const s of ['queued', 'animating', 'done', 'failed', 'orphaned'] as ShotState[]) {
       const r = withState(s)
       assert.equal(rec.recoverShots(r, now), r, `a resume leaves a ${s} shot as it is`)
@@ -536,6 +548,7 @@ try {
     // The web's restart rule: a job gone leaves nothing spinning.
     const gone = rec.recoverShots({ ...withState('animating'), shots: withState('animating').shots.map((s) => (s.panel === 0 ? { ...s, state: 'submitting' } : s.panel === 3 ? { ...s, state: 'done', blobKey: 'd' } : s)) }, now, { jobGone: true })
     assert.deepEqual(gone.shots.map((s) => s.state), ['orphaned', 'orphaned', 'failed', 'done'])
+    assert.deepEqual(gone.shots.map((s) => s.costUsd), [priceOf(0), priceOf(1), 0, 0], 'a job gone counts the shots it left with the provider at the formula’s price; one never sent costs nothing')
     // Money in the record: the sum of its parts, never added twice.
     const done1 = rec.markShotDone(withState('animating'), 1, { blobKey: 'k', costUsd: 0.7623 }, now)!
     assert.equal(rec.markShotDone(done1, 1, { blobKey: 'k', costUsd: 0.7623 }, now), done1, 'the same clip twice is the same record')
@@ -549,7 +562,7 @@ try {
     assert.equal(rec.viewOfVideo({ ...crashed, status: 'failed' }, { running: true }).shots[1].canRetry, false)
     const text = JSON.stringify(view)
     assert.ok(!text.includes('job-x') && !text.includes('"u"') && !/costUsd|blobKey|ownerId/.test(text), 'a view carries no provider id, key, cost or owner')
-    ok('queued → submitting → animating → done, → failed from the three live states, orphaned only by a resume, Try again only on a failed or orphaned shot of an ended trailer; money is the sum of the parts')
+    ok('queued → submitting → animating → done, → failed from the three live states, orphaned only by a resume (at the formula’s price), Try again only on a failed or orphaned shot of an ended trailer; money is the sum of the parts')
   })
 
   // ==================================================================================================
@@ -976,7 +989,10 @@ try {
     assert.equal(video.status, 'failed')
     assert.equal(video.error, "4 of 4 shots didn't finish - try them again.")
     assert.equal(outcome.outcome, 'done', 'the voices and music were billed, so the run is done (its hold is settled to them)')
-    assert.equal(outcome.costUsd, round6(3 * TTS_BILLED + MUSIC_BILLED))
+    // …and the orphaned shot, which may have been billed, at the formula's price (after-audit #9).
+    const orphanUsd = cost.shotUsd(p.model, p.resolution, p.shots[1].aspect, p.shots[1].seconds)
+    assert.equal(video.shots[1].costUsd, round6(orphanUsd))
+    assert.equal(outcome.costUsd, round6(3 * TTS_BILLED + MUSIC_BILLED + orphanUsd))
     // A third delivery changes nothing either.
     const calls2 = calls.length
     await runTrailer(job, runOf())
@@ -1172,6 +1188,43 @@ try {
     assert.deepEqual([(await backend().counters(IVY)).userDayMicros, (await backend().counters(IVY)).quota.videoSeconds], [0, 0], 'the person’s own counters went with them')
     provider.reset()
     ok(`deleting the account mid-trailer leaves videos/${IVY}/ empty after the four clips land, sends nothing new, and keeps the $${bill} billed in the studio’s day (counted $${counted / 1e6})`)
+  })
+
+  // ==================================================================================================
+  await section('3f. A shot sent and never collected is counted at the formula’s price (after-audit #9)', async () => {
+    // Panels 1 and 4 outlast VIDEO_SHOT_TIMEOUT_MS, panel 2's job is gone (404), panel 3's poll refuses the key (a setting);
+    // the voices and the music are down. Each shot was POSTed, so the provider bills it: none may be counted at $0.
+    provider.reset()
+    env.VIDEO_SHOT_TIMEOUT_MS = '60000' // the shortest the settings allow
+    provider.holdPanels.add(0)
+    provider.holdPanels.add(3)
+    provider.pollStatus.set(1, 404)
+    provider.pollStatus.set(2, 401)
+    provider.audio = 'down'
+    const { project } = await makeProject(JUNE, 'Slow Provider Day')
+    const posts0 = videoPosts().length
+    const started = await call(animateRoute.POST, 'POST', { id: project.id, n: '0' }, JUNE)
+    assert.equal(started.status, 202, started.text)
+    const videoId = (started.json!.video as { id: string }).id
+    await until('four shots to be sent', async () => videoPosts().length - posts0 === 4)
+    const heldSeconds = (await backend().counters(JUNE)).quota.videoSeconds
+    assert.ok(heldSeconds > 0)
+    await idle(JUNE)
+    assert.equal(videoPosts().length - posts0, 4, 'four shots sent, so four billed')
+    const v = await videoOf(videoId)
+    const price = v.plan.shots.map((s) => round6(cost.shotUsd(v.plan.model, v.plan.resolution, s.aspect, s.seconds)))
+    assert.deepEqual(v.shots.map((s) => s.state), ['failed', 'failed', 'failed', 'failed'])
+    assert.deepEqual(v.shots.map((s) => s.costUsd), price, 'a timeout, a job gone and a setting each count the shot at the formula’s price')
+    const total = round6(price.reduce((t, n) => t + n, 0))
+    assert.equal(v.costUsd, total)
+    const [job] = await trailerJobs(JUNE)
+    assert.deepEqual([job.outcome, job.costUsd, job.reservation], ['done', total, 'settled'], 'the job settles at that estimate; its hold is not given back at $0')
+    const c = await backend().counters(JUNE)
+    assert.equal(c.userDayMicros, micros(total), 'the person’s day counts it')
+    assert.equal(c.quota.videoSeconds, heldSeconds, 'and the seconds stay used')
+    provider.reset()
+    delete env.VIDEO_SHOT_TIMEOUT_MS
+    ok(`two shots timed out, one gone (404), one refused key (401): each counted at the formula’s price, the job settled at $${total} and the seconds kept, not released at $0`)
   })
 
   // ==================================================================================================

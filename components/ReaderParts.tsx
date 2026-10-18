@@ -14,6 +14,7 @@
 // reveal clock and the keyboard rules are the station's own. See
 // `devpost/prd.md > Reader (v2) — The Chapter`.
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { useLetteringFit } from '@/components/bubble-fit'
 import { PencilPlaceholder } from '@/components/PencilPlaceholder'
 import { tailPath } from '@/lib/bubble'
 import { PANEL_LAYOUT } from '@/lib/prompts'
@@ -259,17 +260,32 @@ export function ReaderPage({
 }
 
 /** The bubble as the reader sees it: the same stored (or derived) layout and
- *  the same SVG shapes as the Storyboard, with the editing stripped away. */
+ *  the same SVG shapes as the Storyboard, with the editing stripped away.
+ *  Lettered like the studio (v3, slice 23): sized from the panel (the
+ *  `.reader-panel` container, `app/responsive/reader.css`) and stepped down
+ *  until it fits, refitted whenever the panel changes size. */
 export function ReaderBubble({ layout: l, dialogue }: { layout: BubbleLayout; dialogue: string }) {
+  const layerRef = useRef<HTMLDivElement>(null)
+  const textRef = useRef<HTMLSpanElement>(null)
+  const refit = useLetteringFit(textRef, [dialogue, l.w, l.h])
+  useEffect(() => {
+    const el = layerRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => refit())
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [refit])
   return (
-    <div className="bubble-layer reader-bubble">
+    <div ref={layerRef} className="bubble-layer reader-bubble">
       <svg className="bubble-shape" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
         <ellipse cx={l.x + l.w / 2} cy={l.y + l.h / 2} rx={l.w / 2} ry={l.h / 2} />
         <path d={tailPath(l)} />
       </svg>
       <div className="bubble-static" style={{ left: `${l.x}%`, top: `${l.y}%`, width: `${l.w}%`, height: `${l.h}%` }}>
         <div className="bubble-text-wrap">
-          <span className="bubble-text is-static">{dialogue}</span>
+          <span ref={textRef} className="bubble-text is-static">
+            {dialogue}
+          </span>
         </div>
       </div>
     </div>

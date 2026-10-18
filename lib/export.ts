@@ -219,6 +219,29 @@ export function balanceTitle(measure: (text: string) => number, title: string, m
   return wrapWords(measure, words, hi)
 }
 
+/** The screen's smallest lettering (`components/bubble-fit.ts`), in screen px. */
+export const LETTERING_FLOOR = 6
+
+/** The largest whole-pixel lettering, from the page's size down to the floor
+ *  (both scaled to the export), whose wrapped lines fit the box: no line
+ *  wider than it, not taller in all. `overfull` when even the floor can't. */
+export function fitLettering(
+  ctx: Pick<CanvasRenderingContext2D, 'font' | 'measureText'>,
+  dialogue: string,
+  box: { w: number; h: number },
+  geom: Pick<PageGeometry, 'fontSize' | 'scale'>,
+  fontFamily: string
+): { size: number; lines: string[]; overfull: boolean } {
+  const floor = Math.max(1, Math.ceil(LETTERING_FLOOR * geom.scale))
+  const measure = (t: string) => ctx.measureText(t).width
+  for (let size = Math.max(floor, Math.round(geom.fontSize)); ; size--) {
+    ctx.font = `700 ${size}px ${fontFamily}`
+    const lines = wrapDialogue(measure, dialogue, box.w)
+    const fits = lines.length * size * 1.15 <= box.h + 0.5 && lines.every((line) => measure(line) <= box.w + 0.5)
+    if (fits || size <= floor) return { size, lines, overfull: !fits }
+  }
+}
+
 /** What `drawPage` needs per panel: the displayed version's decoded image
  *  and the panel fields the bubble is derived from. */
 export type ExportPanel = {
@@ -303,18 +326,23 @@ export function drawPage(ctx: DrawContext, geom: PageGeometry, panels: ExportPan
     ctx.stroke(tail)
 
     // Lettering inside the bubble's text box (the wrap's 11% / 14% insets),
-    // centred, clipped the way the screen's `overflow: hidden` clips it.
+    // centred, stepped down until it fits the way the screen's fit does
+    // (`components/bubble-fit.ts`), so nothing the screen shows whole is cut.
+    // Clipped to the box like `overflow: hidden` — unless even the floor
+    // can't fit, when the screen lets the words out of the box, still whole.
     const box = { x: b.x + b.w * 0.14, y: b.y + b.h * 0.11, w: b.w * 0.72, h: b.h * 0.78 }
+    const { size, lines, overfull } = fitLettering(ctx, panel.dialogue, box, geom, deps.fontFamily)
     ctx.save()
-    ctx.beginPath()
-    ctx.rect(box.x, box.y, box.w, box.h)
-    ctx.clip()
+    if (!overfull) {
+      ctx.beginPath()
+      ctx.rect(box.x, box.y, box.w, box.h)
+      ctx.clip()
+    }
     ctx.fillStyle = INK
-    ctx.font = `700 ${Math.round(geom.fontSize)}px ${deps.fontFamily}`
+    ctx.font = `700 ${size}px ${deps.fontFamily}`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    const lines = wrapDialogue((t) => ctx.measureText(t).width, panel.dialogue, box.w)
-    const lineHeight = geom.fontSize * 1.15
+    const lineHeight = size * 1.15
     const firstY = box.y + box.h / 2 - ((lines.length - 1) * lineHeight) / 2
     lines.forEach((line, i) => ctx.fillText(line, box.x + box.w / 2, firstY + i * lineHeight))
     ctx.restore()

@@ -124,3 +124,22 @@
     padding-bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
   }
 }
+
+/* --- The reader's lettering ------------------------------------------------
+   Sized from the panel, as the studio's (page.css): each reader panel is the
+   container, the same share of it at every width, capped at 17 px; a line that
+   still doesn't fit is stepped down by `components/bubble-fit.ts`. One class
+   more than app/s/share.css's viewport-sized rule, so the share page letters
+   the same way. */
+.reader-panel {
+  container-type: inline-size;
+}
+.reader-page .reader-panel .bubble-text {
+  --letter: 4.34cqi;
+  font-size: clamp(8px, var(--letter), 17px);
+  overflow-wrap: normal;
+  word-break: normal;
+}
+.reader-panel.panel-wide .bubble-text {
+  --letter: 2.12cqi;
+}

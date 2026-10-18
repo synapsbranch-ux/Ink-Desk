@@ -198,6 +198,20 @@ export const SCREENS: readonly Screen[] = [
       await c.press(c.page.getByRole('radio', { name: /Left to right/ }).first())
     },
   },
+  // A page turned to, not the cover: its bubbles are lettered at the panel's size (the
+  // filming desk's page 3 holds the longest line in a square panel).
+  {
+    name: 'studio-reader-page',
+    area: 'reader',
+    who: 'owner',
+    studio: true,
+    what: 'Ink & Publish turned to page 3: the bubbles lettered to fit',
+    ready: '.reader-page',
+    run: async (c) => {
+      await c.studio(c.fx.projectId, 'reader')
+      await c.press(c.page.locator('.reader-tab', { hasText: /^3$/ }).first())
+    },
+  },
   { name: 'studio-reader-vertical', area: 'reader', who: 'owner', studio: true, what: 'Ink & Publish, the manhwa vertical scroll', ready: '.reader-sheet', run: (c) => c.studio(c.fx.manhwaId, 'reader') },
   {
     name: 'share-dialog',
@@ -223,6 +237,17 @@ export const SCREENS: readonly Screen[] = [
     },
   },
   { name: 'share-manga', area: 'reader', who: 'stranger', what: 'the public manga share page', ready: '.share-page', run: (c) => c.goto(`/s/${c.fx.mangaToken}`) },
+  {
+    name: 'share-manga-page',
+    area: 'reader',
+    who: 'stranger',
+    what: 'the public manga share turned to page 3: the bubbles lettered to fit',
+    ready: '.reader-page',
+    run: async (c) => {
+      await c.goto(`/s/${c.fx.mangaToken}`)
+      await c.press(c.page.locator('.reader-tab', { hasText: /^3$/ }).first())
+    },
+  },
   {
     name: 'report-dialog',
     area: 'reader',

@@ -1,5 +1,6 @@
 import type { NextConfig } from 'next'
-import { authMode, frontendApiOf, publishableKeyOf } from './lib/auth/config'
+import { clerkHostForCsp } from './lib/auth/config'
+import { contentSecurityPolicy } from './lib/csp'
 
 // Kept small. The studio is a client-rendered page over a handful of Node
 // route handlers — see `devpost/spec.md > Components > Singletons and the Dev
@@ -12,49 +13,15 @@ import { authMode, frontendApiOf, publishableKeyOf } from './lib/auth/config'
 const dev = process.env.NODE_ENV === 'development'
 const production = process.env.NODE_ENV === 'production'
 
-// The policy without nonces, as Next 16's CSP guide gives it
-// (`node_modules/next/dist/docs/01-app/02-guides/content-security-policy.md`):
-// Next's own inline bootstrap scripts need 'unsafe-inline' until a nonce is
-// minted per request, and that needs `proxy.ts`, which arrives with sign-in
-// in slice 19 — move the policy there then and drop 'unsafe-inline' from
-// script-src. Dev adds 'unsafe-eval' because React's dev build uses eval for
-// its error stacks; production never does. Clerk's hosts and the bucket's
-// signed-URL host join the list when those features land.
-//
-// Slice 19 kept 'unsafe-inline': the nonce policy moves to `proxy.ts` in
-// slice 23, with the rest of the after-audit. What slice 19 adds is Clerk, in
-// clerk mode only — its Frontend API host (read from the publishable key, so
-// the key must be set when the app is BUILT: these headers are fixed at
-// build time) for its script, its API calls, its images and its frames;
-// img.clerk.com for avatars; Cloudflare's Turnstile (challenges.cloudflare.com),
-// which is Clerk's bot protection on sign-up; and blob: workers, which
-// Clerk's session refresh uses. With sign-in off the policy is unchanged.
-function clerkHost(): string | null {
-  try {
-    return authMode() === 'clerk' ? frontendApiOf(publishableKeyOf()) : null
-  } catch {
-    // A mode production refuses: the boot stops the server with the sentence.
-    return null
-  }
-}
-const clerk = clerkHost()
-const fapi = clerk ? ` https://${clerk}` : ''
-const turnstile = clerk ? ' https://challenges.cloudflare.com' : ''
-
-const csp = [
-  "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${dev ? " 'unsafe-eval'" : ''}${fapi}${turnstile}`,
-  "style-src 'self' 'unsafe-inline'",
-  `img-src 'self' data: blob:${fapi}${clerk ? ' https://img.clerk.com' : ''}`,
-  "font-src 'self' data:",
-  `connect-src 'self'${fapi}`,
-  "media-src 'self' blob:",
-  ...(clerk ? [`frame-src 'self'${fapi}${turnstile}`, "worker-src 'self' blob:"] : []),
-  "object-src 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-  "frame-ancestors 'none'",
-].join('; ')
+// The CSP (`lib/csp.ts`). Slice 16 set it here with 'unsafe-inline' for
+// scripts; slice 19 added Clerk's hosts in clerk mode. Slice 23 (after-audit
+// #3) moves the page's policy to `proxy.ts`, which mints a nonce per request:
+// what stays here is the same policy with no nonce and no 'unsafe-inline',
+// for every response the proxy does not shape (API answers, Next's own files,
+// `public/`). On a page the proxy's header replaces this one. Clerk's host is
+// read from the publishable key, so here it is fixed when the app is BUILT;
+// the proxy reads it at run time.
+const csp = contentSecurityPolicy({ dev, clerkHost: clerkHostForCsp() })
 
 const securityHeaders = [
   { key: 'Content-Security-Policy', value: csp },
@@ -89,6 +56,13 @@ const nextConfig: NextConfig = {
   // The queue's client libraries load native helpers and read their own files at
   // run time; bundled, they break. Left to Node's own resolution (v3, slice 18).
   serverExternalPackages: ['bullmq', 'ioredis'],
+  // Slice 23 (after-audit #1): no image optimizer. Left open, `/_next/image`
+  // fetched the studio's own `/api/**` and `/s/**` routes and kept each answer
+  // in its disk cache, so a share picture outlived its unpublishing, a
+  // takedown and the deletion of the account. The only `<Image>` the studio
+  // renders is the brand mark, an SVG the optimizer never touched anyway; and
+  // were it switched back on, it would still fetch the brand marks only.
+  images: { unoptimized: true, localPatterns: [{ pathname: '/brand/**', search: '' }] },
   async headers() {
     return [
       { source: '/:path*', headers: securityHeaders },

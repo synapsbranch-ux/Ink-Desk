@@ -138,14 +138,19 @@ export function owedSince(record: Pick<VideoRecord, 'costUsd' | 'plan' | 'shots'
   const { plan } = record
   let inFlight = 0
   for (const s of record.shots) {
-    const planned = plan.shots.find((p) => p.panel === s.panel)
-    if (planned && (s.state === 'submitting' || s.state === 'animating')) inFlight += shotUsd(plan.model, plan.resolution, planned.aspect, planned.seconds)
+    if (s.state === 'submitting' || s.state === 'animating') inFlight += sentShotUsd(plan, s.panel)
   }
   for (const p of record.speech) {
     if (p.state === 'working') inFlight += (plan.shots.find((s) => s.panel === p.panel)?.line?.chars ?? 0) * TTS_USD_PER_CHAR
   }
   if (record.music.state === 'working') inFlight += MUSIC_USD
   return round(Math.max(0, record.costUsd - baselineUsd) + inFlight * HOLD_MARGIN)
+}
+
+/** One shot of the plan at the formula's price: what a shot sent is held at, and what one never collected is counted at. */
+function sentShotUsd(plan: TrailerPlan, panel: number): number {
+  const planned = plan.shots.find((p) => p.panel === panel)
+  return planned ? shotUsd(plan.model, plan.resolution, planned.aspect, planned.seconds) : 0
 }
 
 /** The record with `patch` applied, its cost re-summed and its clock set. Callers pass only what changed. */
@@ -268,14 +273,15 @@ export function markShotFailed(record: VideoRecord, panel: number, error: string
 /**
  * What a resume does with what it finds, before any work is chosen:
  *   • `submitting` with no provider id → `orphaned` (the POST may or may not have
- *     been sent or billed; never auto-resubmitted);
+ *     been sent or billed; never auto-resubmitted; counted at the formula's price);
  *   • a voice or music part left `working` goes back to `queued` — it is cheap, and
  *     is made again by the run that picks the record up.
  * Everything else — `done`, `failed`, `queued`, a live `animating` — is untouched.
  *
  * With `jobGone` (the web found the trailer's job dead: nothing will ever poll or
  * run again) it also ends what was left in flight, so a person can Try again:
- * `animating` → `orphaned` (it may finish and bill with nobody to collect it),
+ * `animating` → `orphaned` (it may finish and bill with nobody to collect it, so it
+ * is counted at the formula's price too),
  * `queued` → `failed` ("the studio restarted"), and a voice line or the music that
  * never finished → `failed` with a warning (the trailer is whole without them).
  *
@@ -283,9 +289,12 @@ export function markShotFailed(record: VideoRecord, panel: number, error: string
  */
 export function recoverShots(record: VideoRecord, now: Date, opts: { jobGone?: boolean } = {}): VideoRecord {
   const gone = opts.jobGone === true
+  // An orphaned shot may have been billed and nobody will collect its figure: it is counted at the formula's price,
+  // what `owedSince` held for it while it was out, so a trailer that ends this way never gives its hold back at $0.
+  const orphan = (s: ShotRecord, error: string): ShotRecord => ({ ...s, state: 'orphaned', error, costUsd: round(s.costUsd + sentShotUsd(record.plan, s.panel)), updatedAt: iso(now) })
   const shots = record.shots.map((s): ShotRecord => {
-    if (s.state === 'submitting' && !s.providerJobId) return { ...s, state: 'orphaned', error: ORPHANED_SHOT, updatedAt: iso(now) }
-    if (gone && (s.state === 'animating' || s.state === 'submitting')) return { ...s, state: 'orphaned', error: STOPPED_SHOT, updatedAt: iso(now) }
+    if (s.state === 'submitting' && !s.providerJobId) return orphan(s, ORPHANED_SHOT)
+    if (gone && (s.state === 'animating' || s.state === 'submitting')) return orphan(s, STOPPED_SHOT)
     if (gone && s.state === 'queued') return { ...s, state: 'failed', error: STUDIO_RESTARTED, updatedAt: iso(now) }
     return s
   })

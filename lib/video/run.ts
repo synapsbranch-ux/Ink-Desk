@@ -392,6 +392,9 @@ async function keepClip(ctx: Ctx, panel: number, providerJobId: string, unsigned
 async function collectShot(ctx: Ctx, panel: number, providerJobId: string, pollingUrl: string, tag: string): Promise<void> {
   const planShot = ctx.plan.shots.find((s) => s.panel === panel)
   if (!planShot) return
+  // The shot was sent, so the provider bills it whether or not it is collected. A shot that ends here without
+  // the provider's figure (a timeout, a job gone, a setting) is counted at the formula's price, never $0 (after-audit #9).
+  const formulaUsd = shotUsd(ctx.plan.model, ctx.plan.resolution, planShot.aspect, planShot.seconds)
   const startedAt = Date.now()
   let unreadable = 0
   for (;;) {
@@ -402,7 +405,7 @@ async function collectShot(ctx: Ctx, panel: number, providerJobId: string, polli
     }
     if (Date.now() - startedAt > ctx.settings.shotTimeoutMs) {
       console.error(`[${tag}] gave up waiting for job ${providerJobId} after ${Math.round((Date.now() - startedAt) / 1000)}s`)
-      await endShot(ctx, panel, SHOT_TOO_SLOW)
+      await endShot(ctx, panel, SHOT_TOO_SLOW, formulaUsd)
       return
     }
     let poll
@@ -416,7 +419,7 @@ async function collectShot(ctx: Ctx, panel: number, providerJobId: string, polli
       // A setting that is wrong will not right itself. Anything else (a 429, a 5xx, a dropped connection) is the provider
       // having a moment while the shot goes on being made — and billed — on its side: it is asked after until its timeout.
       if (err.kind === 'config') {
-        await endShot(ctx, panel, sentence)
+        await endShot(ctx, panel, sentence, formulaUsd)
         return
       }
       await sleep(ctx.settings.pollMs * (++unreadable > POLL_ERRORS_BEFORE_SLOWING ? 2 : 1))
@@ -424,7 +427,7 @@ async function collectShot(ctx: Ctx, panel: number, providerJobId: string, polli
     }
 
     if (poll.status === 'completed') {
-      const billed = poll.costUsd ?? shotUsd(ctx.plan.model, ctx.plan.resolution, planShot.aspect, planShot.seconds)
+      const billed = poll.costUsd ?? formulaUsd
       const key = await keepClip(ctx, panel, providerJobId, poll.unsignedUrls[0], tag)
       if (!key) {
         await endShot(ctx, panel, CLIP_NOT_FETCHED, billed)
@@ -438,7 +441,7 @@ async function collectShot(ctx: Ctx, panel: number, providerJobId: string, polli
     }
     if (poll.status === 'failed' || poll.status === 'cancelled' || poll.status === 'expired') {
       console.error(`[${tag}] job ${providerJobId} ${poll.status}${poll.detail ? `: ${poll.detail}` : ''}`)
-      await endShot(ctx, panel, poll.error ?? SHOT_BUSY, poll.costUsd ?? 0)
+      await endShot(ctx, panel, poll.error ?? SHOT_BUSY, poll.costUsd ?? (poll.unknown ? formulaUsd : 0))
       return
     }
     await sleep(ctx.settings.pollMs)

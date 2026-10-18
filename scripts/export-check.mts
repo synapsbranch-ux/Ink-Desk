@@ -21,11 +21,14 @@
 // the reader's gate opens on the first complete page, whichever page is open.
 import './server-only.mts' // first: lets server modules load outside Next (SEC-15)
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { deflateSync } from 'node:zlib'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const dir = await mkdtemp(join(tmpdir(), 'inkdesk-export-'))
 process.env.INKDESK_DATA_DIR = dir
 
@@ -128,18 +131,25 @@ type Op =
   | { op: 'fillPath' | 'strokePath'; d: string }
   | { op: 'fillText'; text: string; x: number; y: number; font: string; style: string }
   | { op: 'strokeText'; text: string; x: number; y: number; font: string; width: number; style: string }
+  | { op: 'clip'; x: number; y: number; w: number; h: number }
 
 function recordingContext() {
   const ops: Op[] = []
-  const fontSize = () => Number(/(\d+)px/.exec(state.font)?.[1] ?? 16)
+  // The size in the font the context holds now (`this.font`, not the spread-in start state).
+  const fontSize = (font: string) => Number(/(\d+)px/.exec(font)?.[1] ?? 16)
   const state = { fillStyle: '', strokeStyle: '', lineWidth: 0, lineJoin: 'miter', font: '', textAlign: '', textBaseline: '' }
+  let lastRect = { x: 0, y: 0, w: 0, h: 0 }
   const ctx = {
     ...state,
     save() {},
     restore() {},
     beginPath() {},
-    rect() {},
-    clip() {},
+    rect(x: number, y: number, w: number, h: number) {
+      lastRect = { x, y, w, h }
+    },
+    clip() {
+      ops.push({ op: 'clip', ...lastRect })
+    },
     fillRect(x: number, y: number, w: number, h: number) {
       ops.push({ op: 'fillRect', x, y, w, h, style: String(this.fillStyle) })
     },
@@ -166,7 +176,7 @@ function recordingContext() {
     },
     // Deterministic width: half an em per character, like a chunky letter face.
     measureText(text: string) {
-      return { width: text.length * fontSize() * 0.5 } as TextMetrics
+      return { width: text.length * fontSize(this.font) * 0.5 } as TextMetrics
     },
   }
   return { ctx: ctx as unknown as DrawContext, ops }
@@ -275,6 +285,52 @@ await check('export: the lettering is the dialogue, uppercased, in Comic Neue 70
   // The wrap itself: words in order, nothing dropped, no line over the box.
   const lines = wrapDialogue((s) => s.length * 10, 'one two three four five six', 120)
   assert.deepEqual(lines, ['ONE TWO', 'THREE FOUR', 'FIVE SIX'])
+})
+
+// Slice 23: the screen steps a long line down until it fits its bubble
+// (`components/bubble-fit.ts`); the export does too, so the PNG never cuts
+// what the screen shows whole. The filming desk's page 3, panel 2 — a long
+// line in a square panel's default bubble — wrapped at the page's 17px size
+// ran five lines down a box three lines tall.
+await check('export v3: a long line steps down until it fits its bubble, never clipped (page 3, panel 2)', () => {
+  const desk = JSON.parse(readFileSync(join(ROOT, 'data/filming-2026-10-14/projects/17638779-4ed3-4af0-9e78-23f812b563e8/project.json'), 'utf8'))
+  const filmed: Panel = desk.chapters[0].pages[2].panels[1]
+  assert.equal(filmed.dialogue, 'The courier becomes the author.')
+  const floor = 6 * geom.scale // bubble-fit's FLOOR, scaled
+  const lettered = (panel: Panel, g: PageGeometry = geom) => {
+    const rec = recordingContext()
+    drawPage(rec.ctx, g, [{ panel, image: { width: 1024, height: 1024, source: sources[1] } }], { makePath: (d) => ({ d }) as unknown as Path2D, fontFamily: '__Comic_Neue_check' })
+    const slot = g.panels[panel.index]
+    const l = bubbleLayout(panel)
+    const b = { x: slot.x + (l.x / 100) * slot.w, y: slot.y + (l.y / 100) * slot.h, w: (l.w / 100) * slot.w, h: (l.h / 100) * slot.h }
+    const box = { x: b.x + b.w * 0.14, y: b.y + b.h * 0.11, w: b.w * 0.72, h: b.h * 0.78 }
+    const texts = rec.ops.filter((o) => o.op === 'fillText')
+    const size = Number(/(\d+)px/.exec(texts[0]?.font ?? '')?.[1])
+    const boxClip = rec.ops.some((o) => o.op === 'clip' && near(o.x, box.x) && near(o.w, box.w))
+    return { texts, size, box, boxClip }
+  }
+  const { texts, size, box, boxClip } = lettered(filmed)
+  assert.equal(texts.map((t) => t.text).join(' '), filmed.dialogue.toUpperCase(), 'every word, in order')
+  assert.ok(size < Math.round(geom.fontSize), `stepped down from ${Math.round(geom.fontSize)}px, got ${size}px`)
+  assert.ok(size >= floor, `never under the floor (${floor}px), got ${size}px`)
+  for (const t of texts) assert.ok(t.text.length * size * 0.5 <= box.w + 0.5, `"${t.text}" is wider than its box`)
+  assert.ok(texts.length * size * 1.15 <= box.h + 0.5, `${texts.length} lines at ${size}px are taller than the box (${box.h.toFixed(0)}px)`)
+  const top = texts[0].y - (size * 1.15) / 2
+  const bottom = texts[texts.length - 1].y + (size * 1.15) / 2
+  assert.ok(top >= box.y - 0.5 && bottom <= box.y + box.h + 0.5, 'the lines sit inside the box')
+  assert.ok(boxClip, 'a line that fits is clipped to its box, like overflow: hidden')
+  // A line that already fits keeps the page's size.
+  const short = lettered({ ...filmed, dialogue: 'Go.' })
+  assert.equal(short.size, Math.round(geom.fontSize), 'a short line keeps the page’s size')
+  // One word wider than the box steps down too, and is never broken.
+  const wide = lettered({ ...filmed, dialogue: 'Unbelievably!' })
+  assert.equal(wide.texts.length, 1)
+  assert.ok(wide.texts[0].text.length * wide.size * 0.5 <= wide.box.w + 0.5, 'the long word fits its box')
+  // Even the floor can't fit: the words stay whole, let out of the box, as on screen.
+  const over = lettered({ ...filmed, dialogue: Array.from({ length: 60 }, () => 'word').join(' ') })
+  assert.ok(over.size >= floor && over.size < floor + 1, `at the floor, got ${over.size}px`)
+  assert.equal(over.texts.length > 0 && over.texts.map((t) => t.text).join(' ').split(' ').length, 60, 'every word drawn')
+  assert.ok(!over.boxClip, 'an overfull bubble is not clipped to its box')
 })
 
 await check('export: a filename from the title, safe and never empty', () => {

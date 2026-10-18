@@ -23,8 +23,10 @@
 // account deletion removes it, its pictures and its files, and leaves the source.
 //
 // Idempotent: the new ids are derived from the source's and `--to` (a uuid from a
-// sha256), and each copy records where it came from (`copiedFrom`), so a second
-// run finds the earlier copy and changes nothing; `--with-trailer` on a later run
+// sha256), so a second run finds the earlier copy by its id and changes nothing.
+// A copy is marked `copiedFrom: { by: 'seed-judge', at }` and nothing more: the
+// source's ids would show in the judge's data export, and the derived id already
+// says which copy it is; `--with-trailer` on a later run
 // adds only the trailer. The project record is written LAST, after every picture,
 // and a run that fails deletes the pictures it stored, so a half copy is never
 // found as a whole one. `--dry-run` says what would be copied and writes nothing.
@@ -47,8 +49,9 @@ const USAGE = 'Usage: npx tsx scripts/seed-judge.mts --from <projectId> --to use
 /** Clerk's user id shape — the only owner a copy may be given. */
 const OWNER = /^user_[A-Za-z0-9]{1,40}$/
 
-/** Where a copy came from, kept on the copy (the stores keep a record whole). */
-type Provenance = { copiedFrom: { projectId: string; videoId?: string; by: 'seed-judge'; at: string } }
+/** That a record is a copy, kept on it (the stores keep a record whole). Never the source's ids: the judge's
+ *  data export holds the project as stored, and the derived id alone finds the copy again. */
+type Provenance = { copiedFrom: { by: 'seed-judge'; at: string } }
 type CopiedProject = Project & Provenance
 type CopiedVideo = VideoRecord & Provenance
 
@@ -155,7 +158,7 @@ function copyOf(source: Project, newId: string, map: Map<string, string>, now: s
     })),
     createdAt: now,
     updatedAt: now,
-    copiedFrom: { projectId: source.id, by: 'seed-judge', at: now },
+    copiedFrom: { by: 'seed-judge', at: now },
   }
 }
 
@@ -199,10 +202,9 @@ try {
   let copy: Project | null = null
   const existingOwner = await store.projectOwner(copyId)
   if (existingOwner !== null) {
-    const found = (await store.readProject(copyId)) as Project & Partial<Provenance>
-    if (existingOwner !== to || (found.copiedFrom && found.copiedFrom.projectId !== source.id)) {
-      stop(`Project ${copyId} exists and is not this copy; nothing was changed.`)
-    }
+    // The id is derived from this source and this target, so the target's project under it is this copy.
+    if (existingOwner !== to) stop(`Project ${copyId} exists and is not this copy; nothing was changed.`)
+    const found = await store.readProject(copyId)
     copy = found
     console.log(`  already copied   ${label(found)} — nothing changed`)
   } else {
@@ -252,7 +254,7 @@ try {
       const existing = (await store.videos.get(videoId)) as CopiedVideo | null
       const files = filesOf(trailer)
       if (existing) {
-        if (existing.ownerId !== to || (existing.copiedFrom && existing.copiedFrom.videoId !== trailer.id)) stop(`Video ${videoId} exists and is not this copy; nothing was changed.`)
+        if (existing.ownerId !== to || existing.projectId !== copyId) stop(`Video ${videoId} exists and is not this copy; nothing was changed.`)
         console.log(`  already copied   trailer ${trailer.id} → ${videoId} — nothing changed`)
         trailerHeld = true
       } else if (dryRun || !copy) {
@@ -297,7 +299,7 @@ try {
           shots: trailer.shots.map((s) => ({ ...s, providerJobId: null, blobKey: k(s.blobKey) })),
           speech: trailer.speech.map((s) => ({ ...s, blobKey: k(s.blobKey) })),
           music: { ...trailer.music, blobKey: k(trailer.music.blobKey) },
-          copiedFrom: { projectId: source.id, videoId: trailer.id, by: 'seed-judge', at: now },
+          copiedFrom: { by: 'seed-judge', at: now },
         }
         await store.videos.put(record)
         trailerFolder = null

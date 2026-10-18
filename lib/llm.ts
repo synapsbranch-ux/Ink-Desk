@@ -16,7 +16,7 @@
 // error. The checks run under tsx, where `scripts/server-only.mts` resolves the
 // package the way Next's server does.
 import 'server-only'
-import Anthropic, { APIConnectionError, APIError } from '@anthropic-ai/sdk'
+import Anthropic, { APIConnectionError, APIConnectionTimeoutError, APIError } from '@anthropic-ai/sdk'
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod'
 import { z } from 'zod'
 import { ProviderError } from './errors'
@@ -89,10 +89,8 @@ export async function ask<S extends z.ZodType>(
 
   const started = Date.now()
   try {
-    const { value, costUsd } = await askClaude(schema, prompt, maxTokens, cfg.model, opts.images)
-    if (opts.meter && costUsd != null) opts.meter.costUsd += costUsd
-    const cost = costUsd == null ? '' : ` · ≈ $${costUsd.toFixed(4)} (from tokens)`
-    console.log(`[text] ${label} — anthropic/${cfg.model} · ${seconds(started)}${cost}`)
+    const { value, cost } = await askClaude(schema, prompt, maxTokens, cfg.model, label, opts.images, opts.meter)
+    console.log(`[text] ${label} — anthropic/${cfg.model} · ${seconds(started)} · ${cost}`)
     return value
   } catch (err) {
     const why = claudeUnavailable(err)
@@ -130,8 +128,10 @@ async function askClaude<S extends z.ZodType>(
   prompt: string,
   maxTokens: number,
   model: string,
-  images: AskImage[] | undefined
-): Promise<{ value: z.infer<S>; costUsd: number | null }> {
+  label: string,
+  images: AskImage[] | undefined,
+  meter: TextMeter | undefined
+): Promise<{ value: z.infer<S>; cost: string }> {
   const content = images?.length
     ? [
         ...images.map(
@@ -143,31 +143,56 @@ async function askClaude<S extends z.ZodType>(
         { type: 'text' as const, text: prompt },
       ]
     : prompt
+  const format = zodOutputFormat(schema)
+  // Charged to the meter however the call ends, once Anthropic may have billed it.
+  const bill = (usd: number, how: string) => {
+    if (meter) meter.costUsd += usd
+    return `≈ $${usd.toFixed(4)} (${how})`
+  }
   let res
   try {
-    res = await anthropic().messages.parse({
+    // create, not parse: the parse would throw before the usage could be read (after-audit #5).
+    res = await anthropic().messages.create({
       model,
       max_tokens: maxTokens,
       thinking: { type: 'between_tools' }, // short calls; latency is on camera
-      output_config: {
-        effort: 'low',
-        format: zodOutputFormat(schema),
-      },
+      output_config: { effort: 'low', format },
       // Deliberately no temperature / top_p / top_k.
       messages: [{ role: 'user', content }],
     })
   } catch (err) {
     if (err instanceof ProviderError) throw err
+    // A request that was sent and timed out, or a reply the SDK could not read, may still be billed: count the worst case.
+    if (err instanceof APIConnectionTimeoutError || !(err instanceof APIError)) {
+      console.warn(`[text] ${label} — Claude was asked but no usage came back · ${bill(worstCaseUsd(prompt, images, maxTokens), 'estimated')}`)
+    }
     throw new ProviderError(CLAUDE_BUSY, 'provider', err)
   }
-  if (res.parsed_output == null) throw new ProviderError(CLAUDE_BUSY, 'provider', res)
+  // Billed from here on, whatever the reply says: counted BEFORE it is read, so a
+  // reply cut off at max_tokens, or a refusal, still reaches the caps.
   const usage = (res as { usage?: { input_tokens?: number; output_tokens?: number } }).usage
-  const costUsd =
+  const cost =
     usage && typeof usage.input_tokens === 'number' && typeof usage.output_tokens === 'number'
-      ? (usage.input_tokens * CLAUDE_USD_PER_MTOK.input + usage.output_tokens * CLAUDE_USD_PER_MTOK.output) / 1e6
-      : null
-  return { value: res.parsed_output, costUsd }
+      ? bill((usage.input_tokens * CLAUDE_USD_PER_MTOK.input + usage.output_tokens * CLAUDE_USD_PER_MTOK.output) / 1e6, 'from tokens')
+      : bill(worstCaseUsd(prompt, images, maxTokens), 'estimated')
+  const text = res.content.find((block) => block.type === 'text')
+  try {
+    if (!text || res.stop_reason === 'refusal') throw new Error(`no answer (stop_reason ${res.stop_reason})`)
+    return { value: format.parse(text.text) as z.infer<S>, cost }
+  } catch (err) {
+    console.warn(`[text] ${label} — Claude’s reply could not be used (${res.stop_reason ?? 'no stop_reason'}) · ${cost}`)
+    throw new ProviderError(CLAUDE_BUSY, 'provider', err)
+  }
 }
+
+/** The most a call could have cost when its usage is unknown: every output token, and the prompt at a token per three bytes. */
+function worstCaseUsd(prompt: string, images: AskImage[] | undefined, maxTokens: number): number {
+  const input = Math.ceil(Buffer.byteLength(prompt) / 3) + (images?.length ?? 0) * CLAUDE_IMAGE_TOKENS
+  return (input * CLAUDE_USD_PER_MTOK.input + maxTokens * CLAUDE_USD_PER_MTOK.output) / 1e6
+}
+
+/** About the most one picture costs Claude in input tokens. */
+const CLAUDE_IMAGE_TOKENS = 1600
 
 /** Why Claude cannot be used for this call, or null when the failure is not one the fallback should cover. */
 function claudeUnavailable(err: unknown): string | null {

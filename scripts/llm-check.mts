@@ -10,7 +10,8 @@
 // body, and the terminal names the fallback. A malformed fallback reply is
 // refused by the schema, retried once, and never written to the desk.
 // `LLM_FALLBACK=never` gives the calm config sentence; a Claude 400 is not
-// covered by the fallback.
+// covered by the fallback. A Claude reply cut off at max_tokens, or a refusal,
+// is billed, so its tokens reach the meter before the calm error.
 import './server-only.mts' // first: lets server modules load outside Next (SEC-15)
 import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
@@ -294,6 +295,45 @@ try {
   assert.equal((toOpenRouter(reqs)[0].body as { model: string }).model, 'anthropic/claude-sonnet-5.5')
   assert.match(terminal(), /\[text\] synopsis — openrouter\/anthropic\/claude-sonnet-5\.5/)
   ok('LLM_FALLBACK=always skips Claude; LLM_FALLBACK_MODEL picks the fallback')
+
+  // 12. A Claude reply that is billed but unusable still counts (after-audit #5).
+  // Cut off at max_tokens, or a refusal: the parse fails, but the tokens were
+  // billed, so the meter rises by them before the calm error. Without a usage
+  // block, the worst case (max_tokens out, the prompt in) is counted instead.
+  delete process.env.LLM_FALLBACK
+  delete process.env.LLM_FALLBACK_MODEL
+  const billed = (input: number, output: number, stop: string, text: string | null): Answer => ({
+    status: 200,
+    json: {
+      id: 'msg_check',
+      type: 'message',
+      role: 'assistant',
+      model: 'claude-sonnet-5-5',
+      content: text === null ? [] : [{ type: 'text', text }],
+      stop_reason: stop,
+      stop_sequence: null,
+      ...(input < 0 ? {} : { usage: { input_tokens: input, output_tokens: output } }),
+    },
+  })
+  const unusable = async (answer: Answer) => {
+    anthropicAnswers.push(answer)
+    const meter = { costUsd: 0 }
+    await assert.rejects(writeSynopsis(synopsisInput, meter), (e: unknown) => e instanceof ProviderError && e.kind === 'provider')
+    reqs = take()
+    assert.equal(toAnthropic(reqs).length, 1, 'an unusable reply is not retried')
+    assert.equal(toOpenRouter(reqs).length, 0, 'nor sent to the fallback')
+    return { meter, log: terminal() }
+  }
+  const truncated = await unusable(billed(1200, 1024, 'max_tokens', '{"title":"Long","body":"' + 'word '.repeat(800)))
+  assert.ok(Math.abs(truncated.meter.costUsd - (1200 * 2 + 1024 * 10) / 1e6) < 1e-12, `a reply cut off at max_tokens is metered from its usage (got ${truncated.meter.costUsd})`)
+  assert.match(truncated.log, /\[text\] synopsis — Claude’s reply could not be used \(max_tokens\) · ≈ \$0\.0126 \(from tokens\)/)
+  const refusal = await unusable(billed(900, 40, 'refusal', null))
+  assert.ok(Math.abs(refusal.meter.costUsd - (900 * 2 + 40 * 10) / 1e6) < 1e-12, `a refusal is metered from its usage (got ${refusal.meter.costUsd})`)
+  assert.match(refusal.log, /could not be used \(refusal\)/)
+  const unknown = await unusable(billed(-1, 0, 'max_tokens', '{"title":'))
+  assert.ok(unknown.meter.costUsd >= (1024 * 10) / 1e6, `with no usage, at least max_tokens is counted (got ${unknown.meter.costUsd})`)
+  assert.match(unknown.log, /\(estimated\)/)
+  ok('a Claude reply cut off at max_tokens, or a refusal, is metered from its usage (or the worst case) before the calm error')
 
   assert.equal(anthropicAnswers.length + openrouterAnswers.length, 0, 'every scripted answer was consumed')
 } finally {
