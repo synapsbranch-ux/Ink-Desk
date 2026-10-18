@@ -13,7 +13,7 @@
 //     by itself. A file that cannot be played says so in a sentence with a way
 //     forward instead of showing a black box.
 //   • `VideoDialog` — a paper card over a dimmed page that holds a player (the
-//     dashboard's Play). It is the dialog the studio's others are: focus moves
+//     dashboard's Play); under 480 px a full-height sheet. It is the dialog the studio's others are: focus moves
 //     in, Tab stays inside, Escape and a press on the dimmed page close it, and
 //     focus goes back to the button that opened it. Drawn in a portal on <body>
 //     so no ancestor's overflow can clip it.
@@ -31,6 +31,7 @@ import { createPortal } from 'react-dom'
 import { apiFetch } from '@/components/api-fetch'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { ShareDialog } from '@/components/ShareDialog'
+import { useSheetViewport } from '@/components/use-sheet-viewport'
 import type { ShareView } from '@/lib/share/types'
 
 const CANT_PLAY = 'This video can’t be played just now. Try again in a moment.'
@@ -102,6 +103,9 @@ const FOCUSABLE = 'a[href], button:not(:disabled), input:not(:disabled), select:
 export function VideoDialog({ title, onClose, children }: { title: string; onClose: () => void; children?: React.ReactNode }) {
   const id = useId()
   const cardRef = useRef<HTMLDivElement>(null)
+  const overlayRef = useRef<HTMLDivElement>(null)
+  // Under 480 px the dialog is a full-height sheet over the whole screen, like the studio's other dialogs.
+  useSheetViewport(overlayRef)
 
   useEffect(() => {
     const returnTo = document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -146,7 +150,8 @@ export function VideoDialog({ title, onClose, children }: { title: string; onClo
 
   return createPortal(
     <div
-      className="confirm-overlay"
+      ref={overlayRef}
+      className="confirm-overlay is-sheet"
       role="presentation"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget) onClose()

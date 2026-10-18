@@ -132,6 +132,13 @@ export const ADMIN_CSS = `
   color: var(--neutral-700);
 }
 
+/* Touch: the brand is the way home, so it is a full 44 px target too. */
+@media (pointer: coarse), (max-width: 960px) {
+  .admin-head .brand {
+    min-height: 44px;
+  }
+}
+
 @media (max-width: 720px) {
   .admin-queue-title {
     font-size: 22px;

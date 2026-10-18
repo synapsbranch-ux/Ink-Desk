@@ -4,8 +4,9 @@
 // privacy · Usage, as links with `aria-current="page"` on the one you are in.
 // It is a client component only because the layout above it does not re-render
 // when you move between sections, so the current one has to come from the
-// path. On a phone the row wraps onto a second line rather than scrolling, so
-// every section is always in view and every link is at least 44px tall
+// path. On a 390px phone the five fit on one line; a narrower screen wraps
+// them onto a second line rather than scrolling, so every section is always in
+// view. On touch every link is at least 44px tall and wide
 // (`app/settings/settings.css`).
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'

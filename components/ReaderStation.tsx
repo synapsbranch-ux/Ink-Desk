@@ -15,7 +15,9 @@
 // Export PNG composites one page (or the cover); Export PDF the whole
 // chapter — the drawn cover and every complete page, current versions, the
 // bubbles and the title composited — through `lib/export.ts`. The bubbles
-// here are read-only, exactly as placed on the Page station.
+// here are read-only, exactly as placed on the Page station. On a phone that
+// can share files an export opens the share sheet instead of a download (iOS
+// opens a downloaded PNG in a tab), and the pages turn with a swipe (v3, slice 23).
 // Implements `devpost/prd.md > Reader (v2) — The Chapter` and
 // `> Export (v2) — PNG and PDF`; see `devpost/spec.md > Reader and Exports (v2)`.
 import { useState } from 'react'
@@ -27,9 +29,11 @@ import {
   ReaderNav,
   ReaderPage,
   ScrollEntry,
+  useSwipeTurn,
   useTurnKeys,
   type PanelView,
 } from '@/components/ReaderParts'
+import { shareableFile, shareFile } from '@/components/save-export'
 import { ShareDialog } from '@/components/ShareDialog'
 import { bubbleLayout } from '@/lib/bubble'
 import { downloadBlob, ExportError, exportCoverPng, exportFilename, exportPdf, exportPng } from '@/lib/export'
@@ -80,6 +84,8 @@ export function ReaderStation({ chapter, onGoStoryboard, onNewProject, defaultRe
   /** The last failed export's sentence, and which export it was — in the
    *  vertical scroll it shows under the button that was pressed. */
   const [notice, setNotice] = useState<{ text: string; for: Exporting } | null>(null)
+  /** An export the share sheet couldn't open by itself (the tap that started it went stale): it waits for a tap on "Share or save…". */
+  const [ready, setReady] = useState<{ file: File; for: Exporting } | null>(null)
   /** The Share dialog (v3, slice 21) is open. */
   const [sharing, setSharing] = useState(false)
 
@@ -92,9 +98,13 @@ export function ReaderStation({ chapter, onGoStoryboard, onNewProject, defaultRe
   const run = async (what: Exporting, make: () => Promise<{ blob: Blob; filename: string }>) => {
     setExporting(what)
     setNotice(null)
+    setReady(null)
     try {
       const { blob, filename } = await make()
-      downloadBlob(blob, filename)
+      // A phone that can share files saves through the share sheet; anything else downloads.
+      const file = shareableFile(blob, filename)
+      if (!file) downloadBlob(blob, filename)
+      else if ((await shareFile(file)) === 'needs-tap') setReady({ file, for: what })
     } catch (err) {
       // Only our own sentences reach the screen — never a raw browser error.
       console.warn('[export]', err)
@@ -130,6 +140,7 @@ export function ReaderStation({ chapter, onGoStoryboard, onNewProject, defaultRe
   const count = entries.length
   const go = (i: number) => setPos(Math.min(Math.max(0, i), count - 1))
   useTurnKeys({ enabled: !vertical && !sharing, rtl, at, count, go: setPos })
+  const swipe = useSwipeTurn({ enabled: !vertical && !sharing, rtl, at, count, go: setPos })
 
   const current = entries[at]
   const busy = exporting !== null
@@ -225,6 +236,8 @@ export function ReaderStation({ chapter, onGoStoryboard, onNewProject, defaultRe
           </div>
         </div>
 
+        {ready && !(vertical && ready.for !== 'pdf') && <ReadyNotice ready={ready} onDone={() => setReady(null)} />}
+
         {vertical ? (
           <div className="reader-sheet is-vertical">
             <div className="read-arrow" aria-hidden="true">
@@ -257,6 +270,7 @@ export function ReaderStation({ chapter, onGoStoryboard, onNewProject, defaultRe
                         {notice.text}
                       </div>
                     )}
+                    {ready?.for === `png:${i}` && <ReadyNotice ready={ready} onDone={() => setReady(null)} />}
                     <EntryView entry={e} cast={chapter.cast} direction={direction} playing={playing} />
                   </>
                 )}
@@ -278,10 +292,13 @@ export function ReaderStation({ chapter, onGoStoryboard, onNewProject, defaultRe
             {current?.kind === 'page' && current.complete && (
               <div className="read-arrow" aria-hidden="true">
                 {rtl ? '⟵ read right to left' : 'read left to right ⟶'}
+                <span className="reader-swipe-hint"> · swipe to turn</span>
               </div>
             )}
             {current && (
-              <EntryView key={`${at}-${playKey}`} entry={current} cast={chapter.cast} direction={direction} playing />
+              <div {...swipe}>
+                <EntryView key={`${at}-${playKey}`} entry={current} cast={chapter.cast} direction={direction} playing />
+              </div>
             )}
           </div>
         )}
@@ -320,6 +337,41 @@ export function ReaderStation({ chapter, onGoStoryboard, onNewProject, defaultRe
       </div>
       {sharing && <ShareDialog projectId={projectId} readable={toPublish.length > 0} onClose={() => setSharing(false)} />}
     </main>
+  )
+}
+
+/** An export that is ready but needs a tap of its own to reach the share sheet; a download is the other way out. */
+function ReadyNotice({ ready, onDone }: { ready: { file: File }; onDone: () => void }) {
+  const [opening, setOpening] = useState(false)
+  return (
+    <div className="notice reader-ready" role="status">
+      <span>{ready.file.name} is ready.</span>
+      <span className="reader-ready-actions">
+        <button
+          type="button"
+          className="btn btn-primary"
+          disabled={opening}
+          onClick={async () => {
+            setOpening(true)
+            const result = await shareFile(ready.file)
+            setOpening(false)
+            if (result !== 'needs-tap') onDone()
+          }}
+        >
+          Share or save…
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost"
+          onClick={() => {
+            downloadBlob(ready.file, ready.file.name)
+            onDone()
+          }}
+        >
+          Download instead
+        </button>
+      </span>
+    </div>
   )
 }
 

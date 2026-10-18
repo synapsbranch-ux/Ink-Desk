@@ -1,2 +1,126 @@
 /* Responsive (v3, slice 23) — reader. Loaded after globals.css by app/layout.tsx, so a rule here
    overrides globals.css at equal specificity. See devpost/spec.md > Responsive (v3). */
+
+/* --- The reader: touch targets ------------------------------------------------
+   The reading-order chips and the page strip grow to 44 px on touch; a mouse
+   keeps the desktop's sizes. */
+@media (pointer: coarse), (max-width: 720px) {
+  .reader-controls .chip {
+    min-height: 44px;
+  }
+  .reader-tab {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .reader-strip {
+    gap: var(--space-2);
+  }
+}
+
+/* Swipe to turn (useSwipeTurn): up-and-down still scrolls, two fingers still zoom. */
+.reader-swipe {
+  min-width: 0;
+  touch-action: pan-y pinch-zoom;
+}
+.reader-swipe.is-off {
+  touch-action: auto;
+}
+.reader-swipe-hint {
+  display: none;
+}
+@media (pointer: coarse) {
+  .reader-swipe-hint {
+    display: inline;
+  }
+}
+
+/* An export the share sheet is waiting to take. */
+.reader-ready {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+}
+.reader-ready > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.reader-ready-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+@media (max-width: 720px) {
+  /* The page strip gets a line of its own, in reading order; the two turn
+     buttons share the line under it, Next on the reading side. */
+  .reader-nav {
+    flex-wrap: wrap;
+    row-gap: var(--space-2);
+  }
+  .reader-strip {
+    order: -1;
+    flex: 1 1 100%;
+  }
+  .reader-nav .reader-turn {
+    flex: 1 1 0;
+    min-height: 44px;
+  }
+
+  /* The reader's footer has no Next to keep in reach: it sits at the end of the
+     page, its sentence on a line of its own above the two buttons. */
+  .station-inner.reader .station-footer {
+    position: static;
+    flex-wrap: wrap;
+  }
+  .station-inner.reader .station-footer .reader-actions {
+    flex-wrap: wrap;
+  }
+}
+
+/* --- Animate this page ------------------------------------------------------ */
+@media (max-width: 560px) {
+  /* "Animate again" sits in a column: a flex-basis there is its height, so it
+     takes the line's width instead. */
+  .animate-start .btn {
+    flex: none;
+    align-self: stretch;
+  }
+  /* A stacked shot card is as tall as its words (a picture's own height made a
+     Done card a tall empty box); the picture fills its strip, cropped. */
+  .shot-thumb {
+    position: relative;
+    align-self: stretch;
+    min-height: 84px;
+  }
+  .shot-thumb img {
+    position: absolute;
+    inset: 0;
+  }
+}
+
+/* A finished trailer's actions on a phone: "Shared" reads as a note on the
+   Share button, not a third control, and Remove stands apart at the end. */
+@media (max-width: 720px) {
+  .video-actions-row .tag {
+    padding: 0;
+    border: 0;
+    background: none;
+    font-style: italic;
+    color: var(--neutral-700);
+  }
+  .video-actions-row:has(.tag) .btn-ghost {
+    margin-left: auto;
+  }
+}
+
+/* --- The trailer dialog: a full-height sheet under 480 px -------------------
+   The sheet itself is shell.css's (.confirm-overlay.is-sheet); the player has
+   no action bar at its foot, so it keeps its own bottom padding. */
+@media (max-width: 480px) {
+  .confirm-overlay.is-sheet > .confirm-card.video-dialog {
+    padding-bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
+  }
+}

@@ -201,6 +201,8 @@ export function SettingsDelete({ available }: { available: boolean }) {
             >
               {phase === 'failed' ? 'Try the deletion again…' : 'Delete my account…'}
             </button>
+            {/* Why the button is shut for a moment: it waits to learn whether a deletion is already running. */}
+            {phase === 'checking' && <span className="settings-status">Checking whether a deletion is already under way…</span>}
           </div>
         </>
       )}

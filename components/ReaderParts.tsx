@@ -13,7 +13,7 @@
 // Moved out of `ReaderStation` unchanged: the markup, the class names, the
 // reveal clock and the keyboard rules are the station's own. See
 // `devpost/prd.md > Reader (v2) — The Chapter`.
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { PencilPlaceholder } from '@/components/PencilPlaceholder'
 import { tailPath } from '@/lib/bubble'
 import { PANEL_LAYOUT } from '@/lib/prompts'
@@ -113,6 +113,53 @@ export function useTurnKeys({ enabled, rtl, at, count, go }: { enabled: boolean;
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [enabled, rtl, at, count, go])
+}
+
+/** How far, and how quickly, a finger has to travel sideways for a swipe to turn the page. */
+const SWIPE_MIN_PX = 48
+const SWIPE_MAX_MS = 800
+
+/**
+ * Swipe to turn, on a touch screen (v3, slice 23). The page sits in a box with
+ * `touch-action: pan-y pinch-zoom` (`.reader-swipe`), so an up-and-down drag
+ * still scrolls and two fingers still zoom; a quick sideways stroke turns the
+ * page. It honours the reading order: in a manga a finger moving right pulls
+ * the left-hand page in, which is the next one; left to right, it is the other
+ * way. A mouse never swipes, and while the page is pinched in the box gives
+ * sideways panning back to the browser and stops listening.
+ */
+export function useSwipeTurn({ enabled, rtl, at, count, go }: { enabled: boolean; rtl: boolean; at: number; count: number; go: (index: number) => void }) {
+  const start = useRef<{ id: number; x: number; y: number; t: number } | null>(null)
+  const [zoomed, setZoomed] = useState(false)
+  useEffect(() => {
+    const vv = typeof window === 'undefined' ? undefined : window.visualViewport
+    if (!vv) return
+    const onResize = () => setZoomed(vv.scale > 1.01)
+    vv.addEventListener('resize', onResize)
+    return () => vv.removeEventListener('resize', onResize)
+  }, [])
+  const on = enabled && !zoomed
+  return {
+    className: on ? 'reader-swipe' : 'reader-swipe is-off',
+    onPointerDown: (e: ReactPointerEvent) => {
+      // A second finger is a pinch, not a swipe.
+      start.current = on && e.pointerType !== 'mouse' && e.isPrimary ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp } : null
+    },
+    onPointerUp: (e: ReactPointerEvent) => {
+      const s = start.current
+      start.current = null
+      if (!s || s.id !== e.pointerId) return
+      const dx = e.clientX - s.x
+      const dy = e.clientY - s.y
+      if (Math.abs(dx) < SWIPE_MIN_PX || Math.abs(dx) < Math.abs(dy) * 1.5 || e.timeStamp - s.t > SWIPE_MAX_MS) return
+      const to = at + ((dx > 0) === rtl ? 1 : -1)
+      if (to >= 0 && to < count) go(to)
+    },
+    // The browser took the gesture (a scroll): no swipe.
+    onPointerCancel: () => {
+      start.current = null
+    },
+  }
 }
 
 /** One tab of the page strip. */

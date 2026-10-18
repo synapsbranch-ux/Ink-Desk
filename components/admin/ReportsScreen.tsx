@@ -31,7 +31,7 @@ export async function ReportsScreen() {
   return (
     <div className="studio">
       <style dangerouslySetInnerHTML={{ __html: ADMIN_CSS }} />
-      <header className="studio-header">
+      <header className="studio-header admin-head">
         <Link className="brand" href="/" title="Back to the desk — every project">
           <Image className="brand-mark" src="/brand/inkdesk-mark.svg" alt="" width={30} height={30} priority />
           <span className="brand-name">Ink Desk</span>

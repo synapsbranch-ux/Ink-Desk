@@ -16,10 +16,10 @@ export default function DeskError({ retry }: { error: Error & { digest?: string 
           <p className="notice" role="status">
             Nothing was lost. Try again in a moment, or go back to the desk.
           </p>
-          <p>
-            <button type="button" className="btn" onClick={() => retry()}>
+          <p className="error-actions">
+            <button type="button" className="btn btn-secondary" onClick={() => retry()}>
               Try again
-            </button>{' '}
+            </button>
             <Link className="btn btn-primary" href="/">
               ← Back to the desk
             </Link>

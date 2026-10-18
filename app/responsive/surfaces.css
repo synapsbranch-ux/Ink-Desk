@@ -1,2 +1,69 @@
 /* Responsive (v3, slice 23) — surfaces. Loaded after globals.css by app/layout.tsx, so a rule here
    overrides globals.css at equal specificity. See devpost/spec.md > Responsive (v3). */
+
+/* --- Sign-in and sign-up: the paper frame (components/AuthControls.tsx) --------- */
+.auth-shell {
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-8) var(--space-4);
+  gap: var(--space-6);
+}
+.auth-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  text-align: center;
+}
+.auth-lede {
+  margin: 0;
+  font-family: var(--font-heading), Georgia, serif;
+  font-style: italic;
+  font-size: 20px;
+  color: var(--neutral-700);
+}
+/* Clerk's card keeps its own width, but never more than the screen. */
+.auth-card {
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+  max-width: 100%;
+}
+.auth-links {
+  margin: 0;
+  display: flex;
+  gap: var(--space-4);
+}
+.auth-links a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* --- The error page's two ways forward (app/error.tsx) -------------------------- */
+.error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-3);
+  margin: 0;
+}
+
+/* --- Touch: 44px targets ---------------------------------------------------- */
+@media (pointer: coarse), (max-width: 720px) {
+  .auth-links a {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .error-actions .btn,
+  .quota-pop .btn {
+    min-height: 44px;
+  }
+  /* "Ink Desk" above Terms and Privacy: an inline link, so its hit area grows
+     past the line without moving the text. */
+  .legal-crumb a {
+    display: inline-block;
+    padding-block: 13px;
+    margin-block: -13px;
+  }
+}

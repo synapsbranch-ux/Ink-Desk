@@ -22,6 +22,7 @@ import {
   ReaderNav,
   ReaderPage,
   ScrollEntry,
+  useSwipeTurn,
   useTurnKeys,
   type PanelView,
 } from '@/components/ReaderParts'
@@ -79,6 +80,8 @@ export function SharedReader({ token, title, reading, cover, pages }: Props) {
   const [reached, setReached] = useState(-1)
   const go = (i: number) => setPos(Math.min(Math.max(0, i), count - 1))
   useTurnKeys({ enabled: !vertical, rtl, at, count, go: setPos })
+  // On a phone a sideways swipe turns the page, in the reading order.
+  const swipe = useSwipeTurn({ enabled: !vertical, rtl, at, count, go: setPos })
 
   const current = entries[at]
   const pageWord = pages.length === 1 ? 'page' : 'pages'
@@ -174,9 +177,14 @@ export function SharedReader({ token, title, reading, cover, pages }: Props) {
                   {current?.kind === 'page' && (
                     <div className="read-arrow" aria-hidden="true">
                       {rtl ? '⟵ read right to left' : 'read left to right ⟶'}
+                      <span className="reader-swipe-hint"> · swipe to turn</span>
                     </div>
                   )}
-                  {current && <EntryView key={`${at}-${playKey}`} entry={current} direction={direction} playing imageSrc={imageSrc} />}
+                  {current && (
+                    <div {...swipe}>
+                      <EntryView key={`${at}-${playKey}`} entry={current} direction={direction} playing imageSrc={imageSrc} />
+                    </div>
+                  )}
                 </div>
               )}
             </>

@@ -1,2 +1,221 @@
 /* Responsive (v3, slice 23) — planning. Loaded after globals.css by app/layout.tsx, so a rule here
    overrides globals.css at equal specificity. See devpost/spec.md > Responsive (v3). */
+
+/* The fold toggles exist only on a phone; wider screens show everything open. */
+.plan-page-toggle,
+.director-cover-toggle,
+.dna-toggle {
+  display: none;
+}
+/* Why Generate all is shut when nothing is left: hover says it on a desktop; touch and narrow screens say it here. */
+.plan-bar-why {
+  display: none;
+}
+@media (pointer: coarse), (max-width: 960px) {
+  .plan-bar-why {
+    display: block;
+  }
+}
+/* The DNA's kicker and its toggle share a row. With the toggle hidden it reads as the bare kicker. */
+.dna-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.dna-head > .eyebrow {
+  color: var(--hanko);
+}
+
+/* --- Touch: comfortable targets (44 px) ------------------------------------ */
+@media (pointer: coarse), (max-width: 720px) {
+  /* Story: the mode, genre and tone chips. */
+  .mode-row .chip,
+  .options-grid .chip {
+    min-height: 44px;
+    padding-block: 8px;
+  }
+  /* Director: the page-count stepper. */
+  .count-stepper .stepper-btn {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+  }
+  /* The Director's plan lines and the card's fields: a full-height row to tap into. */
+  .plan-input:not(textarea),
+  .cast-card .input:not(textarea),
+  .import-select {
+    min-height: 44px;
+  }
+  .plan-input:not(textarea) {
+    padding-block: 10px;
+  }
+  input.cast-role,
+  input.cast-name {
+    min-height: 44px;
+  }
+  /* The shelf's tick: the whole tile is its label; the row under the picture is a full-height target too. */
+  .asset-tick {
+    min-height: 44px;
+    gap: var(--space-2);
+  }
+  .asset-tick input {
+    width: 20px;
+    height: 20px;
+  }
+}
+
+/* Touch keyboards zoom into any field set under 16 px; these are the planning fields that were. */
+@media (pointer: coarse) {
+  .plan-input,
+  .traits-input,
+  .import-select,
+  .scenario-notes,
+  input.cast-role {
+    font-size: 16px;
+  }
+}
+
+/* --- Tablet and phone: the plan's bar stays in reach -------------------------
+   The page count, the estimate and Generate all stick to the top while the
+   page cards scroll under them. */
+@media (max-width: 960px) {
+  .plan-bar-sticky {
+    position: sticky;
+    top: 0;
+    z-index: 9;
+  }
+}
+
+/* --- Phone ------------------------------------------------------------------ */
+@media (max-width: 720px) {
+  /* The plan's bar, compact: the stepper and the button on one row, the estimate under them. */
+  .plan-bar {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-2) var(--space-3);
+  }
+  .plan-bar .estimate {
+    order: 3;
+    flex: 1 1 100%;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  .plan-bar > .btn,
+  .plan-bar-actions {
+    margin-left: auto;
+  }
+  .plan-bar-actions {
+    justify-content: flex-end;
+    gap: var(--space-2);
+  }
+  .count-stepper {
+    gap: var(--space-1);
+  }
+  .count-stepper-value {
+    font-size: 26px;
+  }
+
+  /* Each page card folds to its head, its action and one toggle. */
+  .plan-page:not(.is-open) .plan-page-body {
+    display: none;
+  }
+  .plan-page-toggle,
+  .director-cover-toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+    min-height: 44px;
+    margin: 0;
+    font: inherit;
+    font-family: var(--font-heading), Georgia, serif;
+    font-size: 15px;
+    color: var(--ink);
+    text-align: left;
+    cursor: pointer;
+  }
+  .plan-page-toggle {
+    justify-content: space-between;
+    padding: 0 var(--space-3);
+    background: transparent;
+    border: 1px solid var(--divider);
+    border-radius: var(--radius-sm);
+  }
+  .plan-page-toggle::after,
+  .director-cover-toggle-action::after {
+    content: '▾';
+    display: inline-block;
+    margin-left: var(--space-2);
+    font-size: 13px;
+    transition: transform 0.15s;
+  }
+  .plan-page.is-open .plan-page-toggle::after,
+  .director-cover.is-open .director-cover-toggle-action::after {
+    transform: rotate(180deg);
+  }
+  .plan-page-toggle:hover,
+  .director-cover-toggle:hover {
+    border-color: var(--neutral-500);
+  }
+  /* A tap answers in the paper's own grey, not the browser's blue flash. */
+  .plan-page-toggle,
+  .director-cover-toggle,
+  .dna-toggle {
+    -webkit-tap-highlight-color: transparent;
+  }
+  .plan-page-toggle:active,
+  .director-cover-toggle:active,
+  .dna-toggle:active {
+    background: color-mix(in srgb, var(--ink) 7%, transparent);
+  }
+  .plan-page-toggle:focus-visible,
+  .director-cover-toggle:focus-visible,
+  .dna-toggle:focus-visible {
+    outline: 2px solid var(--hanko);
+    outline-offset: 2px;
+  }
+
+  /* The cover folds to one card-like row above the pages. */
+  .director-cover:not(.is-open) .director-cover-body {
+    display: none;
+  }
+  .director-cover-toggle {
+    padding: var(--space-2) var(--space-3);
+    background: #fff;
+    border: 1px solid var(--ink);
+    border-radius: var(--radius-sm);
+    box-shadow: 4px 4px 0 color-mix(in srgb, var(--ink) 10%, transparent);
+  }
+  .director-cover.is-open .director-cover-toggle {
+    margin-bottom: var(--space-3);
+  }
+  .director-cover-toggle-name {
+    font-weight: 600;
+    font-size: 20px;
+  }
+  .director-cover-toggle-state {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-family: var(--font-body), Georgia, serif;
+    font-size: 13px;
+    font-style: italic;
+    color: var(--neutral-700);
+  }
+  .director-cover-toggle-action {
+    flex-shrink: 0;
+    color: var(--hanko);
+  }
+
+  /* Library: the DNA (and a locked card's traits) fold behind "Show DNA". */
+  .dna-toggle {
+    display: inline-flex;
+    flex-shrink: 0;
+  }
+  .cast-card.is-dna-folded .dna-text,
+  .cast-card.is-dna-folded .cast-traits-locked {
+    display: none;
+  }
+}

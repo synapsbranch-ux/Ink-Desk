@@ -10,7 +10,11 @@
 // Slice 20: an unwritten page says what it takes of today's images ("Uses 4 of
 // your 20 images today") and its button is shut — with the reason and the
 // reset time under the header — when it cannot be drawn.
+// Slice 23: on a phone the card is an accordion — the head, its action and
+// a "Show the four shots" toggle; the mini-page and the lines open under it.
+// On wider screens the body is always open and the toggle is not shown.
 // Implements `devpost/prd.md > The Director — Chapter Plan and Cover`.
+import { useState } from 'react'
 import { pageStatus } from '@/components/PageSwitcher'
 import { useImageUrl } from '@/components/project-image'
 import { SpendNote } from '@/components/SpendNote'
@@ -47,6 +51,8 @@ type Props = {
   starting: boolean
   /** Another generation request is on the wire. */
   locked: boolean
+  /** Open on a phone at first (the next page to write); elsewhere the body is always open. */
+  defaultOpen?: boolean
   onLine: (page: number, panel: number, edit: PlanLineEdit) => void
   onGenerate: (page: number) => void
   onOpen: (page: number) => void
@@ -62,11 +68,14 @@ export function PagePlanCard({
   openPanels,
   starting,
   locked,
+  defaultOpen = false,
   onLine,
   onGenerate,
   onOpen,
 }: Props) {
   const n = index + 1
+  const [open, setOpen] = useState(defaultOpen)
+  const bodyId = `plan-page-${index}-body`
   const written = summary?.written === true
   const spend = useSpend({ images: PANELS_PER_PAGE })
   const { usage } = useUsage()
@@ -76,7 +85,7 @@ export function PagePlanCard({
   const lines = written && openPanels ? openPanels : page.panels
 
   return (
-    <article className={`card plan-page is-${status.tone}`} data-plan-page={index}>
+    <article className={`card plan-page is-${status.tone}${open ? ' is-open' : ''}`} data-plan-page={index}>
       <header className="plan-page-head">
         <h3 className="plan-page-title">Page {n}</h3>
         <span className={`plan-page-status is-${status.tone}`}>{status.label}</span>
@@ -114,7 +123,17 @@ export function PagePlanCard({
         <p className="spend-line">{usesLine(usage, PANELS_PER_PAGE)}</p>
       )}
 
-      <div className="plan-page-body">
+      <button
+        type="button"
+        className="plan-page-toggle"
+        aria-expanded={open}
+        aria-controls={bodyId}
+        onClick={() => setOpen((o) => !o)}
+      >
+        {open ? `Hide page ${n}’s shots` : `Show page ${n}’s four shots`}
+      </button>
+
+      <div className="plan-page-body" id={bodyId}>
         <MiniPage summary={summary} openPanels={openPanels} cast={cast} lines={page.panels} />
 
         <div className="plan-slots">

@@ -16,6 +16,11 @@
 // time under the bar — when it takes more than is left or drawing is paused,
 // and the plan, a paid text call, is shut only while drawing is paused for
 // everyone. See `devpost/prd.md > Limits and Usage (v3)`.
+//
+// Slice 23: on a tablet or phone the plan's bar (count, estimate, Generate all)
+// sticks to the top while the pages scroll; on a phone each page card and the
+// cover fold to one row with a toggle, and the next page to write starts open.
+// See `devpost/prd.md > Responsive (v3)`.
 import { useState } from 'react'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { CoverCard } from '@/components/CoverCard'
@@ -24,13 +29,13 @@ import { PagePlanCard } from '@/components/PagePlanCard'
 import { useImageUrl } from '@/components/project-image'
 import { SpendNote } from '@/components/SpendNote'
 import { StationFooter } from '@/components/StationFooter'
-import { coverJob } from '@/lib/activity'
+import { coverJob, inFlight } from '@/lib/activity'
 import { chapterImages, estimateLine } from '@/lib/cost'
 import type { Gates } from '@/lib/gates'
 import { imagesToStartAll, usesLine } from '@/lib/limits/button'
 import { useSpend, useUsage } from '@/lib/limits/use-usage'
 import type { ChapterPatch } from '@/lib/patch'
-import { pagesComplete, type PlanLineEdit } from '@/lib/plan'
+import { currentCoverImageId, pagesComplete, type PlanLineEdit } from '@/lib/plan'
 import type { Activity } from '@/lib/queue/jobs'
 import { PAGE_COUNT_DEFAULT, PAGE_COUNT_MAX, PAGE_COUNT_MIN } from '@/lib/schemas'
 import { textStages } from '@/lib/stages'
@@ -233,6 +238,8 @@ function PlanDesk({
 }: Props) {
   const plan = chapter.plan!
   const [confirming, setConfirming] = useState(false)
+  // Phones only: the cover folds to one row until opened.
+  const [coverOpen, setCoverOpen] = useState(false)
   const anyWritten = chapter.pages.some((p) => p.written)
   const count = plan.pages.length
   // The last page can be dropped only while it isn't on the board.
@@ -247,12 +254,15 @@ function PlanDesk({
   const textSpend = useSpend({ text: true })
   const { usage } = useUsage()
 
+  // The page a phone opens first: the next one to write.
+  const nextToWrite = chapter.pages.find((p) => !p.written)?.index ?? -1
+
   const onLine = (page: number, panel: number, e: PlanLineEdit) =>
     onEdit({ plan: { pages: { [page]: { [panel]: e } } } })
 
   return (
     <>
-      <div className="plan-bar card">
+      <div className="plan-bar plan-bar-sticky card">
         <PageCountStepper
           value={count}
           onChange={(n) => onCommit({ plan: { pageCount: n } })}
@@ -260,6 +270,12 @@ function PlanDesk({
         />
         <p className="estimate">
           {estimateLine(count, chapter.panelQuality)} {nothingLeft || allSpend.blocked ? '' : usesLine(usage, allImages, 'Generate all uses')}
+          {/* The button's title says this on hover; a touch screen has none, so it is said here too. */}
+          {nothingLeft && (
+            <span id="all-done" className="plan-bar-why">
+              Nothing left to generate — every panel is inked or on its way.
+            </span>
+          )}
         </p>
         <div className="plan-bar-actions">
           {!anyWritten && (
@@ -277,7 +293,7 @@ function PlanDesk({
             type="button"
             className="btn btn-primary btn-lg"
             disabled={busy || nothingLeft || allSpend.blocked}
-            aria-describedby={allSpend.blocked && !nothingLeft ? 'all-reason' : undefined}
+            aria-describedby={nothingLeft ? 'all-done' : allSpend.blocked ? 'all-reason' : undefined}
             title={
               nothingLeft
                 ? 'Every page is written and every panel is inked or on its way.'
@@ -323,24 +339,40 @@ function PlanDesk({
               openPanels={p === chapter.address.pageIndex ? openPanels : null}
               starting={starting === p}
               locked={busy}
+              defaultOpen={p === nextToWrite}
               onLine={onLine}
               onGenerate={onStartPage}
               onOpen={(n) => onCommit({ page: n, station: 'storyboard' })}
             />
           ))}
         </div>
-        <aside className="director-cover">
+        <aside className={`director-cover${coverOpen ? ' is-open' : ''}`}>
           {chapter.cover && (
-            <CoverCard
-              cover={chapter.cover}
-              panelQuality={chapter.panelQuality}
-              busy={coverBusy}
-              job={coverJob(activity)}
-              notice={coverNotice}
-              onEdit={onEdit}
-              onCommit={onCommit}
-              onGenerate={onGenerateCover}
-            />
+            <>
+              <button
+                type="button"
+                className="director-cover-toggle"
+                aria-expanded={coverOpen}
+                aria-controls="director-cover-body"
+                onClick={() => setCoverOpen((o) => !o)}
+              >
+                <span className="director-cover-toggle-name">The cover</span>
+                <span className="director-cover-toggle-state">{coverState(chapter, activity, coverNotice)}</span>
+                <span className="director-cover-toggle-action">{coverOpen ? 'Hide' : 'Show'}</span>
+              </button>
+              <div className="director-cover-body" id="director-cover-body">
+                <CoverCard
+                  cover={chapter.cover}
+                  panelQuality={chapter.panelQuality}
+                  busy={coverBusy}
+                  job={coverJob(activity)}
+                  notice={coverNotice}
+                  onEdit={onEdit}
+                  onCommit={onCommit}
+                  onGenerate={onGenerateCover}
+                />
+              </div>
+            </>
           )}
         </aside>
       </div>
@@ -360,6 +392,15 @@ function PlanDesk({
       )}
     </>
   )
+}
+
+/** The cover's state in a word or two, for its folded row on a phone. */
+function coverState(chapter: Chapter, activity: Activity | undefined, notice: string | null): string {
+  const cover = chapter.cover
+  if (!cover) return ''
+  if (inFlight(cover.status, coverJob(activity))) return 'Inking…'
+  if (notice || cover.status === 'failed' || cover.status === 'refused') return 'Not drawn — open it for why'
+  return currentCoverImageId(cover) ? 'Drawn' : 'Not drawn yet'
 }
 
 /** "Pages: ‹ 3 ›" — within the allowed range, every step a labelled button. */

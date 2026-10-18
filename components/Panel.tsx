@@ -123,53 +123,60 @@ export function Panel({
       data-inked={showArt && !revealing ? 'true' : undefined}
       aria-busy={inking || undefined}
     >
-      {pencilUnder && (
-        <PencilPlaceholder
-          slot={slot}
-          label={label}
-          still={still}
-          failed={failed || (idle && lostNote !== null)}
-          generating={drawing && !hasArt}
-          startedAt={panel?.startedAt}
-        />
-      )}
-      {imageId && (
-        // eslint-disable-next-line @next/next/no-img-element -- served by our own route as final bytes; this is the art the lock is judged on
-        <img
-          key={imageId}
-          ref={bind}
-          className={`panel-art${showArt ? '' : ' is-loading'}${revealing ? ' is-inking' : ''}`}
-          src={imageSrc(imageId)}
-          alt={character ? `${character.name}, ${slot.shot}` : `Panel ${n}`}
-          onLoad={onLoad}
-          onAnimationEnd={() => {
-            seen.add(imageId)
-            setInkedId(imageId)
-          }}
-        />
-      )}
-      {panel && (
-        <SpeechBubble
-          panel={panel}
-          faint={pencilUnder}
-          onLayout={(bubble) => onPanelEdit(panel.index, { bubble })}
-          onDialogue={(dialogue) => onPanelEdit(panel.index, { dialogue })}
-        />
-      )}
+      {/* The art box: everything drawn in the panel. On a phone or a touch
+          screen the repair bar moves out from over it to just under it (v3). */}
+      <div className="panel-frame">
+        {pencilUnder && (
+          <PencilPlaceholder
+            slot={slot}
+            label={label}
+            still={still}
+            failed={failed || (idle && lostNote !== null)}
+            generating={drawing && !hasArt}
+            startedAt={panel?.startedAt}
+          />
+        )}
+        {imageId && (
+          // eslint-disable-next-line @next/next/no-img-element -- served by our own route as final bytes; this is the art the lock is judged on
+          <img
+            key={imageId}
+            ref={bind}
+            className={`panel-art${showArt ? '' : ' is-loading'}${revealing ? ' is-inking' : ''}`}
+            src={imageSrc(imageId)}
+            alt={character ? `${character.name}, ${slot.shot}` : `Panel ${n}`}
+            onLoad={onLoad}
+            onAnimationEnd={() => {
+              seen.add(imageId)
+              setInkedId(imageId)
+            }}
+          />
+        )}
+        {panel && (
+          <SpeechBubble
+            panel={panel}
+            faint={pencilUnder}
+            onLayout={(bubble) => onPanelEdit(panel.index, { bubble })}
+            onDialogue={(dialogue) => onPanelEdit(panel.index, { dialogue })}
+          />
+        )}
 
-      {/* A redraw in progress: the current art stays, the indicator says so. */}
-      {redrawing && (
-        <div className="redraw-indicator" aria-hidden="true">
-          <GenerationStatus stages={PANEL_STAGES} startedAt={panel?.startedAt} />
-        </div>
-      )}
-      {waitingRedraw && (
-        <div className="redraw-indicator" role="status">
-          <div className="gen-status">
-            <span className="gen-stage">Waiting its turn…</span>
+        {/* A redraw in progress: the current art stays, the indicator says so. */}
+        {redrawing && (
+          <div className="redraw-indicator" aria-hidden="true">
+            <GenerationStatus stages={PANEL_STAGES} startedAt={panel?.startedAt} />
           </div>
-        </div>
-      )}
+        )}
+        {waitingRedraw && (
+          <div className="redraw-indicator" role="status">
+            <div className="gen-status">
+              <span className="gen-stage">Waiting its turn…</span>
+            </div>
+          </div>
+        )}
+        <span className="panel-num" aria-hidden="true">
+          {n}
+        </span>
+      </div>
 
       {/* The repair bar: failure sentence, version stepper, repair actions —
           visible and labelled, never hover-only (the 5b rule). */}
@@ -183,6 +190,7 @@ export function Panel({
                 <button
                   type="button"
                   className="stepper-btn"
+                  aria-label="Previous version"
                   disabled={cv === 0}
                   title={cv === 0 ? 'This is the oldest version the desk kept.' : 'Show the previous version'}
                   onClick={() => onPanelEdit(panel.index, { version: cv - 1 })}
@@ -195,6 +203,7 @@ export function Panel({
                 <button
                   type="button"
                   className="stepper-btn"
+                  aria-label="Next version"
                   disabled={cv === versions.length - 1}
                   title={cv === versions.length - 1 ? 'This is the newest version.' : 'Show the next version'}
                   onClick={() => onPanelEdit(panel.index, { version: cv + 1 })}
@@ -238,8 +247,8 @@ export function Panel({
                     : spend.blocked
                       ? (spend.reason ?? undefined)
                       : failed
-                      ? 'Rerun the same request — same locked sheet, same DNA.'
-                      : 'Draw this panel again from the same locked sheet. The current art stays until the new one lands.'
+                        ? 'Rerun the same request — same locked sheet, same DNA.'
+                        : 'Draw this panel again from the same locked sheet. The current art stays until the new one lands.'
                 }
                 onClick={() => onRedraw(panel.index)}
               >
@@ -250,9 +259,6 @@ export function Panel({
         </div>
       )}
 
-      <span className="panel-num" aria-hidden="true">
-        {n}
-      </span>
       <figcaption className="sr-only">
         Panel {n}
         {character ? `, ${character.name}` : ''}, {slot.shot}. {panel ? label || 'Inked.' : label}

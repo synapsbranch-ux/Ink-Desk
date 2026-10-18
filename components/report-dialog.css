@@ -159,17 +159,22 @@
 }
 
 @media (max-width: 480px) {
+  /* --sheet-top / --sheet-h (useSheetViewport): the part of the screen the keyboard leaves visible. */
   .report-overlay {
+    inset: auto 0;
+    top: var(--sheet-top, 0px);
+    height: var(--sheet-h, 100dvh);
     padding: 0;
     align-items: stretch;
   }
   .report-card {
     max-width: none;
     max-height: none;
-    height: 100dvh;
+    height: 100%;
     border-width: 0;
     box-shadow: none;
     padding: var(--space-4);
+    padding-bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
   }
   .report-actions .report-btn {
     flex: 1 1 100%;

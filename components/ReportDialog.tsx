@@ -16,12 +16,14 @@
 //     (`role="status"`); the address's hourly window being full, with the time to
 //     wait (`role="alert"`, from the server's `Retry-After`/`retryAfterSec`); and
 //     a calm error that keeps what was typed, so Send can simply be pressed again.
-//   • Under 480 px it is a full-height sheet. Every control is at least 44 px tall.
+//   • Under 480 px it is a full-height sheet, fitted to what a phone's keyboard
+//     leaves visible (`useSheetViewport`). Every control is at least 44 px tall.
 //
 // The server answers the same "thanks" for a share that is live, taken down or
 // never existed, so nothing here can tell the visitor which it was.
 import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useSheetViewport } from '@/components/use-sheet-viewport'
 import { REPORT_NOTE_MAX, REPORT_REASON_HINT, REPORT_REASON_LABEL, waitWords } from '@/lib/share/report-copy'
 import { REPORT_REASONS, type ReportReason } from '@/lib/share/types'
 import './report-dialog.css'
@@ -68,9 +70,13 @@ function ReportSheet({ token, onClose }: { token: string; onClose: () => void })
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
   const card = useRef<HTMLDivElement>(null)
+  const overlay = useRef<HTMLDivElement>(null)
   const firstReason = useRef<HTMLInputElement>(null)
   const closeButton = useRef<HTMLButtonElement>(null)
   const request = useRef<AbortController | null>(null)
+
+  // Under 480 px the sheet fits what the keyboard leaves visible, so Send is never under the keys.
+  useSheetViewport(overlay)
 
   // The page behind stays put while the dialog is up; focus starts on the first reason.
   useEffect(() => {
@@ -148,6 +154,7 @@ function ReportSheet({ token, onClose }: { token: string; onClose: () => void })
 
   return (
     <div
+      ref={overlay}
       className="report-overlay"
       role="presentation"
       onPointerDown={(e) => {

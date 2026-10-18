@@ -12,6 +12,10 @@
 // for a limit says so in its caption (short) and in a line above the actions
 // (the full sentence with the reset time) — visible without hover — and the
 // card never shows a raw error. See `devpost/prd.md > Limits and Usage (v3)`.
+//
+// Slice 23: on a phone the long DNA text (and a locked card's traits) fold
+// behind "Show DNA", so the two cards aren't a wall of words; wider screens
+// always show them. See `devpost/prd.md > Responsive (v3)`.
 import { useState } from 'react'
 import { GenerationStatus } from '@/components/GenerationStatus'
 import { useImageUrl } from '@/components/project-image'
@@ -61,6 +65,10 @@ export function CharacterCard({ index, character: c, state, onEdit, onCommit, on
   // The shelf asset this card's sheet came from, for Reread picture.
   const sheetAsset = imported ? assets.find((a) => a.blobId === c.sheetImageId) : undefined
   const [pick, setPick] = useState<string>('')
+  // Phones only: the DNA text folds until asked for.
+  const [dnaOpen, setDnaOpen] = useState(false)
+  const dnaId = `dna-${c.id}`
+  const traitsId = `traits-${c.id}`
   const chosen = pick && assets.some((a) => a.id === pick) ? pick : (assets[assets.length - 1]?.id ?? '')
 
   // The four actions, always rendered in the same places with fixed labels —
@@ -148,7 +156,7 @@ export function CharacterCard({ index, character: c, state, onEdit, onCommit, on
 
   return (
     <article
-      className={`card cast-card${c.locked ? ' is-locked' : ''}`}
+      className={`card cast-card${c.locked ? ' is-locked' : ''}${hasDna && !dnaOpen ? ' is-dna-folded' : ''}`}
       data-character={c.id}
       aria-busy={working || undefined}
     >
@@ -216,9 +224,24 @@ export function CharacterCard({ index, character: c, state, onEdit, onCommit, on
         </figure>
 
         <div className="dna">
-          <span className="eyebrow eyebrow-sm">Visual DNA</span>
+          <div className="dna-head">
+            <span className="eyebrow eyebrow-sm">Visual DNA</span>
+            {hasDna && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm dna-toggle"
+                aria-expanded={dnaOpen}
+                aria-controls={c.locked ? `${dnaId} ${traitsId}` : dnaId}
+                onClick={() => setDnaOpen((o) => !o)}
+              >
+                {dnaOpen ? 'Hide DNA' : 'Show DNA'}
+              </button>
+            )}
+          </div>
           {c.dna ? (
-            <p className="dna-text">{c.dna}</p>
+            <p className="dna-text" id={dnaId}>
+              {c.dna}
+            </p>
           ) : (
             <p className="dna-empty">
               {busy === 'importing'
@@ -235,7 +258,7 @@ export function CharacterCard({ index, character: c, state, onEdit, onCommit, on
         </div>
       </div>
 
-      <div className="cast-field">
+      <div className={`cast-field${c.locked ? ' cast-traits-locked' : ''}`} id={traitsId}>
         <span className="eyebrow eyebrow-sm">Traits</span>
         {c.locked ? (
           <div className="traits-row">

@@ -29,20 +29,22 @@ export function AuthControls() {
 /**
  * The paper frame around Clerk's sign-in and sign-up cards: the brand, one
  * line of welcome, the card centred, and the two pages a stranger should be
- * able to read before signing up.
+ * able to read before signing up. Its styles are in
+ * `app/responsive/surfaces.css`: on a phone the card never pushes the page
+ * sideways, and Terms and Privacy are 44px targets on touch.
  */
 export function AuthShell({ lede, children }: { lede: string; children: React.ReactNode }) {
   return (
-    <main className="studio" style={{ alignItems: 'center', justifyContent: 'center', padding: 'var(--space-8) var(--space-4)', gap: 'var(--space-6)' }}>
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--space-2)', textAlign: 'center' }}>
+    <main className="studio auth-shell">
+      <div className="auth-head">
         <div className="brand">
           <Image className="brand-mark" src="/brand/inkdesk-mark.svg" alt="" width={30} height={30} priority />
           <span className="brand-name">Ink Desk</span>
         </div>
-        <p style={{ margin: 0, fontFamily: 'var(--font-heading), Georgia, serif', fontStyle: 'italic', fontSize: 20, color: 'var(--neutral-700)' }}>{lede}</p>
+        <p className="auth-lede">{lede}</p>
       </div>
-      {children}
-      <p className="eyebrow" style={{ margin: 0, display: 'flex', gap: 'var(--space-4)' }}>
+      <div className="auth-card">{children}</div>
+      <p className="eyebrow auth-links">
         <Link href="/terms">Terms</Link>
         <Link href="/privacy">Privacy</Link>
       </p>

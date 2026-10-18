@@ -1,2 +1,305 @@
 /* Responsive (v3, slice 23) — page. Loaded after globals.css by app/layout.tsx, so a rule here
    overrides globals.css at equal specificity. See devpost/spec.md > Responsive (v3). */
+
+/* The panel's art box. On the desktop it fills the panel exactly as before; it
+   is also the container the lettering is sized from. */
+.panel-frame {
+  position: absolute;
+  inset: 0;
+  container-type: inline-size;
+}
+
+/* Lettering sized from the panel, not the viewport: the same share of the
+   panel at every width (the desktop's 15.4 px on its ~354 px squares and
+   ~726 px wide panels), capped at 17 px. A line
+   that still doesn't fit is stepped down by `components/bubble-fit.ts`, so
+   words are never cut or broken mid-word. */
+.panel-frame .bubble-text {
+  --letter: 4.34cqi;
+  font-size: clamp(8px, var(--letter), 17px);
+  overflow-wrap: normal;
+  word-break: normal;
+}
+.panel-wide > .panel-frame .bubble-text {
+  --letter: 2.12cqi;
+}
+/* Even the smallest size can't fit: the words stay whole, outside the box. */
+.bubble-text.is-overfull {
+  overflow: visible;
+}
+.bubble-drag {
+  touch-action: none;
+}
+
+/* Touch: the bubble is one button that opens the edit sheet. It is never
+   smaller than 44 px and carries a small pencil mark, so it reads as
+   editable without a hover. */
+.bubble-tap {
+  position: absolute;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink);
+  white-space: normal;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.bubble-tap:focus-visible,
+.bubble-tap[aria-expanded='true'] {
+  outline: 2px solid var(--hanko);
+  outline-offset: 2px;
+}
+.bubble-tap .bubble-text-wrap {
+  position: static;
+  flex: none;
+}
+.bubble-tap .bubble-text {
+  cursor: pointer;
+}
+/* Just outside the oval's lower-right rim, clear of the centred lettering. */
+.bubble-edit-mark {
+  position: absolute;
+  left: 90%;
+  top: 90%;
+  width: 16px;
+  height: 16px;
+  transform: translate(-50%, -50%);
+  padding: 2px;
+  border-radius: 50%;
+  background: var(--hanko);
+  fill: var(--paper);
+  box-shadow: 0 0 0 1.5px var(--paper);
+}
+
+/* The edit sheet: a paper sheet from the bottom edge, the panel left in view
+   above it. Full width on a phone, a centred sheet on a tablet. */
+.bubble-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: color-mix(in srgb, var(--ink) 14%, transparent);
+}
+.bubble-sheet {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 520px;
+  max-height: min(64dvh, 600px);
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  border-bottom: 0;
+  box-shadow: 0 -6px 0 color-mix(in srgb, var(--ink) 12%, transparent);
+}
+.bubble-sheet:focus {
+  outline: none;
+}
+.bubble-sheet:focus-visible {
+  outline: 2px solid var(--hanko);
+  outline-offset: -4px;
+}
+.bubble-sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+  padding: var(--space-4) var(--space-4) var(--space-2);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.bubble-sheet-title {
+  margin: 0;
+  font-family: var(--font-heading), Georgia, serif;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.15;
+}
+.bubble-sheet-head .helper {
+  margin: 2px 0 0;
+}
+.bubble-sheet-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.bubble-sheet-text {
+  min-height: 44px;
+  padding: 8px 10px;
+  font-family: var(--font-letter), 'Comic Neue', cursive;
+  font-size: 16px; /* 16 px: iOS doesn't zoom the page on focus */
+  font-weight: 700;
+  line-height: 1.25;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--ink);
+  border-radius: var(--radius-sm);
+  resize: vertical;
+}
+.bubble-sheet-text:focus-visible {
+  outline: 2px solid var(--hanko);
+  outline-offset: 1px;
+}
+.bubble-sheet-groups {
+  display: grid;
+  grid-template-columns: repeat(2, max-content);
+  gap: var(--space-3) var(--space-6);
+}
+.bubble-sheet-group {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.bubble-sheet-group:last-child {
+  grid-column: 1 / -1;
+}
+.bubble-sheet-group legend {
+  margin-bottom: 4px;
+  padding: 0;
+}
+.bubble-pad {
+  display: grid;
+  grid-template-columns: repeat(3, 44px);
+  grid-auto-rows: 44px;
+  gap: 4px;
+}
+.bubble-pad.is-move .is-up {
+  grid-area: 1 / 2;
+}
+.bubble-pad.is-move .is-left {
+  grid-area: 2 / 1;
+}
+.bubble-pad.is-move .is-right {
+  grid-area: 2 / 3;
+}
+.bubble-pad.is-move .is-down {
+  grid-area: 3 / 2;
+}
+.bubble-pad-btn {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--ink);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.bubble-pad-btn[aria-pressed='true'] {
+  color: var(--paper);
+  background: var(--ink);
+}
+.bubble-pad-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.bubble-pad-btn:focus-visible {
+  outline: 2px solid var(--hanko);
+  outline-offset: 2px;
+}
+/* The pad's middle: the bubble the tail leaves from. */
+.bubble-pad-mid {
+  align-self: center;
+  justify-self: center;
+  width: 26px;
+  height: 18px;
+  border: 1.5px solid var(--ink);
+  border-radius: 50%;
+  background: #fff;
+}
+.bubble-sheet-note {
+  min-height: 1.35em;
+  margin: 4px 0 0;
+  font-size: 12px;
+  font-style: italic;
+  line-height: 1.35;
+  color: var(--neutral-700);
+}
+.bubble-size {
+  display: flex;
+  gap: var(--space-2);
+}
+.bubble-sheet-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--divider);
+}
+
+/* Phone and touch: the repair bar moves from over the art to just under it,
+   so it no longer hides the bottom of every panel, and wraps in a small
+   square rather than running off its edge. The stepper's arrows are 44 px. */
+@media (pointer: coarse), (max-width: 720px) {
+  .panel:has(> .panel-frame) {
+    aspect-ratio: auto;
+    overflow: visible;
+    border: 0;
+    background: none;
+  }
+  .panel > .panel-frame {
+    position: relative;
+    inset: auto;
+    overflow: hidden;
+    border: 2px solid var(--ink);
+    background: var(--neutral-100);
+  }
+  .panel-wide > .panel-frame {
+    aspect-ratio: 3 / 2;
+  }
+  .panel-square > .panel-frame {
+    aspect-ratio: 1 / 1;
+  }
+  .panel > .panel-frame ~ .panel-bar {
+    position: static;
+    padding: 6px 0 0;
+    background: none;
+    border-top: 0;
+  }
+  .panel > .panel-frame ~ .panel-bar .panel-bar-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    row-gap: 6px;
+    white-space: normal;
+  }
+  .panel-bar .stepper-btn {
+    min-width: 44px;
+    min-height: 44px;
+    font-size: 18px;
+  }
+  .cover-title-input {
+    min-height: 44px;
+  }
+}
+
+/* A phone's page tabs: three to a row, so the status may take two lines. The
+   panel number shrinks with the panels, so it covers less of a bubble. */
+@media (max-width: 480px) {
+  .panel > .panel-frame .panel-num {
+    padding: 0 5px 1px;
+    font-size: 11px;
+  }
+  .page-tab {
+    padding-inline: 8px;
+  }
+  .page-tab-status {
+    font-size: 11px;
+    white-space: normal;
+  }
+}

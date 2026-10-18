@@ -18,7 +18,7 @@ export default function PrivacyPage() {
   return (
     <main className="studio">
       <article style={page}>
-        <p className="eyebrow" style={{ margin: 0 }}>
+        <p className="eyebrow legal-crumb" style={{ margin: 0 }}>
           <Link href="/">Ink Desk</Link> · Privacy · updated {UPDATED}
         </p>
         <h1 style={{ fontSize: 36 }}>Privacy</h1>

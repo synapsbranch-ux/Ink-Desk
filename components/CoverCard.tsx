@@ -113,6 +113,7 @@ export function CoverCard({ cover, panelQuality, busy, job, notice, onEdit, onCo
               <button
                 type="button"
                 className="stepper-btn"
+                aria-label="Previous version"
                 disabled={cv === 0}
                 title={cv === 0 ? 'This is the oldest version the desk kept.' : 'Show the previous version'}
                 onClick={() => onCommit({ cover: { version: cv - 1 } })}
@@ -125,6 +126,7 @@ export function CoverCard({ cover, panelQuality, busy, job, notice, onEdit, onCo
               <button
                 type="button"
                 className="stepper-btn"
+                aria-label="Next version"
                 disabled={cv === versions.length - 1}
                 title={cv === versions.length - 1 ? 'This is the newest version.' : 'Show the next version'}
                 onClick={() => onCommit({ cover: { version: cv + 1 } })}

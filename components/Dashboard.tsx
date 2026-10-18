@@ -133,7 +133,7 @@ export function Dashboard({
             type="button"
             className="btn btn-stamp"
             disabled={spend.blocked}
-            aria-describedby={spend.blocked ? 'new-project-reason' : undefined}
+            aria-describedby={spend.blocked && spend.reason ? 'new-project-reason' : undefined}
             title={spendTitle(spend, undefined)}
             onClick={() => setCreating(true)}
           >
@@ -170,6 +170,7 @@ export function Dashboard({
                   type="button"
                   className="btn btn-stamp btn-lg"
                   disabled={spend.blocked}
+                  aria-describedby={spend.blocked && spend.reason ? 'new-project-reason' : undefined}
                   title={spendTitle(spend, undefined)}
                   onClick={() => setCreating(true)}
                 >

@@ -366,3 +366,40 @@
     padding: var(--space-3);
   }
 }
+
+/* --- Touch (slice 23) ------------------------------------------------------------
+   A short word ("Usage", "Terms") is narrower than a finger: give it 44px of width,
+   centred, so the look is the same and only the target grows. */
+@media (pointer: coarse), (max-width: 720px) {
+  .settings-nav a,
+  .settings-foot a {
+    min-width: 44px;
+    justify-content: center;
+  }
+}
+
+/* A phone: the five sections fit on one line (a 360px screen still wraps to two,
+   every item in view), and a shared link's card puts the picture beside its title
+   so the link and its buttons get the card's full width. */
+@media (max-width: 480px) {
+  .settings-nav ul {
+    gap: 0 var(--space-2);
+  }
+  .settings-nav a {
+    font-size: 16px;
+  }
+  .share-row {
+    grid-template-columns: 64px minmax(0, 1fr);
+    align-items: center;
+    row-gap: var(--space-2);
+  }
+  .share-row-body {
+    display: contents;
+  }
+  .share-row-body > :not(.share-row-title) {
+    grid-column: 1 / -1;
+  }
+  .share-row-actions .btn {
+    flex: 1 1 auto;
+  }
+}

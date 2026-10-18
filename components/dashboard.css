@@ -95,3 +95,11 @@
   min-height: 44px;
   flex: 1;
 }
+
+/* A phone (slice 23): the header's controls wrap under the brand; New project keeps
+   to the right edge of its row, where a thumb finds it, rather than trailing the counters. */
+@media (max-width: 720px) {
+  .desk .studio-header .header-meta > .btn-stamp {
+    margin-left: auto;
+  }
+}
