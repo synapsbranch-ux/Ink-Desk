@@ -29,6 +29,7 @@ import 'server-only'
 import { z } from 'zod'
 import { authMode, authProblems, isProduction, type AuthMode } from './auth/config'
 import type { PlanName, RateBucket } from './limits/rules'
+import { TRAILER_RUN_MS } from './queue/jobs'
 
 type Env = Record<string, string | undefined>
 
@@ -312,6 +313,9 @@ export type VideoSettings = {
   failShot: number | null
 }
 
+/** What a trailer is given past its shots, for the downloads and the assembly (`videoProblems`). */
+export const TRAILER_ASSEMBLY_MS = 3 * 60_000
+
 function videoProblems(env: Env): string[] {
   const problems: string[] = []
   const model = env.VIDEO_MODEL?.trim()
@@ -329,6 +333,15 @@ function videoProblems(env: Env): string[] {
   for (const name of ['QUEUE_CONCURRENCY_VIDEO', 'VIDEO_SHOT_PARALLEL', 'VIDEO_POLL_MS', 'VIDEO_SHOT_TIMEOUT_MS'] as const) {
     const problem = numberProblem(env, name)
     if (problem) problems.push(problem)
+  }
+  // The slowest trailer must end inside its claim: four shots, VIDEO_SHOT_PARALLEL at a time, each up to its timeout, then
+  // the downloads and the assembly. Past TRAILER_RUN_MS the lease is no longer renewed and the run is cut off with shots
+  // still to send, so a pair of settings that allows that is refused rather than discovered mid-trailer.
+  if (!numberProblem(env, 'VIDEO_SHOT_PARALLEL') && !numberProblem(env, 'VIDEO_SHOT_TIMEOUT_MS')) {
+    const slowest = Math.ceil(4 / readNumber(env, 'VIDEO_SHOT_PARALLEL')) * readNumber(env, 'VIDEO_SHOT_TIMEOUT_MS') + TRAILER_ASSEMBLY_MS
+    if (slowest > TRAILER_RUN_MS) {
+      problems.push(`VIDEO_SHOT_PARALLEL and VIDEO_SHOT_TIMEOUT_MS together let a trailer run past its ${TRAILER_RUN_MS / 60_000} minutes: fewer shots at once need a shorter timeout`)
+    }
   }
   return problems
 }

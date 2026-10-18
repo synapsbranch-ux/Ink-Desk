@@ -24,7 +24,15 @@
 // Money: the job's `costUsd` is everything the record has billed less what it had
 // already billed when THIS job first started (`baselineUsd`, saved on the job's
 // payload before any paid work, so a redelivery counts only its own spend and a
-// retry job is not charged for the shots the first one paid for). The job ends
+// retry job is not charged for the shots the first one paid for). It is saved on
+// the job after every write of the record (`owedSince`: billed, plus what is still
+// with the providers), so an ending this run did not write — the worker's ceiling,
+// a dead lease the web let go, a cancel, an account deletion — counts that money
+// rather than giving the hold back at nothing. Such a run is no longer its job's
+// (`run.isCurrent()`): it sends nothing new, and only collects what is already
+// with the providers. A record that is gone (the trailer, or the whole account,
+// was deleted while this ran) keeps no file: what this run put in the outputs
+// store is removed, and its polls stop. The job ends
 // `done` whenever the run completed in order — even with failed shots, whose
 // failure lives on the record and whose generated seconds stay used — and
 // `failed` (the hold is released) only when this run produced nothing and billed
@@ -61,6 +69,7 @@ import { shotUsd } from './cost'
 import { frameJpeg, sheetJpeg } from './frames'
 import { motionPrompt } from './prompt'
 import {
+  STUDIO_RESTARTED,
   addWarning,
   markAssembling,
   markMaking,
@@ -71,6 +80,7 @@ import {
   markSubmitting,
   markVideoDone,
   markVideoFailed,
+  owedSince,
   recoverShots,
   shotOf,
   shotsFailedSentence,
@@ -99,8 +109,8 @@ const MUSIC_LOST = 'The music didn’t come back, so the trailer plays without i
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 const round = (usd: number) => Math.round(usd * 1e6) / 1e6
 
-/** Polls that could not be read, in a row, before the shot is given up on — a provider that stopped answering must not hold the run for ever. */
-const POLL_ERRORS_BEFORE_GIVING_UP = 8
+/** After this many polls in a row that could not be read, the shot is asked after half as often (it is still bounded by its timeout). */
+const POLL_ERRORS_BEFORE_SLOWING = 3
 /** A clip that will not download is tried this many times, a moment apart, before the shot fails — the clip is paid for. */
 const DOWNLOAD_TRIES = 3
 /** The write that saves a provider's job id is the one that must not be lost: it is tried this many times. */
@@ -132,6 +142,13 @@ function limiter(limit: number) {
 
 type Ctx = {
   tag: string
+  run: JobRun
+  /** What the record had billed when this job first started; the job is charged for what it billed past it. */
+  baselineUsd: number
+  /** The last figure saved on the job (`tally`), so an unchanged one is not written again. */
+  tallied: number | null
+  /** The job was ended by something else: nothing new is sent (`mayPay`). */
+  stopped: boolean
   videoId: string
   ownerId: string
   projectId: string
@@ -156,8 +173,54 @@ async function change(ctx: Ctx, fn: (v: VideoRecord) => VideoRecord | null): Pro
     applied = out !== null
     return out
   })
-  if (applied) return { applied, record: result }
+  if (applied) {
+    await tally(ctx, result)
+    return { applied, record: result }
+  }
   return { applied, record: result ?? (await store.videos.get(ctx.videoId)) }
+}
+
+/**
+ * Save on the job what this run has cost so far — billed, and still with the providers — so an ending written by
+ * anything else counts it. Best effort: a job store that blips here leaves the figure a step behind, and the run's own
+ * ending carries the exact one.
+ */
+async function tally(ctx: Ctx, record: VideoRecord | null): Promise<void> {
+  if (!record) return
+  const owed = owedSince(record, ctx.baselineUsd)
+  if (owed === ctx.tallied) return
+  try {
+    await ctx.run.spent(owed)
+    ctx.tallied = owed
+  } catch (err) {
+    console.warn(`[${ctx.tag}] could not save what it has spent on its job yet:`, err instanceof Error ? err.message : err)
+  }
+}
+
+/**
+ * May this run start something new that is paid for? Not once its job was ended by something else (the worker's
+ * ceiling, a lapsed lease the web let go, a cancel, an account deletion): that ending has settled the hold, and nothing
+ * new may be spent past it. What is already with the providers is still collected.
+ */
+async function mayPay(ctx: Ctx): Promise<boolean> {
+  if (!ctx.stopped && !(await ctx.run.isCurrent())) {
+    ctx.stopped = true
+    console.warn(`[${ctx.tag}] its job was ended elsewhere; nothing new is sent, and what is with the providers is only collected`)
+  }
+  return !ctx.stopped
+}
+
+/** A file this run kept for a record that is gone (the trailer, or the whole account, was deleted meanwhile) is removed at once. */
+async function dropOrphan(ctx: Ctx, key: string, out: { record: VideoRecord | null }): Promise<void> {
+  if (out.record) return
+  console.warn(`[${ctx.tag}] its record is gone; removing ${key.split('/').slice(-2).join('/')}`)
+  await store.outputs.delete(key)
+}
+
+/** The record is gone: everything under the trailer's folder goes, whatever this or an earlier run kept there. */
+async function forgetFiles(ownerId: string, videoId: string, tag: string): Promise<void> {
+  console.warn(`[${tag}] its record is gone; removing whatever files it kept`)
+  await store.outputs.deletePrefix(videoKeys(ownerId, videoId).folder)
 }
 
 const projectOf = (ctx: Ctx): Promise<Project | null> => (ctx.project ??= store.readProject(ctx.projectId).catch(() => null))
@@ -269,7 +332,13 @@ async function startShot(ctx: Ctx, shot: ShotRecord, tag: string): Promise<{ id:
     return null
   }
 
+  // A job ended elsewhere sends nothing new: its hold is settled already.
+  if (!(await mayPay(ctx))) {
+    await endShot(ctx, panel, STUDIO_RESTARTED)
+    return null
+  }
   // The checkpoint BEFORE the paid POST: from here a crash leaves the shot `submitting`, which is never sent again.
+  // (`change` saves it on the job too, at its price, before a cent is spent.)
   const marked = await change(ctx, (v) => markSubmitting(v, panel, new Date()))
   if (!marked.applied || !marked.record) return null
   const attempt = shotOf(marked.record, panel)?.attempts ?? 1
@@ -326,6 +395,11 @@ async function collectShot(ctx: Ctx, panel: number, providerJobId: string, polli
   const startedAt = Date.now()
   let unreadable = 0
   for (;;) {
+    // Deleted while it was with the provider (the trailer, or the whole account): there is no one left to collect it for.
+    if (!(await store.videos.get(ctx.videoId))) {
+      console.warn(`[${tag}] its record is gone; no longer asking after job ${providerJobId}`)
+      return
+    }
     if (Date.now() - startedAt > ctx.settings.shotTimeoutMs) {
       console.error(`[${tag}] gave up waiting for job ${providerJobId} after ${Math.round((Date.now() - startedAt) / 1000)}s`)
       await endShot(ctx, panel, SHOT_TOO_SLOW)
@@ -339,11 +413,13 @@ async function collectShot(ctx: Ctx, panel: number, providerJobId: string, polli
       if (!(err instanceof ProviderError)) throw err
       const { sentence, credits } = describe(tag, err)
       if (credits) await stopForCredits(ctx) // nothing new is sent, but this shot is already paid for: keep polling
-      if (err.kind === 'config' || ++unreadable >= POLL_ERRORS_BEFORE_GIVING_UP) {
-        await endShot(ctx, panel, err.kind === 'config' ? sentence : SHOT_BUSY)
+      // A setting that is wrong will not right itself. Anything else (a 429, a 5xx, a dropped connection) is the provider
+      // having a moment while the shot goes on being made — and billed — on its side: it is asked after until its timeout.
+      if (err.kind === 'config') {
+        await endShot(ctx, panel, sentence)
         return
       }
-      await sleep(ctx.settings.pollMs)
+      await sleep(ctx.settings.pollMs * (++unreadable > POLL_ERRORS_BEFORE_SLOWING ? 2 : 1))
       continue
     }
 
@@ -356,7 +432,8 @@ async function collectShot(ctx: Ctx, panel: number, providerJobId: string, polli
       }
       const done = await change(ctx, (v) => markShotDone(v, panel, { blobKey: key, costUsd: billed }, new Date()))
       if (done.applied) ctx.made++
-      else console.warn(`[${tag}] the clip is kept, but the record would not mark the shot done`)
+      else if (done.record) console.warn(`[${tag}] the clip is kept, but the record would not mark the shot done`)
+      await dropOrphan(ctx, key, done)
       return
     }
     if (poll.status === 'failed' || poll.status === 'cancelled' || poll.status === 'expired') {
@@ -406,6 +483,7 @@ async function makePart(
   const current = rec && (part.kind === 'music' ? rec.music : rec.speech.find((p) => p.panel === part.panel))
   if (!current || current.state !== 'queued') return
   if (await creditsStopped(ctx)) return loseParts(ctx, part, PAUSED, warning)
+  if (!(await mayPay(ctx))) return loseParts(ctx, part, STUDIO_RESTARTED, warning)
   const started = await change(ctx, (v) => markPart(v, part, 'working', {}, new Date()))
   if (!started.applied) return
   let billed = 0
@@ -416,6 +494,7 @@ async function makePart(
     await store.outputs.put(key, dest, mediaType)
     const done = await change(ctx, (v) => markPart(v, part, 'done', { blobKey: key, seconds: made.seconds, costUsd: made.costUsd }, new Date()))
     if (done.applied) ctx.made++
+    await dropOrphan(ctx, key, done)
   } catch (err) {
     const { sentence, credits } = describe(tag, err)
     if (credits) await stopForCredits(ctx)
@@ -452,7 +531,10 @@ async function pull(key: string, dest: string): Promise<void> {
 
 /** Every shot has its clip: put the trailer together and keep its files. Ends the record `done`, or `failed` with the shots still `done` (assembling again is then possible). */
 async function assemble(ctx: Ctx, record: VideoRecord): Promise<VideoRecord | null> {
-  await change(ctx, (v) => markAssembling(v, new Date()))
+  if (!(await change(ctx, (v) => markAssembling(v, new Date()))).record) {
+    await forgetFiles(ctx.ownerId, ctx.videoId, ctx.tag)
+    return null
+  }
   const inDir = join(ctx.dir, 'in')
   const keys = videoKeys(ctx.ownerId, ctx.videoId)
   let made: Awaited<ReturnType<typeof assembleTrailer>>
@@ -491,6 +573,7 @@ async function assemble(ctx: Ctx, record: VideoRecord): Promise<VideoRecord | nu
     markVideoDone(v, { finalKey: keys.final, posterKey: keys.poster, captionsKey: hasCaptions ? keys.captions : null, seconds: made.seconds }, new Date())
   )
   if (done.applied) ctx.made++
+  if (!done.record) await forgetFiles(ctx.ownerId, ctx.videoId, ctx.tag)
   return done.record
 }
 
@@ -513,6 +596,8 @@ export async function runTrailer(job: JobRecord, run: JobRun): Promise<Outcome> 
   const found = await store.videos.get(payload.videoId)
   if (!found || found.ownerId !== job.ownerId) {
     console.warn(`[${tag}] no such video for this job's owner; nothing to do`)
+    // Deleted (a crash between an upload and the deletion's sweep, an earlier run of this job): the owner's folder for it stays empty.
+    if (!found) await forgetFiles(job.ownerId, payload.videoId, tag)
     return { outcome: 'refused', error: NO_SUCH_VIDEO }
   }
 
@@ -541,6 +626,10 @@ export async function runTrailer(job: JobRecord, run: JobRun): Promise<Outcome> 
   try {
     const ctx: Ctx = {
       tag,
+      run,
+      baselineUsd,
+      tallied: null,
+      stopped: false,
       videoId: found.id,
       ownerId: found.ownerId,
       projectId: found.projectId,
@@ -590,11 +679,17 @@ export async function runTrailer(job: JobRecord, run: JobRun): Promise<Outcome> 
 
     // 6. Every shot of the plan done → put the trailer together; else it ends failed, and the shots keep their own sentences.
     const after = await store.videos.get(ctx.videoId)
-    if (!after) return { outcome: 'failed', error: NO_SUCH_VIDEO }
+    if (!after) {
+      await forgetFiles(ctx.ownerId, ctx.videoId, tag)
+      return { outcome: 'failed', error: NO_SUCH_VIDEO, costUsd: ctx.tallied ?? 0 }
+    }
     const notDone = after.shots.filter((s) => s.state !== 'done')
     let ended: VideoRecord | null
     if (notDone.length === 0) ended = await assemble(ctx, after)
-    else ended = (await change(ctx, (v) => markVideoFailed(v, shotsFailedSentence(notDone.length, v.plan.shots.length), new Date()))).record
+    else {
+      ended = (await change(ctx, (v) => markVideoFailed(v, shotsFailedSentence(notDone.length, v.plan.shots.length), new Date()))).record
+      if (!ended) await forgetFiles(ctx.ownerId, ctx.videoId, tag)
+    }
     if (ctx.infra.length > 0) throw ctx.infra[0]
 
     // 7. The outcome. `done` whenever this run completed in order, even with failed shots; `failed` only when it produced and billed nothing.

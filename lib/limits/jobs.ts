@@ -63,6 +63,10 @@ export function settlementOf(job: JobRecord): { actualUsd: number | null; refund
   const carried = job.carriedUsd ?? 0
   const own = Math.max(0, round6(job.costUsd - carried))
   const done = job.outcome === 'done'
+  // A trailer that billed anything keeps its seconds used, however it ended (slice 22): its runner keeps `costUsd` on the
+  // job as it goes (what was billed and what is still with the providers), so an ending written by the worker's ceiling,
+  // a dead lease let go or a cancel counts that money instead of giving the hold back at nothing.
+  if (job.kind === 'trailer' && own > 0) return { actualUsd: own, refund: false }
   // A picture that came back with no cost reported, drawn by this job itself: it was paid for, so the estimate stands rather than a free one.
   if (done && job.costUsd <= 0 && carried <= 0) return { actualUsd: null, refund: false }
   return { actualUsd: own, refund: !done }

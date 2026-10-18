@@ -42,7 +42,7 @@ import { store } from '../store'
 import { creditsBreakerOpen } from './breaker'
 import { endJob } from './ending'
 import { maxRunMs } from './status'
-import { LEASE_MS, LEASE_RENEW_MS, NO_ACCOUNT_TO_DELETE, PAUSED, LOCAL_OWNER, checkpoint, claim, finish, isAccountKind, isActive, renew, type AccountJobKind, type JobPayload, type JobRecord } from './jobs'
+import { LEASE_MS, LEASE_RENEW_MS, NO_ACCOUNT_TO_DELETE, PAUSED, LOCAL_OWNER, checkpoint, claim, finish, isAccountKind, isActive, leaseExpired, renew, type AccountJobKind, type JobPayload, type JobRecord } from './jobs'
 import type { JobRun, Outcome } from './run'
 
 export type Handled = 'done' | 'failed' | 'skipped'
@@ -126,6 +126,13 @@ async function run(jobId: string, ctx: { workerId: string; maxRunMs?: number }):
     patchPayload: async (patch) => {
       await store.jobs.updateJob(job.id, (j) => checkpoint(j, workerId, { payload: { ...j.payload, ...patch } as JobPayload }, new Date()))
     },
+    spent: async (costUsd) => {
+      await store.jobs.updateJob(job.id, (j) => checkpoint(j, workerId, { costUsd }, new Date()))
+    },
+    isCurrent: async () => {
+      const j = await store.jobs.getJob(job.id)
+      return !!j && j.status === 'running' && j.workerId === workerId && !leaseExpired(j, new Date())
+    },
   }
 
   let outcome: Outcome
@@ -135,9 +142,10 @@ async function run(jobId: string, ctx: { workerId: string; maxRunMs?: number }):
     clearInterval(beat)
   }
 
-  await end(job, { outcome: outcome.outcome, error: outcome.error, costUsd: outcome.costUsd })
+  const ended = await end(job, { outcome: outcome.outcome, error: outcome.error, costUsd: outcome.costUsd })
   if (job.kind === 'delete-account' && outcome.outcome === 'done') await forgetDeletion(job, tag)
-  console.log(`[worker] ${tag} — ${outcome.outcome}`)
+  // An ending written elsewhere first (the worker's ceiling, a lease let go, a cancel) stands; the log says so rather than the run's word.
+  console.log(`[worker] ${tag} — ${ended ? outcome.outcome : `${outcome.outcome}, but the job had already been ended elsewhere`}`)
   return outcome.outcome === 'done' ? 'done' : outcome.outcome === 'skipped' ? 'skipped' : 'failed'
 }
 

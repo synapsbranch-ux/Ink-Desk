@@ -11,9 +11,12 @@
 //                                     ends `failed` at once, with nothing changed
 //   1  mark the account deleted       the record loses its email at once; nothing can revive it; their
 //                                     active shares are revoked, so a public page dies now, whatever Clerk does
-//   2  cancel their other work        through `endJob`, so every hold is released; a worker
-//                                     mid-draw finds its project gone and ends calmly (`inkPanel`
-//                                     answers a vanished project with `skipped`)
+//   2  cancel their other work        through `endJob`, so every hold is released (a trailer's is
+//                                     settled at what it billed and has at the providers, so the
+//                                     studio's day still counts it); a worker mid-draw finds its
+//                                     project gone and ends calmly (`inkPanel` answers a vanished
+//                                     project with `skipped`), and a trailer's run sends nothing new
+//                                     and removes whatever files it keeps after its record is gone
 //   3  remove the data               shares (already revoked in step 1) and the reports about
 //                                     them; every project's pictures, then the project
 //                                     — a project too damaged to read is removed anyway, with

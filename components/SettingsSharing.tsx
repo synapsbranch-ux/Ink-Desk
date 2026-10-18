@@ -35,6 +35,26 @@ async function sentenceOf(res: Response, fallback: string): Promise<string> {
   return typeof body?.error === 'string' && body.error.length > 0 && body.error.length < 300 ? body.error : fallback
 }
 
+/**
+ * A row's picture, from the link's own routes. A manga names its cover; a trailer names none (`viewOf` leaves `cover`
+ * null for every video share) and always has its poster at the link's file route — "No poster" only if that fails to load.
+ */
+export function ShareThumb({ share }: { share: Pick<ShareView, 'kind' | 'token' | 'cover'> }) {
+  const [broken, setBroken] = useState(false)
+  const video = share.kind === 'video'
+  const src = video ? shareFileUrl(share.token, 'poster.jpg') : share.cover ? shareImageUrl(share.token, share.cover) : null
+  return (
+    <div className={`share-row-thumb${video ? ' is-video' : ''}`}>
+      {src && !broken ? (
+        // eslint-disable-next-line @next/next/no-img-element -- the cover (or a trailer's poster) the link shows, served by the link's own route: the project may have redrawn past it
+        <img src={src} alt="" loading="lazy" onError={() => setBroken(true)} />
+      ) : (
+        <span>{video ? 'No poster' : 'No cover'}</span>
+      )}
+    </div>
+  )
+}
+
 function day(iso: string): string {
   const d = new Date(iso)
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
@@ -190,18 +210,7 @@ export function SettingsSharing() {
             const updated = share.updatedAt !== share.createdAt ? day(share.updatedAt) : ''
             return (
               <li key={share.token} className="card share-row">
-                <div className={`share-row-thumb${share.kind === 'video' ? ' is-video' : ''}`}>
-                  {share.cover ? (
-                    // eslint-disable-next-line @next/next/no-img-element -- the cover (or a trailer's poster) the link shows, served by the link's own route: the project may have redrawn past it
-                    <img
-                      src={share.kind === 'video' ? shareFileUrl(share.token, 'poster.jpg') : shareImageUrl(share.token, share.cover)}
-                      alt=""
-                      loading="lazy"
-                    />
-                  ) : (
-                    <span>{share.kind === 'video' ? 'No poster' : 'No cover'}</span>
-                  )}
-                </div>
+                <ShareThumb share={share} />
                 <div className="share-row-body">
                   <div className="share-row-title">{share.title}</div>
                   <div className="share-row-meta">

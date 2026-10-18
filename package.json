@@ -31,6 +31,7 @@
     "check:limits": "tsx scripts/limits-check.mts",
     "check:share": "tsx scripts/share-check.mts",
     "check:poll": "tsx scripts/poll-check.mts",
+    "check:video": "tsx scripts/video-check.mts",
     "video:capture": "npm --prefix video run capture --",
     "video:narrate": "npm --prefix video run narrate --",
     "video:render": "npm --prefix video run render",

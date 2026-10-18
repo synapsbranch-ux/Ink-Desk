@@ -1952,11 +1952,12 @@ try {
       const failed = (await store.jobs.getJob(retry.job.id))!
       assert.deepEqual([failed.status, failed.reservation, failed.error], ['failed', 'settled', 'The studio could not make this one. Try again.'])
       assert.deepEqual([await seconds(), await chars(), await dollars()], [16, 200, 600_000], 'a failed trailer gives back its seconds and its dollars')
-      // A trailer that crashed after it was billed keeps the dollars: the cost is on the job, the unit comes back.
+      // A trailer ended after it was billed (slice 22's review: the worker gave up, a dead lease was let go) keeps the dollars
+      // its run saved on the job, and its seconds stay used, as a run that billed does: they are never given back at $0.
       const paid = await trailer({ spend: { units: { videoSeconds: 4 }, usd: 0.2 }, payload: { kind: 'trailer', videoId: randomUUID(), only: [1] } })
       await endJob(paid.job.id, (j) => J.claim(j, 'w-video', new Date()))
       await endJob(paid.job.id, (j) => J.finish(j, { outcome: 'failed', error: 'x', costUsd: 0.17 }, new Date()))
-      assert.deepEqual([await seconds(), await dollars()], [16, 770_000], 'billed dollars stay counted when a trailer fails')
+      assert.deepEqual([await seconds(), await dollars()], [20, 770_000], 'billed dollars stay counted when a trailer fails, and its seconds stay used')
     } finally {
       videoRunners.trailer = realTrailer
       await redis().del(redisKey('breaker', 'credits'))

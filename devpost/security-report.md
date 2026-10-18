@@ -367,6 +367,10 @@ Built by six builders on disjoint files (sharing; reports and admin; settings; e
 
 **Still open after slice 21, by design:** SEC-07 (prompt injection; slice 22), SEC-14 (the `data/` move waits for the learner). The **after** audit (slice 23) re-runs both lenses on the frozen build.
 
+## Slice 22 — Animate a page (2026-10-18)
+
+`check:video` was written and three adversarial reviewers (money and state, security, regressions) found **7 defects, all reproduced and fixed**, each pinned by an assertion that fails on the old code: a trailer ended by anything but its own runner gave back its whole hold at $0 after billing shots (**high** — spending escaped the caps); a trailer whose job had been ended kept sending paid shots with no hold; eight transient poll errors abandoned a shot the provider was still billing, so Try again paid twice; deleting an account mid-trailer left its clips and voices in the bucket, and its spend out of the studio's daily total; the sharing list never showed a trailer's poster. No ownership, path-traversal, SSRF or ffmpeg-injection path was found: another user gets the same 404 as an unknown id on every video route, pictures travel as data URIs, and only the snapshot's three files are served on a share.
+
 ## Not yet audited — the after audit adds these
 
 Everything v3 adds: the Clerk gate and webhook, the data-access layer, BullMQ jobs and the worker, the limits and the kill switch, share pages and reports, account deletion's completeness, the Animate pipeline (signed URLs sent to the provider, the video webhook's signature), CSP in practice, `npm audit` on the new dependencies, and a `gitleaks` run on the full history.

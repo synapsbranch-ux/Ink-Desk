@@ -31,6 +31,7 @@
 // What the browser sees of a record is `viewOfVideo` / `summaryOfVideo`: states and
 // sentences, never keys, costs or the owner.
 import type { VideoRecord, VideoSummary } from '../share/types'
+import { HOLD_MARGIN, MUSIC_USD, TTS_USD_PER_CHAR, shotUsd } from './cost'
 import type { PartState, ShotRecord, ShotState, ShotView, TrailerPlan, VideoView } from './types'
 
 // --- The sentences ---------------------------------------------------------------
@@ -124,6 +125,27 @@ export function newVideoRecord(input: { id: string; ownerId: string; projectId: 
 export function totalCostOf(record: Pick<VideoRecord, 'shots' | 'speech' | 'music'>): number {
   const sum = record.shots.reduce((t, s) => t + s.costUsd, 0) + record.speech.reduce((t, s) => t + s.costUsd, 0) + record.music.costUsd
   return round(sum)
+}
+
+/**
+ * What this trailer has cost since `baselineUsd` — what the providers billed, plus what is still with them and will
+ * bill whether or not anyone collects it: a shot sent (`submitting`, `animating`) at the formula's price over the
+ * hold's margin, a voice line or the music being made at theirs. The charge for a trailer job that something other
+ * than its own runner ended (the ceiling, a dead lease let go, a cancel), read when its hold is settled
+ * (`lib/limits/jobs.ts`); for a run that ended in order nothing is in flight and it is the record's own bill.
+ */
+export function owedSince(record: Pick<VideoRecord, 'costUsd' | 'plan' | 'shots' | 'speech' | 'music'>, baselineUsd: number): number {
+  const { plan } = record
+  let inFlight = 0
+  for (const s of record.shots) {
+    const planned = plan.shots.find((p) => p.panel === s.panel)
+    if (planned && (s.state === 'submitting' || s.state === 'animating')) inFlight += shotUsd(plan.model, plan.resolution, planned.aspect, planned.seconds)
+  }
+  for (const p of record.speech) {
+    if (p.state === 'working') inFlight += (plan.shots.find((s) => s.panel === p.panel)?.line?.chars ?? 0) * TTS_USD_PER_CHAR
+  }
+  if (record.music.state === 'working') inFlight += MUSIC_USD
+  return round(Math.max(0, record.costUsd - baselineUsd) + inFlight * HOLD_MARGIN)
 }
 
 /** The record with `patch` applied, its cost re-summed and its clock set. Callers pass only what changed. */
