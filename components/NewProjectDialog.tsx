@@ -15,10 +15,14 @@
 // Slice 21: `defaultStyle` (Settings › Defaults) is the preset the dialog opens
 // with chosen; it is only a starting point — the person may pick any other, and
 // an id this build does not know falls back to the studio's own default.
+//
+// Slice 23: under 480 px it is a full-height sheet whose buttons stay above the
+// keyboard (app/responsive/shell.css, use-sheet-viewport).
 import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import { apiFetch } from '@/components/api-fetch'
 import { SpendNote } from '@/components/SpendNote'
+import { useSheetViewport } from '@/components/use-sheet-viewport'
 import { chapterImages, estimateChapterUsd, usd } from '@/lib/cost'
 import { asRefusal, refusalSentence, usesLine } from '@/lib/limits/button'
 import { useUsage, useSpend } from '@/lib/limits/use-usage'
@@ -43,6 +47,8 @@ export function NewProjectDialog({ panelQuality, onClose, defaultStyle = null }:
   const spend = useSpend({ project: true })
   const { usage } = useUsage()
   useEffect(() => titleRef.current?.focus(), [])
+  const overlayRef = useRef<HTMLDivElement>(null)
+  useSheetViewport(overlayRef)
 
   const create = async () => {
     const trimmed = title.trim()
@@ -75,7 +81,8 @@ export function NewProjectDialog({ panelQuality, onClose, defaultStyle = null }:
 
   return (
     <div
-      className="confirm-overlay"
+      ref={overlayRef}
+      className="confirm-overlay is-sheet"
       role="presentation"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget && !busy) onClose()

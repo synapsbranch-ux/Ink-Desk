@@ -6,9 +6,13 @@
 // and the header carries the page-level progress: which page is open, its
 // panels inked, and the chapter's pages complete.
 // Since slice 20 the quota meter sits first in the header's right-hand group.
-// Implements `devpost/prd.md > Screens and Layout (v2)`.
+// Slice 23: a locked station explains itself when pressed — a note under the
+// rail with its hint — since a touch screen never shows the hover tooltip; and
+// under 960 px the rail is a numbered stepper (app/responsive/shell.css).
+// Implements `devpost/prd.md > Screens and Layout (v2)` and `> Responsive (v3)`.
 import Image from 'next/image'
 import Link from 'next/link'
+import { Fragment, useEffect, useState } from 'react'
 import { QuotaMeter } from '@/components/QuotaMeter'
 import { usd } from '@/lib/cost'
 import type { Gates } from '@/lib/gates'
@@ -41,7 +45,20 @@ type Props = {
   account?: React.ReactNode
 }
 
+/** How long a locked station's note stays up after the press. */
+const NOTE_MS = 8000
+
 export function StationRail({ chapter, gates, saveState, onGo, account = null }: Props) {
+  // The locked station last pressed, whose hint shows under the rail.
+  const [explained, setExplained] = useState<Station | null>(null)
+  useEffect(() => {
+    if (!explained) return
+    const t = setTimeout(() => setExplained(null), NOTE_MS)
+    return () => clearTimeout(t)
+  }, [explained])
+  const explainedMeta = explained ? STATION_META.find((s) => s.id === explained) : undefined
+  // A station that opened since (or is open now) has nothing left to explain.
+  const explainedHint = explained && !gates[explained].open ? (gates[explained].hint ?? 'Not open yet.') : null
   const title = chapter.title.trim() || chapter.synopsis?.title.trim() || 'Untitled project'
   const page = chapter.address.pageIndex + 1
   // The open page's panels, once it is written; the chapter's pages, once there is a plan.
@@ -63,10 +80,11 @@ export function StationRail({ chapter, gates, saveState, onGo, account = null }:
           <span className="eyebrow eyebrow-sm chapter-eyebrow">
             Page {page} of {chapter.pageCount} · {stylePreset(chapter.stylePresetId).label}
             {progress.map((line) => (
-              <span key={String(line)} className="chapter-progress">
+              // The space sits outside the span, so a narrow header can break between the parts.
+              <Fragment key={String(line)}>
                 {' '}
-                · {line}
-              </span>
+                <span className="chapter-progress">· {line}</span>
+              </Fragment>
             ))}
           </span>
           <span className="chapter-title-text">{title}</span>
@@ -99,8 +117,13 @@ export function StationRail({ chapter, gates, saveState, onGo, account = null }:
               aria-disabled={locked || undefined}
               aria-current={active ? 'step' : undefined}
               title={locked ? (gate.hint ?? undefined) : undefined}
+              aria-describedby={locked && explained === s.id ? 'rail-note' : undefined}
               onClick={() => {
-                if (!locked && !active) onGo(s.id)
+                if (locked) setExplained(s.id)
+                else if (!active) {
+                  setExplained(null)
+                  onGo(s.id)
+                }
               }}
             >
               <span className="rail-mark">{i + 1}</span>
@@ -118,6 +141,18 @@ export function StationRail({ chapter, gates, saveState, onGo, account = null }:
           )
         })}
       </nav>
+      <div className="rail-note-slot" aria-live="polite">
+        {explainedMeta && explainedHint && (
+          <p id="rail-note" className="notice rail-note">
+            <span>
+              <strong>{explainedMeta.name}</strong> isn’t open yet. {explainedHint}
+            </span>
+            <button type="button" className="rail-note-close" aria-label="Dismiss the note" onClick={() => setExplained(null)}>
+              ×
+            </button>
+          </p>
+        )}
+      </div>
     </>
   )
 }

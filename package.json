@@ -32,6 +32,7 @@
     "check:share": "tsx scripts/share-check.mts",
     "check:poll": "tsx scripts/poll-check.mts",
     "check:video": "tsx scripts/video-check.mts",
+    "check:responsive": "tsx scripts/responsive-check.mts",
     "video:capture": "npm --prefix video run capture --",
     "video:narrate": "npm --prefix video run narrate --",
     "video:render": "npm --prefix video run render",
@@ -64,6 +65,7 @@
     "@types/yazl": "3.3.1",
     "eslint": "^9",
     "eslint-config-next": "16.4.0",
+    "playwright": "1.56.1",
     "typescript": "^5"
   }
 }

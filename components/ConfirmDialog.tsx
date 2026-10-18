@@ -6,7 +6,9 @@
 // accepting a new synopsis (the story station). A browser `confirm()` would
 // neither match the studio nor stay scriptable.
 // See `devpost/prd.md > States and Boundaries > New chapter`.
+// Under 480 px it is a full-height sheet (slice 23, app/responsive/shell.css).
 import { useEffect, useRef } from 'react'
+import { useSheetViewport } from '@/components/use-sheet-viewport'
 
 type Props = {
   title: string
@@ -34,10 +36,13 @@ export function ConfirmDialog({
 }: Props) {
   const cancelRef = useRef<HTMLButtonElement>(null)
   useEffect(() => cancelRef.current?.focus(), [])
+  const overlayRef = useRef<HTMLDivElement>(null)
+  useSheetViewport(overlayRef)
 
   return (
     <div
-      className="confirm-overlay"
+      ref={overlayRef}
+      className="confirm-overlay is-sheet"
       role="presentation"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget && !busy) onCancel()

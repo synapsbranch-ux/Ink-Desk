@@ -13,8 +13,9 @@
 //   • it is a `role="alertdialog"` named by its title.
 // Pressing the dimmed backdrop closes it too, again unless busy. The page behind
 // stays put (the overlay is fixed); the card scrolls inside itself when a phone
-// is shorter than it is.
+// is shorter than it is. Under 480 px it is a full-height sheet (slice 23).
 import { useEffect, useId, useRef } from 'react'
+import { useSheetViewport } from '@/components/use-sheet-viewport'
 
 export function SettingsDialog({
   title,
@@ -30,6 +31,8 @@ export function SettingsDialog({
 }) {
   const id = useId()
   const cardRef = useRef<HTMLDivElement>(null)
+  const overlayRef = useRef<HTMLDivElement>(null)
+  useSheetViewport(overlayRef)
 
   useEffect(() => {
     const returnTo = document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -65,7 +68,8 @@ export function SettingsDialog({
 
   return (
     <div
-      className="confirm-overlay"
+      ref={overlayRef}
+      className="confirm-overlay is-sheet"
       role="presentation"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget && !busy) onClose()
