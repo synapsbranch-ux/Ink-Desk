@@ -197,7 +197,7 @@ export const TRAILER_NEEDS_FFMPEG = 'The studio can’t make trailers without ff
 export async function mediaToolsMissing(): Promise<string | null> {
   const { execFile } = await import('node:child_process')
   for (const tool of ['ffmpeg', 'ffprobe']) {
-    const err = await new Promise<Error | null>((resolve) => execFile(tool, ['-version'], { timeout: 15_000 }, (e) => resolve(e)))
+    const err = await new Promise<Error | null>((resolve) => execFile(/*turbopackIgnore: true*/ tool, ['-version'], { timeout: 15_000 }, (e) => resolve(e)))
     if (err) return `${tool}: ${err.message}`
   }
   return null
