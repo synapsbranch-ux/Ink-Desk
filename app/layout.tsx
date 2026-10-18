@@ -3,6 +3,12 @@ import { Comic_Neue, Cormorant_Garamond, Lora } from 'next/font/google'
 import { ClerkProvider } from '@clerk/nextjs'
 import { providerKey, SIGN_IN_PATH, SIGN_UP_PATH } from '@/lib/auth/config'
 import './globals.css'
+// Slice 23: the responsive rules, one file per area, after globals.css so they win.
+import './responsive/shell.css'
+import './responsive/page.css'
+import './responsive/planning.css'
+import './responsive/reader.css'
+import './responsive/surfaces.css'
 
 // The three faces from `devpost/spec.md > Look and Feel`, exposed as CSS
 // variables so globals.css can use them without knowing the generated names.
