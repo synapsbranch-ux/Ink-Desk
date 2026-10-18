@@ -19,7 +19,7 @@
 // when something fails, and the headers every response carries.
 import './server-only.mts' // first: lets server modules load outside Next (SEC-15)
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import sharp, { type Sharp } from 'sharp'
@@ -246,6 +246,32 @@ try {
   assert.equal(ok.status, 200, 'and a real picture still goes through the route')
   assert.equal((await readDesk(pid2)).assets.length, 3, 'nothing refused reached the shelf')
   console.log('  ok  HTML named .png, a JPEG header on HTML, an oversized side and a pixel bomb are each refused calmly')
+
+  // 10b. Uploads that race to the last place on the shelf (after-audit #14): each is stored before the shelf is
+  //      rechecked inside the lock, so the ones refused there take their stored copy with them — no orphaned picture.
+  {
+    const full = await createProject({ title: 'Last place', stylePresetId: 'manga-bw' }, 'local')
+    const fid = full.address.projectId
+    await updateDesk(fid, (c) => {
+      let desk = c
+      for (let i = 0; i < MAX_ASSETS - 1; i++) {
+        desk = addAsset(desk, { id: `asset-filler-${i}.png`, kind: 'reference', name: `filler ${i}`, blobId: `asset-filler-${i}.png`, mediaType: 'image/png', bytes: 1, createdAt: new Date().toISOString() })
+      }
+      return desk
+    }, full.address)
+    const imagesDir = join(dir, 'images')
+    const before = new Set(await readdir(imagesDir))
+    const small = await sharp({ create: { width: 16, height: 16, channels: 3, background: '#c33' } }).png().toBuffer()
+    const raced = await Promise.allSettled(Array.from({ length: 5 }, (_, i) => saveAsset(fid, small, 'image/png', `racer ${i}`)))
+    const landed = raced.filter((r) => r.status === 'fulfilled')
+    const refused = raced.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+    assert.equal(landed.length, 1, 'one upload takes the last place')
+    assert.ok(refused.every((r) => r.reason instanceof Refused && /The shelf holds 24 references/.test(r.reason.message)), 'the rest are refused with the shelf’s sentence')
+    assert.equal((await readDesk(fid)).assets.length, MAX_ASSETS)
+    const added = (await readdir(imagesDir)).filter((name) => !before.has(name))
+    assert.deepEqual(added, [(landed[0] as PromiseFulfilledResult<{ asset: { blobId: string } }>).value.asset.blobId], `only the upload on the shelf is stored (${added.length} new files)`)
+  }
+  console.log('  ok  uploads racing to the last place on the shelf: one lands, the rest are refused and leave no stored copy behind')
 
   // 11. SEC-11: the browser gets a sentence, never the cause.
   const quiet = console.error

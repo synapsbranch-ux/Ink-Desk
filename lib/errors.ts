@@ -4,7 +4,8 @@
 // the browser gets a sentence.
 //
 // No Node imports here on purpose — `lib/cast.ts` throws `Refused` and is
-// shared with the browser.
+// shared with the browser. (`lib/auth/config.ts` imports nothing at all.)
+import { isProduction } from './auth/config'
 
 /**
  * A provider problem with a sentence the browser may show.
@@ -68,7 +69,8 @@ export const UNAVAILABLE = 'The studio isn’t available just now. Try again in 
  * config error show this, not `err.message`.
  */
 export function configSentence(err: ProviderError): string {
-  return process.env.NODE_ENV === 'production' ? UNAVAILABLE : err.message
+  // The one rule for production (S19-SEC-1): a staging or test server is a public one too.
+  return isProduction() ? UNAVAILABLE : err.message
 }
 
 /**

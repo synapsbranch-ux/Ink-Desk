@@ -30,7 +30,8 @@
 //   7.  Sliding windows with a moved clock, through `requireUser` — the one choke
 //       point — with Retry-After; signed-out callers; paid windows follow the flag.
 //   8.  Plans: the allowlist (case-insensitive), the local owner, deleted accounts.
-//   9.  Text calls and new projects hold, settle and release; unbacked holds are swept.
+//   9.  Text calls and new projects hold, settle and release; unbacked holds are swept;
+//       a Claude reply cut off at max_tokens, or a refusal, still counts its tokens.
 //  10.  Limits off leaves everything as it was.
 //  11.  GET /api/usage and the refusals through the real route handlers.
 //  12a. The adversarial review's fixes, each held by an assertion: money that was
@@ -126,6 +127,8 @@ const provider = {
   textMode: 'ok' as 'ok' | '402' | '500',
   imageCost: 0.01 as number | null,
   textCost: 0.002,
+  claudes: 0,
+  claudeMode: 'truncated' as 'truncated' | 'refusal',
   /** Runs while a picture is being drawn, before the provider answers: how a check moves the world under a job. */
   imageHook: null as null | (() => Promise<void>),
 }
@@ -142,6 +145,17 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     return Response.json({
       data: [{ b64_json: tinyPng.toString('base64'), media_type: 'image/png' }],
       ...(provider.imageCost === null ? {} : { usage: { cost: provider.imageCost } }),
+    })
+  }
+  if (url.startsWith('https://api.anthropic.com/')) {
+    // Claude, billed but unusable (after-audit #5): cut off at max_tokens, or a refusal.
+    provider.claudes++
+    const cut = provider.claudeMode === 'truncated'
+    return Response.json({
+      id: 'msg_check', type: 'message', role: 'assistant', model: 'claude-sonnet-5-5',
+      content: cut ? [{ type: 'text', text: '{"title":"Long","body":"' + 'word '.repeat(800) }] : [],
+      stop_reason: cut ? 'max_tokens' : 'refusal', stop_sequence: null,
+      usage: cut ? { input_tokens: 1200, output_tokens: 1024 } : { input_tokens: 900, output_tokens: 40 },
     })
   }
   if (url === 'https://openrouter.ai/api/v1/chat/completions') {
@@ -516,7 +530,9 @@ try {
     }
     assert.throws(() => parseConfig({ INKDESK_LIMITS: 'maybe' }), /INKDESK_LIMITS must be on or off/)
     assert.throws(() => parseConfig({ NODE_ENV: 'production', INKDESK_LIMITS: 'off' }), (e: unknown) => e instanceof ConfigError && /INKDESK_LIMITS must be on in production/.test(e.message), 'production refuses off, at boot')
-    assert.equal(parseConfig({ NODE_ENV: 'production' }).limits.enabled, true)
+    // Production runs on the cloud desk (after-audit #10): placeholders, nothing connects.
+    const cloud = { INKDESK_STORAGE: 'cloud', MONGODB_URI: 'mongodb://limits-check.invalid:27017/', MONGODB_DB: 'limits_check', S3_ENDPOINT: 'https://s3.limits-check.invalid', S3_REGION: 'auto', S3_BUCKET_PROJECT_FILES: 'limits-check', S3_ACCESS_KEY_ID: 'id', S3_SECRET_ACCESS_KEY: 'secret' }
+    assert.equal(parseConfig({ NODE_ENV: 'production', ...cloud }).limits.enabled, true)
     assert.equal(limitsEnabled({ NODE_ENV: 'production', INKDESK_LIMITS: 'off' }), true, 'and production never reads off, whatever is set')
     assert.equal(limitsEnabled({}), false, 'a local desk with sign-in off: off')
     assert.equal(limitsEnabled({ INKDESK_AUTH: 'off' }), false)
@@ -1410,6 +1426,24 @@ try {
     assert.equal(c.userDayMicros, 4_000, 'a failed call spent nothing')
     assert.equal((await redis().keys(redisKey('resv', 'text-*'))).length, 0)
     provider.textMode = 'ok'
+    // A Claude reply that is billed but fails the parse (cut off at max_tokens, or a refusal) counts its tokens (after-audit #5).
+    env.ANTHROPIC_API_KEY = 'check-only-never-sent'
+    delete env.LLM_FALLBACK
+    const g0 = (await backend().counters(FREE)).globalDayMicros
+    for (const [mode, micros] of [['truncated', 1200 * 2 + 1024 * 10], ['refusal', 900 * 2 + 40 * 10]] as const) {
+      provider.claudeMode = mode
+      const was = await backend().counters(FREE)
+      res = await syn()
+      assert.equal(res.status, 502, `${mode}: the calm error`)
+      c = await backend().counters(FREE)
+      assert.equal(c.userDayMicros - was.userDayMicros, micros, `${mode}: the person’s day counts the tokens Claude billed`)
+      assert.equal(c.globalDayMicros - was.globalDayMicros, micros, `${mode}: so does the studio’s`)
+    }
+    assert.equal(provider.claudes, 2)
+    assert.equal((await backend().counters(FREE)).globalDayMicros - g0, 12_640 + 2_200)
+    assert.equal((await redis().keys(redisKey('resv', 'text-*'))).length, 0)
+    delete env.ANTHROPIC_API_KEY
+    env.LLM_FALLBACK = 'always'
     // A refusal costs nothing and calls nobody.
     env.USER_DAILY_USD_FREE = '0.01'
     const before = provider.texts
@@ -1447,7 +1481,7 @@ try {
     setClock(null)
     assert.equal(await backend().hold('text-stuck'), null)
     assert.equal((await backend().counters(FREE2)).quota.project, 1, 'the project hold had been settled; only unbacked ones are swept')
-    ok('text calls and projects: held before the provider is called, settled to the meter’s real cost, released on failure (partial costs stay), refused by the person’s own dollar cap before any call, swept if never settled')
+    ok('text calls and projects: held before the provider is called, settled to the meter’s real cost, released on failure (partial costs stay, a Claude reply cut off or refused counts its tokens), refused by the person’s own dollar cap before any call, swept if never settled')
     await reset()
   }
 

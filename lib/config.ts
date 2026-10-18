@@ -31,6 +31,9 @@ import { authMode, authProblems, isProduction, type AuthMode } from './auth/conf
 import type { PlanName, RateBucket } from './limits/rules'
 import { TRAILER_RUN_MS } from './queue/jobs'
 
+/** The one rule for "production" (S19-SEC-1): any NODE_ENV but development or unset. Every production default reads it. */
+export { isProduction }
+
 type Env = Record<string, string | undefined>
 
 /** One sentence that lists every problem, by variable name. */
@@ -269,7 +272,7 @@ export function generationTimeoutMs(env: Env = process.env): number {
  */
 export function generationEnabled(env: Env = process.env): boolean {
   const raw = env.GENERATION_ENABLED?.trim()
-  if (!raw) return env.NODE_ENV !== 'production'
+  if (!raw) return !isProduction(env)
   return raw === 'true'
 }
 
@@ -350,7 +353,7 @@ function videoProblems(env: Env): string[] {
 export function videoSettings(env: Env = process.env): VideoSettings {
   const problems = videoProblems(env)
   if (problems.length > 0) throw new ConfigError(problems)
-  const production = env.NODE_ENV === 'production'
+  const production = isProduction(env)
   const fail = env.VIDEO_FAIL_SHOT?.trim()
   return {
     model: env.VIDEO_MODEL?.trim() || (production ? 'bytedance/seedance-2.0' : 'bytedance/seedance-2.0-fast'),
@@ -406,7 +409,7 @@ const REDIS_URL = z.string().regex(/^rediss?:\/\/\S+$/i)
  */
 function queueMode(env: Env): QueueMode {
   const raw = env.INKDESK_QUEUE?.trim()
-  if (!raw) return env.NODE_ENV === 'production' ? 'bullmq' : 'inline'
+  if (!raw) return isProduction(env) ? 'bullmq' : 'inline'
   return raw === 'bullmq' ? 'bullmq' : 'inline'
 }
 
@@ -414,7 +417,7 @@ function queueProblems(env: Env, role: 'web' | 'worker'): string[] {
   const problems: string[] = []
   const raw = env.INKDESK_QUEUE?.trim()
   if (raw && raw !== 'inline' && raw !== 'bullmq') problems.push('INKDESK_QUEUE must be inline or bullmq')
-  else if (env.NODE_ENV === 'production' && raw === 'inline') problems.push('INKDESK_QUEUE must be bullmq in production (a worker service runs the jobs)')
+  else if (isProduction(env) && raw === 'inline') problems.push('INKDESK_QUEUE must be bullmq in production (a worker service runs the jobs)')
   const redis = pick(env, REDIS_NAMES)
   if (redis !== undefined && !REDIS_URL.safeParse(redis).success) problems.push('REDIS_URL must be a redis:// or rediss:// address')
   if (queueMode(env) === 'bullmq' && redis === undefined) {
@@ -685,6 +688,9 @@ export function parseConfig(env: Env = process.env, role: 'web' | 'worker' = 'we
   const problems: string[] = []
   const storage = env.INKDESK_STORAGE?.trim() || 'local'
   if (storage !== 'local' && storage !== 'cloud') problems.push('INKDESK_STORAGE must be local (the default) or cloud')
+  // Production keeps its data in Mongo and the buckets: a local desk there is the container's own disk, wiped on every
+  // deploy and unseen by the worker's container (after-audit #10). The web and the worker both start here.
+  else if (storage === 'local' && isProduction(env)) problems.push('INKDESK_STORAGE must be cloud in production (the local desk is for development and the checks)')
   if (storage === 'cloud') problems.push(...cloudProblems(env))
   const flag = env.GENERATION_ENABLED?.trim()
   if (flag && !FLAG.safeParse(flag).success) problems.push('GENERATION_ENABLED must be true or false')

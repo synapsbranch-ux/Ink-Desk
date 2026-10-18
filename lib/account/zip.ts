@@ -54,6 +54,7 @@ export class ZipBuilder {
 
   /** A small file, held whole: JSON. Throws `TooLarge` rather than pass the cap. */
   addBuffer(name: string, data: Buffer): void {
+    if (this.failure) throw this.failure
     this.reserve(data.byteLength)
     this.zip.addBuffer(data, name, { mtime: this.mtime })
   }
@@ -78,6 +79,9 @@ export class ZipBuilder {
       counter.once('end', resolve)
       counter.once('error', reject)
       source.once('error', reject)
+      // A temp file that cannot be written (a full disk) stops yazl reading this entry, so it would never end: the
+      // write's failure ends it instead, and the export fails rather than holding the account lane (after-audit #11).
+      this.written.catch(reject)
     })
     taken.catch(() => {})
     pipeline(source, counter).catch(() => {}) // both sides' errors are the promise above's to report

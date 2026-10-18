@@ -67,6 +67,11 @@ export function settlementOf(job: JobRecord): { actualUsd: number | null; refund
   // job as it goes (what was billed and what is still with the providers), so an ending written by the worker's ceiling,
   // a dead lease let go or a cancel counts that money instead of giving the hold back at nothing.
   if (job.kind === 'trailer' && own > 0) return { actualUsd: own, refund: false }
+  // A picture cancelled while a worker held it (an account deleted mid-draw): its call may still be with the provider,
+  // which bills it whether or not the picture lands, and the run's own ending is refused — so the estimate stands, as a
+  // trailer's billed cost does, rather than a release at nothing (after-audit #8).
+  const picture = job.kind === 'panel' || job.kind === 'cover' || job.kind === 'sheet'
+  if (picture && job.outcome === 'cancelled' && job.workerId !== null && job.costUsd <= 0 && carried <= 0) return { actualUsd: null, refund: false }
   // A picture that came back with no cost reported, drawn by this job itself: it was paid for, so the estimate stands rather than a free one.
   if (done && job.costUsd <= 0 && carried <= 0) return { actualUsd: null, refund: false }
   return { actualUsd: own, refund: !done }

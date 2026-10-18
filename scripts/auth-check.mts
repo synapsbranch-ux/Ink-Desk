@@ -347,7 +347,12 @@ try {
   assert.equal(await stopped({ NODE_ENV: 'staging', INKDESK_AUTH: 'test' }), 1, 'nor does a staging server in test mode')
   assert.match(exits.join(), /INKDESK_AUTH must be clerk in production/)
   assert.equal(await stopped({ NODE_ENV: 'development', INKDESK_AUTH: 'test' }), null, 'next dev in test mode starts')
-  assert.equal(await stopped({ NODE_ENV: 'production', ...clerkEnv({ NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: FAKE.publishableLive, CLERK_SECRET_KEY: FAKE.secretLive }) }), null, 'production with its keys starts')
+  // Production also runs on Mongo and the buckets (after-audit #10): placeholders here, nothing connects at boot.
+  const cloudEnv = { INKDESK_STORAGE: 'cloud', MONGODB_URI: 'mongodb://boot-check.invalid:27017/', MONGODB_DB: 'boot_check', S3_ENDPOINT: 'https://s3.boot-check.invalid', S3_REGION: 'auto', S3_BUCKET_PROJECT_FILES: 'boot-check', S3_ACCESS_KEY_ID: 'id', S3_SECRET_ACCESS_KEY: 'secret' }
+  const liveKeys = clerkEnv({ NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: FAKE.publishableLive, CLERK_SECRET_KEY: FAKE.secretLive })
+  assert.equal(await stopped({ NODE_ENV: 'production', ...liveKeys }), 1, 'production with its keys on the local desk does not start')
+  assert.match(exits.join(), /INKDESK_STORAGE must be cloud in production/)
+  assert.equal(await stopped({ NODE_ENV: 'production', ...liveKeys, ...cloudEnv }), null, 'production with its keys and its cloud settings starts')
   ok('INKDESK_AUTH: off in development, clerk under any other NODE_ENV (test, staging included); production refuses off, test and missing keys at boot, in one sentence of names, never values; the layout’s read never fails a build')
 
   // --- c. requireUser ------------------------------------------------------------------

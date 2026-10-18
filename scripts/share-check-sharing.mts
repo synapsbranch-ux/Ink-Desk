@@ -1281,6 +1281,49 @@ try {
     ok('a video share: the snapshot is {kind,title,seconds,hasCaptions,takenAt}; the page renders the player (poster, captions track only with captions); a real done video serves final.mp4 (200, and Range → 206/416, HEAD), poster.jpg and captions.vtt from the share’s own video only; the preview image is cut from the poster; a share to a missing, someone else’s or unfinished video, an unpublished token and an unknown one are the same 404 on every public route; the file route takes the media window')
   }
 
+  // =====================================================================================
+  // 8. The signed-in pages take the person's read window (after-audit #13): the desk (/) and the studio (/p/<id>) read
+  //    the store on every render, so a render counts as an API read does; over the line the page says so, calmly,
+  //    before it reads anything — and another person's window is their own.
+  // =====================================================================================
+  {
+    const { DeskNotice } = await import('../components/DeskNotice')
+    const { Dashboard } = await import('../components/Dashboard')
+    const { Studio } = await import('../components/Studio')
+    const deskPage = (await import('../app/page')).default as () => Promise<import('react').ReactElement<{ heading?: string; sentence?: string }>>
+    const studioPage = (await import('../app/p/[projectId]/page')).default as (p: { params: Promise<{ projectId: string }> }) => Promise<import('react').ReactElement<{ heading?: string; sentence?: string }>>
+    const READER = 'user_pagereader'
+    const id = crypto.randomUUID()
+    await store.createProject({ ...emptyProject({ id, chapterId: crypto.randomUUID(), title: 'Pages', stylePresetId: 'manga-bw', serverRunId: 'check' }), ownerId: READER })
+    const studio = () => studioPage({ params: Promise.resolve({ projectId: id }) })
+    const listed: string[] = []
+    const realList = store.listProjects
+    store.listProjects = async (owner) => {
+      listed.push(owner)
+      return realList.call(store, owner)
+    }
+    env.RATE_READ_PER_MIN = '3'
+    try {
+      asRequest({ 'x-inkdesk-test-user': READER })
+      assert.equal((await deskPage()).type, Dashboard)
+      assert.equal((await studio()).type, Studio)
+      assert.equal((await deskPage()).type, Dashboard)
+      const reads = listed.length
+      for (const over of [await deskPage(), await studio()]) {
+        assert.equal(over.type, DeskNotice, 'the fourth render in a minute is over the read window')
+        assert.match(over.props.sentence ?? '', /^You’re going a little fast — try again in \d+ seconds\.$/)
+      }
+      assert.equal(listed.length, reads, 'and reads nothing')
+      asRequest({ 'x-inkdesk-test-user': 'user_pageneighbour' })
+      assert.equal((await deskPage()).type, Dashboard, 'another person’s window is their own')
+    } finally {
+      store.listProjects = realList
+      delete env.RATE_READ_PER_MIN
+      asRequest({})
+    }
+    ok('the desk and the studio take the person’s read window on every render: over the line they say so calmly and read nothing; another person is untouched')
+  }
+
   assert.deepEqual(outbound, [], 'nothing left the machine')
   console.log('\n  share-check-sharing: all passed\n')
 } finally {

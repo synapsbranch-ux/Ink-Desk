@@ -1327,6 +1327,62 @@ try {
       await reset()
     }
 
+    // (d2) No ffmpeg on this machine (after-audit #12): a trailer would pay for its shots and then fail at the assembly, so
+    //      it is refused before the runner sends anything — the job and its video record fail with the sentence.
+    {
+      const { newVideoRecord } = await import('../lib/video/record')
+      const { TRAILER_NEEDS_FFMPEG } = await import('../lib/queue/processors')
+      let ran = 0
+      videoRunners.trailer = async () => {
+        ran++
+        return { outcome: 'done' }
+      }
+      const path = env.PATH
+      const quiet = console.error
+      try {
+        const videoId = crypto.randomUUID()
+        await store.videos.put(newVideoRecord({ id: videoId, ownerId: 'user_t8', projectId: 'a-project', plan: { page: 0, runSeconds: 12, shots: [] } as unknown as import('../lib/video/types').TrailerPlan }))
+        const t = await trailer('user_t8', { videoId })
+        env.PATH = join(dir, 'no-ffmpeg-here')
+        console.error = () => {}
+        assert.equal(await processJob(t.job.id, { workerId: 'direct' }), 'failed')
+        console.error = quiet
+        assert.equal(ran, 0, 'the runner — and every paid call in it — never started')
+        const job = (await store.jobs.getJob(t.job.id))!
+        assert.deepEqual([job.status, job.error, job.costUsd], ['failed', TRAILER_NEEDS_FFMPEG, 0])
+        const video = (await store.videos.get(videoId))!
+        assert.deepEqual([video.status, video.error], ['failed', TRAILER_NEEDS_FFMPEG], 'the trailer says why, and can be tried again')
+        // A redelivered trailer whose shots are already at the provider: they are ended as orphaned (counted at the
+        // formula's price), so Try again can take them — never left `animating` on a failed trailer for good.
+        const { markMaking, markSubmitting, markSubmitted, queueRetry } = await import('../lib/video/record')
+        const shotPlan = { title: 't', page: 0, model: 'bytedance/seedance-2.0-fast', resolution: '480p', method: 'B', shots: [{ panel: 0, aspect: '16:9', seconds: 5, line: null }, { panel: 1, aspect: '16:9', seconds: 5, line: null }], shotSeconds: 10, introSeconds: 2, outroSeconds: 2, runSeconds: 14, speechChars: 0 } as unknown as import('../lib/video/types').TrailerPlan
+        const sentId = crypto.randomUUID()
+        const at = new Date()
+        let sentRec = markMaking(newVideoRecord({ id: sentId, ownerId: 'user_t8', projectId: 'a-project', plan: shotPlan, now: at }), at)!
+        for (const n of [0, 1]) sentRec = markSubmitted(markSubmitting(sentRec, n, at)!, n, `pj${n}`, at)!
+        await store.videos.put(sentRec)
+        const t2 = await trailer('user_t8', { videoId: sentId })
+        console.error = () => {}
+        assert.equal(await processJob(t2.job.id, { workerId: 'direct' }), 'failed')
+        console.error = quiet
+        const stuck = (await store.videos.get(sentId))!
+        assert.deepEqual([stuck.status, stuck.shots.map((s) => s.state)], ['failed', ['orphaned', 'orphaned']], 'shots already sent are ended as orphaned, not left animating')
+        assert.ok(stuck.costUsd > 0, 'the orphaned shots are counted at the formula’s price')
+        assert.ok(queueRetry(stuck, 0, new Date()), 'and Try again can take them')
+        assert.equal(ran, 0)
+        env.PATH = path
+        const again = await trailer('user_t8', { videoId })
+        assert.equal(await processJob(again.job.id, { workerId: 'direct' }), 'done', 'with ffmpeg back on the PATH it runs')
+        assert.equal(ran, 1)
+      } finally {
+        env.PATH = path
+        console.error = quiet
+        videoRunners.trailer = realTrailer
+      }
+      ok('without ffmpeg a trailer is refused before its runner sends anything: the job and its video record fail with the sentence, and it runs once ffmpeg is back')
+      await reset()
+    }
+
     // (e) The inline queue runs a trailer in a lane of its own — not in an image slot, not behind a picture.
     {
       env.INKDESK_QUEUE = 'inline'

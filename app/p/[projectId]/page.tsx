@@ -19,7 +19,7 @@
 import { notFound } from 'next/navigation'
 import { AuthControls } from '@/components/AuthControls'
 import { DeskNotice } from '@/components/DeskNotice'
-import { pageUser, SIGNED_OUT_SENTENCE } from '@/components/page-user'
+import { pageUser, pageWindow, SIGNED_OUT_SENTENCE, SLOW_DOWN_HEADING } from '@/components/page-user'
 import { Studio } from '@/components/Studio'
 import { ownedProject } from '@/lib/auth/access'
 import { videoEnabled } from '@/lib/config'
@@ -42,6 +42,9 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
   const userId = await pageUser()
   if (!userId) return <DeskNotice heading="Sign in to use the studio." sentence={SIGNED_OUT_SENTENCE} back={false} />
   if (!isProjectId(projectId)) notFound()
+  // The project is read whole before the owner check: the same per-person window an API read takes (after-audit #13).
+  const slow = await pageWindow(userId)
+  if (slow) return <DeskNotice heading={SLOW_DOWN_HEADING} sentence={slow.message} />
   try {
     await ownedProject(userId, projectId)
   } catch (err) {

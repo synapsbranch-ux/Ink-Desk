@@ -133,6 +133,19 @@ export function publishableKeyOf(env: Env = process.env): string | undefined {
   return pick(env, PUBLISHABLE_KEY_NAMES)
 }
 
+/**
+ * The Clerk host the CSP allows (`lib/csp.ts`): the Frontend API host in clerk mode, else null. Never throws — a mode
+ * production refuses gets no host, and the boot stops that server with the sentence.
+ */
+export function clerkHostForCsp(env: Env = process.env): string | null {
+  try {
+    return authMode(env) === 'clerk' ? frontendApiOf(publishableKeyOf(env)) : null
+  } catch (err) {
+    if (err instanceof AuthConfigError) return null
+    throw err
+  }
+}
+
 /** An `http(s)://host[:port]` origin from a URL setting, or null. */
 function originOf(value: string | undefined): string | null {
   if (!value) return null

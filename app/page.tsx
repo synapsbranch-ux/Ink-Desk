@@ -24,7 +24,7 @@ import { connection } from 'next/server'
 import { AuthControls } from '@/components/AuthControls'
 import { Dashboard } from '@/components/Dashboard'
 import { DeskNotice } from '@/components/DeskNotice'
-import { pageUser, SIGNED_OUT_SENTENCE } from '@/components/page-user'
+import { pageUser, pageWindow, SIGNED_OUT_SENTENCE, SLOW_DOWN_HEADING } from '@/components/page-user'
 import { authMode } from '@/lib/auth/config'
 import { listProjects, migrateLegacy } from '@/lib/chapter'
 import { videoEnabled } from '@/lib/config'
@@ -49,6 +49,9 @@ export default async function DeskPage() {
   await connection()
   const userId = await pageUser()
   if (!userId) return <DeskNotice heading="Sign in to use the studio." sentence={SIGNED_OUT_SENTENCE} back={false} />
+  // Four reads or more per render: the same per-person window an API read takes (after-audit #13).
+  const slow = await pageWindow(userId)
+  if (slow) return <DeskNotice heading={SLOW_DOWN_HEADING} sentence={slow.message} back={false} />
   let problem: string | null = null
   let projects: Awaited<ReturnType<typeof listProjects>>
   try {

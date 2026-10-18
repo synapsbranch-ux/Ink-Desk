@@ -284,11 +284,18 @@ export async function saveAsset(
   const clean = await cleanUpload(bytes, mediaType)
   const blobId = await store.putBlob(clean, mediaType, 'asset')
   const asset: Asset = { id: blobId, kind: 'reference', name, blobId, mediaType, bytes: clean.length, createdAt: new Date().toISOString() }
-  const chapter = await update(projectId, (d) => {
-    checkUpload(clean, d.assets.length) // the shelf limit, rechecked inside the lock
-    return addAsset(d, asset)
-  })
-  return { chapter, asset }
+  try {
+    const chapter = await update(projectId, (d) => {
+      checkUpload(clean, d.assets.length) // the shelf limit, rechecked inside the lock
+      return addAsset(d, asset)
+    })
+    return { chapter, asset }
+  } catch (err) {
+    // Refused inside the lock (uploads that raced to the last place on the shelf): no record will ever name the stored
+    // copy, so it goes now — as a refused attach's picture does (after-audit #14).
+    if (err instanceof Refused) await store.deleteBlob(blobId).catch((e: unknown) => console.warn(`[assets] could not delete ${blobId}:`, e))
+    throw err
+  }
 }
 
 /** The bytes of a stored image, or null if there is no such file. */

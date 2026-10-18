@@ -1459,6 +1459,35 @@ try {
     assert.deepEqual((await store.outputs.list(`exports/${ALICE}`)).map((o) => o.key), before, 'and the earlier export stands, nothing half-written beside it')
     ok(`${where} export: a store that fails mid-way throws for the queue to retry, and still removes the temp file and stores nothing`)
 
+    // 8i2. A temp file that cannot be written (a full disk): the picture being packed fails with the write's error at
+    //      once — it never waits for ever on a zip that stopped reading, holding the one-wide account lane (after-audit #11).
+    if (!CLOUD && process.platform === 'linux') {
+      const { ZipBuilder } = await import('../lib/account/zip')
+      const full = new ZipBuilder('/dev/full', 50 * 1024 * 1024, new Date())
+      full.addBuffer('account.json', Buffer.from('{}'))
+      let pulled = 0
+      const picture = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (pulled >= 64) return controller.close()
+          pulled++
+          controller.enqueue(new Uint8Array(64 * 1024))
+        },
+      })
+      const t0 = Date.now()
+      const verdict = await Promise.race([
+        full.addStream('projects/x/images/a.png', picture, 64 * 64 * 1024).then(
+          () => 'resolved',
+          (err: unknown) => `rejected: ${(err as { code?: string }).code ?? String(err)}`
+        ),
+        new Promise<string>((resolve) => setTimeout(() => resolve('still pending'), 5_000)),
+      ])
+      assert.equal(verdict, 'rejected: ENOSPC', `a picture packed onto a full disk fails with the write's error (${Date.now() - t0} ms)`)
+      assert.throws(() => full.addBuffer('manifest.json', Buffer.from('{}')), /ENOSPC/, 'and so does anything added after it')
+      await assert.rejects(full.finish(), /ENOSPC/)
+      full.abort()
+      ok('local export: a temp file that cannot be written (a full disk) fails the picture being packed with the write’s error at once — no hang on the account lane')
+    }
+
     // 8j. An account deleted while its export is being made gets no export (checked before the put and after it).
     const ghost = 'user_ghost'
     await store.users.upsert({ id: ghost, email: 'ghost@inkdesk.invalid', createdAt: at(0) })
@@ -1693,8 +1722,20 @@ try {
       // Her public links are dead and the reports about them are gone.
       for (const token of alice.tokens) assert.equal(await store.shares.get(token), null)
       for (const id of alice.reportIds) assert.equal(await store.reports.get(id), null)
-      // The job that held quota was cancelled through endJob: its hold is gone (released, not left to expire).
-      assert.equal(await backend().hold(holdId), null, 'the running job’s hold was released')
+      // The job that held quota was cancelled through endJob: its hold is gone (settled, not left to expire).
+      assert.equal(await backend().hold(holdId), null, 'the running job’s hold was settled')
+      {
+        // How a cancelled picture settles (after-audit #8): one a worker held is settled at its estimate (its call may be
+        // out, and the run's own ending will be refused); one still waiting, or one only attaching a picture already paid
+        // for, gives its hold back.
+        const { settlementOf } = await import('../lib/limits/jobs')
+        const cancelled = (over: Partial<JobRecord>) => settlementOf(mkJob(ALICE, { kind: 'panel', status: 'failed', outcome: 'cancelled', ...over }))
+        assert.deepEqual(cancelled({ workerId: 'w' }), { actualUsd: null, refund: false }, 'cancelled mid-draw: the estimate stands')
+        assert.deepEqual(cancelled({ kind: 'sheet', workerId: 'w' }), { actualUsd: null, refund: false })
+        assert.deepEqual(cancelled({ workerId: null }), { actualUsd: 0, refund: true }, 'cancelled while waiting: released')
+        assert.deepEqual(cancelled({ workerId: 'w', costUsd: 0.04, carriedUsd: 0.04 }), { actualUsd: 0, refund: true }, 'attaching a picture already paid for: released')
+        assert.deepEqual(cancelled({ workerId: 'w', costUsd: 0.03 }), { actualUsd: 0.03, refund: true }, 'a reported cost is what it cost')
+      }
       ok(`${where} deletion: a confirmed request is 202, two clicks are one job, the states go none → working → done, and nothing of alice’s is left in the projects, pictures (${alice.images.size}), jobs, shares, reports, settings, videos or outputs; her account is a tombstone with no email`)
 
       // On disk (local store): not one file or byte names her — except the tombstone — and bob’s are untouched, byte for byte.
@@ -1729,9 +1770,11 @@ try {
         assert.equal(Object.keys(cousinBefore).length, counterKeys(cousin).length + windowKeys(cousin).length)
         const globalsAfter = await redisDump((k) => k.startsWith('inkdesk:spend:global:'))
         assert.equal(globalsAfter['inkdesk:spend:global:20250101'], '7', 'the studio’s own totals are never touched')
-        assert.equal(Number(globalsAfter[`inkdesk:spend:global:${today}`]), Number(globalsBefore[`inkdesk:spend:global:${today}`] ?? 0), 'and alice’s hold came off them when her job was cancelled')
-        assert.equal(Number(globalsAfter['inkdesk:spend:global:total']), Number(globalsBefore['inkdesk:spend:global:total'] ?? 0))
-        ok('redis deletion: quota:, spend: and rl: keys of alice are gone (found by SCAN); bob’s, user_alicex’s and the studio-wide spend:global:* totals are untouched; her held quota went back to the totals')
+        // Her running picture was cancelled mid-draw: the provider bills a call that is out whether or not it lands, so its
+        // estimate ($0.05) stays on the studio's totals rather than coming off at $0 (after-audit #8).
+        assert.equal(Number(globalsAfter[`inkdesk:spend:global:${today}`]), Number(globalsBefore[`inkdesk:spend:global:${today}`] ?? 0) + 50_000, 'her running picture’s estimate stays on the studio’s day')
+        assert.equal(Number(globalsAfter['inkdesk:spend:global:total']), Number(globalsBefore['inkdesk:spend:global:total'] ?? 0) + 50_000, 'and on its total')
+        ok('redis deletion: quota:, spend: and rl: keys of alice are gone (found by SCAN); bob’s, user_alicex’s and the studio-wide spend:global:* totals are untouched but for her running picture, settled at its estimate')
       }
 
       // The page of an account that is gone: nothing to export, nothing to download.

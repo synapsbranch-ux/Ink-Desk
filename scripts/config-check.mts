@@ -303,9 +303,39 @@ try {
   assert.equal(generationEnabled({ NODE_ENV: 'production', GENERATION_ENABLED: 'true' }), true, 'production, opened on purpose')
   assert.equal(generationEnabled({ NODE_ENV: 'development', GENERATION_ENABLED: 'false' }), false, 'development, closed on purpose')
   assert.equal(generationEnabled({ GENERATION_ENABLED: 'yes' }), false, 'a value it doesn’t know keeps the studio closed')
-  assert.equal(parseConfig({ NODE_ENV: 'production' }).generationEnabled, false)
+  assert.equal(parseConfig({ ...preferred, NODE_ENV: 'production' }).generationEnabled, false)
   assert.match(refusal(() => parseConfig({ GENERATION_ENABLED: 'yes' })).message, /GENERATION_ENABLED must be true or false/, 'and is refused at boot')
-  console.log('  ok  GENERATION_ENABLED: on in development, off in production, true/false honoured, anything else closed and refused at boot')
+  // One rule for "production" (S19-SEC-1, after-audit #2/#15): `next start` keeps any NODE_ENV it is given, so test or
+  // staging is a public server for every default, not only for sign-in and the limits.
+  {
+    const { queueSettings, videoSettings, isProduction } = config
+    const { configSentence, ProviderError, UNAVAILABLE } = await import('../lib/errors')
+    for (const nodeEnv of ['production', 'staging', 'test']) {
+      assert.equal(isProduction({ NODE_ENV: nodeEnv }), true, `NODE_ENV=${nodeEnv} is production`)
+      assert.equal(generationEnabled({ NODE_ENV: nodeEnv }), false, `NODE_ENV=${nodeEnv}, GENERATION_ENABLED unset: closed`)
+      assert.equal(queueSettings({ NODE_ENV: nodeEnv }).mode, 'bullmq', `NODE_ENV=${nodeEnv}: the real queue`)
+      assert.match(refusal(() => queueSettings({ NODE_ENV: nodeEnv, INKDESK_QUEUE: 'inline', GENERATION_ENABLED: 'true', REDIS_URL: 'redis://h:6379' })).message, /INKDESK_QUEUE must be bullmq in production/)
+      assert.deepEqual([videoSettings({ NODE_ENV: nodeEnv, VIDEO_FAIL_SHOT: '2' }).model, videoSettings({ NODE_ENV: nodeEnv }).resolution, videoSettings({ NODE_ENV: nodeEnv, VIDEO_FAIL_SHOT: '2' }).failShot], ['bytedance/seedance-2.0', '720p', null], `NODE_ENV=${nodeEnv}: the production trailer, no rehearsal`)
+      const env = process.env as Env
+      const was = env.NODE_ENV
+      env.NODE_ENV = nodeEnv
+      try {
+        assert.equal(configSentence(new ProviderError('OPENROUTER_API_KEY is not set', 'config')), UNAVAILABLE, `NODE_ENV=${nodeEnv}: a config sentence names no variable`)
+      } finally {
+        if (was === undefined) delete env.NODE_ENV
+        else env.NODE_ENV = was
+      }
+    }
+    for (const nodeEnv of [undefined, 'development']) {
+      assert.equal(isProduction({ NODE_ENV: nodeEnv }), false)
+      assert.equal(generationEnabled({ NODE_ENV: nodeEnv }), true)
+      assert.equal(queueSettings({ NODE_ENV: nodeEnv }).mode, 'inline')
+      assert.equal(videoSettings({ NODE_ENV: nodeEnv }).model, 'bytedance/seedance-2.0-fast')
+    }
+    const source = (await Promise.all(['lib/config.ts', 'lib/errors.ts', 'lib/boot.ts', 'worker/index.ts', 'app/api/health/route.ts', 'lib/queue/processors.ts'].map((f) => readFile(new URL(`../${f}`, import.meta.url), 'utf8')))).join('\n')
+    assert.ok(!/NODE_ENV\s*[!=]==\s*'production'/.test(source), 'no default reads NODE_ENV against the one word')
+  }
+  console.log('  ok  GENERATION_ENABLED: on in development, off in production, true/false honoured, anything else closed and refused at boot; production is one rule (any NODE_ENV but development or unset) for the generation, queue and trailer defaults and the config sentence')
 
   // 6. appConfig: memoised per set of values; INKDESK_STORAGE typos refused.
   const first = appConfig()
@@ -318,6 +348,23 @@ try {
   assert.match(refusal(() => parseConfig({ INKDESK_STORAGE: 'mongo' })).message, /INKDESK_STORAGE must be local \(the default\) or cloud/)
   assert.ok(!refusal(() => parseConfig({ INKDESK_STORAGE: 'mongo' })).message.includes('mongo '), 'the typo itself is not repeated')
   console.log('  ok  appConfig is validated once per set of values; a storage typo is refused by name')
+
+  // 6b. Production runs on Mongo and the buckets (after-audit #10/#16): a local desk there is the container's own disk,
+  //     wiped on every deploy and unseen by the worker's container — refused at boot on both services, in one sentence.
+  for (const role of ['web', 'worker'] as const) {
+    const base = { NODE_ENV: 'production', REDIS_URL: 'redis://h:6379' }
+    for (const storage of [undefined, '', 'local', ' local ']) {
+      const refused = refusal(() => parseConfig({ ...base, INKDESK_STORAGE: storage }, role))
+      assert.match(refused.message, /INKDESK_STORAGE must be cloud in production/, `${role}, INKDESK_STORAGE=${JSON.stringify(storage)}`)
+      assert.deepEqual(refused.problems.filter((problem) => problem.includes('INKDESK_STORAGE')), ['INKDESK_STORAGE must be cloud in production (the local desk is for development and the checks)'], 'one plain sentence')
+    }
+  }
+  assert.match(refusal(() => parseConfig({ NODE_ENV: 'staging' })).message, /INKDESK_STORAGE must be cloud in production/, 'staging is production too')
+  assert.equal(parseConfig({ ...preferred, NODE_ENV: 'production' }).storage, 'cloud', 'production with its cloud settings starts')
+  assert.equal(parseConfig({ ...preferred, NODE_ENV: 'production', REDIS_URL: 'redis://h:6379' }, 'worker').storage, 'cloud')
+  assert.equal(parseConfig({ NODE_ENV: 'development' }).storage, 'local', 'development keeps the local desk')
+  assert.equal(parseConfig({}).storage, 'local', 'and so do the checks (NODE_ENV unset)')
+  console.log('  ok  production (any NODE_ENV but development or unset) refuses the local desk at boot, web and worker alike, by name')
 
   // 7. Boot: instrumentation refuses a bad setting with the sentence, in the
   //    Node runtime only.
@@ -359,11 +406,62 @@ try {
     assert.equal(badBody.status, 'down')
     assert.equal(badBody.generation, 'off')
     assert.ok(!JSON.stringify(badBody).includes('sideways') && !JSON.stringify(badBody).includes('GENERATION_ENABLED'), 'no internals in the answer')
+    delete process.env.GENERATION_ENABLED
+    // A local desk is never a healthy production deploy (after-audit #10): Railway must not promote it.
+    ;(process.env as Env).NODE_ENV = 'production'
+    try {
+      const localProd = await health.GET()
+      assert.equal(localProd.status, 503, 'production on the local desk is down')
+      assert.deepEqual(await localProd.json(), { status: 'down', storage: 'local', checks: { mongo: 'n/a', bucket: 'n/a' }, queue: { mode: 'inline', redis: 'n/a', worker: 'n/a' }, generation: 'off' })
+    } finally {
+      delete (process.env as Env).NODE_ENV
+    }
   } finally {
     console.error = quiet
     delete process.env.GENERATION_ENABLED
   }
-  console.log('  ok  /api/health: 200 { status, storage, checks, queue, generation } with no internals, 503 in the same shape, no-store')
+  console.log('  ok  /api/health: 200 { status, storage, checks, queue, generation } with no internals, 503 in the same shape, no-store; production on the local desk is 503')
+
+  // 8b. Health is cheap for strangers (after-audit #4): it is public and unthrottled, so the probe of the outside systems
+  //     (a Mongo ping and a HEAD per bucket in cloud mode, a Redis PING and GET) is shared — callers at the same moment
+  //     wait on one probe, and a result is reused for a few seconds — while the settings are still read on every call.
+  {
+    const { store } = await import('../lib/store')
+    const realHealth = store.health
+    const realNow = Date.now
+    let probes = 0
+    let answer: 'ok' | 'down' = 'ok'
+    store.health = async () => {
+      probes++
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      return { mongo: answer, bucket: answer }
+    }
+    let clock = realNow() + 3_600_000 // past anything an earlier section left
+    Date.now = () => clock
+    const said = console.error
+    console.error = () => {}
+    try {
+      const burst = await Promise.all(Array.from({ length: 25 }, () => health.GET()))
+      assert.equal(probes, 1, `25 callers at once share one probe (${probes})`)
+      assert.ok(burst.every((r) => r.status === 200 && r.headers.get('cache-control') === 'no-store'))
+      clock += 2_000
+      answer = 'down'
+      assert.equal((await health.GET()).status, 200, 'two seconds later the same result is reused…')
+      assert.equal(probes, 1)
+      process.env.GENERATION_ENABLED = 'sideways'
+      assert.equal((await health.GET()).status, 503, '…but the settings are read on every call')
+      delete process.env.GENERATION_ENABLED
+      clock += 4_000
+      assert.equal((await health.GET()).status, 503, 'after a few seconds it is asked again, and a store that went down is reported')
+      assert.equal(probes, 2)
+    } finally {
+      console.error = said
+      store.health = realHealth
+      Date.now = realNow
+      delete process.env.GENERATION_ENABLED
+    }
+  }
+  console.log('  ok  /api/health: callers at once share one probe of the outside systems, reused for a few seconds; the settings are read on every call')
 
   // 9. .env.example documents every name of the mapping and the flag, and
   //    carries no value for any of them.
@@ -377,6 +475,50 @@ try {
     }
   }
   console.log('  ok  .env.example documents every name — both names of each mapped setting — and gives none of them a value')
+
+  // 10. The worker's own boot (`npm run worker`, a process of its own): refused in one sentence, before it takes a job,
+  //     when production would run it on the local desk (after-audit #10), when video is open and ffmpeg is not on its
+  //     PATH (#12 — every trailer would pay for its shots and then fail at the assembly), and when it shares the cloud
+  //     desk with sign-in left unset (#2 — it would read sign-in as off and skip Clerk when deleting an account).
+  {
+    const { spawn } = await import('node:child_process')
+    const { mkdir } = await import('node:fs/promises')
+    const ROOT = new URL('..', import.meta.url).pathname
+    const noTools = join(dir, 'no-tools')
+    await mkdir(noTools, { recursive: true })
+    const redis = { INKDESK_QUEUE: 'bullmq', REDIS_URL: 'redis://127.0.0.1:1' } // never reached by a refused worker
+    const boot = (vars: Env, ms: number) =>
+      new Promise<{ code: number | null; said: string }>((resolve) => {
+        const env: Env = { ...process.env, INKDESK_STORAGE: undefined, NODE_ENV: undefined, INKDESK_AUTH: undefined, VIDEO_ENABLED: undefined, CLERK_SECRET_KEY: undefined, ...vars }
+        for (const [name, value] of Object.entries(env)) if (value === undefined) delete env[name]
+        const child = spawn(process.execPath, ['--import', 'tsx', '--import', './scripts/server-only.mts', 'worker/index.ts'], { cwd: ROOT, env: env as NodeJS.ProcessEnv, stdio: ['ignore', 'pipe', 'pipe'] })
+        let said = ''
+        child.stdout.on('data', (d: Buffer) => (said += d))
+        child.stderr.on('data', (d: Buffer) => (said += d))
+        const timer = setTimeout(() => child.kill('SIGKILL'), ms) // still running: it got past every check
+        child.on('exit', (code) => {
+          clearTimeout(timer)
+          resolve({ code, said })
+        })
+      })
+    const SECRET_KEY = `sk_test_${'w'.repeat(32)}`
+    const [local, unset, noFfmpeg, started] = await Promise.all([
+      boot({ ...redis, NODE_ENV: 'production', INKDESK_STORAGE: 'local', CLERK_SECRET_KEY: SECRET_KEY }, 15_000),
+      boot({ ...redis, ...preferred }, 15_000),
+      boot({ ...redis, VIDEO_ENABLED: 'true', PATH: noTools }, 15_000),
+      boot({ ...redis, VIDEO_ENABLED: 'true' }, 8_000),
+    ])
+    assert.equal(local.code, 1, `a production worker on the local desk does not start: ${local.said}`)
+    assert.match(local.said, /\[worker\] The studio’s settings need fixing — INKDESK_STORAGE must be cloud in production/)
+    assert.equal(unset.code, 1, `a worker on the cloud desk with sign-in unset does not start: ${unset.said}`)
+    assert.match(unset.said, /INKDESK_AUTH is not set/)
+    assert.ok(!unset.said.includes('preferred-host'), 'names, never values')
+    assert.equal(noFfmpeg.code, 1, `video open and no ffmpeg: the worker does not start: ${noFfmpeg.said}`)
+    assert.match(noFfmpeg.said, /\[worker\] .*ffmpeg/)
+    assert.equal(started.code, null, `with ffmpeg on its PATH the same worker gets past its checks (and waits for Redis): ${started.said}`)
+    assert.ok(!/ffmpeg|settings need fixing/.test(started.said))
+  }
+  console.log('  ok  the worker refuses to start, in one sentence, on the local desk in production, with video open and no ffmpeg, and on the cloud desk with sign-in unset')
 
   console.log('\n  Config check passed.\n')
 } finally {

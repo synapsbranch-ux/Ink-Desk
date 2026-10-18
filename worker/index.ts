@@ -14,7 +14,8 @@
 // package.json): the library modules import `server-only`, which refuses to
 // load outside Next unless resolved the way Next's server does.
 import { workerAuthProblems } from '../lib/auth/config'
-import { ConfigError, parseConfig, videoSettings } from '../lib/config'
+import { ConfigError, isProduction, parseConfig, videoSettings } from '../lib/config'
+import { mediaToolsMissing } from '../lib/queue/processors'
 import { closeQueues } from '../lib/queue/queues'
 import { closeProducerRedis } from '../lib/queue/redis'
 import { startWorker } from '../lib/queue/worker'
@@ -27,6 +28,9 @@ async function main() {
     videoSettings()
     // Deleting an account deletes its Clerk user, so a worker in clerk mode needs CLERK_SECRET_KEY: refused here, not on the first deletion.
     const auth = workerAuthProblems()
+    // Outside production an unset INKDESK_AUTH reads as off — and a worker on the cloud desk the web service signs people
+    // in to would then delete an account but not its Clerk user (after-audit #2). On that desk it says which mode it is.
+    if (config.storage === 'cloud' && !isProduction() && !process.env.INKDESK_AUTH?.trim()) auth.push('INKDESK_AUTH is not set (a worker on cloud storage uses the web service’s sign-in mode)')
     if (auth.length > 0) throw new ConfigError(auth)
   } catch (err) {
     if (err instanceof ConfigError) {
@@ -37,6 +41,11 @@ async function main() {
   }
   if (config.queue.mode !== 'bullmq') {
     console.error('[worker] INKDESK_QUEUE is inline, so the web process runs the jobs itself and there is nothing for a worker to do. Set INKDESK_QUEUE=bullmq and REDIS_URL.')
+    process.exit(1)
+  }
+  // A trailer pays for its shots before the assembly needs ffmpeg: with video open, a worker without it does not start (after-audit #12).
+  if (config.videoEnabled && (await mediaToolsMissing())) {
+    console.error('[worker] VIDEO_ENABLED is true, but ffmpeg and ffprobe are not on this machine’s PATH. Install ffmpeg (it brings ffprobe) on the worker service, or set VIDEO_ENABLED=false, and restart.')
     process.exit(1)
   }
 

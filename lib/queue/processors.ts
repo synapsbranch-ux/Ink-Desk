@@ -36,6 +36,7 @@
 // (or the reconciler re-runs it), and every step of both is safe to repeat.
 import 'server-only'
 import { inkCover } from '../director'
+import { configSentence, ProviderError } from '../errors'
 import { inkPanel } from '../panels'
 import { drawSheet } from '../sheet'
 import { store } from '../store'
@@ -160,7 +161,7 @@ async function work(job: JobRecord, run: JobRun): Promise<Outcome> {
     case 'sheet':
       return drawSheet(job.projectId, p.characterId, p.reuseDna, run)
     case 'trailer':
-      return videoRunners.trailer(job, run)
+      return (await withoutMediaTools(job)) ?? videoRunners.trailer(job, run)
     case 'export':
       return accountRunners.export(job, run)
     case 'delete-account':
@@ -187,6 +188,39 @@ export const accountRunners: Record<AccountJobKind, (job: JobRecord, run: JobRun
  */
 export const videoRunners: { trailer: (job: JobRecord, run: JobRun) => Promise<Outcome> } = {
   trailer: async (job, run) => (await import('../video/run')).runTrailer(job, run),
+}
+
+/** What a trailer is refused with on a machine without ffmpeg (a production studio says `UNAVAILABLE` instead, SEC-11). */
+export const TRAILER_NEEDS_FFMPEG = 'The studio can’t make trailers without ffmpeg. Install ffmpeg (it brings ffprobe) and restart the worker.'
+
+/** Why ffmpeg or ffprobe cannot be run on this machine, or null when both answer. Asked afresh each time: two short spawns, and a trailer is rare. */
+export async function mediaToolsMissing(): Promise<string | null> {
+  const { execFile } = await import('node:child_process')
+  for (const tool of ['ffmpeg', 'ffprobe']) {
+    const err = await new Promise<Error | null>((resolve) => execFile(tool, ['-version'], { timeout: 15_000 }, (e) => resolve(e)))
+    if (err) return `${tool}: ${err.message}`
+  }
+  return null
+}
+
+/**
+ * A trailer pays for its shots before the assembly needs ffmpeg, so on a machine without it the job is refused before
+ * anything is sent (after-audit #12): its video record is failed with the sentence, and nothing is spent. Null when the
+ * tools are there. (The worker also refuses to start without them while video is open.)
+ */
+async function withoutMediaTools(job: JobRecord): Promise<Outcome | null> {
+  const missing = await mediaToolsMissing()
+  if (!missing) return null
+  console.error(`[worker] trailer ${job.id.slice(0, 8)} — refused before any paid call: ${missing}`)
+  const sentence = configSentence(new ProviderError(TRAILER_NEEDS_FFMPEG, 'config'))
+  if (job.payload.kind === 'trailer') {
+    const { markVideoFailed, recoverShots } = await import('../video/record')
+    // A redelivered trailer may have shots out at the provider already: nothing will collect them now, so they end
+    // orphaned (counted at the formula's price) and Try again can take them, as when the web finds a job gone.
+    const now = new Date()
+    await store.videos.update(job.payload.videoId, (v) => (v.ownerId === job.ownerId ? markVideoFailed(recoverShots(v, now, { jobGone: true }), sentence, now) : null))
+  }
+  return { outcome: 'failed', error: sentence }
 }
 
 /** The deletion succeeded, so its own record goes too — the last trace of the person. A store that blips here leaves a finished record the reconciler prunes after a week; it is not worth failing a deletion that is complete. */
