@@ -1,4 +1,4 @@
-// Privacy (slice 19, updated in slice 21 for sharing, reports, export and deletion): what the studio stores, where, which outside services
+// Privacy (slice 19, updated in slice 21 for sharing, reports, export and deletion, and in slice 23 for the trailer's video, voice and music models): what the studio stores, where, which outside services
 // see what, and how to have it deleted — plainly, and only what is true of the
 // build as it stands. Linked from sign-in and sign-up, readable signed out.
 // See `devpost/prd.md > Terms and Privacy (v3)`.
@@ -8,7 +8,7 @@ import Link from 'next/link'
 export const metadata: Metadata = { title: 'Privacy · Ink Desk' }
 
 /** The date of this text; change it with the words. */
-const UPDATED = '16 October 2026'
+const UPDATED = '18 October 2026'
 
 const page: React.CSSProperties = { maxWidth: 680, margin: '0 auto', padding: 'var(--space-8) var(--space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }
 
@@ -66,12 +66,13 @@ export default function PrivacyPage() {
             sessions safe and stop automated sign-ups (with Cloudflare’s Turnstile check).
           </li>
           <li>
-            <strong>Anthropic</strong> (Claude) writes the story text, and <strong>OpenRouter</strong> passes requests to the image model and to a
-            backup text model: they receive the words and the reference pictures sent with each generation, not your email address. Their own
+            <strong>Anthropic</strong> (Claude) writes the story text, and <strong>OpenRouter</strong> passes requests to the image model, to a
+            backup text model and, when you animate a page, to the video, voice and music models: they receive the words, the reference pictures,
+            the panels and character sheets, and the lines to be spoken that are sent with each generation, not your email address. Their own
             privacy policies apply to what they receive.
           </li>
           <li>
-            <strong>MongoDB</strong> holds your projects and records, and <strong>Cloudflare R2</strong> holds the pictures. Neither is public; a
+            <strong>MongoDB</strong> holds your projects and records, and <strong>Cloudflare R2</strong> holds the pictures and videos. Neither is public; a
             picture reaches your browser only through the studio, after it has checked that it is yours.
           </li>
           <li>
