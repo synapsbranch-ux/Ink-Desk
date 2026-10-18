@@ -22,7 +22,7 @@
 // (only `updatedAt` moves). Server only; the page and the route share this
 // module so they cannot disagree.
 import 'server-only'
-import { z } from 'zod'
+import { z } from './zod'
 import { store } from './store'
 import type { UserSettings } from './share/types'
 import { isStylePresetId, STYLE_PRESET_IDS, type StylePresetId } from './styles'

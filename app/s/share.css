@@ -55,16 +55,6 @@
   flex-wrap: wrap;
 }
 
-/* Lettering follows the screen: small enough on a phone that a bubble's words are not cut off. */
-.share-page .bubble-text {
-  font-size: clamp(8px, 2.2vw, 17px);
-}
-@media (min-width: 900px) {
-  .share-page .bubble-text {
-    font-size: clamp(11px, 1.2vw, 17px);
-  }
-}
-
 /* The footer: who made it, and a way into the studio; Report beside them. */
 .share-footer {
   display: flex;

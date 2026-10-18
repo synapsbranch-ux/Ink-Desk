@@ -1,5 +1,5 @@
 import type { NextConfig } from 'next'
-import { clerkHostForCsp } from './lib/auth/config'
+import { clerkHostForCsp, isProduction } from './lib/auth/config'
 import { contentSecurityPolicy } from './lib/csp'
 
 // Kept small. The studio is a client-rendered page over a handful of Node
@@ -11,7 +11,8 @@ import { contentSecurityPolicy } from './lib/csp'
 // alike. See `devpost/spec.md > Security Headers and CSP (v3)`.
 
 const dev = process.env.NODE_ENV === 'development'
-const production = process.env.NODE_ENV === 'production'
+// One rule for production everywhere (S19-SEC-1): anything but development.
+const production = isProduction()
 
 // The CSP (`lib/csp.ts`). Slice 16 set it here with 'unsafe-inline' for
 // scripts; slice 19 added Clerk's hosts in clerk mode. Slice 23 (after-audit

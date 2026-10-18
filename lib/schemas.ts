@@ -5,7 +5,7 @@
 // rather than a warning: every object closed (the helper does this), no
 // recursion, no min/max on numbers or strings. Fixed counts are therefore
 // expressed as named fields rather than array lengths.
-import { z } from 'zod'
+import { z } from './zod'
 import { Refused } from './errors'
 import { PANEL_LAYOUT, type PanelSlot } from './prompts'
 import { STYLE_PRESET_IDS } from './styles'

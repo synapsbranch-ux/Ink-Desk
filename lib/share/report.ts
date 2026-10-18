@@ -20,7 +20,7 @@
 // Server only: it reads the client key.
 import 'server-only'
 import { randomUUID } from 'node:crypto'
-import { z } from 'zod'
+import { z } from '../zod'
 import { clientKey } from '../limits/requests'
 import { REPORT_NOTE_MAX } from './report-copy'
 import { REPORT_REASONS, type ReportRecord, type ShareRecord } from './types'

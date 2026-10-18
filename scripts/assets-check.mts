@@ -313,7 +313,9 @@ try {
   const h = Object.fromEntries(all.headers.map((x) => [x.key, x.value]))
   const csp = Object.fromEntries(h['Content-Security-Policy'].split('; ').map((d) => [d.split(' ')[0], d.split(' ').slice(1).join(' ')]))
   assert.equal(csp['default-src'], "'self'")
-  assert.ok(csp['script-src'].startsWith("'self' 'unsafe-inline'"), 'scripts from this origin only')
+  // Slice 23: pages get a per-request nonce from proxy.ts; the static header
+  // (API, _next, public/) allows this origin's scripts and nothing inline.
+  assert.equal(csp['script-src'], "'self'", 'scripts from this origin only')
   assert.ok(!/https?:|\*/.test(csp['script-src']), 'no other host may serve a script')
   assert.equal(csp['frame-ancestors'], "'none'")
   assert.equal(csp['object-src'], "'none'")

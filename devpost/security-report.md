@@ -9,7 +9,7 @@ The learner's rule (`scope.md > Revision — Ink Desk Studio v3`, item 9): an au
 
 **How it was done.** Two read-only audit agents (security; crash and robustness) read every route under `app/api/**`, the store, the queue and the providers' clients, and reproduced what they could with throwaway scripts outside the repo (no paid calls, no repo edits). An **adversarial verifier** per audit then tried to refute every finding against the code and Next 16.4's own docs; a finding stays only if it survived. **All 33 survived.** A history scan of all 80 commits for key-shaped strings found none, and `.env` was never committed.
 
-**Status legend:** `open` — not fixed; `fixed in <commit>` — fixed and verified; `accepted` — the learner chose to live with it, with the reason. The *Closed by* column names the v3 slice (`checklist.md`) whose verification must prove the fix. The **after** audit (slice 23) re-runs both lenses on the frozen build and updates every row.
+**Status legend:** `open` — not fixed; `fixed in <commit>` — fixed and verified; `accepted` — the learner chose to live with it, with the reason. The *Closed by* column names the v3 slice (`checklist.md`) whose verification must prove the fix. The **after** audit (slice 23, 2026-10-18) re-ran both lenses on the frozen build and updated every row — see **After audit** below.
 
 
 ## Security
@@ -23,13 +23,13 @@ The learner's rule (`scope.md > Revision — Ink Desk Studio v3`, item 9): an au
 | SEC-05 | medium | Upload validation is magic bytes only: arbitrary payloads are stored and re-served from the app's origin, EXIF/GPS is kept, and nosniff is missing | slice 16 | fixed — slice 16 |
 | SEC-06 | medium | Image route serves any matching key with no ownership check; in cloud mode it reads any root-level png/jpg/webp in the bucket | slice 19 | fixed — slice 19 |
 | SEC-08 | medium | Generation concurrency is unbounded on the synchronous routes and shared globally on the queue: one user can starve everyone | slice 18, 20 | fixed — slice 18 (queue fairness and caps), slice 20 (the per-person request windows and spend holds) |
-| SEC-07 | low | Prompt injection from scenario text, the synopsis, and text inside uploaded reference pictures steers the DNA, dialogue and image prompts (text-only impact, but the … | slice 22 | open |
-| SEC-09 | low | No security headers: no CSP, no frame-ancestors (clickjacking on paid buttons), no nosniff, HSTS or Referrer-Policy; X-Powered-By is on | slice 16 | fixed — slice 16 |
+| SEC-07 | low | Prompt injection from scenario text, the synopsis, and text inside uploaded reference pictures steers the DNA, dialogue and image prompts (text-only impact, but the … | slice 22 | open — after audit: no delimiters or moderation pass; mitigated by Report and the admin takedown (slice 21) and the trailer's fixed prompt template (slice 22); the learner's to accept |
+| SEC-09 | low | No security headers: no CSP, no frame-ancestors (clickjacking on paid buttons), no nosniff, HSTS or Referrer-Policy; X-Powered-By is on | slice 16 | fixed — slice 16 (headers), slice 23 (a per-request nonce; no inline scripts in production) |
 | SEC-10 | low | Mutating routes parse JSON regardless of Content-Type and check no Origin header: CSRF-ready once cookie auth exists | slice 19 | fixed — slice 19 |
 | SEC-11 | low | Configuration and infrastructure details leak to anonymous users in error responses and on pages | slice 16 | fixed — slice 19 |
 | SEC-12 | low | Cloud listProjects loads every full project document for every dashboard view, and GET requests have write side effects | slice 16, 19 | fixed — slice 19 |
 | SEC-13 | low | Cloud storage configuration doesn't match the provisioned environment, so cloud mode cannot start and could be pointed at a shared bucket | slice 16 | fixed — slice 16 |
-| SEC-14 | low | Local-mode user data is tracked in git (data/ is 136 MB), so a deployed or shared local desk would commit users' stories and uploads to a public repo | slice 16 | partly fixed — slice 16 |
+| SEC-14 | low | Local-mode user data is tracked in git (data/ is 136 MB), so a deployed or shared local desk would commit users' stories and uploads to a public repo | slice 16 | partly fixed — slices 16, 21 (media in the bucket, runtime records ignored), 23 (production refuses the local desk); `data/` is still tracked |
 | SEC-15 | low | Secret-reading server modules have no `server-only` guard | slice 16 | fixed — slice 16 |
 
 ### SEC-01 — No authentication or authorization on any route or page: every project can be listed, read, edited and spent from (IDOR on project ids)
@@ -371,10 +371,54 @@ Built by six builders on disjoint files (sharing; reports and admin; settings; e
 
 `check:video` was written and three adversarial reviewers (money and state, security, regressions) found **7 defects, all reproduced and fixed**, each pinned by an assertion that fails on the old code: a trailer ended by anything but its own runner gave back its whole hold at $0 after billing shots (**high** — spending escaped the caps); a trailer whose job had been ended kept sending paid shots with no hold; eight transient poll errors abandoned a shot the provider was still billing, so Try again paid twice; deleting an account mid-trailer left its clips and voices in the bucket, and its spend out of the studio's daily total; the sharing list never showed a trailer's poster. No ownership, path-traversal, SSRF or ffmpeg-injection path was found: another user gets the same 404 as an unknown id on every video route, pictures travel as data URIs, and only the snapshot's three files are served on a share.
 
-## Not yet audited — the after audit adds these
+## After audit — the frozen build (slice 23, 2026-10-18)
 
-Everything v3 adds: the Clerk gate and webhook, the data-access layer, BullMQ jobs and the worker, the limits and the kill switch, share pages and reports, account deletion's completeness, the Animate pipeline (signed URLs sent to the provider, the video webhook's signature), CSP in practice, `npm audit` on the new dependencies, and a `gitleaks` run on the full history.
+**How it was done.** The same method as the before audit, on everything v3 added. Four read-only auditors — security (access and exposure: the Clerk gate and webhook, the data-access layer, share pages, reports and the admin list, export, deletion, the CSP and XSS); security (money and abuse: the limits and the kill switch, every spending route, the queue and the worker, the Animate pipeline, uploads, SSRF, prompt injection); stability (the worker, outages of Redis, Mongo and the bucket, the trailer under failure, error boundaries, memory, boot validation); and the rows (every SEC and CR row's original scenario re-run against the frozen code, `npm audit`, `gitleaks`). Every finding then went to a skeptic told to refute it. **18 findings, 16 survived, 2 were refuted.** Each surviving one was reproduced with an assertion that fails on the old code, fixed, and pinned in a `check:*` script — except the three that are policy, below. Slice 23's own changes (the responsive work, the fixes, the nonce, the judge script) were then attacked by three more adversarial reviewers (the UI, money and operations, security): **9 more findings survived their skeptics, all fixed the same way.**
 
+**Rows.** All 33 rows above were re-run and every recorded status holds. Three changed in this slice: **SEC-09** (the nonce landed), **SEC-14** (production now refuses the local desk), **SEC-07** (stated precisely; still open, the learner's to accept).
+
+**Dependencies and secrets.** `npm audit --omit=dev` (what Railway installs): **0 vulnerabilities**; `video/`: 0. The full audit reports one advisory five times — `braces` ≤ 3.0.3 (GHSA-vfj7-8cjw-p6xm, a stack-exhaustion DoS from deeply nested brace patterns) under `eslint-config-next` → `fast-glob` → `micromatch`: **dev-only and not reachable** (only `npm run lint` loads it, its patterns come from the ESLint config, never a request; no patched `braces` exists, and npm's suggested "fix" is a semver-major downgrade of `eslint-config-next`, not taken). **`gitleaks` v8.28.0** (`gitleaks detect --log-opts=--all --redact`) over the full history: **no leaks**; an exact-value search for every secret-shaped variable of this environment over every commit and the working tree: no match.
+
+### What the after audit found
+
+| Id | Severity | Finding | Status |
+|---|---|---|---|
+| A-01 | high | A Claude reply that is billed but fails its structured-output parse (cut off at `max_tokens`, or a refusal) counted as $0, so text spend escaped every cap — latent while `ANTHROPIC_API_KEY` is unset in production | fixed — slice 23 (the usage is charged before the reply is read; a request that was sent but returned no usage is charged the worst case; `check:llm` §12, `check:limits` §9) |
+| A-02 | medium | A trailer shot that ended after its POST was answered (timeout, poll 404/410, a config error, an orphan) was recorded at $0 while the provider billed it, and could release the whole hold | fixed — slice 23 (charged at the formula price; `check:video` §2a, §3f) |
+| A-03 | medium | Production with `INKDESK_STORAGE` unset ran on the container's disk: work wiped on every deploy, the worker never saw a job, health answered 200 | fixed — slice 23 (web and worker refuse to boot unless storage is `cloud`; `check:config` §6b, §8, §10; `check:auth`) |
+| A-04 | medium | `/_next/image` proxied the app's own routes and kept unpublished, taken-down and deleted share pictures in its disk cache | fixed — slice 23 (the optimizer is off and limited to the brand marks; `check:hardening` §9) |
+| A-05 | low | Script CSP still allowed `'unsafe-inline'` (the nonce deferred from slice 16) | fixed — slice 23 (a fresh nonce per request in `proxy.ts`, `'strict-dynamic'`, no inline or eval in production; `check:hardening` §10) |
+| A-06 | low | Production-only defaults keyed on `NODE_ENV === 'production'` in some places and on the S19-SEC-1 rule in others (a worker with `NODE_ENV` unset never deleted the Clerk user; `staging` opened generation) | fixed — slice 23 (one `isProduction` everywhere, `next.config.ts` included) |
+| A-07 | low | The worker did not check for ffmpeg, so a trailer paid for its shots and then failed at assembly | fixed — slice 23 (checked at boot and before every trailer; a resumed trailer ends its shots cleanly; `check:queue`) |
+| A-08 | low | `/api/health` was anonymous and unthrottled, each call probing the bucket twice, Mongo and Redis | fixed — slice 23 (one shared probe, reused for 5 s; settings still read on every call; `check:config` §8b) |
+| A-09 | low | The export's zip hung for ever when the temp write failed (disk full), wedging the account lane | fixed — slice 23 (`check:share` §8i2) |
+| A-10 | low | Page renders took no request window while every API read did | fixed — slice 23 (the desk, the studio and Settings take the read window; `check:share`) |
+| A-11 | low | Parallel uploads at the shelf's cap left orphaned blobs | fixed — slice 23 (`check:assets` §10b) |
+| A-12 | low | Deleting an account mid-draw released a running picture's hold at $0 while the provider billed it | fixed — slice 23 (settled at the estimate; `check:share` §9a) |
+| A-13 | low | Provider refusals are free and unlimited per account (the abuse half of SEC-07) | **open — the learner's decision** (count refusals against the day, or accept) |
+| A-14 | low | One global daily cap for every plan: a few free sign-ups can pause generation for the allowlisted judge account until 00:00 UTC | **open — the learner's decision** (a separate free pool, or restricting Clerk sign-ups during judging); the behaviour is what `prd.md > Limits and Usage (v3)` specifies |
+| A-15 | low | Production still boots on the local desk by default (the SEC-14 / CR-3 remainder) | fixed — slice 23 (as A-03) |
+| A-16 | — | The two refuted claims: an admin takedown does not stop the owner republishing under a new token (by design: the report reaches the admin again); Clerk addresses with a null verification pass the allowlist match (unreachable: a primary address is verified) | refuted |
+
+### What the review of slice 23's own changes found (all fixed)
+
+| Severity | Finding | Fix |
+|---|---|---|
+| high | Tapping outside the bubble edit sheet closed it on pointer-down, so the same tap pressed the control underneath — it fired a paid Redraw | the overlay closes on its own click and swallows it; pinned by a `check:responsive` behaviour probe |
+| medium | The edit sheet ignored the on-screen keyboard (Done and Cancel under the keys) | the sheet follows the visual viewport |
+| medium | Generate all's refusal and its reason rendered off-screen above the sticky bar | they render inside the bar |
+| low | Done sent the words and the layout as two saves, so the old words flashed back | one save |
+| low | On a landscape tablet the sheet covered the bubble being edited | the bubble is kept in view above the sheet |
+| low | A dismissed Android share sheet left no way to download the export | "Download instead" stays offered |
+| low | Claude's estimated charge followed the SDK's error class, not whether the request was sent | each attempt that may bill is counted at the transport |
+| low | A resumed trailer refused for missing ffmpeg left its shots animating for ever | its shots are ended as orphans at the formula price, so Try again works |
+| low | `check:responsive`'s dev server would have read a `.env` on top of its minimal environment | every name any `.env*` sets is blanked, and the preflight proves none reaches the server |
+
+**Verified** with every real credential unset and `fetch` stubbed: `typecheck`, `lint`, all 24 `check:*` (new: `check:judge`, `check:responsive`), `npm run build`. The nonce was proven on a production build (`next start`, Clerk mode with offline test keys): one CSP header per page with a fresh nonce, every `<script>` tag carrying it (Clerk's included), no violation in Chromium on Terms, Privacy, sign-in, sign-up, the trailer share page and the missing-share page. The one violation seen, on the manga share page, was Zod 4's caught `Function('')` probe; `lib/zod.ts` switches it off (`jitless`), proven in Node (no `Function` call once schemas load through it) but not re-run in that production browser, because production now refuses the local desk the probe ran on.
+
+**What only the live domain can prove:** Clerk's `clerk-js`, its UI and Turnstile loading under `'strict-dynamic'` from a real Frontend API host (open the console once on sign-in and sign-up after deploying); the cloud halves against Railway's Mongo and buckets; a real trailer's bill.
+
+**Still open after slice 23:** SEC-07 (low; no delimiters or moderation pass on scenario text, mitigated by Report and the admin takedown — the learner's to accept), A-13 and A-14 (low; policy, the learner's), SEC-14's last part (`data/` is still tracked; the learner's call). **No critical or high row is open.**
 
 ## Appendix — responsive (measured at 390 × 844 and 768 × 1024)
 
