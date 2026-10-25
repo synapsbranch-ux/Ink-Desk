@@ -5,6 +5,7 @@
 // never written.
 //
 //   npx tsx scripts/seed-judge.mts --from <projectId> --to <accountId> [--with-trailer] [--data-dir data] [--dry-run]
+//   INKDESK_STORAGE=cloud … --from-data-dir data/filming-2026-10-14   (the source on a local desk, the copy in the cloud)
 //
 // What is copied: the project (its story, library, chapter, plan, cover and
 // pages, its usage readout) with a NEW project id and owner `--to`, and every
@@ -45,7 +46,7 @@ import type { BlobKind } from '../lib/store'
 import type { VideoRecord } from '../lib/share/types'
 import type { Project } from '../lib/types'
 
-const USAGE = 'Usage: npx tsx scripts/seed-judge.mts --from <projectId> --to <accountId> [--with-trailer] [--data-dir data] [--dry-run]'
+const USAGE = 'Usage: npx tsx scripts/seed-judge.mts --from <projectId> --to <accountId> [--with-trailer] [--data-dir data | --from-data-dir <dir> (cloud only)] [--dry-run]'
 
 /** An account id (`lib/auth/config.ts > ACCOUNT_ID`) — the only owner a copy may be given. */
 const OWNER = ACCOUNT_ID
@@ -75,6 +76,7 @@ try {
       to: { type: 'string' },
       'with-trailer': { type: 'boolean', default: false },
       'data-dir': { type: 'string' },
+      'from-data-dir': { type: 'string' },
       'dry-run': { type: 'boolean', default: false },
     },
     strict: true,
@@ -101,12 +103,18 @@ if (cloud) {
         'Check that they are Ink Desk’s own, then run again with INKDESK_JUDGE_CONFIRMED=yes.'
     )
   }
+  // The live database starts empty: the finished chapter is read from a local desk folder and copied into the cloud.
+  if (args['from-data-dir']) env.INKDESK_DATA_DIR = args['from-data-dir'] // read by the local store at load
+} else if (args['from-data-dir']) {
+  fail('--from-data-dir reads the source from a local desk and writes the copy to the cloud; it needs INKDESK_STORAGE=cloud.')
 } else if (args['data-dir']) {
   env.INKDESK_DATA_DIR = args['data-dir'] // read by the store at load: set before the import below
 }
 
 // Imported after the environment is settled, because the store reads it at load.
 const { store } = await import('../lib/store')
+/** Where the source is read: the local desk named by --from-data-dir, else the same store the copy goes to. */
+const src = args['from-data-dir'] ? (await import('../lib/store/local')).localStore : store
 const { Refused } = await import('../lib/errors')
 const { LOCAL_OWNER } = await import('../lib/queue/jobs')
 const { projectImageIds } = await import('../lib/auth/access')
@@ -183,7 +191,7 @@ let trailerFolder: string | null = null // the trailer folder this run is fillin
 let trailerHeld = false // the target holds the trailer's copy (made now, or found)
 try {
   // --- The source ---------------------------------------------------------------------
-  const source = await store.readProject(from).catch((err: unknown) => {
+  const source = await src.readProject(from).catch((err: unknown) => {
     if (err instanceof Refused) stop(`There is no project ${from} that can be read on this ${cloud ? 'database' : 'desk'} (${err.message})`)
     throw err
   })
@@ -213,7 +221,7 @@ try {
     const blobs: { id: string; bytes: Buffer; mediaType: string }[] = []
     let total = 0
     for (const id of images) {
-      const blob = await store.getBlob(id)
+      const blob = await src.getBlob(id)
       if (!blob) stop(`Picture ${id} of ${label(source)} is missing from the store; nothing was copied.`)
       blobs.push({ id, ...blob })
       total += blob.bytes.length
@@ -246,7 +254,7 @@ try {
 
   // --- The trailer --------------------------------------------------------------------
   if (withTrailer) {
-    const trailer = (await store.videos.listOf(sourceOwner)).find((v) => v.projectId === source.id && v.status === 'done' && v.finalKey && v.posterKey) // newest first
+    const trailer = (await src.videos.listOf(sourceOwner)).find((v) => v.projectId === source.id && v.status === 'done' && v.finalKey && v.posterKey) // newest first
     if (!trailer) {
       console.log(`  no trailer       ${label(source)} has no finished trailer${dryRun ? '' : '; only the chapter was copied'}`)
       exitCode = 1
@@ -266,7 +274,7 @@ try {
         const moved = new Map<string, string>()
         let total = 0
         for (const key of files) {
-          const blob = await store.outputs.open(key)
+          const blob = await src.outputs.open(key)
           if (!blob) {
             if (key === trailer.finalKey || key === trailer.posterKey) stop(`The trailer’s ${key.slice(key.lastIndexOf('/') + 1)} is missing; the trailer was not copied.`)
             continue // a part the finished film no longer needs: the copy names none
