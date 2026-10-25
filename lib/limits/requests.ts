@@ -119,8 +119,12 @@ const FAIL_CLOSED = new Set<RateBucket>(['text', 'image', 'upload', 'report', 's
 
 // --- The client address ---------------------------------------------------------------
 
-/** The IPv6 prefix a subscriber holds (/64), as a stable string; an IPv4-mapped address is the IPv4 one. */
-function canonical(address: string): string | null {
+/**
+ * The IPv6 prefix a subscriber holds (/64 by default), as a stable string; an IPv4-mapped address is the IPv4 one.
+ * `v6Groups` 3 keys by the /48 instead — the sign-up window (2026-10-25): one /48, easy to get from a tunnel broker or
+ * a VPS host, is 65,536 /64s, and a /64 window would let it make that many accounts an hour.
+ */
+function canonical(address: string, v6Groups: 3 | 4 = 4): string | null {
   let ip = address.trim().toLowerCase().replace(/^\[|\]$/g, '')
   const zone = ip.indexOf('%')
   if (zone !== -1) ip = ip.slice(0, zone)
@@ -135,25 +139,25 @@ function canonical(address: string): string | null {
   const right = tail === undefined ? [] : tail ? tail.split(':') : []
   const fill = tail === undefined ? [] : Array(Math.max(0, 8 - left.length - right.length)).fill('0')
   const groups = [...left, ...fill, ...right].map((group) => group.replace(/^0+(?=.)/, ''))
-  return groups.length === 8 ? `${groups.slice(0, 4).join(':')}::/64` : null
+  return groups.length === 8 ? `${groups.slice(0, v6Groups).join(':')}::/${v6Groups * 16}` : null
 }
 
 /** The client's address as the `hops`-th trusted proxy saw it, or null when it cannot be known. */
-export function clientAddress(headers: Headers, hops: number, header: 'x-forwarded-for' | 'x-real-ip' = 'x-forwarded-for'): string | null {
+export function clientAddress(headers: Headers, hops: number, header: 'x-forwarded-for' | 'x-real-ip' = 'x-forwarded-for', v6Groups: 3 | 4 = 4): string | null {
   if (hops <= 0) return null
   // X-Real-IP is one address the edge writes (Railway documents it as "the client's remote IP"); with it, trusting the edge at all (hops > 0) is the whole decision.
-  if (header === 'x-real-ip') return canonical(headers.get('x-real-ip') ?? '')
+  if (header === 'x-real-ip') return canonical(headers.get('x-real-ip') ?? '', v6Groups)
   const forwarded = headers.get('x-forwarded-for')
   if (!forwarded) return null
   const entries = forwarded.split(',').map((part) => part.trim()).filter(Boolean)
   if (entries.length < hops) return null
-  return canonical(entries[entries.length - hops])
+  return canonical(entries[entries.length - hops], v6Groups)
 }
 
 /** What a client's window is keyed by: an HMAC of its address (so no raw address is stored), or `unknown`. */
-export function clientKey(headers: Headers, hops?: number, header?: 'x-forwarded-for' | 'x-real-ip'): string {
+export function clientKey(headers: Headers, hops?: number, header?: 'x-forwarded-for' | 'x-real-ip', v6Groups: 3 | 4 = 4): string {
   const settings = limitsSettings()
-  const address = clientAddress(headers, hops ?? settings.trustedProxyHops, header ?? settings.clientIpHeader)
+  const address = clientAddress(headers, hops ?? settings.trustedProxyHops, header ?? settings.clientIpHeader, v6Groups)
   if (!address) return 'unknown'
   return createHmac('sha256', process.env.BETTER_AUTH_SECRET || 'inkdesk-client-address').update(address).digest('base64url').slice(0, 22)
 }
@@ -203,5 +207,6 @@ export async function limitRequest(req: Request, userId: string): Promise<void> 
  * `Retry-After` when the window is full, 503 when the counter store is down and the bucket fails closed.
  */
 export async function limitByAddress(req: Request, bucket: RateBucket = 'anon'): Promise<void> {
-  await hit(bucket, clientKey(req.headers))
+  // Making accounts is counted per /48 for IPv6 (see `canonical`); every other window per /64.
+  await hit(bucket, clientKey(req.headers, undefined, undefined, bucket === 'signup' ? 3 : 4))
 }

@@ -73,6 +73,21 @@ export function imageFileName(imageId: string, mediaType: string): string {
 
 const json = (value: unknown): Buffer => Buffer.from(`${JSON.stringify(value, null, 2)}\n`, 'utf8')
 
+/**
+ * The sign-in email of an account whose studio record holds none (made on the sign-up page, so unverified): Privacy
+ * says the email is kept and the export gives it back. Only with real sign-in; null when it cannot be read.
+ */
+async function signInEmailOf(ownerId: string): Promise<string | null> {
+  try {
+    const { signInOn } = await import('../auth/config')
+    if (!signInOn()) return null
+    const { signInEmail } = await import('../auth/server')
+    return await signInEmail(ownerId)
+  } catch {
+    return null
+  }
+}
+
 async function accountGone(ownerId: string): Promise<boolean> {
   return Boolean((await store.users.get(ownerId))?.deletedAt)
 }
@@ -93,7 +108,7 @@ export async function makeExport(job: JobRecord, options: ExportOptions = {}): P
     let imageCount = 0
 
     const user = await store.users.get(owner)
-    zip.addBuffer('account.json', json({ id: owner, email: user?.email ? user.email : null, createdAt: user?.createdAt ?? null }))
+    zip.addBuffer('account.json', json({ id: owner, email: user?.email ? user.email : await signInEmailOf(owner), createdAt: user?.createdAt ?? null }))
 
     const saved = await store.settings.get(owner)
     zip.addBuffer('settings.json', json(saved ? { defaultStyle: saved.defaultStyle, readingDirection: saved.readingDirection, ...(saved.voices ? { voices: saved.voices } : {}), updatedAt: saved.updatedAt } : {}))

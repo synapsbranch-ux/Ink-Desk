@@ -195,6 +195,17 @@ export async function holdsPassword(auth: Pick<Auth, '$context'>, userId: string
 }
 
 /**
+ * The email a person signs in with, from Better Auth's own user record — the studio's `users` record holds it only once
+ * it is verified (the allowlist reads that one), so an account made on the sign-up page has it only here. Null when
+ * there is no such user. Used by the data export (`lib/account/export.ts`).
+ */
+export async function signInEmail(userId: string, auth: Pick<Auth, '$context'> = getAuth()): Promise<string | null> {
+  const ctx = await auth.$context
+  const user = await ctx.internalAdapter.findUserById(userId)
+  return user?.email ?? null
+}
+
+/**
  * End a person's sign-in for good: their sessions, their password and their Better Auth
  * user. The last step of an account deletion. Safe to repeat: a user already gone is a success.
  */

@@ -19,6 +19,7 @@
 // The proxy has already refused a write from another origin (`isCrossOrigin`),
 // and Better Auth checks the origin against `trustedOrigins` again.
 import { signInOn } from '@/lib/auth/config'
+import { readBytes } from '@/lib/body'
 import { limitsEnabled } from '@/lib/config'
 import { Refused, errorResponse } from '@/lib/errors'
 
@@ -41,29 +42,6 @@ function isSignUp(url: string): boolean {
 const NOT_FOUND = 'There is no such page.'
 const TOO_LARGE = 'That request is larger than a sign-in form.'
 
-/**
- * The body, read here to its end but never past the cap. A declared Content-Length is only a claim, and a chunked body
- * declares nothing, so the bytes are counted as they arrive; past the cap the stream is cancelled and the request is a
- * 413. Null when the request carries no body.
- */
-async function boundedBody(req: Request): Promise<Buffer | null> {
-  if (!req.body) return null
-  const reader = req.body.getReader()
-  const chunks: Uint8Array[] = []
-  let size = 0
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    size += value.byteLength
-    if (size > BODY_LIMIT_BYTES) {
-      await reader.cancel().catch(() => {})
-      throw new Refused(TOO_LARGE, 413)
-    }
-    chunks.push(value)
-  }
-  return Buffer.concat(chunks)
-}
-
 /** Refuse what must not reach Better Auth; otherwise the request to hand it — a write rebuilt on the bytes read here. */
 async function guard(req: Request): Promise<Request> {
   if (!signInOn()) throw new Refused(NOT_FOUND, 404)
@@ -79,11 +57,13 @@ async function guard(req: Request): Promise<Request> {
     }
   }
   if (read) return req
-  const body = await boundedBody(req)
+  // The app's own capped reader (lib/body.ts): a declared length over the cap is refused unread, a chunked body is
+  // counted as it arrives and cancelled past the cap. Better Auth gets these bytes, never the caller's stream.
+  const body = await readBytes(req, BODY_LIMIT_BYTES, { tooLarge: TOO_LARGE })
   const headers = new Headers(req.headers)
   headers.delete('transfer-encoding')
-  if (body) headers.set('content-length', String(body.byteLength))
-  return new Request(req.url, { method: req.method, headers, body })
+  headers.set('content-length', String(body.byteLength))
+  return new Request(req.url, { method: req.method, headers, body: body.byteLength ? body : null })
 }
 
 async function handle(req: Request): Promise<Response> {
