@@ -1,6 +1,7 @@
-// Better Auth's routes (the Better Auth revision, 2026-10-24): sign-in with
-// email and password (there is no sign-up — Better Auth refuses it), sign-out, the session, the password change
-// and the sessions list that Settings › Account uses. See `devpost/spec.md > Revision v3 > Auth (v3)`.
+// Better Auth's routes (the Better Auth revision, 2026-10-24): sign-up (open
+// again since 2026-10-25) and sign-in with email and password, sign-out, the
+// session, the password change and the sessions list that Settings › Account
+// uses. See `devpost/spec.md > Revision v3 > Auth (v3)`.
 //
 // Open to a signed-out caller — that is the point of it — so it guards itself
 // before Better Auth sees anything:
@@ -8,8 +9,10 @@
 //     accounts, and the route is the studio's 404;
 //   • a body larger than any of these forms is refused unread;
 //   • every write takes the `signin` window per client address (password
-//     guesses); a read (the session) takes the signed-out `anon` window. The
-//     sign-in window fails CLOSED when the counter store is down.
+//     guesses), and making an account takes the `signup` window first;
+//     a read (the session) takes the signed-out `anon` window.
+//     Both sign-in windows fail CLOSED when the counter store is down: a
+//     sign-up is refused, never let through unlimited.
 // The proxy has already refused a write from another origin (`isCrossOrigin`),
 // and Better Auth checks the origin against `trustedOrigins` again.
 import { signInOn } from '@/lib/auth/config'
@@ -18,8 +21,19 @@ import { Refused, errorResponse } from '@/lib/errors'
 
 export const runtime = 'nodejs'
 
-/** The largest form here (an address and a password) is well under this. */
+/** The largest form here (sign-up: a name, an address, a password) is well under this. */
 const BODY_LIMIT_BYTES = 16 * 1024
+
+/** Better Auth's sign-up (`/sign-up/email`), however the path is spelled — another case, a trailing slash, escaped. */
+function isSignUp(url: string): boolean {
+  let path = new URL(url).pathname
+  try {
+    path = decodeURIComponent(path)
+  } catch {
+    // A malformed escape is judged as written (Better Auth will not route it either).
+  }
+  return /\/sign-up(?:\/|$)/i.test(path)
+}
 
 const NOT_FOUND = 'There is no such page.'
 const TOO_LARGE = 'That request is larger than a sign-in form.'
@@ -31,6 +45,7 @@ async function guard(req: Request): Promise<void> {
   if (!limitsEnabled()) return
   const { limitByAddress } = await import('@/lib/limits/requests')
   if (req.method === 'GET' || req.method === 'HEAD') return limitByAddress(req, 'anon')
+  if (isSignUp(req.url)) await limitByAddress(req, 'signup')
   await limitByAddress(req, 'signin')
 }
 

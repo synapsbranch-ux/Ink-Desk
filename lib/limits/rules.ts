@@ -22,9 +22,10 @@ export type Units = Partial<Record<SpendKind, number>>
  * that belong to the public share routes, keyed by client address like `anon`: pictures of a shared manga (`anonMedia`,
  * 600 a minute) and the report form (`report`, 6 an hour; it fails CLOSED, see `requests.ts`). Since the Better Auth
  * revision (2026-10-24) the studio's own sign-in needs one more, per client address: attempts to sign in
- * (`signin`, 10 a minute); it fails CLOSED. There is no sign-up, so no window for it.
+ * (`signin`, 10 a minute); and since sign-up reopened (2026-10-25) accounts made on the sign-up page (`signup`, 5 an
+ * hour). Both fail CLOSED.
  */
-export const RATE_BUCKETS = ['text', 'image', 'upload', 'edit', 'read', 'media', 'anon', 'anonMedia', 'report', 'signin'] as const
+export const RATE_BUCKETS = ['text', 'image', 'upload', 'edit', 'read', 'media', 'anon', 'anonMedia', 'report', 'signin', 'signup'] as const
 export type RateBucket = (typeof RATE_BUCKETS)[number]
 
 // --- Money ----------------------------------------------------------------------

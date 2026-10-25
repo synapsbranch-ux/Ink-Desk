@@ -1,5 +1,6 @@
-// Terms (slice 19): what the studio may be used for, in plain words. Linked
-// from sign-in, readable signed out. Honest about what exists
+// Terms (slice 19; updated 2026-10-25 when sign-up reopened): what the studio
+// may be used for, in plain words. Linked from sign-in and sign-up, readable
+// signed out. Honest about what exists
 // today (slice 21 added the Report button on a shared page). See
 // `devpost/prd.md > Terms and Privacy (v3)`.
 import type { Metadata } from 'next'
@@ -8,7 +9,7 @@ import Link from 'next/link'
 export const metadata: Metadata = { title: 'Terms · Ink Desk' }
 
 /** The date of this text; change it with the words. */
-const UPDATED = '16 October 2026'
+const UPDATED = '25 October 2026'
 
 const page: React.CSSProperties = { maxWidth: 680, margin: '0 auto', padding: 'var(--space-8) var(--space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }
 
@@ -24,6 +25,14 @@ export default function TermsPage() {
         <p>
           Ink Desk is a small, independent studio for making manga with AI. These are the rules for using it. By making an account you agree to
           them; if you do not, please do not use the studio.
+        </p>
+
+        <h2>Your account</h2>
+        <p>
+          Anyone can make an account with an email address and a password. A new account is on the free
+          plan: a small amount of generation a day, which resets at 00:00 UTC, and generation may be paused for everyone when the studio’s own
+          daily budget is reached. The studio sends no email, so it never confirms the address you type and there is no password reset: keep
+          your password somewhere safe. You are responsible for what is made with your account.
         </p>
 
         <h2>What you may not make or upload</h2>

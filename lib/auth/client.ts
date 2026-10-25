@@ -2,7 +2,7 @@
 
 // The browser's way to Better Auth (the Better Auth revision): the same origin,
 // `/api/auth` — the studio's own route (`app/api/auth/[...all]/route.ts`). Used
-// by the sign-in form, the account menu's Sign out and Settings ›
+// by the sign-in and sign-up form, the account menu's Sign out and Settings ›
 // Account. Holds no secret.
 import { createAuthClient } from 'better-auth/react'
 
@@ -11,6 +11,9 @@ export const authClient = createAuthClient()
 /** Better Auth's error codes, said the studio's way. Anything not listed gets the server's own message, or the fallback. */
 const SENTENCES: Record<string, string> = {
   INVALID_EMAIL_OR_PASSWORD: 'That email and password don’t match an account.',
+  // Better Auth says the address is taken (422); the studio says no more than that.
+  USER_ALREADY_EXISTS: 'There is already an account with that email. Sign in instead.',
+  USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL: 'There is already an account with that email. Sign in instead.',
   PASSWORD_TOO_SHORT: 'That password is too short — use at least 10 characters.',
   PASSWORD_TOO_LONG: 'That password is too long — use at most 128 characters.',
   INVALID_EMAIL: 'That doesn’t look like an email address.',

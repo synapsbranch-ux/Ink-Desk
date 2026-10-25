@@ -518,7 +518,7 @@ try {
     assert.deepEqual([s0.globalDailyUsd, s0.globalTotalUsd, s0.trustedProxyHops, s0.allowlist.length], [5, null, 1, 0])
     assert.deepEqual(
       Object.fromEntries(Object.entries(s0.rates).map(([k, v]) => [k, `${v.limit}/${v.windowMs / 60_000}min`])),
-      { text: '10/1min', image: '6/1min', upload: '20/60min', edit: '120/1min', read: '240/1min', media: '1200/1min', anon: '60/1min', anonMedia: '600/1min', report: '6/60min' }
+      { text: '10/1min', image: '6/1min', upload: '20/60min', edit: '120/1min', read: '240/1min', media: '1200/1min', anon: '60/1min', anonMedia: '600/1min', report: '6/60min', signin: '10/1min', signup: '5/60min' }
     )
     const s1 = limitsSettings({ ALLOWLIST_EMAILS: ' A@X.com, b@y.org ,, a@x.com', GLOBAL_DAILY_USD_CAP: '0.01', GLOBAL_TOTAL_USD_CAP: '20', QUOTA_FREE_IMAGES: '3', USER_DAILY_USD_ALLOW: '2.5', RATE_READ_PER_MIN: '7', QUOTA_ALLOW_AUDIO_CHARS: ' ' })
     assert.deepEqual([s1.allowlist, s1.globalDailyUsd, s1.globalTotalUsd, s1.plans.free.image, s1.plans.allowlisted.dailyUsd, s1.rates.read.limit, s1.plans.allowlisted.audioChars], [['a@x.com', 'b@y.org'], 0.01, 20, 3, 2.5, 7, 20000], 'case-insensitive allowlist, de-duplicated; blank = default')

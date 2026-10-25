@@ -825,13 +825,14 @@
       <code>spec.md › Revision v3</code>.</p>
 
     <h3 style="margin-top:var(--s5)">Changes since approval</h3>
-    <p class="quiet">Against the approved v2 PRD — nine changes.</p>
+    <p class="quiet">Against the approved v2 PRD — nine changes, then three dated ones (items 10–12).</p>
     <ul class="reasons" style="margin-top:var(--s3)">
       <li><b>1 · There are users now.</b> v2 had one desk for whoever opened the app. v3 has accounts (email and password), and every project, image, video, share and quota belongs to one user.
         <span class="quiet"><em>Supersedes</em> v2's “Accounts” under <em>Deferred From the POC (v2)</em>.</span></li>
       <li><b>2 · The app is public on the learner's domain,</b> with no landing page: the domain root is the sign-in
         screen or the dashboard. <span class="quiet"><em>Supersedes</em> v2's “the demo and the video run local”.</span>
-        <em>(2026-10-24: private — no sign-up; see item 11.)</em></li>
+        <em>(2026-10-24: private — no sign-up; see item 11.)</em> <em>(2026-10-25: public again — sign-up reopened; see
+        item 12.)</em></li>
       <li><b>3 · Spending has limits a user can see.</b> A quota meter in the header, a Usage page, disabled buttons with
         a reason and a reset time, and a global kill switch. <span class="quiet"><em>Supersedes</em> v2's “Budget … no hard
         cap in the product”.</span></li>
@@ -851,7 +852,16 @@
       <li><b>11 · No sign-up — the studio is private — 2026-10-24, the learner's decision</b> (see <em>Product decisions
         (v3)</em>). Nobody makes their own account: the learner makes each one (their own, the judges') with their script,
         already verified; the judges sign in with the credentials in the Devpost testing instructions. Strangers see the
-        sign-in page and public share links only.</li>
+        sign-in page and public share links only. <em>(2026-10-25: reversed — see item 12.)</em></li>
+      <li id="v3-change-12"><b>12 · Sign-up reopened — anyone can make an account and use the studio on the free plan —
+        2026-10-25, the learner's decision</b> (see <em>Product decisions (v3)</em>; <code>scope.md › Revision — Ink Desk
+        Studio v3 › Changes Since Approval</code>, item 13). Anyone can make an email-and-password account on the sign-up
+        page; they are signed in at once and land on the dashboard. A self-made account is unverified (the studio still
+        sends no email), so it stays on the free plan and can never be allowlisted or an admin; sign-up is limited per
+        address and refused when the counter is unavailable. The learner's script still makes the verified accounts (their
+        own, the judges' demo account with the seeded chapter). Still email and password only, no password reset, no email
+        change, no CAPTCHA. <span class="quiet"><em>Reverses</em> item 11.</span> <em>Decided by the learner 2026-10-25;
+        this written revision awaits their read.</em></li>
     </ul>
 
     <h3 style="margin-top:var(--s5)">The v3 journey, at a glance</h3>
@@ -971,14 +981,19 @@
       </div>
       <figcaption>The v2 studio sits unchanged inside the red zone: everything that spends money is behind sign-in, a
         quota and the global kill switch. Share pages are a read-only snapshot anyone can open — and Report. Sign-in is
-        email and password only (Better Auth, since 2026-10-24).</figcaption>
+        email and password only (Better Auth, since 2026-10-24); since 2026-10-25 anyone can sign up for a free account
+        first.</figcaption>
     </figure>
 
     <h3 style="margin-top:var(--s5)">Core journey (v3)</h3>
     <ol class="journey">
       <li class="gate"><strong>Open the domain.</strong> Signed out: the studio's sign-in card (email and password
-        only), with links to Terms and Privacy and the sentence that there is no sign-up — accounts are given by the
-        studio. Signed in: the dashboard.</li>
+        only), with links to Terms and Privacy, a link to sign-up (<em>&ldquo;No account? Sign up&rdquo;</em>), and the
+        sentence that anyone can make an account and there is no password reset — the studio sends no email.
+        <strong>Sign up</strong> (2026-10-25): an email and a password of 10–128 characters → signed in at once, on the
+        dashboard, on the free plan (<em>&ldquo;Have an account? Sign in&rdquo;</em> leads back). Signed in: the dashboard.
+        <em>(2026-10-25, Changes since approval item 12: from 2026-10-24 until then the card said instead that there is no
+        sign-up — accounts are given by the studio.)</em></li>
       <li><strong>Dashboard.</strong> My projects (manga), my videos, the library, <strong>New project</strong>, and a
         compact <strong>quota meter</strong> in the header (today's images, video seconds and audio characters against the
         limit).</li>
@@ -998,31 +1013,56 @@
     </ol>
 
     <h3 style="margin-top:var(--s5)">Features and behavior — the checks</h3>
-    <p class="quiet">Twelve groups, 55 acceptance criteria. Open a group to see its checks.</p>
+    <p class="quiet">Twelve groups, 58 acceptance criteria. Open a group to see its checks.</p>
     <div style="margin-top:var(--s3)">
     <details>
-      <summary>Accounts and sign-in <span class="cnt">7</span></summary>
+      <summary>Accounts and sign-in <span class="cnt">10</span></summary>
       <div class="dbody">
+        <p class="note" style="margin-top:0"><em>Revised 2026-10-25 — Changes since approval, item 12: sign-up is open
+          again. From 2026-10-24 until this revision the group said there was no sign-up: no sign-up page, no “make an
+          account” link, the server refusing any attempt to create an account, every account made by the learner with
+          <code>npm run judge:account</code>, the card saying “There is no sign-up: accounts are given by the studio. There is
+          no password reset either — the studio sends no email.”, and among the edge cases “someone trying to create an
+          account anyway (calling the server directly) — refused”. Each line below that this revision changed or added
+          carries its date. Decided by the learner 2026-10-25; this written revision awaits their read.</em></p>
         <ul class="crit">
-          <li>Signed out, every page except sign-in, Terms, Privacy, share pages and the health check sends the
-            visitor to sign-in; after signing in they land where they were going, or on the dashboard</li>
+          <li>Signed out, every page except sign-in, sign-up <em>(2026-10-25)</em>, Terms, Privacy, share pages and the
+            health check sends the visitor to sign-in; after signing in they land where they were going, or on the
+            dashboard</li>
           <li>Sign-in is <strong>email and password only</strong> (10–128 characters) &mdash; no Google, GitHub or other
-            outside sign-in. <strong>There is no sign-up</strong>: no sign-up page, no “make an account” link, and the server
-            refuses any attempt to create an account; an account exists only when the learner makes it with
-            <code>npm run judge:account</code>, and it is in the app's own records the moment it is made</li>
-          <li>The sign-in card says plainly: “There is no sign-up: accounts are given by the studio. There is no password
-            reset either — the studio sends no email.”</li>
+            outside sign-in</li>
+          <li><strong>Sign-up</strong> <em>(2026-10-25)</em>: anyone can make an account on the sign-up page with an email
+            and a password of 10–128 characters (the same rule as sign-in) — nothing else is asked; the sign-in card links to
+            it (<em>“No account? Sign up”</em>) and it links back (<em>“Have an account? Sign in”</em>). After sign-up the
+            person is signed in and lands on the dashboard; the account is in the app's own records the moment it is made,
+            exactly as an account the learner's script makes</li>
+          <li>A self-made account is <strong>unverified</strong> <em>(2026-10-25)</em> — the studio sends no email, so the
+            address is never proven — and on the <strong>free plan</strong>; it never counts for the allowlist or the admin
+            list</li>
+          <li>The sign-in card says plainly that anyone can make an account and that there is no password reset — the studio
+            sends no email <em>(2026-10-25)</em>; the sign-up card says a new account is on the free plan, that the address is
+            not verified and there is no password reset, to keep the password somewhere safe, and that making an account
+            means agreeing to the Terms <em>(2026-10-25)</em></li>
           <li>Too many sign-in attempts from one address in a minute are refused with a calm sentence; if the counter is
             unavailable, sign-in is refused rather than left open</li>
+          <li>Too many sign-ups from one address in an hour (5 by default) are refused with the same calm sentence and when
+            to try again; if the counter is unavailable, sign-up is refused rather than left open <em>(2026-10-25)</em></li>
           <li>Only a <strong>verified</strong> email counts for the allowlist and the admin list; every account the learner's
-            script makes is verified (given an existing account's email, it marks it verified again). An account not on
-            <code>ALLOWLIST_EMAILS</code> is on the free plan</li>
+            script (<code>npm run judge:account</code>) makes is verified — the learner's own and the judges' demo account.
+            Given an existing account's email it marks that account verified again — <em>since 2026-10-25</em>, an
+            unverified one only when given that account's own password, so a stranger who signed up first with an address on
+            the allowlist is never allowlisted. An account not on <code>ALLOWLIST_EMAILS</code> is on the free plan</li>
           <li>The header has <strong>Account</strong> (Settings › Account) and <strong>Sign out</strong>; signing out returns
             to sign-in; “Sign out of other devices” is available in Settings</li>
-          <li>Edge cases: <strong>a visitor with no account</strong> — sees the sign-in card and the no-sign-up sentence, and
-            can still open any public share link; <strong>someone trying to create an account anyway</strong> (calling the
-            server directly) — refused; <strong>Forgot password</strong> — not available, and the card says so (no email
-            service); <strong>wrong password</strong> — one sentence, no hint which half was wrong</li>
+          <li>Edge cases: <strong>a visitor with no account</strong> — sees the sign-in card with its sign-up link, can make
+            an account, and can still open any public share link without one <em>(2026-10-25)</em>; <strong>someone signing
+            up twice with the same email</strong> — refused with one sentence (there is already an account with that email;
+            sign in instead); nothing is made and the first account is untouched <em>(2026-10-25)</em>; <strong>too many
+            sign-ups from one address</strong> — refused with the calm sentence and when to try again; the accounts already
+            made stay as they are <em>(2026-10-25)</em>; <strong>sign-up while the counter is down</strong> — refused with a
+            calm “busy” sentence and no account made, never let through uncounted <em>(2026-10-25)</em>; <strong>Forgot
+            password</strong> — not available, and both cards say so (no email service); <strong>wrong password</strong> —
+            one sentence, no hint which half was wrong</li>
         </ul>
       </div>
     </details>
@@ -1066,7 +1106,9 @@
             allowlisted) and each limit</li>
           <li>What the meter shows is exactly what is enforced</li>
           <li>A free account starts with a small quota (the learner's example: 1 project, 20 images, 1 short video a
-            day); allowlisted emails get higher limits</li>
+            day); allowlisted emails get higher limits <em>(2026-10-25: every self-made account is on this plan — as built,
+            1 project, 20 images, 20 s of video, 2,000 voice characters and $1 of spend a day, set by
+            <code>QUOTA_FREE_*</code> and <code>USER_DAILY_USD_FREE</code>)</em></li>
         </ul>
       </div>
     </details>
@@ -1147,7 +1189,10 @@
       <div class="dbody">
         <ul class="crit">
           <li>Two short text pages, linked from sign-in and Settings: what content is allowed, what is stored and where,
-            which outside services see it, how to delete it</li>
+            which outside services see it, how to delete it <em>(2026-10-25: also linked from sign-up; they say that anyone
+            can make an account, that a new one is on the free plan and unverified with no password reset, and what an
+            account stores — the email, a display name taken from it, the password only as a one-way hash, the sessions —
+            and the per-address sign-in and sign-up counters)</em></li>
         </ul>
       </div>
     </details>
@@ -1193,7 +1238,9 @@
       <div class="state">
         <h3>Who can do what</h3>
         <p style="font-size:14.5px"><strong>Signed out:</strong> sign-in (no sign-up), Terms, Privacy, share pages,
-          Report, health. <strong>Accounts:</strong> only those the learner makes. <strong>Signed in:</strong> their own work only. <strong>Allowlisted:</strong> higher limits; admin
+          Report, health. <strong>Accounts:</strong> only those the learner makes. <em>(2026-10-25: signed out also has
+          sign-up again; accounts: anyone's own — unverified, on the free plan — and the verified ones the learner makes with
+          <code>judge:account</code>; item 12.)</em> <strong>Signed in:</strong> their own work only. <strong>Allowlisted:</strong> higher limits; admin
           emails also see the report list.</p>
       </div>
       <div class="state bad">
@@ -1263,7 +1310,16 @@
           <code>npm run judge:account</code> makes each one already verified (the learner's own and the judges' — the judge
           account holds the seeded chapter and is on <code>ALLOWLIST_EMAILS</code>), and its credentials go in the Devpost
           testing instructions, which the learner writes. Public share pages and Report stay open to anyone holding a
-          link.</p>
+          link. <em>(Reversed 2026-10-25, below.)</em></p>
+        <p style="margin-top:var(--s3)"><strong>Sign-up reopened — the learner's, 2026-10-25, after the submission on
+          Devpost:</strong> <em>&ldquo;i got an issue i think we should let user to sign up and create account can we redo that in prd and scope while still make sure we dont have out of scope that gonna got us eliminated from the competition&rdquo;</em>, then <em>&ldquo;because i dont have way o submit credentials to the jugdes , a self made account should be able to use the app&rdquo;</em>. Why: the Devpost submission form the learner has offers no
+          private testing-instructions field, so the judges' credentials could only be published in the public project
+          story. So anyone can make an email-and-password account and use the studio on the existing free plan, behind the
+          global kill switch and the rate limits, with a per-address sign-up limit. A self-made account is unverified and
+          stays free; <code>npm run judge:account</code> still makes the verified accounts, the judges' demo account with its
+          seeded chapter among them, whose credentials are now the learner's to hand out or not. This reverses the 2026-10-24
+          decision above and keeps the rest of it and of the Better Auth decision: email and password only, no email service,
+          no CAPTCHA. <em>Decided by the learner 2026-10-25; this written revision awaits their read.</em></p>
       </div>
     </details>
     <details>
@@ -1280,8 +1336,11 @@
           <li>Emailed reports if no email service is configured</li>
           <li>Email verification, password reset and changing the email address — each needs an email service; none is
             configured, so none is offered</li>
-          <li>Public sign-up (cut 2026-10-24 &mdash; the studio is private; accounts are made by the learner)</li>
-          <li>A CAPTCHA (Clerk's bot protection, dropped with Clerk on 2026-10-24; moot without sign-up)</li>
+          <li>Public sign-up (cut 2026-10-24 &mdash; the studio is private; accounts are made by the learner)
+            <em>(reinstated 2026-10-25 &mdash; no longer deferred; Changes since approval, item 12)</em></li>
+          <li>A CAPTCHA (Clerk's bot protection, dropped with Clerk on 2026-10-24; moot without sign-up) <em>(2026-10-25:
+            sign-up is public again and a CAPTCHA stays deferred &mdash; the per-address sign-up limit, the free plan and the
+            kill switch bound abuse)</em></li>
           <li>Google and GitHub sign-in (cut at the learner's word on 2026-10-24 &mdash; not offered)</li>
         </ul>
       </div>
@@ -1303,7 +1362,10 @@
           no longer applies — accounts now live in the studio's own MongoDB through Better Auth.)</em></li>
         <li><b>The budget.</b> v3's honest total (≈ $8.50) is over what remains of the $10 cap (≈ $7.70), and the $5/day
           kill switch alone could spend ≈ $40 by the end of judging. Raise the cap, run the motion kernel test at 480p, or
-          lower the kill switch? Add a cumulative cap?</li>
+          lower the kill switch? Add a cumulative cap? <em>(2026-10-25: with sign-up open, what strangers can spend is
+          bounded again by the free plan ($1 a day per account), the per-address sign-up limit and the $5/day kill switch —
+          which, once reached, pauses the judges' accounts too; the arithmetic and the levers are in
+          <code>checklist.md › Revisions</code>, 2026-10-25.)</em></li>
         <li><b>The motion method</b> — A (panel as first frame) or B (panel + sheet as references) — chosen by the learner
           after the motion kernel test.</li>
         <li><b>Error tracking.</b> No error-tracking service is configured; structured logs on Railway work without one.

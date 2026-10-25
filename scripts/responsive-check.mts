@@ -29,8 +29,8 @@
 // production way (an account whose email is on ADMIN_EMAILS) and a brand-new
 // account's empty desk can be seen too — with the limits ON (in-process
 // counters, request windows raised) so the quota meter shows as it does for a
-// signed-in person. Sign-in is listed but cannot be reached: it
-// renders only in better mode, whose accounts live in a MongoDB the check never
+// signed-in person. Sign-in and sign-up are listed but cannot be reached: they
+// render only in better mode, whose accounts live in a MongoDB the check never
 // touches (their layout is plain CSS in app/responsive/surfaces.css).
 //
 // Measured per screen and width (`scripts/responsive-measure.mts`):

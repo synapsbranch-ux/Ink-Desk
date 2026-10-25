@@ -1,18 +1,24 @@
-// Make an account (the Better Auth revision, 2026-10-24) — the ONLY way an
-// account comes to exist: there is no sign-up. The learner makes the judges'
-// demo account and their own with it. Each is an email-and-password account
+// Make a VERIFIED account (the Better Auth revision, 2026-10-24). Anyone can
+// sign up on /sign-up since 2026-10-25, but an account made there is never
+// verified, so it stays on the free plan; this is how the learner makes the
+// judges' demo account and their own. Each is an email-and-password account
 // whose address is marked VERIFIED, so ALLOWLIST_EMAILS and ADMIN_EMAILS can
-// match it. Given the email of an account that already exists, it marks that
-// one verified and writes its record again. Its credentials go in the Devpost testing
-// instructions, which the learner writes. Then give it a finished chapter with
-// `scripts/seed-judge.mts --to <the id this prints>`.
+// match it. The demo account's credentials are the learner's to hand out.
+// Then give it a finished chapter with `scripts/seed-judge.mts --to <the id
+// this prints>`.
 //
 //   JUDGE_PASSWORD='…' npm run judge:account -- --email judge@example.com [--dry-run]
 //
 // The password is read from JUDGE_PASSWORD (or --password), at least 10
-// characters; it is never printed. Run again with the same email to mark an
-// existing account verified and write its record again — the password of an
-// existing account is NOT changed (sign in and change it in Settings › Account).
+// characters; it is never printed. Run again with the same email to write an
+// already-verified account's record again — the password of an existing
+// account is NOT changed (sign in and change it in Settings › Account).
+//
+// An account that already exists UNVERIFIED was made on the sign-up page —
+// by anyone, with any address. It is marked verified only when JUDGE_PASSWORD
+// is that account's own password, which proves the learner made it; otherwise
+// the script refuses and writes nothing, so a stranger who signed up first
+// with an address on the allowlist never becomes allowlisted (or an admin).
 //
 // Uses the web service's own settings (`.env`): INKDESK_AUTH=better,
 // BETTER_AUTH_SECRET and the MongoDB the accounts live in. Because that
@@ -63,10 +69,17 @@ if (process.env.INKDESK_JUDGE_CONFIRMED !== 'yes') {
   fail('This writes an account in the MongoDB that MONGODB_URI (or DB_URL) points at, which may be the live studio’s. Check that it is Ink Desk’s own, then run again with INKDESK_JUDGE_CONFIRMED=yes.')
 }
 
-const { createAccount, getAuth, recordAccount } = await import('../lib/auth/server')
+const { createAccount, getAuth, holdsPassword, recordAccount } = await import('../lib/auth/server')
 const auth = getAuth()
 const ctx = await auth.$context
 const found = await ctx.internalAdapter.findUserByEmail(email)
+
+// Made on the sign-up page, by whoever typed this address: verified only on its own password.
+if (found && !found.user.emailVerified && !(await holdsPassword(auth, found.user.id, password))) {
+  fail(
+    `${email} already has an account (${found.user.id}) that was made on the sign-up page and is not verified. Anyone can sign up with any address, so it is marked verified only when JUDGE_PASSWORD is that account’s own password — the proof that you made it. Nothing was written. If it is not yours, leave it as it is: it stays a free account, and nothing on the allowlist or ADMIN_EMAILS can match it.`
+  )
+}
 
 if (dryRun) {
   console.log(found ? `Would mark ${email} (${found.user.id}) verified and write its record. Nothing was written.` : `Would make ${email}, verified. Nothing was written.`)

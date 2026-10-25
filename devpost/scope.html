@@ -733,7 +733,8 @@
         <li><b>1 · Accounts and public deployment move from <em>Later</em> into the submission.</b> v2 listed “accounts,
           public deployment” under <em>Later (v2)</em>. v3 is a public app on the learner’s own domain, used by the judges,
           a small invited group and anyone who signs up, <em>with strict limits — not a paid launch</em>. <em>(2026-10-24: no
-          longer anyone who signs up — there is no sign-up; see item 10.)</em></li>
+          longer anyone who signs up — there is no sign-up; see item 10.)</em> <em>(2026-10-25: anyone who signs up again —
+          sign-up is reopened, on the free plan and the same strict limits; see item 13.)</em></li>
         <li><b>2 · In-app video moves from <em>Later</em> into the submission, as one page.</b> v2 allowed “in-app video
           export … only if items 1–9 are done by 2026-10-20”. Items 1–9 were done on 2026-10-14, so by the learner’s own
           rule it is in. The unit is <strong>one page</strong>, animated as a 20–30 s trailer; full-chapter animation stays
@@ -768,7 +769,41 @@
           the learner makes every account with their own script (<code>npm run judge:account</code> — their own and the
           judges’), and the judges sign in with the credentials the learner puts in the Devpost testing instructions. The
           audience is the learner, the judges and anyone the learner makes an account for; a stranger sees only the sign-in
-          page and any public share link.</li>
+          page and any public share link. <em>(2026-10-25: reversed — sign-up is open again; see item 13.
+          <code>npm run judge:account</code> and the judges’ demo account stay.)</em></li>
+        <li><b>11 · No custom domain — 2026-10-25 (6-ship).</b> The studio ships on Railway’s generated domain,
+          <code>https://web-production-a947d.up.railway.app</code>; the domain items above read as that address, and no DNS
+          record was added.</li>
+        <li><b>12 · The v3 film is captured on a local desk with real sign-in, not on the live domain — 2026-10-25
+          (6-ship),</b> the learner’s decisions taken as theirs in the ship session: open generation for the filming window
+          (video stays closed), a throwaway filming account rather than the judges’ password, and the learner profile stays
+          public. The ship session could not reach the host’s settings (its token was refused) and the live studio keeps
+          generation closed, so the film was made on the same build running locally — sign-in through the studio’s own
+          sign-in library on a local database, generation on at <code>high</code>, a filming account made with
+          <code>npm run judge:account</code>, the learner’s own reference picture, the share link opened in a signed-out
+          window. The live studio stays the judges’ environment; the capture signs in to it with one command when generation
+          is opened there (<code>video/README.md</code>).</li>
+        <li id="v3-change-13"><b>13 · Sign-up reopened — anyone can make an account and use the studio on the free plan —
+          2026-10-25,</b> after the submission on Devpost, the learner’s words: <em>“i got an issue i think we should let user to sign up and create account can we redo that in prd and scope while still make sure we dont have out of scope that gonna got us eliminated from the competition”</em>, then <em>“because i dont have way o submit credentials to the jugdes , a self made account should be able to use the app”</em>.
+          <strong>This reverses item 10</strong> and restores item 1’s <em>“anyone who signs up, with strict limits”</em>.
+          Why: the Devpost submission form the learner actually has offers no private testing-instructions field, so the
+          judges’ credentials could only be published in the public project story; with sign-up open, a judge makes their
+          own account instead. <strong>What a self-made account is:</strong> an email and a password (10–128 characters, the
+          same rule as sign-in) on <code>/sign-up</code>, linked from the sign-in card; the person is signed in at once and
+          lands on the dashboard. It is <strong>unverified</strong> — there is still no email service — so it can never match
+          <code>ALLOWLIST_EMAILS</code> or <code>ADMIN_EMAILS</code> and stays on the existing <strong>free plan</strong>
+          (1 project, 20 images, 20 s of video, 2,000 voice characters and $1 of spend a day), behind the global kill switch
+          ($5 a day for the whole studio) and the rate limits, plus a new per-address sign-up limit (5 an hour) that refuses
+          sign-up, rather than leaving it open, when its counter is unavailable. <strong>What stays from items 9–10:</strong>
+          Better Auth; email and password only (no Google, no GitHub); no email service, so no verified email for a
+          self-made account, no password reset and no email change; <code>npm run judge:account</code> still makes the
+          verified accounts — the learner’s own and the judges’ demo account with the seeded chapter — and only those can be
+          allowlisted. A CAPTCHA stays <em>Later</em>. <strong>On the elimination question the learner raised, as
+          fact:</strong> the rules’ Stage One is pass/fail on whether <em>“the Project reasonably fits the theme and was
+          built using the Devpost Learn skill pack, as evidenced by the planning documents in the repository”</em>; a dated
+          revision in the learner’s words is part of that record, and what must still hold is that the app works as the
+          video shows — the video shows sign-in, which is unchanged. <em>Decided by the learner 2026-10-25; this written
+          revision awaits their read.</em></li>
       </ul>
     </div>
 
@@ -802,7 +837,8 @@
     <!-- ---- loop diagram ---- -->
     <h3 style="margin-top:var(--s5)">The v3 loop</h3>
     <p>The v2 studio sits in the middle, unchanged. What v3 adds wraps around it: an account in front, a page animation
-      and a public link behind.</p>
+      and a public link behind. <em>(2026-10-25: the account in front can be made by anyone again — sign in, or sign up
+      first; Changes Since Approval, item 13.)</em></p>
     <figure>
       <div class="svgbox">
         <svg viewBox="0 0 860 410" role="img" aria-labelledby="v3t v3d">
@@ -930,6 +966,10 @@
           them (there is no sign-up), make a small chapter inside their quota, and <strong>cannot see, change or spend anyone
           else’s work</strong>; a stranger sees only the sign-in page and public share links; when a limit is reached the
           buttons say why and when it resets; the whole thing works on a phone.</p>
+        <p class="quiet" style="margin-top:var(--s2)"><em>(2026-10-25: public again — anyone, a judge included, can make an
+          email-and-password account on <code>/sign-up</code>, lands signed in on the dashboard and makes a small chapter
+          inside the free plan; a stranger who has not signed up sees the sign-in and sign-up pages and public share links;
+          the learner and the judges’ demo account sign in as before. See Changes Since Approval, item 13.)</em></p>
       </div>
     </div>
 
@@ -960,12 +1000,19 @@
             server</strong> (no IDOR). <strong>No sign-up</strong> (2026-10-24, item 10): the only way an account exists is the
             learner’s script <code>npm run judge:account</code>, which makes it with a verified address. No CAPTCHA (nothing to
             sign up for) and no email service; sign-in is rate-limited per address.
-            <em>(Clerk until 2026-10-24 — see Changes Since Approval, item 9.)</em></li>
+            <em>(Clerk until 2026-10-24 — see Changes Since Approval, item 9.)</em>
+            <em>(2026-10-25: <strong>sign-up is open again</strong> — item 13. Sign-up joins sign-in among the pages open
+            signed out; anyone can make an email-and-password account on <code>/sign-up</code>, mirrored into the studio’s own
+            user record as it is made — the same path as an account <code>judge:account</code> makes — unverified and on the
+            free plan; sign-up is rate-limited per address (5 an hour) and refused when the counter is unavailable;
+            <code>npm run judge:account</code> still makes the verified accounts. Still no CAPTCHA and no email
+            service.)</em></li>
           <li><b>5 · Limits.</b> Per-user and per-IP rate limits on sign-in, generation and upload routes; daily per-user
             quotas (an account not on the allowlist gets a small free quota, e.g. 1 project, 20 images, 1 short video a day; higher limits only
             for allowlisted emails — the learner, testers, a judge demo account); a <strong>global daily spend kill switch,
             starting at $5/day for all users</strong>, that pauses generation with a clear message. The same counters drive the
-            header meter, the Usage page and the enforcement.</li>
+            header meter, the Usage page and the enforcement. <em>(2026-10-25: rate limits on sign-up again too, per address —
+            item 13; every self-made account is one not on the allowlist.)</em></li>
           <li><b>6 · Studio features.</b> The dashboard as home (projects, manga, videos, library, quota meter, New project);
             <strong>Settings</strong> (the account — email, how it signs in, change password, signed-in devices — studio defaults, my shared links with unpublish,
             export my data, delete my account and everything with it); <strong>Usage</strong> (today vs limit for images, video
@@ -981,7 +1028,10 @@
             error tracking, graceful failures, and a <strong>security and stability audit before and after the build</strong>,
             written to <code>devpost/security-report.md</code> with severity and fix status.</li>
           <li><b>10 · The judge demo account</b> with a pre-made chapter and video; its credentials go in the Devpost testing
-            instructions, which the learner writes.</li>
+            instructions, which the learner writes. <em>(2026-10-25: still made — with <code>npm run judge:account</code>,
+            verified, on <code>ALLOWLIST_EMAILS</code>, holding the seeded chapter — but its credentials are now optional for
+            the judges: the submission form has no private field for them, so a judge can make their own account and test on
+            the free plan instead; item 13.)</em></li>
         </ul>
         <hr class="rule-thin">
         <p class="quiet">The v2 studio scope stays as agreed: projects with a locked style, the library with imported
@@ -1003,7 +1053,9 @@
             the email address, and emailed notices. Not in v3: Better Auth would support them, but without a sender they would
             be features that do not work.</li>
           <li><strong>A CAPTCHA</strong> (Clerk’s bot protection did this until 2026-10-24) — moot while there is no
-            sign-up; it returns only with public sign-up.</li>
+            sign-up; it returns only with public sign-up. <em>(2026-10-25: sign-up is public again — Changes Since Approval,
+            item 13 — and a CAPTCHA stays Later: the per-address sign-up limit, the free plan’s daily caps and the global kill
+            switch bound abuse meanwhile.)</em></li>
           <li>Lip-sync, interface languages, a paid plan, a public gallery, indexing of share pages (they are
             <code>noindex</code> until the learner decides otherwise).</li>
           <li>Everything still <em>Later</em> from v2 that v3 does not name.</li>
@@ -1024,7 +1076,8 @@
             them; the 2026-10-14 plan above listed them.)</li>
           <li><b>Public sign-up / account creation by anyone but the learner</b> Cut 2026-10-24 at the learner’s word:
             <em>“dans ce cas je veux que tu update scope and prd to remove account creation for other user”</em> (the hackathon’s private-site rule). Accounts are made only with
-            <code>npm run judge:account</code>.</li>
+            <code>npm run judge:account</code>. <em>(2026-10-25: reinstated — sign-up is open again at the learner’s word;
+            see Changes Since Approval, item 13. Kept here as the record of the cut.)</em></li>
           <li><b>Pushing a red build</b> Typecheck, lint and every <code>check:*</code> pass before every push to
             <code>main</code>.</li>
         </ul>

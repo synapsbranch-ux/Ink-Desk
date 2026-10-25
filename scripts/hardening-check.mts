@@ -529,7 +529,7 @@ try {
     await withEnv(
       { NODE_ENV: 'production', INKDESK_AUTH: 'better', BETTER_AUTH_SECRET: 'c'.repeat(32), MONGODB_URI: 'mongodb://check.invalid:27017/', MONGODB_DB: 'check', APP_URL: APP },
       async () => {
-        for (const [path, cookie] of [['/sign-in', ''], ['/s/tok123', ''], ['/s/tok123/opengraph-image', ''], ['/terms', ''], ['/p/abc', '__Secure-inkdesk.session_token=x'], ['/settings/account', '__Secure-inkdesk.session_token=x']] as const) {
+        for (const [path, cookie] of [['/sign-in', ''], ['/sign-up', ''], ['/s/tok123', ''], ['/s/tok123/opengraph-image', ''], ['/terms', ''], ['/p/abc', '__Secure-inkdesk.session_token=x'], ['/settings/account', '__Secure-inkdesk.session_token=x']] as const) {
           const what = `better: ${path}`
           const res = await visit(`${APP}${path}`, cookie ? { cookie } : {})
           const { policy, script } = nonceOf(res, what)
@@ -547,7 +547,7 @@ try {
     // (a static page would carry no nonce, and its scripts would be refused).
     const layout = await readFile(join(ROOT, 'app/layout.tsx'), 'utf8')
     assert.match(layout, /await headers\(\)/, 'the root layout reads the request, so no page is prerendered without a nonce')
-    ok(`CSP: ${PAGES.length} pages in off and test mode and 6 in better mode each get a fresh nonce, 'strict-dynamic' and no 'unsafe-inline'; the render is handed both; 'unsafe-eval' only in development; API answers keep the static policy, which allows no inline script`)
+    ok(`CSP: ${PAGES.length} pages in off and test mode and 7 in better mode each get a fresh nonce, 'strict-dynamic' and no 'unsafe-inline'; the render is handed both; 'unsafe-eval' only in development; API answers keep the static policy, which allows no inline script`)
   }
 
   console.log('\n  Request hardening check passed.\n')

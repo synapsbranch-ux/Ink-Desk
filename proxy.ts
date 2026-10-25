@@ -10,7 +10,13 @@
 //           sign-in — OPTIMISTICALLY, from the presence of Better Auth's
 //           session cookie alone, with no database call: every route handler
 //           and page checks the session for real (`lib/auth/session.ts`),
-//           because a proxy must never be the only check.
+//           because a proxy must never be the only check. The open pages
+//           (`isPublicPage`: sign-in, sign-up — open again since 2026-10-25 —
+//           Terms, Privacy and a shared manga) pass signed out. A signed-in
+//           visitor to sign-in or sign-up is sent to the desk by the page
+//           itself, after a real session check: here the cookie's presence
+//           alone would bounce someone with an expired cookie away from the
+//           sign-up page with no way back to it.
 //
 // The health check (Railway asks with the host `healthcheck.railway.app`)
 // passes straight through. Better Auth's own routes (`/api/auth/*`) are API
@@ -100,7 +106,7 @@ function decide(req: NextRequest, mode: ReturnType<typeof authMode>): Response {
   }
 
   if (mode === 'test') return next(req)
-  // better: API routes answer 401 themselves; the open pages stay open.
+  // better: API routes answer 401 themselves; the open pages (sign-in and sign-up among them) stay open.
   if (isApi(pathname) || isPublicPage(pathname)) return next(req)
   if (!getSessionCookie(req, { cookiePrefix: COOKIE_PREFIX })) return toSignIn(req)
   return next(req)

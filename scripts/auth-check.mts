@@ -19,9 +19,15 @@
 //   c. requireUser in test mode (a valid header, none, a malformed one) and
 //      in off mode.
 //   d. Better Auth, for real, on a memory database (`authOptions`, the very
-//      options production uses): sign-up is refused; the learner's
-//      `createAccount` makes a verified account; the studio's record carries
-//      the email only while it is verified; sign-in
+//      options production uses): sign-up (reopened 2026-10-25) makes an
+//      UNVERIFIED account and a session, whatever the form claims; its record
+//      carries no email, so it is on the free plan and never an admin even
+//      when its address is on ALLOWLIST_EMAILS or ADMIN_EMAILS; a second
+//      sign-up with that address is refused, saying no more than Better Auth
+//      does; the learner's `createAccount` makes a verified account, and
+//      `holdsPassword` (judge:account's guard) knows an account's own
+//      password from any other; the studio's record carries the email only
+//      while it is verified; sign-in
 //      with a wrong password is refused; `currentUser` reads the session from
 //      the cookie and nothing else; sign-out ends it; a write from another
 //      origin is refused by Better Auth too; `deleteSignIn` removes the user,
@@ -31,7 +37,12 @@
 //      page to `/sign-in?next=…` from the cookie alone — offline. `safeNext`
 //      never sends anyone to another site.
 //   f. The `/api/auth` route: 404 unless sign-in is on, a body too large is
-//      refused unread, the `signin` window holds per address, and sign-up is refused.
+//      refused unread, the `signin` and `signup` windows hold per client
+//      address (the sixth account from one address in the hour is a 429 with
+//      Retry-After; another address may), and with the counter store down a
+//      sign-up is refused, never let through. The sign-in and sign-up pages,
+//      rendered: open signed out, each linking to the other, and saying there
+//      is no password reset; a signed-in visitor is sent to the desk.
 //   g. The browser's apiFetch: a 401 sends the page to sign-in with the way
 //      back, once, and never from the sign-in pages.
 //   h. Admins (slice 21): ADMIN_EMAILS against the verified email, case-
@@ -57,6 +68,13 @@ const env = process.env as Record<string, string | undefined>
 // never read here: every real credential is dropped before anything loads.
 for (const name of Object.keys(env)) {
   if (/^(BETTER_AUTH_|S3_|DB_|MONGODB_|REDIS_|RAILWAY_)/.test(name)) delete env[name]
+}
+// …and neither are its limits. The windows below are keyed by the client address, which is read at TRUSTED_PROXY_HOPS
+// from the right of X-Forwarded-For: a shell that sets TRUSTED_PROXY_HOPS=2 (this one did, on 2026-10-25) makes the
+// one-entry header these requests carry name no address, so every request shares the `unknown` window — by design —
+// and "another address may still try" fails for a reason that is not the code's. The check sets what it tests.
+for (const name of Object.keys(env)) {
+  if (/^(RATE_|QUOTA_|USER_DAILY_|GLOBAL_|TRUSTED_PROXY_HOPS$|CLIENT_IP_HEADER$)/.test(name)) delete env[name]
 }
 for (const name of ['OPENROUTER_API_KEY', 'ANTHROPIC_API_KEY', 'APP_URL', 'NEXT_PUBLIC_APP_URL', 'INKDESK_AUTH', 'INKDESK_QUEUE', 'GENERATION_ENABLED', 'CONTACT_EMAIL', 'INKDESK_LIMITS', 'ADMIN_EMAILS', 'ALLOWLIST_EMAILS']) delete env[name]
 env.INKDESK_DATA_DIR = dir
@@ -132,7 +150,7 @@ try {
       if (path === AUTH_ROUTE) {
         // Its handlers are one shared function: the guard (sign-in on, the body cap, the address windows) runs before Better Auth sees the request.
         if (/\b(requireUser|requireAdmin)\(/.test(source)) problems.push(`${path}: is public by design and must take no session`)
-        for (const needle of ['signInOn()', "limitByAddress(req, 'signin')", "limitByAddress(req, 'anon')", 'BODY_LIMIT_BYTES']) {
+        for (const needle of ['signInOn()', "limitByAddress(req, 'signin')", "limitByAddress(req, 'signup')", "limitByAddress(req, 'anon')", 'BODY_LIMIT_BYTES']) {
           if (!source.includes(needle)) problems.push(`${path}: is missing ${needle}`)
         }
         const handle = source.slice(source.indexOf('async function handle('))
@@ -422,26 +440,81 @@ try {
   }
   await withEnv(betterEnv(), async () => {
     pinAuth()
-    // Nobody signs up: Better Auth refuses it, whatever is sent, and nothing is made.
-    for (const body of [{ email: 'stranger@inkdesk.invalid', password: 'correct horse battery', name: 'Stranger' }, { email: 'Alice@Inkdesk.invalid', password: 'x', name: 'x' }]) {
-      const res = await authCall('/sign-up/email', body)
-      assert.ok(res.status >= 400 && res.status < 500, `sign-up is refused (got ${res.status})`)
-      assert.equal(res.headers.getSetCookie().length, 0, 'and sets no cookie')
-    }
-    assert.equal(memory.user.length, 0, 'no account was made by a sign-up')
-    // The one way an account exists: the learner makes it (judge:account → createAccount), verified.
-    const made = await authServer.createAccount(testAuth, { email: 'Alice@Inkdesk.invalid', password: 'correct horse battery' })
-    const alice = { id: made.id }
+    // Anyone may sign up (reopened 2026-10-25): an account and a session at once — UNVERIFIED, since nothing was sent to prove the address.
+    const signedUp = await authCall('/sign-up/email', { email: 'Alice@Inkdesk.invalid', password: 'correct horse battery', name: 'Alice' })
+    assert.equal(signedUp.status, 200, await signedUp.clone().text())
+    const alice = ((await signedUp.clone().json()) as { user: { id: string; emailVerified: boolean } }).user
     assert.match(alice.id, authConfig.ACCOUNT_ID, 'an account id the scripts accept')
-    await assert.rejects(authServer.createAccount(testAuth, { email: 'alice@inkdesk.invalid', password: 'another long one' }), /already an account/, 'one account per address')
-    await assert.rejects(authServer.createAccount(testAuth, { email: 'short@inkdesk.invalid', password: 'short' }), /10 to 128/, 'a password under ten characters is refused')
-    const record = await store.users.get(alice.id)
-    assert.ok(record, 'the studio’s own record exists the moment the account is made')
-    assert.equal(record.email, 'alice@inkdesk.invalid', 'and carries the address, verified by the learner who made it (lower-cased)')
-    const firstIn = await authCall('/sign-in/email', { email: 'alice@inkdesk.invalid', password: 'correct horse battery' })
-    assert.equal(firstIn.status, 200, await firstIn.clone().text())
-    const aliceCookie = cookieOf(firstIn)
+    assert.equal(alice.emailVerified, false, 'an address typed at sign-up is not verified: nothing was sent to prove it')
+    const aliceCookie = cookieOf(signedUp)
     assert.match(aliceCookie, /^__Secure-inkdesk\.session_token=/, 'on an https studio the cookie is __Secure-')
+    const record = await store.users.get(alice.id)
+    assert.ok(record, 'the studio’s own record exists the moment the account is made — the same hook as for an account the learner makes')
+    assert.equal(record.email, '', 'and carries no address while it is unverified — the allowlist and ADMIN_EMAILS cannot match it')
+    // Claiming to be verified changes nothing: Better Auth writes false whatever the form sends.
+    const claimed = await authCall('/sign-up/email', { email: 'mallory@inkdesk.invalid', password: 'correct horse battery', name: 'M', emailVerified: true })
+    assert.equal(claimed.status, 200)
+    const mallory = ((await claimed.json()) as { user: { id: string; emailVerified: boolean } }).user
+    assert.equal(mallory.emailVerified, false, 'a form that says emailVerified: true still makes an unverified account')
+    assert.equal((await store.users.get(mallory.id))?.email, '', 'and its record carries no address')
+    // A self-made account is on the free plan, and never an admin — even with its address on both lists.
+    const { planOf, forgetPlans } = await import('../lib/limits/plan')
+    const { isAdmin: isAdminNow, forgetAdmins: forgetAdminsNow } = await import('../lib/auth/admin')
+    await withEnv({ ALLOWLIST_EMAILS: 'alice@inkdesk.invalid, mallory@inkdesk.invalid', ADMIN_EMAILS: 'alice@inkdesk.invalid,mallory@inkdesk.invalid' }, async () => {
+      forgetPlans()
+      forgetAdminsNow()
+      for (const who of [alice.id, mallory.id]) {
+        assert.equal(await planOf(who), 'free', 'a self-made account stays on the free plan, though its address is on ALLOWLIST_EMAILS')
+        assert.equal(await isAdminNow(who), false, 'and is no admin, though its address is on ADMIN_EMAILS')
+      }
+    })
+    forgetPlans()
+    forgetAdminsNow()
+    // One account per address: a second sign-up (another case, another password) is refused, makes nothing and changes nothing.
+    const usersBefore = memory.user.length
+    const dup = await authCall('/sign-up/email', { email: 'alice@INKDESK.invalid', password: 'another long one', name: 'x' })
+    assert.equal(dup.status, 422, `a second sign-up with that address is refused (got ${dup.status})`)
+    assert.equal(dup.headers.getSetCookie().length, 0, 'and sets no cookie')
+    const dupText = await dup.text()
+    assert.equal((JSON.parse(dupText) as { code?: string }).code, 'USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL', 'Better Auth’s own refusal')
+    assert.ok(!dupText.includes(alice.id) && !/alice|createdAt|"user"/i.test(dupText), `it names no account and gives no detail of it: ${dupText}`)
+    const { authSentence } = await import('../lib/auth/client')
+    assert.equal(authSentence(JSON.parse(dupText) as { code: string; message: string }, 'x'), 'There is already an account with that email. Sign in instead.', 'the card says what Better Auth says, and no more')
+    assert.equal(memory.user.length, usersBefore, 'no second account')
+    assert.equal((await authCall('/sign-in/email', { email: 'alice@inkdesk.invalid', password: 'another long one' })).status, 401, 'the refused sign-up’s password opens nothing')
+    // The password rule is the sign-in's: 10 to 128 characters; a name is Better Auth's to require.
+    for (const [body, why] of [
+      [{ email: 'short@inkdesk.invalid', password: 'short', name: 'x' }, 'a password under ten characters'],
+      [{ email: 'long@inkdesk.invalid', password: 'x'.repeat(129), name: 'x' }, 'a password over 128 characters'],
+      [{ email: 'noname@inkdesk.invalid', password: 'correct horse battery' }, 'no name'],
+      [{ email: 'not-an-address', password: 'correct horse battery', name: 'x' }, 'not an address'],
+    ] as const) {
+      const res = await authCall('/sign-up/email', body)
+      assert.equal(res.status, 400, `${why} is refused (got ${res.status})`)
+      assert.equal(res.headers.getSetCookie().length, 0)
+    }
+    assert.equal(memory.user.length, usersBefore, 'and none of them made an account')
+
+    // The learner's way (judge:account → createAccount): a VERIFIED account, which the allowlist can match.
+    const made = await authServer.createAccount(testAuth, { email: 'Judge@Inkdesk.invalid', password: 'a judge’s long password' })
+    assert.match(made.id, authConfig.ACCOUNT_ID)
+    assert.equal((await store.users.get(made.id))?.email, 'judge@inkdesk.invalid', 'its record carries the address, verified by the learner who made it (lower-cased)')
+    await assert.rejects(authServer.createAccount(testAuth, { email: 'judge@inkdesk.invalid', password: 'another long one' }), /already an account/, 'one account per address')
+    await assert.rejects(authServer.createAccount(testAuth, { email: 'alice@inkdesk.invalid', password: 'another long one' }), /already an account/, 'an address already signed up included')
+    await assert.rejects(authServer.createAccount(testAuth, { email: 'short@inkdesk.invalid', password: 'short' }), /10 to 128/, 'a password under ten characters is refused')
+    await withEnv({ ALLOWLIST_EMAILS: 'judge@inkdesk.invalid' }, async () => {
+      forgetPlans()
+      assert.equal(await planOf(made.id), 'allowlisted', 'a verified account on ALLOWLIST_EMAILS gets the allowlisted plan')
+    })
+    forgetPlans()
+    assert.equal((await authCall('/sign-in/email', { email: 'judge@inkdesk.invalid', password: 'a judge’s long password' })).status, 200, 'and signs in')
+    // judge:account marks an UNVERIFIED account verified only on that account's own password (sign-up is open: it may be a stranger's).
+    assert.equal(await authServer.holdsPassword(testAuth, alice.id, 'correct horse battery'), true, 'the account’s own password')
+    for (const wrong of ['a judge’s long password', 'correct horse batterY', '', 'x'.repeat(129)]) assert.equal(await authServer.holdsPassword(testAuth, alice.id, wrong), false, 'any other is not')
+    assert.equal(await authServer.holdsPassword(testAuth, 'no-such-account-id-000000', 'correct horse battery'), false, 'nor is an unknown account')
+    const judgeScript = await readFile(join(ROOT, 'scripts/judge-account.mts'), 'utf8')
+    assert.match(judgeScript, /!found\.user\.emailVerified && !\(await holdsPassword\(auth, found\.user\.id, password\)\)/, 'judge:account asks holdsPassword before verifying an unverified account')
+    assert.ok(judgeScript.indexOf('holdsPassword(auth') < judgeScript.indexOf('updateUser(userId, { emailVerified: true })'), 'before it writes anything')
 
     // currentUser reads the session from the cookie, checked against the database.
     const asked = (cookie?: string) => new Request(`${APP}/api/projects`, cookie ? { headers: { cookie } } : {})
@@ -474,12 +547,13 @@ try {
     assert.ok((await authCall('/delete-user', {}, { cookie: aliceCookie })).status >= 400, 'Better Auth’s delete-user is off')
     assert.equal(await currentUser(asked(aliceCookie)), alice.id)
 
-    // Unverified (an account the studio has not confirmed), the record carries no address; verified again, it does.
+    // Verified (as judge:account does, given the account's own password), the record carries the address; unverified again, it does not.
     const ctx = await testAuth.$context
+    await ctx.internalAdapter.updateUser(alice.id, { emailVerified: true })
+    assert.equal((await store.users.get(alice.id))?.email, 'alice@inkdesk.invalid', 'a verified address is recorded, lower-cased by Better Auth')
     await ctx.internalAdapter.updateUser(alice.id, { emailVerified: false })
     assert.equal((await store.users.get(alice.id))?.email, '', 'an unverified address is never recorded — the allowlist and ADMIN_EMAILS cannot match it')
     await ctx.internalAdapter.updateUser(alice.id, { emailVerified: true })
-    assert.equal((await store.users.get(alice.id))?.email, 'alice@inkdesk.invalid', 'a verified address is recorded')
 
     // Sign-out ends that session, and only that one.
     const out = await authCall('/sign-out', {}, { cookie: secondCookie })
@@ -500,7 +574,7 @@ try {
     await authServer.recordAccount({ id: alice.id, email: 'alice@inkdesk.invalid', emailVerified: true, createdAt: new Date() })
     assert.ok((await store.users.get(alice.id))?.deletedAt, 'a late account write cannot bring it back')
   })
-  ok('Better Auth on a memory database, with production’s options: sign-up is refused and makes nothing; the learner’s createAccount makes a verified account (its record carries the address) and signing in gives an HttpOnly, SameSite=Lax, __Secure- session; a wrong password, a forged cookie, a short password, another origin and any outside (Google/GitHub) sign-in are refused; verified, the address is recorded; sign-out ends one session; deleteSignIn removes the user, its sessions and sign-ins, and repeats safely')
+  ok('Better Auth on a memory database, with production’s options: sign-up makes an account and an HttpOnly, SameSite=Lax, __Secure- session — unverified whatever the form claims, so its record carries no address and it is on the free plan and no admin even with its address on ALLOWLIST_EMAILS and ADMIN_EMAILS; a second sign-up with that address is a 422 that names no account; a short, long or nameless sign-up is refused; the learner’s createAccount makes a verified (allowlistable) account, and holdsPassword — judge:account’s guard — knows an account’s own password; a wrong password, a forged cookie, another origin and any outside (Google/GitHub) sign-in are refused; verified, the address is recorded; sign-out ends one session; deleteSignIn removes the user, its sessions and sign-ins, and repeats safely')
 
   // --- e. The proxy, offline ----------------------------------------------------------------
   const { NextRequest } = await import('next/server')
@@ -566,7 +640,8 @@ try {
   // The reason the Origin check survives on /api/s/*: it is not among the routes the proxy waves through unchecked.
   assert.deepEqual([...authConfig.PUBLIC_API_PREFIXES], ['/api/health'], 'nothing public-by-design is on the unchecked list')
   for (const path of ['/api/s/tok123', '/api/s/tok123/report', '/api/s/tok123/image/img-1.png', '/api/admin/reports/r1', '/api/auth/sign-in/email', '/api/webhooks/clerk']) assert.equal(authConfig.isPublicApi(path), false, `${path} is not skipped by the proxy`)
-  for (const path of ['/s/tok123', '/s/tok123/opengraph-image']) assert.equal(authConfig.isPublicPage(path), true, `${path} is an open page`)
+  for (const path of ['/s/tok123', '/s/tok123/opengraph-image', '/sign-in', '/sign-up']) assert.equal(authConfig.isPublicPage(path), true, `${path} is an open page`)
+  for (const path of ['/sign-upx', '/sign-inside']) assert.equal(authConfig.isPublicPage(path), false, `${path} is not the sign-in or sign-up page`)
   for (const path of ['/s', '/admin', '/admin/reports', '/settings/account', '/p/abc', '/share/tok']) assert.equal(authConfig.isPublicPage(path), false, `${path} needs sign-in`)
   // APP_URL on www: nothing to move.
   await withEnv({ INKDESK_AUTH: 'test', APP_URL: 'https://www.inkdesk.example' }, async () => {
@@ -583,11 +658,11 @@ try {
     assert.equal(`${to.origin}${to.pathname}`, `${APP}/sign-in`)
     assert.equal(to.searchParams.get('next'), '/p/abc?page=2', 'and comes back where it was going')
     assert.equal((await call(`${APP}/`, { headers: pageHeaders })).headers.get('location'), `${APP}/sign-in`, 'the desk itself needs no way back')
-    for (const open of ['/sign-in', '/terms', '/privacy', '/s/tok123', '/s/tok123/opengraph-image']) {
+    for (const open of ['/sign-in', '/sign-up', '/terms', '/privacy', '/s/tok123', '/s/tok123/opengraph-image']) {
       const res = await call(`${APP}${open}`, { headers: pageHeaders })
       assert.ok(passes(res), `${open} is open to a stranger (got ${res.status})`)
     }
-    for (const closed of ['/sign-up', '/admin', '/admin/reports', '/settings/account', '/settings/sharing']) {
+    for (const closed of ['/admin', '/admin/reports', '/settings/account', '/settings/sharing']) {
       const res = await call(`${APP}${closed}`, { headers: pageHeaders })
       assert.equal(res.status, 307, `${closed} needs sign-in like any page, got ${res.status}`)
       assert.equal(new URL(res.headers.get('location') ?? '').pathname, '/sign-in', `${closed} goes to sign-in`)
@@ -602,6 +677,8 @@ try {
       assert.equal(res.headers.get('x-middleware-request-x-inkdesk-path'), '/p/abc', 'and the page is told its own path')
     }
     assert.equal((await call(`${APP}/p/abc`, { headers: { ...pageHeaders, cookie: 'better-auth.session_token=x; other=1' } })).status, 307, 'another app’s cookie is not ours')
+    // With a cookie, sign-in and sign-up still reach their pages, which check the session for real and send a signed-in visitor to the desk (section f).
+    for (const page of ['/sign-in', '/sign-up']) assert.ok(passes(await call(`${APP}${page}`, { headers: { ...pageHeaders, cookie: '__Secure-inkdesk.session_token=stale' } })), `${page} with a cookie is the page’s to decide`)
   })
   // Where sign-in sends someone back: a path on this studio, never another site.
   const { safeNext, signInHref } = await import('../lib/auth/next')
@@ -616,13 +693,15 @@ try {
     ['/\tevil', '/'],
     ['javascript:alert(1)', '/'],
     ['/sign-in?next=/x', '/'],
+    ['/sign-up', '/'],
+    ['/sign-up?next=/x', '/'],
     ['/api/projects', '/'],
     [`/${'a'.repeat(3000)}`, '/'],
   ] as const) assert.equal(safeNext(input), expected, `safeNext(${JSON.stringify(input)})`)
   assert.equal(signInHref('/p/abc'), '/sign-in?next=%2Fp%2Fabc')
   assert.equal(signInHref('//evil.example'), '/sign-in')
   assert.deepEqual(outbound, [], 'nothing reached the network')
-  ok('better mode, offline: a signed-out page → /sign-in?next=<path> from the cookie alone; sign-in, terms, privacy and a shared manga open (there is no sign-up page), /admin and /settings need sign-in, API calls reach their routes; safeNext never leaves the studio')
+  ok('better mode, offline: a signed-out page → /sign-in?next=<path> from the cookie alone; sign-in, sign-up, terms, privacy and a shared manga open, /admin and /settings need sign-in, API calls reach their routes; safeNext never leaves the studio, nor returns to sign-in or sign-up')
 
   // --- f. The /api/auth route: its guard ------------------------------------------------------
   {
@@ -654,14 +733,128 @@ try {
       assert.equal(shut.status, 429, 'the fourth guess in a minute is refused')
       assert.ok(Number(shut.headers.get('Retry-After')) > 0, 'with Retry-After')
       assert.match(((await shut.json()) as { error: string }).error, /going a little fast/)
-      // Another address has its own window; through the route too, a sign-up is refused and makes nothing.
+      // Another address has its own window: the key is the client's address, not one key for everyone.
       assert.equal((await post('/sign-in/email', { email: 'bob@inkdesk.invalid', password: 'not the password' }, '203.0.113.3')).status, 401, 'another address may still try')
-      const signUp = await post('/sign-up/email', { email: 'carol@inkdesk.invalid', password: 'a long password', name: 'Carol' }, '203.0.113.4')
-      assert.ok(signUp.status >= 400 && signUp.status < 500, `a sign-up through the route is refused (got ${signUp.status})`)
       resetBackend()
     })
+    // Behind two appending proxies (TRUSTED_PROXY_HOPS=2) the client is the entry two from the right: still one window per client.
+    await withEnv({ ...betterEnv(), INKDESK_LIMITS: 'on', RATE_SIGNIN_PER_MIN: '3', TRUSTED_PROXY_HOPS: '2' }, async () => {
+      pinAuth()
+      resetBackend()
+      const guess = (client: string) => post('/sign-in/email', { email: 'bob@inkdesk.invalid', password: 'not the password' }, `${client}, 10.0.0.1`)
+      for (let i = 0; i < 3; i++) assert.equal((await guess('203.0.113.5')).status, 401)
+      assert.equal((await guess('203.0.113.5')).status, 429, 'two hops: the fourth guess from one client is refused')
+      assert.equal((await guess('203.0.113.6')).status, 401, 'two hops: another client may still try')
+      resetBackend()
+    })
+
+    // Sign-up through the route (reopened 2026-10-25): RATE_SIGNUP_PER_HOUR's default, 5 accounts an hour per client address.
+    await withEnv({ ...betterEnv(), INKDESK_LIMITS: 'on' }, async () => {
+      pinAuth()
+      resetBackend()
+      const { planOf, forgetPlans } = await import('../lib/limits/plan')
+      const signUp = (n: number, from: string) => post('/sign-up/email', { email: `reader${n}@inkdesk.invalid`, password: 'a long password', name: `Reader ${n}` }, from)
+      const ids: string[] = []
+      for (let n = 1; n <= 5; n++) {
+        const res = await signUp(n, '203.0.113.20')
+        assert.equal(res.status, 200, `a fresh address and email: sign-up ${n} makes an account (got ${res.status})`)
+        assert.ok(res.headers.getSetCookie().some((c) => /inkdesk\.session_token=/.test(c)), 'and signs the person in at once')
+        const user = ((await res.json()) as { user: { id: string; emailVerified: boolean } }).user
+        assert.equal(user.emailVerified, false, 'unverified')
+        ids.push(user.id)
+      }
+      const sixth = await signUp(6, '203.0.113.20')
+      assert.equal(sixth.status, 429, 'the sixth account from one address within the hour is refused')
+      const retry = Number(sixth.headers.get('Retry-After'))
+      assert.ok(retry > 60 && retry <= 3600, `with Retry-After, up to an hour (got ${retry})`)
+      assert.match(((await sixth.json()) as { error: string }).error, /going a little fast — try again in \d+ minutes/, 'the calm sentence the sign-in window gives')
+      assert.equal(memory.user.filter((u) => u.email === 'reader6@inkdesk.invalid').length, 0, 'and no account was made')
+      assert.equal((await signUp(6, '203.0.113.21')).status, 200, 'another address may still sign up')
+      // A duplicate through the route: Better Auth's 422, and it counts toward the hour like any attempt.
+      assert.equal((await signUp(1, '203.0.113.22')).status, 422, 'an address already taken is refused through the route too')
+      // The account made through the route signs in, and is on the free plan even with its address on ALLOWLIST_EMAILS.
+      assert.equal((await post('/sign-in/email', { email: 'reader1@inkdesk.invalid', password: 'a long password' }, '203.0.113.23')).status, 200, 'a self-made account signs in')
+      await withEnv({ ALLOWLIST_EMAILS: 'reader1@inkdesk.invalid' }, async () => {
+        forgetPlans()
+        assert.equal(await planOf(ids[0]), 'free', 'a self-made account is on the free plan, whatever ALLOWLIST_EMAILS says')
+      })
+      forgetPlans()
+      // Every spelling of the sign-up path takes the window (Better Auth routes only the exact one; the others are 404s, never a way round).
+      resetBackend()
+      for (const [i, path] of ['/sign-up/email/', '/SIGN-UP/email', '/sign%2Dup/email', '/sign-up/email?x=1', '/sign-up/email?y=2'].entries()) {
+        const res = await post(path, { email: `spelling${i}@inkdesk.invalid`, password: 'a long password', name: 'S' }, '203.0.113.30')
+        assert.notEqual(res.status, 429, `${path}: within the hour’s five`)
+      }
+      assert.equal((await signUp(7, '203.0.113.30')).status, 429, 'five spellings of the sign-up path used that address’s five accounts an hour')
+      resetBackend()
+    })
+    // The counter store down: a sign-up is REFUSED (503, the busy sentence) and makes nothing — never let through unlimited.
+    await withEnv({ ...betterEnv(), INKDESK_LIMITS: 'on' }, async () => {
+      pinAuth()
+      const { BUSY } = await import('../lib/queue/jobs')
+      const pinned = globalThis as { __inkdeskLimits?: { key: string; backend: unknown } }
+      const down = () => Promise.reject(new Error('auth-check: the counter store is down'))
+      pinned.__inkdeskLimits = { key: 'memory', backend: { kind: 'memory', hit: down, reserve: down, finish: down, counters: down, orphans: down, hold: down, peek: down } }
+      const warn = console.warn
+      console.warn = () => {}
+      try {
+        const res = await post('/sign-up/email', { email: 'flood@inkdesk.invalid', password: 'a long password', name: 'F' }, '203.0.113.40')
+        assert.equal(res.status, 503, `with no counters, sign-up is refused (got ${res.status})`)
+        assert.equal(((await res.json()) as { error: string }).error, BUSY)
+        assert.equal(res.headers.getSetCookie().length, 0)
+        assert.equal(memory.user.filter((u) => u.email === 'flood@inkdesk.invalid').length, 0, 'and no account was made')
+        assert.equal((await post('/sign-in/email', { email: 'reader1@inkdesk.invalid', password: 'a long password' }, '203.0.113.40')).status, 503, 'sign-in fails closed too')
+      } finally {
+        console.warn = warn
+        resetBackend()
+      }
+    })
   }
-  ok('the /api/auth route: a 404 unless sign-in is on; a body larger than a form is a 413 unread; sign-in attempts are windowed per client address, with Retry-After; a sign-up is refused')
+  ok('the /api/auth route: a 404 unless sign-in is on; a body larger than a form is a 413 unread; sign-in attempts are windowed per client address (one hop or two), with Retry-After; sign-up makes an unverified, free account that can sign in, five an hour per address — the sixth is a 429 with Retry-After, another address may, any spelling of the path counts; a duplicate is a 422; with the counter store down a sign-up is a 503 and makes nothing')
+
+  // --- f2. The sign-in and sign-up pages, rendered ------------------------------------------
+  {
+    const { renderToStaticMarkup } = await import('react-dom/server')
+    const signUpPage = (await import('../app/sign-up/[[...sign-up]]/page')).default
+    const signInPage = (await import('../app/sign-in/[[...sign-in]]/page')).default
+    const redirectedTo = async (render: () => Promise<unknown>): Promise<string> => {
+      try {
+        await render()
+      } catch (err) {
+        const digest = (err as { digest?: string }).digest ?? ''
+        assert.ok(digest.startsWith('NEXT_REDIRECT;'), `a redirect, got ${String(err)}`)
+        return digest.split(';').slice(2, -2).join(';')
+      }
+      return assert.fail('expected a redirect')
+    }
+    const none = { searchParams: Promise.resolve({}) }
+    await withEnv(betterEnv(), async () => {
+      pinAuth()
+      // Signed out: the sign-up card, with its fields, the way to sign in, and the plain words.
+      asRequest({})
+      const up = renderToStaticMarkup((await signUpPage()) as React.ReactElement)
+      for (const needle of ['Make an account', 'name="email"', 'name="password"', 'minLength="10"', 'maxLength="128"', 'autoComplete="new-password"', 'Have an account?', 'href="/sign-in"', 'no password reset', 'free plan', 'href="/terms"', 'href="/privacy"']) {
+        assert.ok(up.includes(needle), `the sign-up page shows ${needle}`)
+      }
+      const signIn = renderToStaticMarkup((await signInPage(none)) as React.ReactElement)
+      for (const needle of ['Sign in', 'No account?', 'href="/sign-up"', 'Sign up', 'no password reset', 'Anyone can make an account']) assert.ok(signIn.includes(needle), `the sign-in page shows ${needle}`)
+      assert.ok(!/There is no sign-up/i.test(signIn) && !/no sign-up/i.test(up), 'neither says there is no sign-up')
+      // Signed in: both pages send the visitor to the desk (sign-in to where they were going).
+      const made = await authCall('/sign-up/email', { email: 'pages@inkdesk.invalid', password: 'a long password', name: 'P' })
+      asRequest({ cookie: cookieOf(made) })
+      assert.equal(await redirectedTo(() => signUpPage()), '/', 'a signed-in visitor to /sign-up goes to the desk')
+      assert.equal(await redirectedTo(() => signInPage({ searchParams: Promise.resolve({ next: '/settings/usage' }) })), '/settings/usage')
+      asRequest({ cookie: '__Secure-inkdesk.session_token=stale.value' })
+      assert.ok(renderToStaticMarkup((await signUpPage()) as React.ReactElement).includes('Make an account'), 'a stale cookie still sees the card')
+      asRequest({})
+    })
+    for (const mode of ['off', 'test']) {
+      await withEnv({ INKDESK_AUTH: mode }, async () => {
+        assert.equal(await redirectedTo(() => signUpPage()), '/', `${mode}: no accounts to make, so the desk`)
+      })
+    }
+    ok('the sign-up page, rendered: signed out it shows the card (email, a 10–128 character password, “Have an account? Sign in”, the free plan, no password reset, Terms and Privacy); the sign-in card links “No account? Sign up” and no longer says there is no sign-up; a signed-in visitor to /sign-up goes to the desk, a stale cookie still sees the card; with sign-in off or in test mode, the desk')
+  }
 
   // --- g. The browser: a 401 goes to sign-in, once, with the way back ------------------------
   {

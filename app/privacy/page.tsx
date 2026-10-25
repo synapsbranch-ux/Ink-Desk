@@ -1,6 +1,6 @@
-// Privacy (slice 19, updated in slice 21 for sharing, reports, export and deletion, and in slice 23 for the trailer's video, voice and music models): what the studio stores, where, which outside services
+// Privacy (slice 19, updated in slice 21 for sharing, reports, export and deletion, in slice 23 for the trailer's video, voice and music models, and on 2026-10-25 when sign-up reopened): what the studio stores, where, which outside services
 // see what, and how to have it deleted — plainly, and only what is true of the
-// build as it stands. Linked from sign-in, readable signed out.
+// build as it stands. Linked from sign-in and sign-up, readable signed out.
 // See `devpost/prd.md > Terms and Privacy (v3)`.
 import type { Metadata } from 'next'
 import Link from 'next/link'
@@ -8,7 +8,7 @@ import Link from 'next/link'
 export const metadata: Metadata = { title: 'Privacy · Ink Desk' }
 
 /** The date of this text; change it with the words. */
-const UPDATED = '18 October 2026'
+const UPDATED = '25 October 2026'
 
 const page: React.CSSProperties = { maxWidth: 680, margin: '0 auto', padding: 'var(--space-8) var(--space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }
 
@@ -42,9 +42,15 @@ export default function PrivacyPage() {
             <strong>Generation records</strong> — what was asked to be drawn, when, whether it worked, and its cost.
           </li>
           <li>
-            <strong>Your account</strong> — kept by Ink Desk itself, in its own database: your email address, your password stored
-            only as a one-way hash (never the password itself), your active sessions and the browser each one was made from, your account id,
-            and the date the account was made.
+            <strong>Your account</strong> — anyone can make one on the sign-up page. It is kept by Ink Desk itself, in its own database: your
+            email address (the studio sends no email, so it is not verified), a display name taken from the part of the address before the @,
+            your password stored only as a one-way hash (never the password itself), your active sessions and the browser each one was made
+            from, your account id, and the date the account was made.
+          </li>
+          <li>
+            <strong>Sign-in and sign-up counters</strong> — to slow down password guessing and mass sign-ups, the studio counts attempts per
+            network address, under a one-way scrambled form of the address (never the address itself). The counters expire on their own within
+            an hour.
           </li>
         </ul>
         <p>

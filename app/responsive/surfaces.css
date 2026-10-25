@@ -1,7 +1,7 @@
 /* Responsive (v3, slice 23) — surfaces. Loaded after globals.css by app/layout.tsx, so a rule here
    overrides globals.css at equal specificity. See devpost/spec.md > Responsive (v3). */
 
-/* --- Sign-in: the paper frame (components/AuthControls.tsx) --------- */
+/* --- Sign-in and sign-up: the paper frame (components/AuthControls.tsx) --------- */
 .auth-shell {
   align-items: center;
   justify-content: center;
@@ -22,7 +22,7 @@
   font-size: 20px;
   color: var(--neutral-700);
 }
-/* The studio's own sign-in card (components/AuthForm.tsx): one column, never wider than the screen. */
+/* The studio's own sign-in and sign-up card (components/AuthForm.tsx): one column, never wider than the screen. */
 .auth-card {
   display: flex;
   justify-content: center;
@@ -44,7 +44,9 @@
   font-weight: 500;
   line-height: 1.1;
 }
-.auth-fine {
+.auth-switch,
+.auth-fine,
+.auth-hint {
   margin: 0;
   font-size: 14px;
   color: var(--neutral-700);

@@ -5,20 +5,30 @@
 //
 //   • Email and password, and nothing else — the one sign-in the plan names
 //     (`devpost/prd.md > Accounts and Sign-in (v3)`).
-//   • Nobody signs up: there is no sign-up page and Better Auth refuses
-//     `/sign-up/email`. The only accounts are the ones the learner makes with
-//     `npm run judge:account` (their own, and the judges'), through
-//     `createAccount` below.
+//   • Anyone may sign up (reopened 2026-10-25, the learner's decision: the
+//     judges must be able to make their own account) on `/sign-up`, through
+//     Better Auth's `/sign-up/email`; the route takes the per-address `signup`
+//     window first (`app/api/auth/[...all]/route.ts`). A self-made account is
+//     UNVERIFIED — nothing can be sent to prove the address — so it is on the
+//     free plan and can never match ALLOWLIST_EMAILS or ADMIN_EMAILS. The
+//     learner still makes verified accounts (their own, and the judges' demo
+//     account) with `npm run judge:account`, through `createAccount` below.
 //   • Accounts and sessions live in the studio's own MongoDB, in Better Auth's
 //     collections (`user`, `session`, `account`, `verification`) beside the
 //     studio's own `users` records — the names never meet.
 //   • No email is ever sent: there is no email service. So nobody's address is
-//     taken on its own. The studio's `users` record — what ALLOWLIST_EMAILS and ADMIN_EMAILS are
+//     taken on their word. An account made on the sign-up page starts
+//     UNVERIFIED and stays so (Better Auth writes `emailVerified: false` there,
+//     whatever the form sends). The studio's `users` record — what ALLOWLIST_EMAILS and ADMIN_EMAILS are
 //     matched against — carries the address only when it is verified
-//     (`recordAccount`). A stranger who signs up with the learner's address gets
-//     nothing. `createAccount` (run by the learner through
-//     `scripts/judge-account.mts`) marks the address verified when it makes
-//     the account, because the learner vouches for it.
+//     (`recordAccount`), and the user hooks below write it on sign-up exactly
+//     as for an account the learner makes. A stranger who signs up with the
+//     learner's address gets a free account and nothing more. `createAccount`
+//     (run by the learner through `scripts/judge-account.mts`) marks the
+//     address verified when it makes the account, because the learner vouches
+//     for it; for an account that already exists unverified, the script marks
+//     it verified only when it is given that account's own password
+//     (`holdsPassword`), so it never verifies a stranger's sign-up.
 //   • Deleting an account is the studio's job (`lib/account/deletion.ts`), never
 //     Better Auth's own endpoint: the sweep removes the work first and the
 //     sign-in last (`deleteSignIn`).
@@ -65,8 +75,10 @@ export function authOptions(settings: Pick<BetterSettings, 'secret' | 'baseURL' 
     database,
     emailAndPassword: {
       enabled: true,
-      // No sign-up: accounts are made by the learner only (`createAccount`).
-      disableSignUp: true,
+      // Sign-up is open (2026-10-25): an account made there is signed in at once, unverified (see above).
+      disableSignUp: false,
+      autoSignIn: true,
+      // Nothing can be sent, so nothing is waited for: the address simply counts as unverified.
       requireEmailVerification: false,
       minPasswordLength: PASSWORD_MIN,
       maxPasswordLength: PASSWORD_MAX,
@@ -129,9 +141,10 @@ export function getAuth(): Auth {
 }
 
 /**
- * Make an email-and-password account, verified — the only way an account comes to exist (sign-up is closed). Run by the
- * learner through `scripts/judge-account.mts`: the judges' account and their own. Better Auth's own structure: a user,
- * and a `credential` account holding the password's hash. The studio's record is written by the user hook.
+ * Make an email-and-password account, VERIFIED — the learner's way (`scripts/judge-account.mts`): the judges' demo
+ * account and their own, which can then be on ALLOWLIST_EMAILS or ADMIN_EMAILS. An account made on the sign-up page
+ * is never verified; this is. Better Auth's own structure: a user, and a `credential` account holding the password's
+ * hash. The studio's record is written by the user hook.
  */
 export async function createAccount(auth: Pick<Auth, '$context'>, input: { email: string; password: string }): Promise<{ id: string; email: string; createdAt: Date }> {
   const ctx = await auth.$context
@@ -142,6 +155,20 @@ export async function createAccount(auth: Pick<Auth, '$context'>, input: { email
   const user = await ctx.internalAdapter.createUser({ email, name: email.split('@')[0] || 'Storyteller', emailVerified: true }, { method: 'admin' })
   await ctx.internalAdapter.linkAccount({ userId: user.id, providerId: 'credential', accountId: user.id, password: hash })
   return { id: user.id, email: user.email, createdAt: user.createdAt }
+}
+
+/**
+ * Whether `password` is the password of the account `userId` (its `credential` sign-in), checked against the stored
+ * hash. `scripts/judge-account.mts` asks it before marking an UNVERIFIED account verified: since sign-up is open, an
+ * account with that address may be a stranger's, and only its own password proves the learner made it.
+ */
+export async function holdsPassword(auth: Pick<Auth, '$context'>, userId: string, password: string): Promise<boolean> {
+  if (!password || password.length > PASSWORD_MAX) return false
+  const ctx = await auth.$context
+  const accounts = await ctx.internalAdapter.findAccounts(userId)
+  const hash = accounts.find((a) => a.providerId === 'credential' && a.accountId === userId)?.password
+  if (!hash) return false
+  return ctx.password.verify({ hash, password })
 }
 
 /**

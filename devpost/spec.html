@@ -1387,6 +1387,18 @@ ChapterPlan { pageCount, coverBrief, pages[{ panels: PanelLine[4] }] }</pre>
       <code>spec.md &gt; As built &mdash; Better Auth (2026-10-24)</code>. Docs:
       <code>https://www.better-auth.com/docs</code>.</p>
   </div>
+  <div class="warn" id="v3-signup-reopened" style="margin-top:var(--s3)">
+    <p style="margin:0"><strong>Revised 2026-10-25 &mdash; sign-up reopened.</strong> The learner&#8217;s words, after the
+      submission on Devpost: <em>&ldquo;i got an issue i think we should let user to sign up and create account can we redo that in prd and scope while still make sure we dont have out of scope that gonna got us eliminated from the competition&rdquo;</em>, then <em>&ldquo;because i dont have way o submit credentials to the jugdes , a self made account should be able to use the app&rdquo;</em> &mdash; the submission form has no private field for the
+      judges&#8217; credentials. The code side of the 2026-10-24 cut (commit <code>7215d68</code>) is reversed:
+      <code>disableSignUp: false</code> with <code>autoSignIn: true</code>; <code>app/sign-up/[[...sign-up]]</code> back and
+      open signed out; a per-address <code>signup</code> window (<code>RATE_SIGNUP_PER_HOUR</code>, default 5 an hour,
+      1&ndash;1000) that fails closed like <code>signin</code>; a self-made account mirrored into <code>users</code> by the
+      same hook as <code>judge:account</code>&#8217;s, unverified (<code>email: ''</code>), so it is on the free plan and
+      never allowlisted; <code>judge:account</code> verifies an existing unverified account only on its own password. Still
+      email and password only, no email service, no CAPTCHA. See change 10 below. <em>Decided by the learner 2026-10-25;
+      this written revision awaits their read.</em></p>
+  </div>
 
   <h2 style="margin-top:var(--s4)">What changes, in plain language</h2>
   <p>A visitor opens the domain. The <strong>web</strong> service answers: if they are not signed in,
@@ -1454,6 +1466,25 @@ ChapterPlan { pageCount, coverBrief, pages[{ panels: PanelLine[4] }] }</pre>
           <td><strong>Text model id</strong> unchanged; <strong>image model</strong> unchanged;
             <strong>video</strong> <code>bytedance/seedance-2.0</code> and <strong>speech</strong>
             <code>elevenlabs/eleven-v4</code> join, all through OpenRouter.</td></tr>
+        <tr><td class="num">9</td><td><strong>No custom domain</strong> <span class="quiet">2026-10-25 (6-ship)</span></td>
+          <td>&mdash;</td>
+          <td>Production answers at <code>https://web-production-a947d.up.railway.app</code> (Railway&#8217;s generated
+            domain for <code>web</code>); <code>APP_URL</code> and <code>NEXT_PUBLIC_APP_URL</code> name it, and Domain and
+            DNS applies only if a custom domain is added later. The v3 demo was captured on a local desk running this build
+            with <code>INKDESK_AUTH=better</code> on a local MongoDB and generation on (<code>scope.md</code>, item 12).</td></tr>
+        <tr class="hl"><td class="num">10</td><td><strong>Sign-up reopened</strong> <span class="quiet">2026-10-25, the
+            learner&#8217;s decision</span></td>
+          <td>&mdash;</td>
+          <td>Reverses the code side of the 2026-10-24 cut (<code>7215d68</code>): <code>emailAndPassword.disableSignUp:
+            false</code> in <code>lib/auth/server.ts</code>, with <code>autoSignIn: true</code>, so a new account is signed in
+            at once; <code>app/sign-up/[[...sign-up]]/page.tsx</code> back and <code>/sign-up</code> an open page, linked from
+            the sign-in card; a new rate rule <code>signup</code>, keyed by client address, <code>RATE_SIGNUP_PER_HOUR</code>
+            (default 5 an hour, a whole number 1&ndash;1000), failing closed like <code>signin</code>; the account mirrored
+            into <code>users</code> by the same <code>databaseHooks.user.create.after</code> &rarr; <code>recordAccount</code>
+            path as an account <code>judge:account</code> makes, with <code>email: ''</code> because it is unverified;
+            <code>judge:account</code> marks an existing unverified account verified only on that account&#8217;s own
+            password (<code>holdsPassword</code>). <code>check:auth</code> and <code>check:limits</code> assert it.
+            (<code>scope.md</code> item 13, <code>prd.md</code> item 12.)</td></tr>
       </tbody>
     </table>
   </div>
@@ -1644,7 +1675,9 @@ ChapterPlan { pageCount, coverBrief, pages[{ panels: PanelLine[4] }] }</pre>
       <h4 style="margin-top:0;color:var(--hanko)">What the judges open</h4>
       <p style="margin-bottom:0"><code>https://&lt;your-domain&gt;</code> &mdash; sign in with the
         judge demo account from the Devpost testing instructions (the learner writes them). There is no
-        sign-up: the learner makes every account with <code>npm run judge:account</code>.</p>
+        sign-up: the learner makes every account with <code>npm run judge:account</code>. <em>(2026-10-25: or a judge makes
+        their own account on <code>/sign-up</code> &mdash; email and password, signed in at once, on the free plan; the
+        submission form has no private field for credentials, so the demo account&#8217;s are optional. Change 10.)</em></p>
     </div>
   </div>
 
@@ -1800,13 +1833,18 @@ ChapterPlan { pageCount, coverBrief, pages[{ panels: PanelLine[4] }] }</pre>
         runs inside every handler and checks the session against Mongo. Sign-in page:
         <code>app/sign-in/[[...sign-in]]</code>, the studio&#8217;s own <code>components/AuthForm.tsx</code>
         &mdash; <strong>no sign-up page or route</strong> (2026-10-24: accounts are made only by the learner&#8217;s
-        <code>judge:account</code> &rarr; <code>createAccount</code>); the header&#8217;s
+        <code>judge:account</code> &rarr; <code>createAccount</code>) <em>(2026-10-25: reversed &mdash;
+        <code>app/sign-up/[[...sign-up]]</code> is back, an open page linked from the sign-in card, the same
+        <code>AuthForm</code> in sign-up mode; <code>/api/auth/sign-up/email</code> makes an unverified account and signs it
+        in; the route takes the per-address <code>signup</code> window before <code>signin</code>; change 10)</em>; the header&#8217;s
         <code>components/AccountMenu.tsx</code> (Account, Sign out).</p>
       <p><code>lib/auth/server.ts</code> builds one Better Auth instance per process (Mongo adapter,
         <code>transaction: false</code>); <code>app/api/auth/[...all]/route.ts</code> is its handler (404
         unless <code>better</code> mode; 16 KB body cap; the per-address <code>signin</code> window,
-        fail-closed; sign-up refused by Better Auth). No webhook: Better Auth&#8217;s database hooks mirror
-        each account into the studio&#8217;s <code>users</code> record, with the email only when verified.
+        fail-closed; sign-up refused by Better Auth <em>(2026-10-25: sign-up accepted again, behind the per-address
+        <code>signup</code> window, also fail-closed)</em>). No webhook: Better Auth&#8217;s database hooks mirror
+        each account into the studio&#8217;s <code>users</code> record, with the email only when verified <em>(2026-10-25:
+        a self-made account too, the same way &mdash; unverified, so <code>email: ''</code>)</em>.
         <code>INKDESK_AUTH=off</code> keeps the single-owner local desk for development, the checks and the
         capture; <code>test</code> names the caller in a header for the checks.</p>
       <p class="quiet">Implements <code>prd.md &gt; Accounts and Sign-in (v3)</code></p>
@@ -1888,7 +1926,8 @@ COMPILE_OUTPUTS  u/&lt;userId&gt;/p/&lt;projectId&gt;/video/&lt;videoId&gt;/
           <tbody>
             <tr><td><strong>Sliding-window rate limits</strong></td><td>Keyed on <code>userId</code>
               (and IP for anonymous routes) &mdash; paid text 10/min, paid image 6/min, uploads
-              20/hour, edits 120/min, reads 240/min, sign-in and share views per IP.</td></tr>
+              20/hour, edits 120/min, reads 240/min, sign-in and share views per IP <em>(2026-10-25: and sign-up &mdash;
+              <code>signup</code>, 5 an hour per client address, fail-closed)</em>.</td></tr>
             <tr><td><strong>Daily quotas</strong></td><td>Per plan (<code>free</code> vs
               <code>allowlisted</code>, from <code>ALLOWLIST_EMAILS</code>) as atomic counters with keys
               that expire at the daily reset.</td></tr>
@@ -2074,7 +2113,9 @@ COMPILE_OUTPUTS  u/&lt;userId&gt;/p/&lt;projectId&gt;/video/&lt;videoId&gt;/
         <tr><td>Sign-in (Better Auth, since 2026-10-24)</td><td>&mdash;</td>
           <td><strong>New:</strong> <code>BETTER_AUTH_SECRET</code> (&ge; 32 characters, web and worker);
             <code>RATE_SIGNIN_PER_MIN</code> (10). The Clerk
-            variables this row listed until 2026-10-24 are no longer read.</td></tr>
+            variables this row listed until 2026-10-24 are no longer read. <em>(2026-10-25:
+            <code>RATE_SIGNUP_PER_HOUR</code> is back with sign-up &mdash; default 5 per client address per hour, a whole
+            number 1&ndash;1000.)</em></td></tr>
         <tr class="hl"><td>The URL</td><td><code>APP_URL</code> (points at another app&#8217;s domain today)</td>
           <td><code>APP_URL</code> + <code>NEXT_PUBLIC_APP_URL</code> &mdash; <strong>must be set to
             the Ink Desk domain</strong></td></tr>
@@ -2106,7 +2147,7 @@ COMPILE_OUTPUTS  u/&lt;userId&gt;/p/&lt;projectId&gt;/video/&lt;videoId&gt;/
       <h4 style="margin-top:0">web</h4>
       <p><code>NODE_ENV=production</code>, <code>APP_URL</code> (required: base URL and trusted
         origin), <code>NEXT_PUBLIC_APP_URL</code>, <code>BETTER_AUTH_SECRET</code>, <code>RATE_SIGNIN_PER_MIN</code>,
-        <code>DB_URL</code>,
+        <code>RATE_SIGNUP_PER_HOUR</code> (default 5; 2026-10-25), <code>DB_URL</code>,
         <code>DB_DATABASE</code>, <code>REDIS_URL</code>, the <code>S3_*</code> settings,
         <code>OPENROUTER_API_KEY</code>, <code>ANTHROPIC_API_KEY</code> (optional),
         <code>ANTHROPIC_MODEL</code>, <code>IMAGE_MODEL</code>, <code>LLM_FALLBACK</code>,
@@ -2315,7 +2356,7 @@ settings {_id: userId, defaultStyle, readingDirection, voices: {lead, counterpar
         <tr><td><strong>Redis down</strong></td><td>&ldquo;The studio is busy &mdash; try again in a few minutes&rdquo; on generate buttons</td><td>enqueue refused (503); reads, reader, shares work from Mongo and the bucket</td></tr>
         <tr><td><strong>Worker down</strong></td><td>the status line; jobs stay <em>queued</em></td><td>the reconciler re-enqueues on start; nothing paid is lost</td></tr>
         <tr><td><strong>Mongo down</strong></td><td>an error page with a retry; on sign-in: &ldquo;Signing in isn&#8217;t working just now. Try again in a moment.&rdquo; (500)</td><td>health check fails; Railway holds the old deploy; no session can be checked, so nobody is let in</td></tr>
-        <tr><td><strong>Redis down, on sign-in</strong></td><td>a calm &ldquo;busy&rdquo; sentence (503)</td><td>the <code>signin</code> window <strong>fails closed</strong></td></tr>
+        <tr><td><strong>Redis down, on sign-in or sign-up</strong> <span class="quiet">(sign-up: 2026-10-25)</span></td><td>a calm &ldquo;busy&rdquo; sentence (503)</td><td>the <code>signin</code> window <strong>fails closed</strong>: no password guess goes uncounted; the <code>signup</code> window fails closed too: no account is made uncounted</td></tr>
         <tr><td><strong>A Seedance shot fails or is refused</strong> <span class="quiet">(real face, policy)</span></td><td>that shot&#8217;s card: why, <strong>Try again</strong></td><td>others continue; reservation released</td></tr>
         <tr class="hl"><td><strong>OpenRouter 402</strong> <span class="quiet">(credit)</span></td><td>&ldquo;The studio has paused generation for today&rdquo;</td><td>global switch trips; learner alerted in logs</td></tr>
         <tr><td><strong>Global daily cap reached</strong></td><td>the same pause message for everyone</td><td><code>reserve</code> refuses before any call</td></tr>
@@ -2344,7 +2385,8 @@ lib/store/{cloud,local,index}.ts       <i># + users, jobs, videos, shares, repor
 lib/video/{animate,assemble,bubbles,captions,cards,cost,envelope,frames,plan,prompt,record,run,seedance,serve,status,types}.ts
 lib/audio/{tts,music,media}.ts         <i># ported from video/narrate.mts and video/music/generate.mts</i>
 lib/share/{snapshot,service,pins,page,public,report,report-copy,url,types}.ts
-app/sign-in/[[...sign-in]]/page.tsx    <i># (app/sign-up deleted 2026-10-24: there is no sign-up)</i>
+app/sign-in/[[...sign-in]]/page.tsx    <i># (app/sign-up deleted 2026-10-24: there is no sign-up &mdash; restored 2026-10-25, next line)</i>
+<b>app/sign-up/[[...sign-up]]/page.tsx</b>    <i># sign-up, open again since 2026-10-25: unverified, free-plan accounts, the signup window</i>
 app/terms/page.tsx, app/privacy/page.tsx
 app/settings/{account,defaults,sharing,data,usage}/page.tsx
 app/admin/reports/page.tsx
@@ -2420,6 +2462,12 @@ devpost/security-report.md</div>
       once also blocked by it, is gone since 2026-10-24).</li>
     <li><b>No email service</b> (2026-10-24) &mdash; no verified email for password accounts, no password
       reset, no email change; adding one is <em>Later</em>.</li>
+    <li><b>Sign-up reopened</b> (2026-10-25, change 10) &mdash; anyone can make an unverified, free account. The global
+      daily cap is shared by every plan, so free sign-ups can pause the judges&#8217; accounts for the day (the after
+      audit&#8217;s open policy call): five free accounts at $1 each reach the $5 default, and one address may make five
+      accounts in an hour. The levers are the learner&#8217;s &mdash; <code>GLOBAL_DAILY_USD_CAP</code>,
+      <code>USER_DAILY_USD_FREE</code>, <code>RATE_SIGNUP_PER_HOUR</code> and the OpenRouter key&#8217;s credit limit
+      (<code>checklist.md &gt; Revisions</code>, 2026-10-25).</li>
     <li><b>Budget, kill switch, cumulative cap</b> &mdash; the learner&#8217;s
       (<code>scope.md &gt; Budget (v3)</code>).</li>
     <li><b>Error tracking service, email service for reports</b> &mdash; the learner&#8217;s; logs and
