@@ -231,7 +231,7 @@ Order by risk, as the learner set it — *domain + storage + Redis/BullMQ worker
   Learner check: open `data/kernel-test/motion/index.html` and judge, shot by shot, whether the face, outfit and marks hold **to the last frame**, in A and in B; choose the method (or neither). Your verdict goes in the manifest and in `spec.md > Decisions and Open Issues (v3)`. **Hands-on checkpoint — the kernel decision is yours.**
   Commit: `Motion kernel test: two methods, three shots, the learner's verdict` — tag `v3-cp2`
 
-- [ ] **18. The queue and the worker — BullMQ on Redis, Mongo as the record**
+- [x] **18. The queue and the worker — BullMQ on Redis, Mongo as the record**
   Becomes usable: generation runs in a separate `worker` service: a panel, a sheet or a cover is a job with its own state, survives a web restart or deploy, and is never paid for twice; when Redis or the worker is down, generate buttons say the studio is busy and reading keeps working.
   Why now: the v2 in-process queue, `serverRunId` floor and promise-chain lock stop protecting anything once web and worker are two processes (CR-1, CR-3) — every later feature (limits settle on job completion, the trailer is a chain of jobs) is built on this.
   PRD ref: `prd.md > Status and Health (v3)`, `prd.md > States and Boundaries (v3)` (work survives restarts)
