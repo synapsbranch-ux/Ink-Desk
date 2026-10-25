@@ -76,7 +76,7 @@ export const Root: React.FC = () => (
         durationInFrames={seconds(12)}
         {...base}
       />
-      <Composition id="Method" component={Method} defaultProps={{ docs: null, durationInFrames: seconds(22) }} durationInFrames={seconds(22)} {...base} />
+      <Composition id="Method" component={Method} defaultProps={{ docs: null, durationInFrames: seconds(23) }} durationInFrames={seconds(23)} {...base} />
       <Composition
         id="Learned"
         component={Learned}

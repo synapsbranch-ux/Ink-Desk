@@ -17,6 +17,14 @@
 //                                     whole list; the film shows its top)
 //   checklist-v3.png                  the v3 slices (16–23) with their lines
 //   checklist-review.png              devpost/checklist.md › Final Review
+//   checklist-revisions.png           devpost/checklist.md › Revisions: three of the
+//                                     entries (the two dated 2026-10-24 and the v3
+//                                     plan revision), the learner's quoted words
+//                                     marked, long entries cut with an ellipsis
+//   scope-changes.png                 devpost/scope.html scrolled to the v3
+//                                     "Changes Since Approval" heading, items 1–7
+//                                     (8–10 quote the learner naming products, and
+//                                     a quote is shown verbatim or not at all)
 //   log.png                           git log --oneline -30, terminal-styled; a
 //                                     product's name is shown as its role (the
 //                                     hackathon asks for no third-party names on
@@ -66,9 +74,19 @@ const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
  * their roles: the hackathon asks for no third-party names or logos in the
  * film. Each render that does it says so on its face, so a still never passes
  * for the raw file.
+ *
+ * The learner's quoted words are never rewritten: a still shows a quote
+ * verbatim or not at all (pickRevisions leaves out an entry whose quote names
+ * a product; the scope's Changes still hides the items whose quotes do; and
+ * shoot() refuses a viewport shot with a rewritten quote in it).
  */
 const ROLES: [RegExp, string][] = [
   [/Devpost Learn · Build With AI: Basics/g, 'the hackathon'],
+  [/https?:\/\/[\w.-]*\.railway\.app[\w\/.-]*/g, 'the live address'],
+  // Not a product: the judge account's login, which the film has no reason to print.
+  [/\bjudge@[\w.-]+/g, 'the judge’s address'],
+  // The old environment variables (`CLERK_SECRET_KEY`, `NEXT_PUBLIC_CLERK_…`): \bClerk\b stops at the underscore.
+  [/CLERK_/g, 'SIGNIN_'],
   [/\bRailway\b/g, 'the host'],
   [/\bNext\.js\b/g, 'the web framework'],
   [/\bApp Router\b/g, 'the app router'],
@@ -78,7 +96,7 @@ const ROLES: [RegExp, string][] = [
   [/\bopenai\/[\w.-]+/g, 'the fallback text model'],
   [/\bAnthropic\b/g, 'the AI’s maker'],
   [/\bOpenAI\b/g, 'an image provider'],
-  [/\bGoogle\b/g, 'a provider'],
+  [/\bGoogle\b/gi, 'a provider'],
   [/\bCloudflare\b|\bR2\b/g, 'the bucket host'],
   [/\ban S3-compatible\b/g, 'a cloud'],
   [/\bS3-compatible\b/g, 'cloud'],
@@ -90,8 +108,8 @@ const ROLES: [RegExp, string][] = [
   [/\bMongoDB\b|\bMongo\b/g, 'the database'],
   [/\bRedis\b/g, 'the queue store'],
   [/\bBullMQ\b/g, 'the queue'],
-  [/\bBetter Auth\b/g, 'the sign-in library'],
-  [/\bClerk\b/g, 'the earlier sign-in service'],
+  [/\bBetter ?Auth\b/gi, 'the sign-in library'],
+  [/\bClerk\b/gi, 'the earlier sign-in service'],
   [/\bSeedance\b/g, 'the video model'],
   [/\bClaude\b/g, 'the AI'],
   [/\bOpenRouter\b/g, 'the model gateway'],
@@ -102,17 +120,27 @@ const ROLES: [RegExp, string][] = [
   [/\bZod\b/g, 'the schema library'],
   [/\bPlaywright\b/g, 'the browser driver'],
   [/\bffmpeg\b/gi, 'the media tool'],
-  [/\bGitHub\b/g, 'the code host'],
+  [/\bGitHub\b/gi, 'the code host'],
   [/\bDevpost\b/g, 'the hackathon'],
+  // In lower case it is the learner's word for the hackathon ("the devpost skill"); the folder devpost/ keeps its name.
+  [/\bdevpost\b(?!\/)/g, 'hackathon'],
   [/\bYouTube\b/g, 'the video site'],
 ]
 const roles = (s: string) => ROLES.reduce((t, [re, role]) => t.replace(re, role), s)
 
 
-/** Inline marks, on text already escaped. */
-function inline(s: string): string {
-  return esc(s)
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
+/**
+ * Inline marks, on text already escaped. `said` marks the learner's quoted
+ * words (the italic quotes of the Revisions entries) so a still can show
+ * them: 'all' takes every italic run (an entry's bold lead quotes nothing
+ * else), 'introduced' only a quote that follows "the learner's word:" or
+ * "in their words, that".
+ */
+function inline(s: string, said?: 'all' | 'introduced'): string {
+  let t = esc(s).replace(/`([^`]+)`/g, '<code>$1</code>')
+  if (said === 'all') t = t.replace(/\*([^*\n]+)\*/g, '<em class="said">$1</em>')
+  if (said === 'introduced') t = t.replace(/(the learner[’']s words?:\s*|in their words, that\s*)\*([^*\n]+)\*/g, '$1<em class="said">$2</em>')
+  return t
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>')
 }
@@ -205,6 +233,13 @@ const PAPER_CSS = `
     font-size:18px; letter-spacing:.2em; text-transform:uppercase; transform:rotate(-5deg); vertical-align:middle }
   blockquote { border-left:3px solid var(--n300); padding-left:14px; color:var(--n700); font-family: Georgia, serif; font-size:16px; margin:8px 0 }
   .foot { margin-top:18px; font-family: Georgia, serif; font-size:14px; color:var(--n600) }
+  .rev { padding:16px 0 18px; border-bottom:1px solid var(--n300) }
+  .rev:last-of-type { border-bottom:0 }
+  .rev .lead { font-size:25px; line-height:1.3; font-weight:600 }
+  .rev .body { margin-top:8px; font-family: Georgia, serif; font-size:17px; line-height:1.5; color:var(--n700) }
+  .rev .body strong { color:var(--ink); font-weight:600 }
+  .said { font-style:italic; font-weight:500; color:var(--ink); background:#fcecea; box-shadow:inset 0 -3px 0 var(--hanko);
+    padding:0 .2em; border-radius:2px; -webkit-box-decoration-break:clone; box-decoration-break:clone }
 `
 
 const TERMINAL_CSS = `
@@ -240,7 +275,7 @@ function checklistPages(markdown: string): { slices: string; v3: string; review:
 
   const slicesPage = paper(
     'Build Checklist — Slices',
-    `<div class="eyebrow">devpost/checklist.md</div>
+    `<div class="eyebrow">checklist.md</div>
 <h1>Build Checklist <span class="stamp">${ticked} of ${whole.length} slices ticked</span></h1>
 <div class="rule"></div>
 <div class="columns compact">
@@ -252,7 +287,7 @@ function checklistPages(markdown: string): { slices: string; v3: string; review:
   const FIELDS = ['Becomes usable', 'Verify (mechanical)', 'Learner check', 'Commit']
   const v3Page = paper(
     'Build Checklist — v3 slices',
-    `<div class="eyebrow">devpost/checklist.md › Slices › v3</div>
+    `<div class="eyebrow">checklist.md › Slices › v3</div>
 <h1>Slices 16–23, each verified and checked by hand</h1>
 <div class="rule"></div>
 <ul>${v3
@@ -268,12 +303,83 @@ function checklistPages(markdown: string): { slices: string; v3: string; review:
 
   const reviewPage = paper(
     'Build Checklist — Final Review',
-    `<div class="eyebrow">devpost/checklist.md</div>
+    `<div class="eyebrow">checklist.md</div>
 <h1>Final Review</h1>
 <div class="rule"></div>
 <ul>${review.map((t) => taskLi(t, 4)).join('')}</ul>`,
   )
   return { slices: slicesPage, v3: v3Page, review: reviewPage }
+}
+
+// ---------------------------------------------------------------------------
+// The checklist's Revisions: every mid-build change, dated, with the learner's
+// words. Three entries fit a legible sheet — the two dated 2026-10-24 (the
+// learner's approval of the slices on the live studio, and the last change of
+// plan) and the v3 plan revision itself; the ship entry is skipped (it is this
+// film). Long entries end in an ellipsis.
+
+type Revision = { lead: string; body: string }
+
+/** The entries of the Revisions section: each a "- **lead** body" item, its continuation lines folded in. */
+function revisions(section: string): Revision[] {
+  const items: string[] = []
+  for (const line of section.split(/\r?\n/)) {
+    if (/^- /.test(line)) items.push(line.slice(2))
+    else if (items.length && /^\s+\S/.test(line)) items[items.length - 1] += ` ${line.trim()}`
+  }
+  return items.map((item) => {
+    // The bold lead may hold an italic quote (*"…"*), so its closing ** is found past any italic run…
+    const m = /^\*\*((?:[^*]|\*[^*]+\*)+?)\*\*\s*/.exec(item)
+    if (m) return { lead: m[1], body: item.slice(m[0].length) }
+    // …and a lone * inside a code span (`S3_*`) throws that off: then the first ** after the opening one closes the lead.
+    const close = item.startsWith('**') ? item.indexOf('**', 2) : -1
+    return close > 0 ? { lead: item.slice(2, close), body: item.slice(close + 2).trim() } : { lead: '', body: item }
+  })
+}
+
+/** The learner's quoted words in an entry, as the still marks them: every italic run of the lead, the introduced ones of the body. */
+function quoted(r: Revision): string[] {
+  const lead = [...r.lead.matchAll(/\*([^*\n]+)\*/g)].map((m) => m[1])
+  const body = [...r.body.matchAll(/(?:the learner[’']s words?:\s*|in their words, that\s*)\*([^*\n]+)\*/g)].map((m) => m[1])
+  return [...lead, ...body]
+}
+
+/** A quote the roles table would rewrite is not the learner's words any more; such an entry stays off the still. */
+const verbatim = (r: Revision) => quoted(r).every((q) => roles(q) === q)
+
+/** The three entries the still shows, in the file's order: the first two dated 2026-10-24, and the v3 plan revision. */
+function pickRevisions(all: Revision[]): Revision[] {
+  const rest = all.filter((r) => !/^6-ship\b/.test(r.lead) && verbatim(r))
+  const dated = rest.filter((r) => r.lead.includes('2026-10-24')).slice(0, 2)
+  const plan = rest.find((r) => /^v3 — .*a plan revision after the v2 film/.test(r.lead))
+  const chosen = [...dated, ...(plan && !dated.includes(plan) ? [plan] : [])]
+  for (const r of rest) {
+    if (chosen.length >= 3) break
+    if (!chosen.includes(r)) chosen.push(r)
+  }
+  return chosen.sort((a, b) => all.indexOf(a) - all.indexOf(b))
+}
+
+function revisionsPage(markdown: string): string {
+  const all = revisions(section(markdown, '## Revisions'))
+  if (all.length === 0) quit('devpost/checklist.md › Revisions has no entries.')
+  const shown = pickRevisions(all)
+  return paper(
+    'Build Checklist — Revisions',
+    `<div class="eyebrow">checklist.md › Revisions</div>
+<h1>Revisions <span class="stamp">${all.length} entries</span></h1>
+<div class="lede">${shown.length} of ${all.length} · the learner’s quoted words marked</div>
+<div class="rule"></div>
+${shown
+      .map(
+        (r) => `<div class="rev">
+  <div class="lead">${inline(roles(r.lead), 'all')}</div>
+  <div class="body clamp-4">${inline(roles(r.body), 'introduced')}</div>
+</div>`,
+      )
+      .join('')}
+<p class="foot">Product names shown as their roles.</p>`,
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -315,7 +421,12 @@ function skillsPage(): string {
 
 // ---------------------------------------------------------------------------
 
-/** In a real document on screen, a product's name becomes its role — the same table, over every text node — and the page says so. */
+/**
+ * In a real document on screen, a product's name becomes its role — the same
+ * table, over every text node — and the page says so. A quote it rewrote (an
+ * <em> that opens with a quote mark: how the HTML companions set the
+ * learner's words) is marked, so shoot() can refuse to show it.
+ */
 async function showRoles(page: Page): Promise<void> {
   const table = ROLES.map(([re, role]) => [re.source, re.flags, role] as const)
   await page.evaluate((rows) => {
@@ -326,7 +437,10 @@ async function showRoles(page: Page): Promise<void> {
     for (const t of nodes) {
       const before = t.data
       const after = res.reduce((s, [re, role]) => s.replace(re, role), before)
-      if (after !== before) t.data = after
+      if (after === before) continue
+      t.data = after
+      const em = t.parentElement?.closest('em')
+      if (em && /^\s*[“"]/.test(em.textContent ?? '')) em.setAttribute('data-rewritten-quote', '')
     }
     const note = document.createElement('div')
     note.textContent = 'Product names shown as their roles.'
@@ -338,13 +452,47 @@ async function showRoles(page: Page): Promise<void> {
   }, table)
 }
 
-async function shoot(page: Page, html: string | URL, file: string, fullPage: boolean): Promise<string> {
+type Shot = {
+  /** The whole page, stitched (for the learner's eye); otherwise the viewport, what the film shows. */
+  fullPage?: boolean
+  /** A selector to scroll to the top of the viewport first. */
+  scrollTo?: string
+  /** CSS added before the shot — to keep something out of it (`visibility: hidden` holds the layout). */
+  hide?: string
+}
+
+async function shoot(page: Page, html: string | URL, file: string, { fullPage = false, scrollTo, hide }: Shot = {}): Promise<string> {
   if (html instanceof URL) {
     await page.goto(html.href, { waitUntil: 'load' })
     await showRoles(page)
   } else await page.setContent(html, { waitUntil: 'load' })
   await page.evaluate(() => document.fonts?.ready).catch(() => {})
+  if (hide) await page.addStyleTag({ content: hide })
+  if (scrollTo) {
+    // The named element sits at the top of the viewport, a breath under the edge.
+    const found = await page.evaluate((sel) => {
+      const el = document.querySelector(sel)
+      if (!el) return false
+      window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 14)
+      return true
+    }, scrollTo)
+    if (!found) quit(`${file}: nothing matches "${scrollTo}" in ${html instanceof URL ? html.pathname : 'the page'}.`)
+  }
   await page.waitForTimeout(150) // a frame for the layout to settle
+  if (!fullPage) {
+    // What the film shows must quote the learner verbatim: a rewritten quote in the viewport stops the capture.
+    const rewritten = await page.evaluate((vh) => {
+      const out: string[] = []
+      for (const em of document.querySelectorAll('em[data-rewritten-quote]')) {
+        const r = em.getBoundingClientRect()
+        if (r.height === 0 || r.bottom <= 0 || r.top >= vh) continue
+        if (getComputedStyle(em).visibility === 'hidden') continue
+        out.push((em.textContent ?? '').trim().slice(0, 60))
+      }
+      return out
+    }, VH)
+    if (rewritten.length) quit(`${file}: the roles table rewrote a learner's quote that would be on screen — keep it out of the shot (hide) or leave the name alone:\n  ${rewritten.join('\n  ')}`)
+  }
   const path = join(OUT, file)
   if (!fullPage) await page.screenshot({ path })
   else {
@@ -359,7 +507,9 @@ async function main(): Promise<void> {
     if (!existsSync(join(DEVPOST, f))) quit(`devpost/${f} is missing; the method beat shows the real documents.`)
   }
   mkdirSync(OUT, { recursive: true })
-  const checklist = checklistPages(readFileSync(join(DEVPOST, 'checklist.md'), 'utf8'))
+  const checklistMd = readFileSync(join(DEVPOST, 'checklist.md'), 'utf8')
+  const checklist = checklistPages(checklistMd)
+  const revisionsHtml = revisionsPage(checklistMd)
   const log = logPage()
   const skills = skillsPage()
 
@@ -369,23 +519,33 @@ async function main(): Promise<void> {
     const page = await context.newPage()
     const doc = async (name: 'scope' | 'prd' | 'spec') => {
       const url = pathToFileURL(join(DEVPOST, `${name}.html`))
-      return { top: await shoot(page, url, `${name}-top.png`, false), full: await shoot(page, url, `${name}-full.png`, true) }
+      return { top: await shoot(page, url, `${name}-top.png`), full: await shoot(page, url, `${name}-full.png`, { fullPage: true }) }
     }
     const index: DocsStills = {
       capturedAt: new Date().toISOString(),
-      scope: await doc('scope'),
+      scope: {
+        ...(await doc('scope')),
+        // Items 1–7 of the v3 changes: 8–10 quote the learner naming products (the queue, the sign-in services), which the
+        // roles table would rewrite, and a quote is shown verbatim or not at all. Item 5, the cut line, stays — verbatim.
+        changes: await shoot(page, pathToFileURL(join(DEVPOST, 'scope.html')), 'scope-changes.png', {
+          scrollTo: '#v3-changes',
+          hide: '#v3-changes .reasons li:nth-child(n+8) { visibility: hidden }',
+        }),
+      },
       prd: await doc('prd'),
       spec: await doc('spec'),
       checklist: {
-        slices: await shoot(page, checklist.slices, 'checklist-slices.png', true),
-        v3: await shoot(page, checklist.v3, 'checklist-v3.png', true),
-        review: await shoot(page, checklist.review, 'checklist-review.png', false),
+        slices: await shoot(page, checklist.slices, 'checklist-slices.png', { fullPage: true }),
+        v3: await shoot(page, checklist.v3, 'checklist-v3.png', { fullPage: true }),
+        review: await shoot(page, checklist.review, 'checklist-review.png'),
+        revisions: await shoot(page, revisionsHtml, 'checklist-revisions.png'),
       },
-      log: await shoot(page, log, 'log.png', false),
-      skills: await shoot(page, skills, 'skills.png', false),
+      log: await shoot(page, log, 'log.png'),
+      skills: await shoot(page, skills, 'skills.png'),
     }
     writeFileSync(join(OUT, 'docs.json'), `${JSON.stringify(index, null, 2)}\n`)
-    const count = 6 + 3 + 2
+    // Every picture the index names: the three documents' top, whole page and (scope) changes, the checklist's four, the log and the skills.
+    const count = JSON.stringify(index).match(/\.png"/g)?.length ?? 0
     console.log(`Document stills: ${count} pictures in ${OUT === join(VIDEO, 'public', 'capture', 'docs') ? 'video/public/capture/docs' : OUT} · docs.json written.`)
     console.log('Next: npm run video:render — the method beat shows them; prepare.mts says DRAFT until they exist.')
   } finally {

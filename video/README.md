@@ -119,14 +119,21 @@ npm run video:docs
 
 It opens `devpost/scope.html`, `prd.html` and `spec.html` in Playwright's
 Chromium and shoots the top of each page (what the sheets in the film show) and
-the whole page; renders `devpost/checklist.md`'s Slices (every slice with its
-ticked box, the v3 slices with their lines) and Final Review from the real file
-with a small renderer of its own; and renders `git log --oneline -30` and the
-six skills of the Learn Skill Pack terminal-style. In the log a third-party
-product's name is shown as its role (the hackathon asks for no third-party
-names on screen) and the header line says so; `devpost/learner-profile.md` is
+the whole page, and `scope.html` once more scrolled to the v3 *Changes Since
+Approval* heading (its items 1–7); renders `devpost/checklist.md`'s Slices
+(every slice with its ticked box, the v3 slices with their lines), Final Review
+and three of its Revisions entries (the learner's quoted words marked) from the
+real file with a small renderer of its own; and renders `git log --oneline -30`
+and the six skills of the Learn Skill Pack terminal-style. In every still a
+third-party product's name is shown as its role (the hackathon asks for no
+third-party names on screen) and the page says so — but never inside the
+learner's own words: a quote that names a product is left out of the shot
+rather than rewritten (the capture refuses a viewport with a rewritten quote
+in it); `devpost/learner-profile.md` is
 personal and never rendered. Everything lands in `video/public/capture/docs/`
-with a `docs.json` index; until it exists the render says DRAFT.
+(13 pictures) with a `docs.json` index; until it exists the render says DRAFT,
+and an older index without the Revisions and Changes stills gets a draft sheet
+in their place and a draft line.
 
 **3. Narrate** — the words are in `video/narration.md`, one section per beat with its word budget. They are yours: the file holds a bracketed placeholder per beat and no drafted lines (the shipping skill's rule), so write each beat in your own words, pick a premade voice, then:
 

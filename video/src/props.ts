@@ -13,12 +13,21 @@ export type NarrationClip = { segmentId: string; src: string; startFrame: number
  */
 export type DocsStills = {
   capturedAt: string
-  /** The HTML companions of scope.md, prd.md and spec.md: the top of each page at the docs viewport, and the whole page. */
-  scope: { top: string; full: string }
+  /**
+   * The HTML companions of scope.md, prd.md and spec.md: the top of each page
+   * at the docs viewport, and the whole page. For the scope, also the v3
+   * "Changes Since Approval" heading at the top of the viewport — null when
+   * an older docs.json has no such still (the beat shows a draft sheet).
+   */
+  scope: { top: string; full: string; changes: string | null }
   prd: { top: string; full: string }
   spec: { top: string; full: string }
-  /** The build checklist: every slice with its ticked box, the v3 slices with their lines, and the Final Review lines. */
-  checklist: { slices: string; v3: string; review: string }
+  /**
+   * The build checklist: every slice with its ticked box, the v3 slices with
+   * their lines, the Final Review lines, and three of the Revisions entries
+   * with the learner's quoted words marked (null as `scope.changes`).
+   */
+  checklist: { slices: string; v3: string; review: string; revisions: string | null }
   /** The repository's recent commits, terminal-styled (product names shown as their roles). */
   log: string
   /** The six skills of the hackathon's Learn Skill Pack, as a listing. */

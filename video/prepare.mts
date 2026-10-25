@@ -97,7 +97,17 @@ function docsStills(draft: string[]): DocsStills | null {
     draft.push(`capture/docs/docs.json names ${missing.length} picture${missing.length === 1 ? '' : 's'} that ${missing.length === 1 ? 'is' : 'are'} not here — run \`npm run video:docs\` again.`)
     return null
   }
-  return docs
+  // The two stills the v3 film's third movement shows (the Revisions entries,
+  // the scope's Changes Since Approval): an older docs.json has none, and the
+  // beat shows a draft sheet in their place rather than losing the others.
+  const here = (p: string | null | undefined) => (typeof p === 'string' && existsSync(pub(p)) ? p : null)
+  const revisions = here(docs.checklist.revisions)
+  const changes = here(docs.scope.changes)
+  const absent = [...(revisions ? [] : ['checklist-revisions']), ...(changes ? [] : ['scope-changes'])]
+  if (absent.length) {
+    draft.push(`capture/docs/docs.json has no ${absent.join(' or ')} still — the method beat shows a draft sheet there; run \`npm run video:docs\` again.`)
+  }
+  return { ...docs, scope: { ...docs.scope, changes }, checklist: { ...docs.checklist, revisions } }
 }
 
 function narrationClips(
