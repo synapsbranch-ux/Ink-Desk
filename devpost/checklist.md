@@ -252,7 +252,7 @@ Order by risk, as the learner set it — *domain + storage + Redis/BullMQ worker
   Learner check: sign up with email and password and see no other way to sign in; see the card say no email is sent and there is no password reset; in Settings › Account change the password and sign out another device; with two accounts, paste one account's project address into the other and see "There is no such project". **Hands-on checkpoint.**
   Commit: `Accounts: Better Auth on the domain, ownership on every record` — tag `v3-cp4`
 
-- [ ] **20. Limits — rate limits, quotas, the spend reservation and the kill switch; generation opens**
+- [x] **20. Limits — rate limits, quotas, the spend reservation and the kill switch; generation opens**
   Becomes usable: generation is **on for everyone** — inside a small free quota (allowlisted emails get more), with a quota meter in the header, a Usage page, an 80% warning, disabled buttons that give the reason and the reset time, and a global daily spend cap that pauses generation for everyone with one clear message.
   Why now: the audit's second critical finding (SEC-02) — anonymous, unmetered spending — is the last thing standing between the domain and the public; nothing that spends opens before it.
   PRD ref: `prd.md > Limits and Usage (v3)`
