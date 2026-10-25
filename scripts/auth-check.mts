@@ -175,9 +175,12 @@ try {
           if (!source.includes(needle)) problems.push(`${path}: is missing ${needle}`)
         }
         const handle = source.slice(source.indexOf('async function handle('))
-        const guard = handle.indexOf('await guard(req)')
-        const handler = handle.indexOf('.handler(req)')
-        if (guard === -1 || handler === -1 || handler < guard) problems.push(`${path}: Better Auth sees the request before the guard`)
+        // Better Auth must be handed the guard's result — the request the guard rebuilt on the bytes it read (2026-10-25:
+        // the body is read here, capped, so the caller's own stream never reaches Better Auth) — and only after it.
+        const guarded = /const (\w+) = await guard\(req\)/.exec(handle)
+        const guard = guarded ? guarded.index : -1
+        const handler = guarded ? handle.indexOf(`.handler(${guarded[1]})`) : -1
+        if (guard === -1 || handler === -1 || handler < guard || handle.includes('.handler(req)')) problems.push(`${path}: Better Auth sees the request before the guard`)
         return problems
       }
       const list = handlers(source)
