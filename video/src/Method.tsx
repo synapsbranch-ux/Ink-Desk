@@ -21,6 +21,8 @@ const DESIGN = 660
 
 /** The six skills, in the order they are run. */
 export const STEPS = ['1-start', '2-scope', '3-prd', '4-spec', '5-build', '6-ship'] as const
+/** What each step produced, one line under its kicker — facts of the record, not the learner's copy. */
+const STEP_MADE = ['the interview', 'scope.md', 'prd.md', 'spec.md', '23 slices, checked', 'this film'] as const
 
 type SheetKey = 'scope' | 'prd' | 'spec' | 'checklist' | 'log'
 type SheetSpec = { key: SheetKey; file: string; line: string; step: number; tilt: number }
@@ -170,12 +172,25 @@ const Chain: React.FC<{ f: number; current: number }> = ({ f, current }) => (
             >
               {step}
             </span>
+            <div
+              style={{
+                marginTop: 8,
+                fontFamily: font.heading,
+                fontStyle: 'italic',
+                fontSize: 21,
+                lineHeight: 1.1,
+                color: lit ? color.ink : color.neutral600,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {STEP_MADE[i]}
+            </div>
             {/* The seal's red marks the step the desk is on. */}
             <span
               style={{
                 position: 'absolute',
                 left: '50%',
-                bottom: -14,
+                bottom: -16,
                 width: 8,
                 height: 8,
                 marginLeft: -4,
