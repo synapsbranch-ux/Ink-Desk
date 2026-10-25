@@ -3,7 +3,7 @@
   "recordedAt": "2026-10-25T14:13:03.361Z",
   "quality": "high",
   "footage": "capture/footage.mp4",
-  "duration": 386.83,
+  "duration": 394.1,
   "marks": [
     {
       "name": "sign-in",
@@ -71,19 +71,19 @@
     },
     {
       "name": "pdf-exported",
-      "t": 367.72
+      "t": 375.56
     },
     {
       "name": "share-link",
-      "t": 375.31
+      "t": 379.96
     },
     {
       "name": "share-opened",
-      "t": 383.18
+      "t": 388.03
     },
     {
       "name": "end",
-      "t": 385.82
+      "t": 393.49
     }
   ],
   "stills": {
@@ -128,5 +128,11 @@
     "cover": "capture/stills/cover-175e9f5c-cc1d-4a97-a1b0-8cca12ffe1df.png"
   },
   "path": "fresh",
-  "share": "/s/2H54P71ifKXy9vti1d4aWW"
+  "share": "/s/2H54P71ifKXy9vti1d4aWW",
+  "spliced": {
+    "at": "2026-10-25T18:46:01+00:00",
+    "note": "From 'reader-open' on, the footage is a second walk of the same finished chapter (--project, nothing generated): the reader with two pages turned, the export, the share, the public page with its Report control.",
+    "cutAtSeconds": 361.72,
+    "secondWalkRecordedAt": "2026-10-25T18:42:12.727Z"
+  }
 }
