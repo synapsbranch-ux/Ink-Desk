@@ -220,7 +220,7 @@ Order by risk, as the learner set it — *domain + storage + Redis/BullMQ worker
   Learner check: open `https://<your-domain>` on your phone and your laptop — the dashboard and an existing project load from Mongo and the bucket over HTTPS, and pressing a generate button says generation is not open yet. **Hands-on checkpoint.**
   Commit: `Foundation: Railway, Mongo and the buckets, validated config, hardened requests, health` — tag `v3-cp1`
 
-- [ ] **17. The motion kernel test — does the face hold in motion?**
+- [x] **17. The motion kernel test — does the face hold in motion?**
   Becomes usable: `scripts/kernel-test.mjs --motion` animates one locked character in three shots (close-up 1:1, medium 1:1, wide 16:9), 5 s each at 720p on `bytedance/seedance-2.0`, in **method A** (the panel as first frame) and **method B** (panel and sheet as references), and writes `data/kernel-test/motion/index.html` with first/middle/last-frame strips beside the sheet and a `manifest.json` whose verdict is `null` until the learner fills it.
   Why now: it is the riskiest unknown in v3 and the money shot of the re-filmed video, it needs nothing built first, and the docs already ruled out the learner's first design (first frame and references in one call are exclusive). If neither method holds, the Animate slice and the video change shape — better known on day one than on Oct 21.
   PRD ref: `prd.md > Animate a Page (v3)` (the motion proof), `scope.md > The Unique Kernel (v3)`
