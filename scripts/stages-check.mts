@@ -17,8 +17,9 @@ assert.equal(stageLine(PANEL_STAGES, 0), 'Sketching the pose…')
 assert.equal(stageLine(PANEL_STAGES, 25), 'Adding screentone…')
 assert.equal(stageLine(PANEL_STAGES, 70), 'Still inking — a dense scene takes longer…')
 
-// Draw sheet starts with Claude writing the DNA; Redraw sheet starts drawing.
-assert.equal(stageLine(SHEET_FRESH_STAGES, 0), 'Claude is writing the visual DNA…')
+// Draw sheet starts with the AI writing the DNA (named by its role on screen since 6-ship, commit 873a6e4 — the
+// hackathon's video rule); Redraw sheet starts drawing.
+assert.equal(stageLine(SHEET_FRESH_STAGES, 0), 'The AI is writing the visual DNA…')
 assert.match(stageLine(SHEET_STAGES, 0), /^Sketching/)
 
 // A text wait opens with the caller's own line.

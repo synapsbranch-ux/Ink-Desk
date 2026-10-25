@@ -13,6 +13,10 @@
 //     free plan and can never match ALLOWLIST_EMAILS or ADMIN_EMAILS. The
 //     learner still makes verified accounts (their own, and the judges' demo
 //     account) with `npm run judge:account`, through `createAccount` below.
+//   • What an account holds is the server's to say, not the form's: the display
+//     name is the address before the @ (`displayNameOf`, at most 64
+//     characters), no picture is kept, and Better Auth's `/update-user` is off
+//     (`disabledPaths`) — the studio never calls it (2026-10-25).
 //   • Accounts and sessions live in the studio's own MongoDB, in Better Auth's
 //     collections (`user`, `session`, `account`, `verification`) beside the
 //     studio's own `users` records — the names never meet.
@@ -51,6 +55,18 @@ export type AccountUser = { id: string; email: string; emailVerified: boolean; c
 export const PASSWORD_MIN = 10
 export const PASSWORD_MAX = 128
 
+/** The longest display name an account gets. */
+export const NAME_MAX = 64
+
+/**
+ * The display name every account gets — the part of the address before the @, at most `NAME_MAX` characters — whatever
+ * a form sent (2026-10-25: sign-up is open, and Better Auth would otherwise store any `name`, of any length, and any
+ * `image`, as sent). The studio shows neither; Privacy says what is kept.
+ */
+export function displayNameOf(email: string): string {
+  return email.trim().split('@')[0].slice(0, NAME_MAX) || 'Storyteller'
+}
+
 /**
  * Write the studio's own record of an account: the id, the address only when it is verified, and when the account was
  * made. The store writes nothing when nothing changed, and a deleted account stays deleted (its tombstone wins).
@@ -73,6 +89,9 @@ export function authOptions(settings: Pick<BetterSettings, 'secret' | 'baseURL' 
     basePath: AUTH_API_PATH,
     trustedOrigins: settings.authorizedParties,
     database,
+    // Better Auth's `/update-user` would let a signed-in caller store any name and any `image` URL; the studio never
+    // calls it (there is nothing in an account to change but the password), so it is a 404 (2026-10-25).
+    disabledPaths: ['/update-user'],
     emailAndPassword: {
       enabled: true,
       // Sign-up is open (2026-10-25): an account made there is signed in at once, unverified (see above).
@@ -105,7 +124,11 @@ export function authOptions(settings: Pick<BetterSettings, 'secret' | 'baseURL' 
     },
     databaseHooks: {
       user: {
-        create: { after: async (user: AccountUser) => mirror(user) },
+        create: {
+          // The name is the server's, from the address, and no picture is kept: what a sign-up form sends for either is ignored.
+          before: async (user) => ({ data: { name: displayNameOf(user.email), image: null } }),
+          after: async (user: AccountUser) => mirror(user),
+        },
         update: { after: async (user: AccountUser) => mirror(user) },
       },
     },
@@ -152,7 +175,7 @@ export async function createAccount(auth: Pick<Auth, '$context'>, input: { email
   if (input.password.length < PASSWORD_MIN || input.password.length > PASSWORD_MAX) throw new Error(`The password must be ${PASSWORD_MIN} to ${PASSWORD_MAX} characters.`)
   if (await ctx.internalAdapter.findUserByEmail(email)) throw new Error('There is already an account with that email.')
   const hash = await ctx.password.hash(input.password)
-  const user = await ctx.internalAdapter.createUser({ email, name: email.split('@')[0] || 'Storyteller', emailVerified: true }, { method: 'admin' })
+  const user = await ctx.internalAdapter.createUser({ email, name: displayNameOf(email), emailVerified: true }, { method: 'admin' })
   await ctx.internalAdapter.linkAccount({ userId: user.id, providerId: 'credential', accountId: user.id, password: hash })
   return { id: user.id, email: user.email, createdAt: user.createdAt }
 }
