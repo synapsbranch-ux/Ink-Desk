@@ -35,13 +35,13 @@ import {
 
 const sec = (frames: number) => frames / FPS
 const near = (a: number, b: number, msg: string) => assert.ok(Math.abs(a - b) <= 1 / FPS + 1e-9, `${msg}: ${a} vs ${b}`)
-const TOTAL = 167
+const TOTAL = 168
 
 // --- The real edit --------------------------------------------------------
 // Under three minutes at its budget, which is the longest it can ever be:
 // footage is only ever sped up to fit, never slowed down past it.
 assert.ok(budgetSeconds(CUT) < MAX_SECONDS, `the edit is budgeted at ${budgetSeconds(CUT)} s`)
-// The twelve beats of the learner's brief (6-ship), at their budgets: 167 s.
+// The twelve beats of the learner's brief (6-ship), at their budgets: 168 s (method took a second more for the learner's lines).
 assert.equal(budgetSeconds(CUT), TOTAL, `the edit is budgeted at ${budgetSeconds(CUT)} s, not ${TOTAL}`)
 assert.equal(CUT.length, 12, 'twelve beats')
 assert.deepEqual(
@@ -51,13 +51,13 @@ assert.deepEqual(
 )
 assert.deepEqual(
   CUT.map((s) => s.shots.reduce((t, shot) => t + shot.seconds, 0)),
-  [14, 10, 10, 20, 16, 22, 12, 12, 10, 22, 15, 4],
+  [14, 10, 10, 20, 16, 22, 12, 12, 10, 23, 15, 4],
   'the budgets of the brief',
 )
 // How it was built, then what was learned, then the title card — the last words are the learner's.
 const index = (id: string) => CUT.findIndex((s) => s.id === id)
 assert.ok(index('method') === index('learned') - 1 && index('learned') === index('outro') - 1, 'method, learned, outro close the film')
-assert.deepEqual(beat('method').shots, [{ kind: 'method', seconds: 22 }])
+assert.deepEqual(beat('method').shots, [{ kind: 'method', seconds: 23 }])
 assert.deepEqual(beat('learned').shots, [{ kind: 'learned', seconds: 15 }])
 assert.equal(beat('outro').silent, true, 'the outro is a silent title card')
 assert.ok(CUT.filter((s) => s.silent).length === 1, 'only the outro is silent')

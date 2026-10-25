@@ -1,14 +1,14 @@
 // The edit — the learner's brief for the v3 film (6-ship): the real app end
 // to end on the live studio, how it was built with the hackathon's Learn
-// Skill Pack, and what the learner learned. Twelve beats, 167 s (2:47).
+// Skill Pack, and what the learner learned. Twelve beats, 168 s (2:48).
 // One segment per beat; its id is the section of narration.md spoken over
 // it (the outro is silent: a title card, no section). Seconds are budgets:
 // footage that runs longer is time-lapsed to fit, shorter plays as is. Change
 // the beats here; the check (`npm run check:demo-timeline`) holds the total
-// at 167 s, under the hackathon's three minutes.
+// at 168 s, under the hackathon's three minutes.
 //
 //   intro 14 · signin 10 · project 10 · library 20 · director 16 · pages 22 ·
-//   moneyshot 12 · reader 12 · share 10 · method 22 · learned 15 · outro 4 = 167 s
+//   moneyshot 12 · reader 12 · share 10 · method 23 · learned 15 · outro 4 = 168 s
 //
 // A footage shot names its marks for both capture paths (src/timeline.ts
 // MARKS): a fresh project generated on camera, or a finished chapter walked
@@ -89,7 +89,7 @@ export const CUT: Segment[] = [
   {
     id: 'method',
     label: 'How it was built: the Learn Skill Pack, step by step',
-    shots: [{ kind: 'method', seconds: 22 }],
+    shots: [{ kind: 'method', seconds: 23 }], // 23: the learner's method lines run 21.6 s
   },
   {
     id: 'learned',

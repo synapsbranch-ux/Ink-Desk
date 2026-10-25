@@ -12,7 +12,7 @@ learner's own words.
 ```
 video/
   narration.md         the script — the narration and the captions, one section per beat (placeholders only: the words are yours)
-  src/cut.ts           the edit: the twelve beats, their shots and their budgets (2:47)
+  src/cut.ts           the edit: the twelve beats, their shots and their budgets (2:48)
   music/generate.mts   generates the background music with a music model through OpenRouter (prompt.txt beside it)
   music/compose.mts    composes the background music in code — an original track, the same bytes every run
   timeline.json        written by the capture: when each moment happened in the footage
@@ -27,8 +27,8 @@ video/
 The beats (`src/cut.ts`): intro 14 s · sign in 10 · the desk and a project 10 ·
 the scenario, the library and the locked cast 20 · the Director's plan 16 ·
 pages ink in and a bubble edit 22 · the money shot 12 · the reader and the PDF
-12 · a public link, opened signed out 10 · how it was built 22 · what I learned
-15 · a silent title card 4 = 167 s.
+12 · a public link, opened signed out 10 · how it was built 23 · what I learned
+15 · a silent title card 4 = 168 s.
 
 ## Setup
 

@@ -59,7 +59,7 @@ The reader opens on the cover, then the pages, right to left. Export PDF binds t
 Share publicly: a link anyone opens, no account. The visitor sees the chapter and Report. Nothing else of mine.
 
 ## method
-<!-- How it was built: the Learn Skill Pack, step by step · 22 s · about 46 words -->
+<!-- How it was built: the Learn Skill Pack, step by step · 23 s · about 48 words -->
 Under the hackathon's Learn Skill Pack, the AI interviewed me before any code: scope, PRD, spec, each approved. Then 23 slices, each verified by a check script, committed, and checked hands-on. Every mid-build change sits in Revisions, in my words, so docs and code never drift.
 
 ## learned
