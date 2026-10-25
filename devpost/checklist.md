@@ -274,7 +274,7 @@ Order by risk, as the learner set it — *domain + storage + Redis/BullMQ worker
   Learner check: share a chapter, open the link signed out on your phone, paste it in a chat app and see the preview, report it, find the report in the admin list, unpublish it; export your data; delete a throwaway account and confirm it is gone. **Hands-on checkpoint.**
   Commit: `Sharing, reports and settings: share links, the admin list, export and account deletion` — tag `v3-cp6`
 
-- [ ] **22. Animate a page — the one-page trailer**
+- [x] **22. Animate a page — the one-page trailer**
   Becomes usable: on a finished page, **Animate** shows the estimate and quota, then makes one Seedance shot per panel with its own progress card (a failed shot retries alone), speaks each line in its character's voice, reveals the bubbles on time, lays music under, assembles a 20–30 s trailer in the worker, and puts it on the dashboard — shareable on `/s/<token>`.
   Why now: the learner's order puts video after the Studio features; slice 17 already chose the method, so this is assembly of verified parts, not a gamble.
   PRD ref: `prd.md > Animate a Page (v3)`, `prd.md > Sharing (v3)`
