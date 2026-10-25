@@ -55,14 +55,35 @@
 import './server-only.mts' // first: lets server modules load outside Next (SEC-15)
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
-import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { registerHooks } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const dir = await mkdtemp(join(tmpdir(), 'inkdesk-auth-'))
 const env = process.env as Record<string, string | undefined>
+
+// The sign-in and sign-up pages are rendered here without Next (section f2): the two request-scope functions they call
+// are stood in for — `headers()` reads whatever the check set, `connection()` has nothing to wait for — and `next/server`
+// only for those two pages, so the proxy keeps the real one.
+const stubs = join(dir, '.stubs')
+await mkdir(stubs, { recursive: true })
+await writeFile(join(stubs, 'headers.cjs'), 'module.exports = { headers: async () => globalThis.__authCheckHeaders ?? new Headers() }')
+await writeFile(join(stubs, 'server.cjs'), 'module.exports = { connection: async () => {} }')
+const stubUrl = (name: string) => pathToFileURL(join(stubs, name)).href
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (specifier === 'next/headers') return { url: stubUrl('headers.cjs'), format: 'commonjs', shortCircuit: true }
+    if (specifier === 'next/server' && /\/app\/sign-(in|up)\//.test(decodeURIComponent(context.parentURL ?? ''))) return { url: stubUrl('server.cjs'), format: 'commonjs', shortCircuit: true }
+    return nextResolve(specifier, context)
+  },
+})
+/** The request the rendered pages see (section f2). */
+const asRequest = (headers: Record<string, string>) => {
+  ;(globalThis as { __authCheckHeaders?: Headers }).__authCheckHeaders = new Headers(headers)
+}
 
 // Whatever this shell holds — another app's sign-in, database or bucket — is
 // never read here: every real credential is dropped before anything loads.
@@ -832,11 +853,11 @@ try {
       pinAuth()
       // Signed out: the sign-up card, with its fields, the way to sign in, and the plain words.
       asRequest({})
-      const up = renderToStaticMarkup((await signUpPage()) as React.ReactElement)
+      const up = renderToStaticMarkup((await signUpPage()) as Parameters<typeof renderToStaticMarkup>[0])
       for (const needle of ['Make an account', 'name="email"', 'name="password"', 'minLength="10"', 'maxLength="128"', 'autoComplete="new-password"', 'Have an account?', 'href="/sign-in"', 'no password reset', 'free plan', 'href="/terms"', 'href="/privacy"']) {
         assert.ok(up.includes(needle), `the sign-up page shows ${needle}`)
       }
-      const signIn = renderToStaticMarkup((await signInPage(none)) as React.ReactElement)
+      const signIn = renderToStaticMarkup((await signInPage(none)) as Parameters<typeof renderToStaticMarkup>[0])
       for (const needle of ['Sign in', 'No account?', 'href="/sign-up"', 'Sign up', 'no password reset', 'Anyone can make an account']) assert.ok(signIn.includes(needle), `the sign-in page shows ${needle}`)
       assert.ok(!/There is no sign-up/i.test(signIn) && !/no sign-up/i.test(up), 'neither says there is no sign-up')
       // Signed in: both pages send the visitor to the desk (sign-in to where they were going).
@@ -845,7 +866,7 @@ try {
       assert.equal(await redirectedTo(() => signUpPage()), '/', 'a signed-in visitor to /sign-up goes to the desk')
       assert.equal(await redirectedTo(() => signInPage({ searchParams: Promise.resolve({ next: '/settings/usage' }) })), '/settings/usage')
       asRequest({ cookie: '__Secure-inkdesk.session_token=stale.value' })
-      assert.ok(renderToStaticMarkup((await signUpPage()) as React.ReactElement).includes('Make an account'), 'a stale cookie still sees the card')
+      assert.ok(renderToStaticMarkup((await signUpPage()) as Parameters<typeof renderToStaticMarkup>[0]).includes('Make an account'), 'a stale cookie still sees the card')
       asRequest({})
     })
     for (const mode of ['off', 'test']) {
@@ -875,11 +896,13 @@ try {
       }) as typeof fetch
     }
     try {
-      // On the sign-in page itself, a 401 never sends anyone anywhere.
-      g.window = browser('/sign-in')
-      replying([401])
-      assert.equal((await apiFetch('/api/projects')).status, 401)
-      assert.equal(seen.assigned.length, 0, 'never from the sign-in pages')
+      // On the sign-in and sign-up pages themselves, a 401 never sends anyone anywhere.
+      for (const page of ['/sign-in', '/sign-up']) {
+        g.window = browser(page)
+        replying([401])
+        assert.equal((await apiFetch('/api/projects')).status, 401)
+        assert.equal(seen.assigned.length, 0, `never from ${page}`)
+      }
       // Anywhere else: asked once (no retry), then off to sign-in with the way back — once, however many replies follow.
       g.window = browser('/p/abc')
       replying([401, 401])
@@ -892,7 +915,7 @@ try {
       delete g.window
       globalThis.fetch = offline
     }
-    ok('apiFetch: a 401 is asked once and sends the page to /sign-in?next=<where it was>, once; never from the sign-in pages')
+    ok('apiFetch: a 401 is asked once and sends the page to /sign-in?next=<where it was>, once; never from the sign-in or sign-up page')
   }
 
   // --- h. Admins (slice 21) -------------------------------------------------------------------
