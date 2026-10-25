@@ -929,6 +929,14 @@ async function seededJourney(seed: SeedRead, id: string): Promise<void> {
 async function editBubble(seed: SeedRead): Promise<void> {
   step = 'editing a speech bubble'
   const bubble = page.getByRole('textbox', { name: 'Panel 1 dialogue — click to edit' })
+  if (((await bubble.textContent()) ?? '').trim() === seed.bubble.trim()) {
+    // Already the seed's words (a chapter walked twice): nothing to retype, and
+    // nothing would be saved — the mark is kept so the edit keeps its shape.
+    await pointAt(bubble)
+    await pause(BEAT * 1.2)
+    await mark('bubble-edited')
+    return
+  }
   await press(bubble)
   await page.keyboard.press('ControlOrMeta+A')
   await page.keyboard.type(seed.bubble, { delay: 70 })
@@ -955,7 +963,19 @@ async function publish(): Promise<void> {
   await until('the reader’s pictures', 60_000, mainPicturesLoaded)
   await mark('reader-open')
   await glide(W * 0.5, H * 0.55)
-  await pause(BEAT * 2.4)
+  await pause(BEAT * 1.6)
+
+  // Two pages turned in the style's reading order (the cover, then page 1,
+  // then page 2), so the film shows the chapter being read, not only its cover.
+  step = 'turning the pages'
+  const pagesNav = page.getByRole('navigation', { name: 'Pages' })
+  const next = pagesNav.getByRole('button', { name: /^(← Next|Next →)$/ })
+  for (let i = 0; i < 2; i++) {
+    if (!(await next.isVisible()) || (await next.isDisabled())) break
+    await press(next)
+    await until(`page ${i + 1} of the reader`, 30_000, mainPicturesLoaded)
+    await pause(BEAT * 1.3)
+  }
 
   step = 'exporting the PDF'
   const download = page.waitForEvent('download', { timeout: 180_000 })
@@ -1028,7 +1048,17 @@ async function publish(): Promise<void> {
   await until('the public page’s pictures', 60_000, mainPicturesLoaded)
   await glide(W * 0.5, H * 0.52) // the pointer appears: a reader, not a screenshot
   await mark('share-opened')
-  await pause(BEAT * 2.5)
+  await pause(BEAT * 1.4)
+  // Down to the page's foot, where a visitor finds Report — what the public
+  // page offers besides the chapter.
+  step = 'showing the Report control'
+  const report = page.locator('button.report-open').first()
+  if (await report.count()) {
+    await report.evaluate((el) => el.scrollIntoView({ behavior: 'smooth', block: 'center' }))
+    await settleScroll()
+    await pointAt(report)
+    await pause(BEAT * 1.6)
+  }
   await mark('end')
   await pause(BEAT)
 }
