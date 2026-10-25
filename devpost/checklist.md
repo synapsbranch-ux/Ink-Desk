@@ -242,7 +242,7 @@ Order by risk, as the learner set it — *domain + storage + Redis/BullMQ worker
   Learner check: on the domain (generation on for your account only, by flag), start a page, redeploy `web` from Railway mid-way, and watch the panels finish anyway; then stop Redis and see the busy message while your projects still open. **Hands-on checkpoint.**
   Commit: `The worker: BullMQ queues on Redis, jobs recorded in Mongo, restarts lose nothing` — tag `v3-cp3`
 
-- [ ] **19. Accounts and ownership — Better Auth (Clerk until 2026-10-24), and every record checked against its owner**
+- [x] **19. Accounts and ownership — Better Auth (Clerk until 2026-10-24), and every record checked against its owner**
   Becomes usable: the domain root is the studio's own sign-in (email and password only) for a stranger and the dashboard for a signed-in user; each user sees and touches only their own work; Settings › Account shows the email and whether it is verified, changes the password and signs out other devices; Terms and Privacy pages are linked from sign-in. No email is sent: no verification, no password reset, no email change.
   Why now: the audit's first critical finding (SEC-01) — no route knows who is calling — and nothing about limits, sharing or deletion can be built without an owner.
   PRD ref: `prd.md > Accounts and Sign-in (v3)`, `prd.md > Ownership and Privacy (v3)`, `prd.md > Terms and Privacy (v3)`
