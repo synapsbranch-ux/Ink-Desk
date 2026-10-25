@@ -5,18 +5,20 @@
 //
 //   • Email and password, and nothing else — the one sign-in the plan names
 //     (`devpost/prd.md > Accounts and Sign-in (v3)`).
+//   • Nobody signs up: there is no sign-up page and Better Auth refuses
+//     `/sign-up/email`. The only accounts are the ones the learner makes with
+//     `npm run judge:account` (their own, and the judges'), through
+//     `createAccount` below.
 //   • Accounts and sessions live in the studio's own MongoDB, in Better Auth's
 //     collections (`user`, `session`, `account`, `verification`) beside the
 //     studio's own `users` records — the names never meet.
 //   • No email is ever sent: there is no email service. So nobody's address is
-//     taken on their word. An account made on the sign-up page starts
-//     UNVERIFIED and stays so. The studio's `users` record — what ALLOWLIST_EMAILS and ADMIN_EMAILS are
+//     taken on its own. The studio's `users` record — what ALLOWLIST_EMAILS and ADMIN_EMAILS are
 //     matched against — carries the address only when it is verified
 //     (`recordAccount`). A stranger who signs up with the learner's address gets
-//     a free account and nothing more. The only way an address becomes verified
-//     is `scripts/judge-account.mts`, run by the learner: it makes the judge
-//     account, and marks an existing account (the learner's own, for
-//     ADMIN_EMAILS) verified.
+//     nothing. `createAccount` (run by the learner through
+//     `scripts/judge-account.mts`) marks the address verified when it makes
+//     the account, because the learner vouches for it.
 //   • Deleting an account is the studio's job (`lib/account/deletion.ts`), never
 //     Better Auth's own endpoint: the sweep removes the work first and the
 //     sign-in last (`deleteSignIn`).
@@ -63,8 +65,8 @@ export function authOptions(settings: Pick<BetterSettings, 'secret' | 'baseURL' 
     database,
     emailAndPassword: {
       enabled: true,
-      autoSignIn: true,
-      // Nothing can be sent, so nothing is waited for: the address simply counts as unverified (see above).
+      // No sign-up: accounts are made by the learner only (`createAccount`).
+      disableSignUp: true,
       requireEmailVerification: false,
       minPasswordLength: PASSWORD_MIN,
       maxPasswordLength: PASSWORD_MAX,
@@ -124,6 +126,22 @@ export function getAuth(): Auth {
   const key = JSON.stringify(settings)
   if (g.__inkdeskAuth?.key !== key) g.__inkdeskAuth = { key, auth: build(settings) }
   return g.__inkdeskAuth.auth
+}
+
+/**
+ * Make an email-and-password account, verified — the only way an account comes to exist (sign-up is closed). Run by the
+ * learner through `scripts/judge-account.mts`: the judges' account and their own. Better Auth's own structure: a user,
+ * and a `credential` account holding the password's hash. The studio's record is written by the user hook.
+ */
+export async function createAccount(auth: Pick<Auth, '$context'>, input: { email: string; password: string }): Promise<{ id: string; email: string; createdAt: Date }> {
+  const ctx = await auth.$context
+  const email = input.email.trim().toLowerCase()
+  if (input.password.length < PASSWORD_MIN || input.password.length > PASSWORD_MAX) throw new Error(`The password must be ${PASSWORD_MIN} to ${PASSWORD_MAX} characters.`)
+  if (await ctx.internalAdapter.findUserByEmail(email)) throw new Error('There is already an account with that email.')
+  const hash = await ctx.password.hash(input.password)
+  const user = await ctx.internalAdapter.createUser({ email, name: email.split('@')[0] || 'Storyteller', emailVerified: true }, { method: 'admin' })
+  await ctx.internalAdapter.linkAccount({ userId: user.id, providerId: 'credential', accountId: user.id, password: hash })
+  return { id: user.id, email: user.email, createdAt: user.createdAt }
 }
 
 /**

@@ -29,7 +29,7 @@ let leaving = false
 function toSignIn(): void {
   if (leaving || typeof window === 'undefined') return
   const { pathname, search } = window.location
-  if (pathname.startsWith('/sign-in') || pathname.startsWith('/sign-up')) return
+  if (pathname.startsWith('/sign-in')) return
   leaving = true
   // A full load, not a router push: this runs outside React, and sign-in starts the session fresh.
   window.location.assign(signInHref(`${pathname}${search}`))

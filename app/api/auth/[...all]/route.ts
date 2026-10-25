@@ -1,5 +1,5 @@
-// Better Auth's routes (the Better Auth revision, 2026-10-24): sign-up and
-// sign-in with email and password, sign-out, the session, the password change
+// Better Auth's routes (the Better Auth revision, 2026-10-24): sign-in with
+// email and password (there is no sign-up — Better Auth refuses it), sign-out, the session, the password change
 // and the sessions list that Settings › Account uses. See `devpost/spec.md > Revision v3 > Auth (v3)`.
 //
 // Open to a signed-out caller — that is the point of it — so it guards itself
@@ -8,9 +8,8 @@
 //     accounts, and the route is the studio's 404;
 //   • a body larger than any of these forms is refused unread;
 //   • every write takes the `signin` window per client address (password
-//     guesses), and making an account with a password takes `signup` as well;
-//     a read (the session) takes the signed-out `anon` window.
-//     Both sign-in windows fail CLOSED when the counter store is down.
+//     guesses); a read (the session) takes the signed-out `anon` window. The
+//     sign-in window fails CLOSED when the counter store is down.
 // The proxy has already refused a write from another origin (`isCrossOrigin`),
 // and Better Auth checks the origin against `trustedOrigins` again.
 import { signInOn } from '@/lib/auth/config'
@@ -19,7 +18,7 @@ import { Refused, errorResponse } from '@/lib/errors'
 
 export const runtime = 'nodejs'
 
-/** The largest form here (sign-up: a name, an address, a password) is well under this. */
+/** The largest form here (an address and a password) is well under this. */
 const BODY_LIMIT_BYTES = 16 * 1024
 
 const NOT_FOUND = 'There is no such page.'
@@ -33,7 +32,6 @@ async function guard(req: Request): Promise<void> {
   const { limitByAddress } = await import('@/lib/limits/requests')
   if (req.method === 'GET' || req.method === 'HEAD') return limitByAddress(req, 'anon')
   await limitByAddress(req, 'signin')
-  if (new URL(req.url).pathname.endsWith('/sign-up/email')) await limitByAddress(req, 'signup')
 }
 
 async function handle(req: Request): Promise<Response> {

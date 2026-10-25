@@ -1378,8 +1378,11 @@ ChapterPlan { pageCount, coverBrief, pages[{ panels: PanelLine[4] }] }</pre>
       <code>better-auth</code> 1.7.12, open source, inside the <code>web</code> service, with accounts and sessions in the
       studio&#8217;s own MongoDB. <strong>Email and password only</strong> &mdash; Google and GitHub sign-in were cut the same
       day at the learner&#8217;s word, <em>&ldquo;make sure only email and password sign in / up are there and no google and github&rdquo;</em>; <strong>no
-      email service</strong> (no verified email for password accounts, no password reset, no email change) and
-      <strong>no CAPTCHA</strong> (per-address sign-in and sign-up limits instead). No webhook, no DNS records, no outside
+      email service</strong> (no password reset, no email change) and
+      <strong>no CAPTCHA</strong> (a per-address sign-in limit instead). <strong>No sign-up</strong> (2026-10-24, the
+      learner&#8217;s word, <em>&ldquo;dans ce cas je veux que tu update scope and prd to remove account creation for other user&rdquo;</em>): <code>disableSignUp: true</code>, no sign-up page or route; the only way an
+      account exists is the learner&#8217;s <code>npm run judge:account</code> (<code>createAccount</code>), which makes it
+      already verified. No webhook, no DNS records, no outside
       host in the CSP. The sections below are updated where they described Clerk; the full as-built record is in
       <code>spec.md &gt; As built &mdash; Better Auth (2026-10-24)</code>. Docs:
       <code>https://www.better-auth.com/docs</code>.</p>
@@ -1640,8 +1643,8 @@ ChapterPlan { pageCount, coverBrief, pages[{ panels: PanelLine[4] }] }</pre>
     <div class="card" style="border-color:var(--hanko);background:var(--hanko-100)">
       <h4 style="margin-top:0;color:var(--hanko)">What the judges open</h4>
       <p style="margin-bottom:0"><code>https://&lt;your-domain&gt;</code> &mdash; sign in with the
-        judge demo account from the Devpost testing instructions (the learner writes them), or sign
-        up.</p>
+        judge demo account from the Devpost testing instructions (the learner writes them). There is no
+        sign-up: the learner makes every account with <code>npm run judge:account</code>.</p>
     </div>
   </div>
 
@@ -1794,14 +1797,15 @@ ChapterPlan { pageCount, coverBrief, pages[{ panels: PanelLine[4] }] }</pre>
       </ul>
       <p style="margin-top:var(--s3)"><strong>Next&#8217;s own docs say Proxy must not be the only
         check</strong>, so <code>lib/auth/session.ts</code> (<code>requireUser()</code>, server-only)
-        runs inside every handler and checks the session against Mongo. Sign-in/up pages:
-        <code>app/sign-in/[[...sign-in]]</code>, <code>app/sign-up/[[...sign-up]]</code>, both the
-        studio&#8217;s own <code>components/AuthForm.tsx</code>; the header&#8217;s
+        runs inside every handler and checks the session against Mongo. Sign-in page:
+        <code>app/sign-in/[[...sign-in]]</code>, the studio&#8217;s own <code>components/AuthForm.tsx</code>
+        &mdash; <strong>no sign-up page or route</strong> (2026-10-24: accounts are made only by the learner&#8217;s
+        <code>judge:account</code> &rarr; <code>createAccount</code>); the header&#8217;s
         <code>components/AccountMenu.tsx</code> (Account, Sign out).</p>
       <p><code>lib/auth/server.ts</code> builds one Better Auth instance per process (Mongo adapter,
         <code>transaction: false</code>); <code>app/api/auth/[...all]/route.ts</code> is its handler (404
-        unless <code>better</code> mode; 16 KB body cap; per-address <code>signin</code> and
-        <code>signup</code> windows that fail closed). No webhook: Better Auth&#8217;s database hooks mirror
+        unless <code>better</code> mode; 16 KB body cap; the per-address <code>signin</code> window,
+        fail-closed; sign-up refused by Better Auth). No webhook: Better Auth&#8217;s database hooks mirror
         each account into the studio&#8217;s <code>users</code> record, with the email only when verified.
         <code>INKDESK_AUTH=off</code> keeps the single-owner local desk for development, the checks and the
         capture; <code>test</code> names the caller in a header for the checks.</p>
@@ -1884,7 +1888,7 @@ COMPILE_OUTPUTS  u/&lt;userId&gt;/p/&lt;projectId&gt;/video/&lt;videoId&gt;/
           <tbody>
             <tr><td><strong>Sliding-window rate limits</strong></td><td>Keyed on <code>userId</code>
               (and IP for anonymous routes) &mdash; paid text 10/min, paid image 6/min, uploads
-              20/hour, edits 120/min, reads 240/min, sign-up and share views per IP.</td></tr>
+              20/hour, edits 120/min, reads 240/min, sign-in and share views per IP.</td></tr>
             <tr><td><strong>Daily quotas</strong></td><td>Per plan (<code>free</code> vs
               <code>allowlisted</code>, from <code>ALLOWLIST_EMAILS</code>) as atomic counters with keys
               that expire at the daily reset.</td></tr>
@@ -2069,7 +2073,7 @@ COMPILE_OUTPUTS  u/&lt;userId&gt;/p/&lt;projectId&gt;/video/&lt;videoId&gt;/
             <code>S3_PUBLIC_ENDPOINT</code> is not read (signed URLs were never built; removed 2026-10-24)</td></tr>
         <tr><td>Sign-in (Better Auth, since 2026-10-24)</td><td>&mdash;</td>
           <td><strong>New:</strong> <code>BETTER_AUTH_SECRET</code> (&ge; 32 characters, web and worker);
-            <code>RATE_SIGNIN_PER_MIN</code> (10), <code>RATE_SIGNUP_PER_HOUR</code> (5). The Clerk
+            <code>RATE_SIGNIN_PER_MIN</code> (10). The Clerk
             variables this row listed until 2026-10-24 are no longer read.</td></tr>
         <tr class="hl"><td>The URL</td><td><code>APP_URL</code> (points at another app&#8217;s domain today)</td>
           <td><code>APP_URL</code> + <code>NEXT_PUBLIC_APP_URL</code> &mdash; <strong>must be set to
@@ -2102,8 +2106,8 @@ COMPILE_OUTPUTS  u/&lt;userId&gt;/p/&lt;projectId&gt;/video/&lt;videoId&gt;/
       <h4 style="margin-top:0">web</h4>
       <p><code>NODE_ENV=production</code>, <code>APP_URL</code> (required: base URL and trusted
         origin), <code>NEXT_PUBLIC_APP_URL</code>, <code>BETTER_AUTH_SECRET</code>, <code>RATE_SIGNIN_PER_MIN</code>,
-        <code>RATE_SIGNUP_PER_HOUR</code>, <code>DB_URL</code>,
-        <code>DB_DATABASE</code>, <code>REDIS_URL</code>, the eight <code>S3_*</code>,
+        <code>DB_URL</code>,
+        <code>DB_DATABASE</code>, <code>REDIS_URL</code>, the <code>S3_*</code> settings,
         <code>OPENROUTER_API_KEY</code>, <code>ANTHROPIC_API_KEY</code> (optional),
         <code>ANTHROPIC_MODEL</code>, <code>IMAGE_MODEL</code>, <code>LLM_FALLBACK</code>,
         <code>LLM_FALLBACK_MODEL</code>, the <code>IMAGE_*</code> sizes and qualities,
@@ -2115,7 +2119,7 @@ COMPILE_OUTPUTS  u/&lt;userId&gt;/p/&lt;projectId&gt;/video/&lt;videoId&gt;/
       <h4>worker</h4>
       <p style="margin-bottom:0"><code>NODE_ENV</code>, <code>BETTER_AUTH_SECRET</code> (deleting an account
         ends its sign-in; the worker refuses to boot in better mode without it or the Mongo settings), <code>DB_URL</code>, <code>DB_DATABASE</code>,
-        <code>REDIS_URL</code>, the eight <code>S3_*</code>, <code>OPENROUTER_API_KEY</code>,
+        <code>REDIS_URL</code>, the <code>S3_*</code> settings, <code>OPENROUTER_API_KEY</code>,
         <code>ANTHROPIC_API_KEY</code> (optional), the model and quality variables,
         <code>VIDEO_MODEL=bytedance/seedance-2.0</code>, <code>VIDEO_RESOLUTION=720p</code>,
         <code>TTS_MODEL=elevenlabs/eleven-v4</code>, <code>MUSIC_MODEL</code>,
@@ -2310,8 +2314,8 @@ settings {_id: userId, defaultStyle, readingDirection, voices: {lead, counterpar
       <tbody>
         <tr><td><strong>Redis down</strong></td><td>&ldquo;The studio is busy &mdash; try again in a few minutes&rdquo; on generate buttons</td><td>enqueue refused (503); reads, reader, shares work from Mongo and the bucket</td></tr>
         <tr><td><strong>Worker down</strong></td><td>the status line; jobs stay <em>queued</em></td><td>the reconciler re-enqueues on start; nothing paid is lost</td></tr>
-        <tr><td><strong>Mongo down</strong></td><td>an error page with a retry; on sign-in or sign-up: &ldquo;Signing in isn&#8217;t working just now. Try again in a moment.&rdquo; (500)</td><td>health check fails; Railway holds the old deploy; no session can be checked, so nobody is let in</td></tr>
-        <tr><td><strong>Redis down, on sign-in or sign-up</strong></td><td>a calm &ldquo;busy&rdquo; sentence (503)</td><td>the <code>signin</code> and <code>signup</code> windows <strong>fail closed</strong></td></tr>
+        <tr><td><strong>Mongo down</strong></td><td>an error page with a retry; on sign-in: &ldquo;Signing in isn&#8217;t working just now. Try again in a moment.&rdquo; (500)</td><td>health check fails; Railway holds the old deploy; no session can be checked, so nobody is let in</td></tr>
+        <tr><td><strong>Redis down, on sign-in</strong></td><td>a calm &ldquo;busy&rdquo; sentence (503)</td><td>the <code>signin</code> window <strong>fails closed</strong></td></tr>
         <tr><td><strong>A Seedance shot fails or is refused</strong> <span class="quiet">(real face, policy)</span></td><td>that shot&#8217;s card: why, <strong>Try again</strong></td><td>others continue; reservation released</td></tr>
         <tr class="hl"><td><strong>OpenRouter 402</strong> <span class="quiet">(credit)</span></td><td>&ldquo;The studio has paused generation for today&rdquo;</td><td>global switch trips; learner alerted in logs</td></tr>
         <tr><td><strong>Global daily cap reached</strong></td><td>the same pause message for everyone</td><td><code>reserve</code> refuses before any call</td></tr>
@@ -2340,7 +2344,7 @@ lib/store/{cloud,local,index}.ts       <i># + users, jobs, videos, shares, repor
 lib/video/{animate,assemble,bubbles,captions,cards,cost,envelope,frames,plan,prompt,record,run,seedance,serve,status,types}.ts
 lib/audio/{tts,music,media}.ts         <i># ported from video/narrate.mts and video/music/generate.mts</i>
 lib/share/{snapshot,service,pins,page,public,report,report-copy,url,types}.ts
-app/sign-in/[[...sign-in]]/page.tsx, app/sign-up/[[...sign-up]]/page.tsx
+app/sign-in/[[...sign-in]]/page.tsx    <i># (app/sign-up deleted 2026-10-24: there is no sign-up)</i>
 app/terms/page.tsx, app/privacy/page.tsx
 app/settings/{account,defaults,sharing,data,usage}/page.tsx
 app/admin/reports/page.tsx

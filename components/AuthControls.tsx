@@ -7,7 +7,7 @@
 //
 //   <Dashboard account={<AuthControls />} … />   // then {account} in the header
 //
-// `AuthShell`, below, is the frame of the sign-in and sign-up pages.
+// `AuthShell`, below, is the frame of the sign-in page.
 import Image from 'next/image'
 import Link from 'next/link'
 import { AccountMenu } from '@/components/AccountMenu'
@@ -20,7 +20,7 @@ export function AuthControls() {
 }
 
 /**
- * The paper frame around the sign-in and sign-up card: the brand, one
+ * The paper frame around the sign-in card: the brand, one
  * line of welcome, the card centred, and the two pages a stranger should be
  * able to read before signing up. Its styles are in
  * `app/responsive/surfaces.css`: on a phone the card never pushes the page

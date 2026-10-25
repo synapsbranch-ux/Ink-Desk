@@ -732,7 +732,8 @@
       <ul class="reasons" style="margin-top:var(--s3)">
         <li><b>1 · Accounts and public deployment move from <em>Later</em> into the submission.</b> v2 listed “accounts,
           public deployment” under <em>Later (v2)</em>. v3 is a public app on the learner’s own domain, used by the judges,
-          a small invited group and anyone who signs up, <em>with strict limits — not a paid launch</em>.</li>
+          a small invited group and anyone who signs up, <em>with strict limits — not a paid launch</em>. <em>(2026-10-24: no
+          longer anyone who signs up — there is no sign-up; see item 10.)</em></li>
         <li><b>2 · In-app video moves from <em>Later</em> into the submission, as one page.</b> v2 allowed “in-app video
           export … only if items 1–9 are done by 2026-10-20”. Items 1–9 were done on 2026-10-14, so by the learner’s own
           rule it is in. The unit is <strong>one page</strong>, animated as a 20–30 s trailer; full-chapter animation stays
@@ -762,6 +763,12 @@
           is gone (no CAPTCHA — per-address sign-in and sign-up limits instead); the account screens are the studio’s own.
           <strong>The same day the learner cut Google and GitHub sign-in:</strong> <em>“make sure only email and password sign in / up are there and no google and github”</em> — sign-in and
           sign-up are email and password only.</li>
+        <li><b>10 · No account creation for anyone else — the studio is private — 2026-10-24.</b> The learner’s word:
+          <em>“dans ce cas je veux que tu update scope and prd to remove account creation for other user”</em>. Why: the hackathon rule <em>“If Entrant’s website is private, Entrant must include login credentials in its testing instructions”</em>. So the live studio has <strong>no sign-up</strong>:
+          the learner makes every account with their own script (<code>npm run judge:account</code> — their own and the
+          judges’), and the judges sign in with the credentials the learner puts in the Devpost testing instructions. The
+          audience is the learner, the judges and anyone the learner makes an account for; a stranger sees only the sign-in
+          page and any public share link.</li>
       </ul>
     </div>
 
@@ -918,9 +925,10 @@
           the domain.</p>
       </div>
       <div class="card">
-        <p class="eyebrow">And the public app</p>
-        <p style="margin-top:var(--s2)">A stranger can sign up with an email and a password make a small chapter inside a
-          free quota, and <strong>cannot see, change or spend anyone else’s work</strong>; when a limit is reached the
+        <p class="eyebrow">And the private app</p>
+        <p style="margin-top:var(--s2)">The learner and the judges sign in with an email and a password the learner gave
+          them (there is no sign-up), make a small chapter inside their quota, and <strong>cannot see, change or spend anyone
+          else’s work</strong>; a stranger sees only the sign-in page and public share links; when a limit is reached the
           buttons say why and when it resets; the whole thing works on a phone.</p>
       </div>
     </div>
@@ -947,14 +955,14 @@
           <li><b>4 · Auth and ownership.</b> Better Auth (open source, inside the app, accounts in the studio’s own MongoDB)
             with <strong>email and password only</strong> (Google and GitHub cut at the learner’s word, 2026-10-24); every
             route requires sign-in except
-            sign-in/sign-up, the public share pages, Terms and Privacy, and the health check. Each account is mirrored into the
+            sign-in, the public share pages, Terms and Privacy, and the health check. Each account is mirrored into the
             studio’s own user record as it is made. <strong>Every resource is checked against the signed-in user on the
-            server</strong> (no IDOR). No CAPTCHA and no email service: sign-in and sign-up are rate-limited per address
-            instead, and a password account’s email stays unverified (so it never matches the allowlist or the admin list; the learner’s <code>judge:account</code> script is the one way an
-            address is marked verified).
+            server</strong> (no IDOR). <strong>No sign-up</strong> (2026-10-24, item 10): the only way an account exists is the
+            learner’s script <code>npm run judge:account</code>, which makes it with a verified address. No CAPTCHA (nothing to
+            sign up for) and no email service; sign-in is rate-limited per address.
             <em>(Clerk until 2026-10-24 — see Changes Since Approval, item 9.)</em></li>
-          <li><b>5 · Limits.</b> Per-user and per-IP rate limits on sign-up, generation and upload routes; daily per-user
-            quotas (a new account gets a small free quota, e.g. 1 project, 20 images, 1 short video a day; higher limits only
+          <li><b>5 · Limits.</b> Per-user and per-IP rate limits on sign-in, generation and upload routes; daily per-user
+            quotas (an account not on the allowlist gets a small free quota, e.g. 1 project, 20 images, 1 short video a day; higher limits only
             for allowlisted emails — the learner, testers, a judge demo account); a <strong>global daily spend kill switch,
             starting at $5/day for all users</strong>, that pauses generation with a clear message. The same counters drive the
             header meter, the Usage page and the enforcement.</li>
@@ -994,8 +1002,8 @@
           <li><strong>An email service</strong> — and with it verified email for password accounts, password reset, changing
             the email address, and emailed notices. Not in v3: Better Auth would support them, but without a sender they would
             be features that do not work.</li>
-          <li><strong>A CAPTCHA on sign-up</strong> (Clerk’s bot protection did this until 2026-10-24); the per-address
-            sign-up limit, the free quotas and the kill switch bound the damage meanwhile.</li>
+          <li><strong>A CAPTCHA</strong> (Clerk’s bot protection did this until 2026-10-24) — moot while there is no
+            sign-up; it returns only with public sign-up.</li>
           <li>Lip-sync, interface languages, a paid plan, a public gallery, indexing of share pages (they are
             <code>noindex</code> until the learner decides otherwise).</li>
           <li>Everything still <em>Later</em> from v2 that v3 does not name.</li>
@@ -1014,6 +1022,9 @@
             the kill switch.</li>
           <li><b>Google and GitHub sign-in</b> Cut 2026-10-24 at the learner’s word: <em>“make sure only email and password sign in / up are there and no google and github”</em>. (Clerk offered
             them; the 2026-10-14 plan above listed them.)</li>
+          <li><b>Public sign-up / account creation by anyone but the learner</b> Cut 2026-10-24 at the learner’s word:
+            <em>“dans ce cas je veux que tu update scope and prd to remove account creation for other user”</em> (the hackathon’s private-site rule). Accounts are made only with
+            <code>npm run judge:account</code>.</li>
           <li><b>Pushing a red build</b> Typecheck, lint and every <code>check:*</code> pass before every push to
             <code>main</code>.</li>
         </ul>

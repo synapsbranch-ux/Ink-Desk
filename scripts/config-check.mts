@@ -271,11 +271,10 @@ try {
     const rates = Object.fromEntries(Object.entries(limitsSettings({}).rates).map(([k, v]) => [k, `${v.limit}/${v.windowMs / 60_000}min`]))
     assert.equal(rates.report, '6/60min', 'reports: 6 an hour')
     assert.equal(rates.anonMedia, '600/1min', 'a shared manga’s pictures: 600 a minute')
-    assert.deepEqual(Object.keys(rates).sort(), ['anon', 'anonMedia', 'edit', 'image', 'media', 'read', 'report', 'signin', 'signup', 'text', 'upload'])
-    // The Better Auth revision's two: sign-in attempts and accounts made, per client address.
+    assert.deepEqual(Object.keys(rates).sort(), ['anon', 'anonMedia', 'edit', 'image', 'media', 'read', 'report', 'signin', 'text', 'upload'])
+    // The Better Auth revision's one: sign-in attempts, per client address.
     assert.equal(rates.signin, '10/1min', 'sign-in attempts: 10 a minute')
-    assert.equal(rates.signup, '5/60min', 'accounts made: 5 an hour')
-    assert.equal(limitsSettings({ RATE_SIGNIN_PER_MIN: '', RATE_SIGNUP_PER_HOUR: '' }).rates.signup.limit, 5, 'blank is the default, never 0')
+    assert.equal(limitsSettings({ RATE_SIGNIN_PER_MIN: '' }).rates.signin.limit, 10, 'blank is the default, never 0')
     assert.equal(limitsSettings({ RATE_REPORT_PER_HOUR: '' }).rates.report.limit, 6, 'blank is the default, never 0')
     assert.equal(limitsSettings({ RATE_ANON_MEDIA_PER_MIN: '' }).rates.anonMedia.limit, 600)
     assert.equal(limitsSettings({ RATE_REPORT_PER_HOUR: ' 2 ', RATE_ANON_MEDIA_PER_MIN: '30' }).rates.report.limit, 2)

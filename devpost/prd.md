@@ -511,7 +511,7 @@ The ten numbered items of `scope.md > The POC Boundary (v2)`, as behavior above:
 Against the approved v2 PRD:
 
 1. **There are users now.** v2 had one desk for whoever opened the app. v3 has accounts (email and password), and every project, image, video, share and quota belongs to one user. *Supersedes* v2's "Accounts" under *Deferred From the POC (v2)*.
-2. **The app is public on the learner's domain**, with no landing page: the domain root is the sign-in screen or the dashboard. *Supersedes* v2's "the demo and the video run local".
+2. **The app is public on the learner's domain**, with no landing page: the domain root is the sign-in screen or the dashboard. *Supersedes* v2's "the demo and the video run local". *(2026-10-24: private — no sign-up; see item 11.)*
 3. **Spending has limits a user can see.** A quota meter in the header, a Usage page, disabled buttons with a reason and a reset time, and a global kill switch. *Supersedes* v2's "Budget … no hard cap in the product".
 4. **Animate a page** is new: a 20–30 s trailer of one finished page. *Supersedes* v2's "In-app video export and in-app dubbing — Later".
 5. **Share publicly** is new, for a manga and for a video, with a Report button on every public page.
@@ -519,11 +519,12 @@ Against the approved v2 PRD:
 7. **Every screen works on a phone.** v2 was designed for a desktop studio.
 8. **The demo video is re-filmed on the live domain on Oct 23–24**, narrated from the learner's own script. *Supersedes* v2's "narration drafted by the AI partner".
 9. **Freeze moves to 2026-10-22, end of day**; the cut line is the learner's: not working and checkpointed by Oct 22 → *Later*, no debate; if v3 is unstable, the last stable tag ships.
-10. **Sign-in is the studio's own (Better Auth), not Clerk's — 2026-10-24, the learner's decision** (see *Product Decisions (v3)*). Email and password only — Google and GitHub sign-in were cut the same day at the learner's word: *"make sure only email and password sign in / up are there and no google and github"*. There is no email service, so the studio sends no email: a password account's address is not verified, there is no password reset and the email cannot be changed. No CAPTCHA. The account screens in Settings are the studio's own.
+10. **Sign-in is the studio's own (Better Auth), not Clerk's — 2026-10-24, the learner's decision** (see *Product Decisions (v3)*). Email and password only — Google and GitHub sign-in were cut the same day at the learner's word: *"make sure only email and password sign in / up are there and no google and github"*. There is no email service, so the studio sends no email: there is no password reset and the email cannot be changed. No CAPTCHA. The account screens in Settings are the studio's own.
+11. **No sign-up — the studio is private — 2026-10-24, the learner's decision** (see *Product Decisions (v3)*). Nobody makes their own account: the learner makes each one (their own, the judges') with their script, already verified; the judges sign in with the credentials in the Devpost testing instructions. Strangers see the sign-in page and public share links only.
 
 ## Core Journey (v3)
 
-1. **Open the domain.** Signed out: the studio's sign-in card (email and password), with links to Terms and Privacy and to sign up. Signed in: the dashboard.
+1. **Open the domain.** Signed out: the studio's sign-in card (email and password), with links to Terms and Privacy and the sentence that there is no sign-up — accounts are given by the studio. Signed in: the dashboard.
 2. **Dashboard.** My projects (manga), my videos, the library, **New project**, and a compact **quota meter** in the header (today's images, video seconds and audio characters against the limit).
 3. **The studio, as v2** — style preset, scenario, library with an imported reference and locks, the Director's plan with its estimate, pages ink in, the reader, PNG and PDF. Now inside the user's own project, inside their quota.
 4. **Animate a page.** From a finished page (any page whose four panels are inked): **Animate** → the estimate (shots, seconds, dollars, and what it takes from today's quota) → **Confirm**. The page's shots appear as cards, each with its own progress; a failed shot says why and offers **Try again** while the others carry on. When every shot is done the trailer is assembled, and it appears under **My videos**.
@@ -535,13 +536,13 @@ Against the approved v2 PRD:
 
 ### Accounts and Sign-in (v3)
 
-- [ ] Signed out, every page except sign-in, sign-up, Terms, Privacy, share pages and the health check sends the visitor to sign-in; after signing in they land where they were going, or on the dashboard
-- [ ] Sign-in and sign-up offer **email and password only** (10–128 characters) — no Google, GitHub or other outside sign-in; a new account exists in the app's own records the moment it is created
-- [ ] The sign-in and sign-up card says plainly that the studio sends no email, that the address is not verified, and that there is no password reset
-- [ ] Sign-up resists mass account creation without a CAPTCHA: too many sign-ups from one address in an hour, or too many sign-in attempts in a minute, are refused with a calm sentence; if the counter is unavailable, sign-in and sign-up are refused rather than left open
-- [ ] Only a **verified** email counts for the allowlist and the admin list; an address typed on the sign-up page never is. The learner's script (`judge:account`) is the only way an address becomes verified: it makes the judge account, and marks an existing account verified (the learner's own, so `ADMIN_EMAILS` and `ALLOWLIST_EMAILS` can match it). Someone who registers another person's address gets only an unverified free account, which an admin can remove
+- [ ] Signed out, every page except sign-in, Terms, Privacy, share pages and the health check sends the visitor to sign-in; after signing in they land where they were going, or on the dashboard
+- [ ] Sign-in is **email and password only** (10–128 characters) — no Google, GitHub or other outside sign-in. **There is no sign-up**: no sign-up page, no "make an account" link, and the server refuses any attempt to create an account; an account exists only when the learner makes it with `npm run judge:account`, and it is in the app's own records the moment it is made
+- [ ] The sign-in card says plainly: "There is no sign-up: accounts are given by the studio. There is no password reset either — the studio sends no email."
+- [ ] Too many sign-in attempts from one address in a minute are refused with a calm sentence; if the counter is unavailable, sign-in is refused rather than left open
+- [ ] Only a **verified** email counts for the allowlist and the admin list; every account the learner's script makes is verified (given an existing account's email, it marks it verified again). An account not on `ALLOWLIST_EMAILS` is on the free plan
 - [ ] The header has **Account** (Settings › Account) and **Sign out**; signing out returns to sign-in; "Sign out of other devices" is available in Settings
-- [ ] Edge cases: **Forgot password** — not available, and the card says so (no email service); **email already taken** — sign-up refuses with a sentence; **wrong password** — one sentence, no hint which half was wrong
+- [ ] Edge cases: **a visitor with no account** — sees the sign-in card and the no-sign-up sentence, and can still open any public share link; **someone trying to create an account anyway** (calling the server directly) — refused; **Forgot password** — not available, and the card says so (no email service); **wrong password** — one sentence, no hint which half was wrong
 
 ### Ownership and Privacy (v3)
 
@@ -628,7 +629,7 @@ Source: `scope.md > What "Working" Looks Like (v3)`.
 
 ## States and Boundaries (v3)
 
-- **Who can do what.** Signed out: sign-in, sign-up, Terms, Privacy, share pages, Report, health. Signed in: their own work only. Allowlisted: higher limits; admin emails also see the report list.
+- **Who can do what.** Signed out: sign-in (no sign-up), Terms, Privacy, share pages, Report, health. Accounts: only those the learner makes. Signed in: their own work only. Allowlisted: higher limits; admin emails also see the report list.
 - **Spending is always behind sign-in, a quota and the kill switch.** No exception for any route.
 - **One page is the unit of animation.** Full-chapter animation is *Later*.
 - **Work survives restarts and deploys.** A shot or panel that was paid for is never lost or paid for twice because the app restarted.
@@ -640,11 +641,13 @@ Source: `scope.md > What "Working" Looks Like (v3)`.
 
 All the learner's, 2026-10-14: v3 is in the submission; Railway web + worker; the domain root is the app (no landing page); Clerk with email, Google and GitHub *(replaced 2026-10-24, below)*; Redis + BullMQ for the queue, the limits and the counters, with Mongo as the source of truth; a private bucket with signed URLs *(as built: no signed URLs — files stream through owner-checked routes)*; small free quotas, an allowlist, a $5/day global kill switch; Settings with account, defaults, sharing, export and delete; a Report button reaching the learner; Terms and Privacy; one page animated per trailer with `seedance-2.0`, one ElevenLabs voice per character, music, ffmpeg assembly in the worker; other production models only after a test; straight to `main` with tags; re-film on the live domain on Oct 23–24 with the learner's own narration.
 
-**Better Auth replaces Clerk — the learner's, 2026-10-24:** *"base on the devpost skill and also what the hackathon says i want you to remove clerk auth to betterauth . update all scope and prd be careful to not leave stuff not implemented"*; and *"no there is no clerk account"* — nothing to migrate. Why: the hackathon asks for a repository with everything needed for the project to work, open source, third-party services used under their terms, and a judge login in the testing instructions; Better Auth is MIT-licensed and runs in the app on the studio's own database, with no vendor account. The build session recommended, and the learner proceeded with: **email and password; no email service** (so no verification email and no password reset); **no CAPTCHA**; the studio's own per-address limits on sign-in and sign-up. The session first kept Google and GitHub as optional (shown only when their keys were set); **the learner cut them the same day:** *"make sure only email and password sign in / up are there and no google and github"* — sign-in and sign-up are email and password only.
+**Better Auth replaces Clerk — the learner's, 2026-10-24:** *"base on the devpost skill and also what the hackathon says i want you to remove clerk auth to betterauth . update all scope and prd be careful to not leave stuff not implemented"*; and *"no there is no clerk account"* — nothing to migrate. Why: the hackathon asks for a repository with everything needed for the project to work, open source, third-party services used under their terms, and a judge login in the testing instructions; Better Auth is MIT-licensed and runs in the app on the studio's own database, with no vendor account. The build session recommended, and the learner proceeded with: **email and password; no email service** (so no verification email and no password reset); **no CAPTCHA**; the studio's own per-address limits on sign-in and sign-up *(sign-up itself removed later the same day, below)*. The session first kept Google and GitHub as optional (shown only when their keys were set); **the learner cut them the same day:** *"make sure only email and password sign in / up are there and no google and github"* — sign-in and sign-up are email and password only.
+
+**No sign-up — the studio is private — the learner's, 2026-10-24:** *"dans ce cas je veux que tu update scope and prd to remove account creation for other user"*, after reading the hackathon rule *"If Entrant's website is private, Entrant must include login credentials in its testing instructions"*. So nobody but the learner creates an account: `npm run judge:account` makes each one already verified (the learner's own and the judges' — the judge account holds the seeded chapter and is on `ALLOWLIST_EMAILS`), and its credentials go in the Devpost testing instructions, which the learner writes. Public share pages and Report stay open to anyone holding a link.
 
 ## Deferred From the POC (v3)
 
-Full-chapter animation; upscaling, frame interpolation and alternative video models (each only after its own test); lip-sync; interface languages; a paid plan; a public gallery; indexing of share pages; emailed reports if no email service is configured; **email verification, password reset and changing the email address** (each needs an email service — none is configured, so none is offered); **a CAPTCHA on sign-up** (Clerk's bot protection, dropped with Clerk on 2026-10-24); **Google and GitHub sign-in** (cut at the learner's word on 2026-10-24 — not offered).
+Full-chapter animation; upscaling, frame interpolation and alternative video models (each only after its own test); lip-sync; interface languages; a paid plan; a public gallery; indexing of share pages; emailed reports if no email service is configured; **email verification, password reset and changing the email address** (each needs an email service — none is configured, so none is offered); **public sign-up** (cut 2026-10-24 — the studio is private; accounts are made by the learner); **a CAPTCHA** (Clerk's bot protection, dropped with Clerk on 2026-10-24; moot without sign-up); **Google and GitHub sign-in** (cut at the learner's word on 2026-10-24 — not offered).
 
 ## Open Questions (v3)
 

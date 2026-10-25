@@ -39,9 +39,8 @@ export const APP_URL_NAMES = ['APP_URL', 'NEXT_PUBLIC_APP_URL'] as const
 export const MONGO_URL_NAMES = ['MONGODB_URI', 'DB_URL'] as const
 export const MONGO_DB_NAMES = ['MONGODB_DB', 'DB_DATABASE'] as const
 
-/** Where sign-in and sign-up live: the studio's own pages. */
+/** Where sign-in lives: the studio's own page. There is no sign-up page — the learner makes every account. */
 export const SIGN_IN_PATH = '/sign-in'
-export const SIGN_UP_PATH = '/sign-up'
 /** Where Better Auth answers (`app/api/auth/[...all]/route.ts`). */
 export const AUTH_API_PATH = '/api/auth'
 /** The request header the proxy puts a page's path and query in, so `pageUser` can send a signed-out visitor back to it. */
@@ -231,7 +230,7 @@ export function betterSettings(env: Env = process.env): BetterSettings {
  * The API routes anyone may call with no session AND no Origin check: the deploy's health check, and nothing else.
  *
  * Two kinds of open route are deliberately NOT here, because this list also skips the proxy's Origin check:
- *   • `/api/auth/*` — Better Auth's own routes (sign-in, sign-up, sign-out, the session). A
+ *   • `/api/auth/*` — Better Auth's own routes (sign-in, sign-out, the session). A
  *     signed-out person must reach them, but a page on another site must not be able to post a sign-in or a sign-out
  *     on a visitor's behalf; Better Auth checks the origin against `trustedOrigins` too.
  *   • `/api/s/` — the public share routes of slice 21; the report form WRITES.
@@ -242,7 +241,7 @@ export const PUBLIC_API_PREFIXES = ['/api/health'] as const
 
 
 /** Pages a signed-out visitor may open. `/s/` is the public share page (slice 21). */
-const PUBLIC_PAGE_PREFIXES = [SIGN_IN_PATH, SIGN_UP_PATH, '/terms', '/privacy', '/s/'] as const
+const PUBLIC_PAGE_PREFIXES = [SIGN_IN_PATH, '/terms', '/privacy', '/s/'] as const
 
 function under(pathname: string, prefix: string): boolean {
   if (prefix.endsWith('/')) return pathname.startsWith(prefix)

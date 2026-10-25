@@ -19,8 +19,9 @@
 //   c. requireUser in test mode (a valid header, none, a malformed one) and
 //      in off mode.
 //   d. Better Auth, for real, on a memory database (`authOptions`, the very
-//      options production uses): sign-up makes an account and a session; the
-//      studio's record carries the email only once it is verified; sign-in
+//      options production uses): sign-up is refused; the learner's
+//      `createAccount` makes a verified account; the studio's record carries
+//      the email only while it is verified; sign-in
 //      with a wrong password is refused; `currentUser` reads the session from
 //      the cookie and nothing else; sign-out ends it; a write from another
 //      origin is refused by Better Auth too; `deleteSignIn` removes the user,
@@ -30,7 +31,7 @@
 //      page to `/sign-in?next=…` from the cookie alone — offline. `safeNext`
 //      never sends anyone to another site.
 //   f. The `/api/auth` route: 404 unless sign-in is on, a body too large is
-//      refused unread, and the `signin` and `signup` windows hold per address.
+//      refused unread, the `signin` window holds per address, and sign-up is refused.
 //   g. The browser's apiFetch: a 401 sends the page to sign-in with the way
 //      back, once, and never from the sign-in pages.
 //   h. Admins (slice 21): ADMIN_EMAILS against the verified email, case-
@@ -131,7 +132,7 @@ try {
       if (path === AUTH_ROUTE) {
         // Its handlers are one shared function: the guard (sign-in on, the body cap, the address windows) runs before Better Auth sees the request.
         if (/\b(requireUser|requireAdmin)\(/.test(source)) problems.push(`${path}: is public by design and must take no session`)
-        for (const needle of ['signInOn()', "limitByAddress(req, 'signin')", "limitByAddress(req, 'signup')", "limitByAddress(req, 'anon')", 'BODY_LIMIT_BYTES']) {
+        for (const needle of ['signInOn()', "limitByAddress(req, 'signin')", "limitByAddress(req, 'anon')", 'BODY_LIMIT_BYTES']) {
           if (!source.includes(needle)) problems.push(`${path}: is missing ${needle}`)
         }
         const handle = source.slice(source.indexOf('async function handle('))
@@ -421,16 +422,26 @@ try {
   }
   await withEnv(betterEnv(), async () => {
     pinAuth()
-    const signedUp = await authCall('/sign-up/email', { email: 'Alice@Inkdesk.invalid', password: 'correct horse battery', name: 'Alice' })
-    assert.equal(signedUp.status, 200, await signedUp.clone().text())
-    const alice = ((await signedUp.clone().json()) as { user: { id: string; emailVerified: boolean } }).user
+    // Nobody signs up: Better Auth refuses it, whatever is sent, and nothing is made.
+    for (const body of [{ email: 'stranger@inkdesk.invalid', password: 'correct horse battery', name: 'Stranger' }, { email: 'Alice@Inkdesk.invalid', password: 'x', name: 'x' }]) {
+      const res = await authCall('/sign-up/email', body)
+      assert.ok(res.status >= 400 && res.status < 500, `sign-up is refused (got ${res.status})`)
+      assert.equal(res.headers.getSetCookie().length, 0, 'and sets no cookie')
+    }
+    assert.equal(memory.user.length, 0, 'no account was made by a sign-up')
+    // The one way an account exists: the learner makes it (judge:account → createAccount), verified.
+    const made = await authServer.createAccount(testAuth, { email: 'Alice@Inkdesk.invalid', password: 'correct horse battery' })
+    const alice = { id: made.id }
     assert.match(alice.id, authConfig.ACCOUNT_ID, 'an account id the scripts accept')
-    assert.equal(alice.emailVerified, false, 'an address typed at sign-up is not verified: nothing was sent to prove it')
-    const aliceCookie = cookieOf(signedUp)
-    assert.match(aliceCookie, /^__Secure-inkdesk\.session_token=/, 'on an https studio the cookie is __Secure-')
+    await assert.rejects(authServer.createAccount(testAuth, { email: 'alice@inkdesk.invalid', password: 'another long one' }), /already an account/, 'one account per address')
+    await assert.rejects(authServer.createAccount(testAuth, { email: 'short@inkdesk.invalid', password: 'short' }), /10 to 128/, 'a password under ten characters is refused')
     const record = await store.users.get(alice.id)
     assert.ok(record, 'the studio’s own record exists the moment the account is made')
-    assert.equal(record.email, '', 'and carries no address while it is unverified — the allowlist and ADMIN_EMAILS cannot match it')
+    assert.equal(record.email, 'alice@inkdesk.invalid', 'and carries the address, verified by the learner who made it (lower-cased)')
+    const firstIn = await authCall('/sign-in/email', { email: 'alice@inkdesk.invalid', password: 'correct horse battery' })
+    assert.equal(firstIn.status, 200, await firstIn.clone().text())
+    const aliceCookie = cookieOf(firstIn)
+    assert.match(aliceCookie, /^__Secure-inkdesk\.session_token=/, 'on an https studio the cookie is __Secure-')
 
     // currentUser reads the session from the cookie, checked against the database.
     const asked = (cookie?: string) => new Request(`${APP}/api/projects`, cookie ? { headers: { cookie } } : {})
@@ -452,8 +463,6 @@ try {
       assert.equal(res.status, 401, 'a wrong password or an unknown address is refused, the same way')
       assert.equal(res.headers.getSetCookie().length, 0, 'and sets no cookie')
     }
-    assert.equal((await authCall('/sign-up/email', { email: 'alice@inkdesk.invalid', password: 'another long one', name: 'x' })).status >= 400, true, 'one account per address')
-    assert.ok((await authCall('/sign-up/email', { email: 'short@inkdesk.invalid', password: 'short', name: 'x' })).status >= 400, 'a password under ten characters is refused')
     // A write from another origin, carrying the session: Better Auth refuses it too (the proxy already has).
     const crossSite = await authCall('/sign-out', {}, { origin: 'https://evil.example', cookie: aliceCookie })
     assert.equal(crossSite.status, 403, `Better Auth refuses another origin (got ${crossSite.status})`)
@@ -465,8 +474,10 @@ try {
     assert.ok((await authCall('/delete-user', {}, { cookie: aliceCookie })).status >= 400, 'Better Auth’s delete-user is off')
     assert.equal(await currentUser(asked(aliceCookie)), alice.id)
 
-    // Verified (as judge:account makes it): the record carries the address, lower-cased by Better Auth.
+    // Unverified (an account the studio has not confirmed), the record carries no address; verified again, it does.
     const ctx = await testAuth.$context
+    await ctx.internalAdapter.updateUser(alice.id, { emailVerified: false })
+    assert.equal((await store.users.get(alice.id))?.email, '', 'an unverified address is never recorded — the allowlist and ADMIN_EMAILS cannot match it')
     await ctx.internalAdapter.updateUser(alice.id, { emailVerified: true })
     assert.equal((await store.users.get(alice.id))?.email, 'alice@inkdesk.invalid', 'a verified address is recorded')
 
@@ -489,7 +500,7 @@ try {
     await authServer.recordAccount({ id: alice.id, email: 'alice@inkdesk.invalid', emailVerified: true, createdAt: new Date() })
     assert.ok((await store.users.get(alice.id))?.deletedAt, 'a late account write cannot bring it back')
   })
-  ok('Better Auth on a memory database, with production’s options: sign-up makes an account (unverified, so its record carries no address) and an HttpOnly, SameSite=Lax, __Secure- session; a wrong password, a forged cookie, a short password, another origin and any outside (Google/GitHub) sign-in are refused; verified, the address is recorded; sign-out ends one session; deleteSignIn removes the user, its sessions and sign-ins, and repeats safely')
+  ok('Better Auth on a memory database, with production’s options: sign-up is refused and makes nothing; the learner’s createAccount makes a verified account (its record carries the address) and signing in gives an HttpOnly, SameSite=Lax, __Secure- session; a wrong password, a forged cookie, a short password, another origin and any outside (Google/GitHub) sign-in are refused; verified, the address is recorded; sign-out ends one session; deleteSignIn removes the user, its sessions and sign-ins, and repeats safely')
 
   // --- e. The proxy, offline ----------------------------------------------------------------
   const { NextRequest } = await import('next/server')
@@ -572,11 +583,11 @@ try {
     assert.equal(`${to.origin}${to.pathname}`, `${APP}/sign-in`)
     assert.equal(to.searchParams.get('next'), '/p/abc?page=2', 'and comes back where it was going')
     assert.equal((await call(`${APP}/`, { headers: pageHeaders })).headers.get('location'), `${APP}/sign-in`, 'the desk itself needs no way back')
-    for (const open of ['/sign-in', '/sign-up', '/terms', '/privacy', '/s/tok123', '/s/tok123/opengraph-image']) {
+    for (const open of ['/sign-in', '/terms', '/privacy', '/s/tok123', '/s/tok123/opengraph-image']) {
       const res = await call(`${APP}${open}`, { headers: pageHeaders })
       assert.ok(passes(res), `${open} is open to a stranger (got ${res.status})`)
     }
-    for (const closed of ['/admin', '/admin/reports', '/settings/account', '/settings/sharing']) {
+    for (const closed of ['/sign-up', '/admin', '/admin/reports', '/settings/account', '/settings/sharing']) {
       const res = await call(`${APP}${closed}`, { headers: pageHeaders })
       assert.equal(res.status, 307, `${closed} needs sign-in like any page, got ${res.status}`)
       assert.equal(new URL(res.headers.get('location') ?? '').pathname, '/sign-in', `${closed} goes to sign-in`)
@@ -611,7 +622,7 @@ try {
   assert.equal(signInHref('/p/abc'), '/sign-in?next=%2Fp%2Fabc')
   assert.equal(signInHref('//evil.example'), '/sign-in')
   assert.deepEqual(outbound, [], 'nothing reached the network')
-  ok('better mode, offline: a signed-out page → /sign-in?next=<path> from the cookie alone; sign-in, sign-up, terms, privacy and a shared manga open, /admin and /settings need sign-in, API calls reach their routes; safeNext never leaves the studio')
+  ok('better mode, offline: a signed-out page → /sign-in?next=<path> from the cookie alone; sign-in, terms, privacy and a shared manga open (there is no sign-up page), /admin and /settings need sign-in, API calls reach their routes; safeNext never leaves the studio')
 
   // --- f. The /api/auth route: its guard ------------------------------------------------------
   {
@@ -631,7 +642,7 @@ try {
         assert.equal((await post('/sign-in/email', { email: 'a@b.c', password: 'x' }, '203.0.113.1')).status, 404, `${mode}: no such page`)
       })
     }
-    await withEnv({ ...betterEnv(), INKDESK_LIMITS: 'on', RATE_SIGNIN_PER_MIN: '3', RATE_SIGNUP_PER_HOUR: '1' }, async () => {
+    await withEnv({ ...betterEnv(), INKDESK_LIMITS: 'on', RATE_SIGNIN_PER_MIN: '3' }, async () => {
       pinAuth()
       resetBackend()
       const big = await post('/sign-in/email', { pad: 'x' }, '203.0.113.9', { 'content-length': String(64 * 1024) })
@@ -643,14 +654,14 @@ try {
       assert.equal(shut.status, 429, 'the fourth guess in a minute is refused')
       assert.ok(Number(shut.headers.get('Retry-After')) > 0, 'with Retry-After')
       assert.match(((await shut.json()) as { error: string }).error, /going a little fast/)
-      // Another address has its own window; one account an hour per address with a password.
-      assert.equal((await post('/sign-up/email', { email: 'carol@inkdesk.invalid', password: 'a long password', name: 'Carol' }, '203.0.113.3')).status, 200)
-      assert.equal((await post('/sign-up/email', { email: 'dave@inkdesk.invalid', password: 'a long password', name: 'Dave' }, '203.0.113.3')).status, 429, 'a second account from that address within the hour is refused')
-      assert.equal((await post('/sign-up/email', { email: 'dave@inkdesk.invalid', password: 'a long password', name: 'Dave' }, '203.0.113.4')).status, 200, 'another address may')
+      // Another address has its own window; through the route too, a sign-up is refused and makes nothing.
+      assert.equal((await post('/sign-in/email', { email: 'bob@inkdesk.invalid', password: 'not the password' }, '203.0.113.3')).status, 401, 'another address may still try')
+      const signUp = await post('/sign-up/email', { email: 'carol@inkdesk.invalid', password: 'a long password', name: 'Carol' }, '203.0.113.4')
+      assert.ok(signUp.status >= 400 && signUp.status < 500, `a sign-up through the route is refused (got ${signUp.status})`)
       resetBackend()
     })
   }
-  ok('the /api/auth route: a 404 unless sign-in is on; a body larger than a form is a 413 unread; sign-in attempts and accounts made are windowed per client address, with Retry-After')
+  ok('the /api/auth route: a 404 unless sign-in is on; a body larger than a form is a 413 unread; sign-in attempts are windowed per client address, with Retry-After; a sign-up is refused')
 
   // --- g. The browser: a 401 goes to sign-in, once, with the way back ------------------------
   {

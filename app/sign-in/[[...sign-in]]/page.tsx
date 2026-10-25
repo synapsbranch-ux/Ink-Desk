@@ -1,5 +1,5 @@
 // Sign-in (slice 19; Better Auth since 2026-10-24): the studio's own card —
-// email and password — in the paper frame, with Terms and Privacy one click away. After signing in the
+// email and password, no sign-up — in the paper frame, with Terms and Privacy one click away. After signing in the
 // visitor returns where they were going (`?next=`, a same-site path only),
 // else to the desk. Someone already signed in goes straight there. A desk with
 // sign-in off has no one to sign in, so it goes straight to the desk.
@@ -26,7 +26,7 @@ export default async function SignInPage({ searchParams }: { searchParams: Searc
   if (await currentUser()) redirect(safeNext(next))
   return (
     <AuthShell lede="Sign in to your desk.">
-      <AuthForm mode="sign-in" next={next} />
+      <AuthForm next={next} />
     </AuthShell>
   )
 }

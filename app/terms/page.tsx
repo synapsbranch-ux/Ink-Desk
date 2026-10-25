@@ -1,5 +1,5 @@
 // Terms (slice 19): what the studio may be used for, in plain words. Linked
-// from sign-in and sign-up, readable signed out. Honest about what exists
+// from sign-in, readable signed out. Honest about what exists
 // today (slice 21 added the Report button on a shared page). See
 // `devpost/prd.md > Terms and Privacy (v3)`.
 import type { Metadata } from 'next'

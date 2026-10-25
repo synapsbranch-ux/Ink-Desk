@@ -830,7 +830,8 @@
       <li><b>1 · There are users now.</b> v2 had one desk for whoever opened the app. v3 has accounts (email and password), and every project, image, video, share and quota belongs to one user.
         <span class="quiet"><em>Supersedes</em> v2's “Accounts” under <em>Deferred From the POC (v2)</em>.</span></li>
       <li><b>2 · The app is public on the learner's domain,</b> with no landing page: the domain root is the sign-in
-        screen or the dashboard. <span class="quiet"><em>Supersedes</em> v2's “the demo and the video run local”.</span></li>
+        screen or the dashboard. <span class="quiet"><em>Supersedes</em> v2's “the demo and the video run local”.</span>
+        <em>(2026-10-24: private — no sign-up; see item 11.)</em></li>
       <li><b>3 · Spending has limits a user can see.</b> A quota meter in the header, a Usage page, disabled buttons with
         a reason and a reset time, and a global kill switch. <span class="quiet"><em>Supersedes</em> v2's “Budget … no hard
         cap in the product”.</span></li>
@@ -845,9 +846,12 @@
         by Oct 22 → <em>Later</em>, no debate; if v3 is unstable, the last stable tag ships.</li>
       <li><b>10 · Sign-in is the studio's own (Better Auth), not Clerk's — 2026-10-24, the learner's decision</b> (see
         <em>Product decisions (v3)</em>). Email and password only &mdash; Google and GitHub sign-in were cut the same day at the
-        learner's word: <em>&ldquo;make sure only email and password sign in / up are there and no google and github&rdquo;</em>. There is no email service, so the studio sends no email: a password account's address is not verified, there
-        is no password reset and the email cannot be changed. No CAPTCHA. The account screens in Settings are the studio's
-        own.</li>
+        learner's word: <em>&ldquo;make sure only email and password sign in / up are there and no google and github&rdquo;</em>. There is no email service, so the studio sends no email: there is no password reset and the email cannot be
+        changed. No CAPTCHA. The account screens in Settings are the studio's own.</li>
+      <li><b>11 · No sign-up — the studio is private — 2026-10-24, the learner's decision</b> (see <em>Product decisions
+        (v3)</em>). Nobody makes their own account: the learner makes each one (their own, the judges') with their script,
+        already verified; the judges sign in with the credentials in the Devpost testing instructions. Strangers see the
+        sign-in page and public share links only.</li>
     </ul>
 
     <h3 style="margin-top:var(--s5)">The v3 journey, at a glance</h3>
@@ -877,7 +881,7 @@
             <rect x="184" y="62" width="136" height="70" fill="#f8f4f4" stroke="#201f1d" stroke-width="1.5"/>
             <text x="252" y="88" text-anchor="middle" font-size="16">Sign-in</text>
             <text x="252" y="106" text-anchor="middle" font-size="10.5" fill="#605d5d">email + password</text>
-            <text x="252" y="122" text-anchor="middle" font-size="10" fill="#b5382e">Terms · Privacy · sign up</text>
+            <text x="252" y="122" text-anchor="middle" font-size="10" fill="#b5382e">Terms · Privacy · no sign-up</text>
 
             <rect x="364" y="62" width="152" height="70" fill="#f8f4f4" stroke="#201f1d" stroke-width="1.5"/>
             <text x="440" y="88" text-anchor="middle" font-size="16">Dashboard</text>
@@ -973,7 +977,8 @@
     <h3 style="margin-top:var(--s5)">Core journey (v3)</h3>
     <ol class="journey">
       <li class="gate"><strong>Open the domain.</strong> Signed out: the studio's sign-in card (email and password
-        only), with links to Terms and Privacy and to sign up. Signed in: the dashboard.</li>
+        only), with links to Terms and Privacy and the sentence that there is no sign-up — accounts are given by the
+        studio. Signed in: the dashboard.</li>
       <li><strong>Dashboard.</strong> My projects (manga), my videos, the library, <strong>New project</strong>, and a
         compact <strong>quota meter</strong> in the header (today's images, video seconds and audio characters against the
         limit).</li>
@@ -999,24 +1004,25 @@
       <summary>Accounts and sign-in <span class="cnt">7</span></summary>
       <div class="dbody">
         <ul class="crit">
-          <li>Signed out, every page except sign-in, sign-up, Terms, Privacy, share pages and the health check sends the
+          <li>Signed out, every page except sign-in, Terms, Privacy, share pages and the health check sends the
             visitor to sign-in; after signing in they land where they were going, or on the dashboard</li>
-          <li>Sign-in and sign-up offer <strong>email and password only</strong> (10–128 characters) &mdash; no Google,
-            GitHub or other outside sign-in; a new account exists in the app's own records the moment it is created</li>
-          <li>The sign-in and sign-up card says plainly that the studio sends no email, that the address is not verified, and
-            that there is no password reset</li>
-          <li>Sign-up resists mass account creation without a CAPTCHA: too many sign-ups from one address in an hour, or too
-            many sign-in attempts in a minute, are refused with a calm sentence; if the counter is unavailable, sign-in and
-            sign-up are refused rather than left open</li>
-          <li>Only a <strong>verified</strong> email counts for the allowlist and the admin list; an address typed on the
-            sign-up page never is. The learner's script (<code>judge:account</code>) is the only way an address becomes
-            verified: it makes the judge account, and marks an existing account verified (the learner's own, so
-            <code>ADMIN_EMAILS</code> and <code>ALLOWLIST_EMAILS</code> can match it). Someone who registers another
-            person's address gets only an unverified free account, which an admin can remove</li>
+          <li>Sign-in is <strong>email and password only</strong> (10–128 characters) &mdash; no Google, GitHub or other
+            outside sign-in. <strong>There is no sign-up</strong>: no sign-up page, no “make an account” link, and the server
+            refuses any attempt to create an account; an account exists only when the learner makes it with
+            <code>npm run judge:account</code>, and it is in the app's own records the moment it is made</li>
+          <li>The sign-in card says plainly: “There is no sign-up: accounts are given by the studio. There is no password
+            reset either — the studio sends no email.”</li>
+          <li>Too many sign-in attempts from one address in a minute are refused with a calm sentence; if the counter is
+            unavailable, sign-in is refused rather than left open</li>
+          <li>Only a <strong>verified</strong> email counts for the allowlist and the admin list; every account the learner's
+            script makes is verified (given an existing account's email, it marks it verified again). An account not on
+            <code>ALLOWLIST_EMAILS</code> is on the free plan</li>
           <li>The header has <strong>Account</strong> (Settings › Account) and <strong>Sign out</strong>; signing out returns
             to sign-in; “Sign out of other devices” is available in Settings</li>
-          <li>Edge cases: <strong>Forgot password</strong> — not available, and the card says so (no email service);
-            <strong>email already taken</strong> — sign-up refuses with a sentence; <strong>wrong password</strong> — one sentence, no hint which half was wrong</li>
+          <li>Edge cases: <strong>a visitor with no account</strong> — sees the sign-in card and the no-sign-up sentence, and
+            can still open any public share link; <strong>someone trying to create an account anyway</strong> (calling the
+            server directly) — refused; <strong>Forgot password</strong> — not available, and the card says so (no email
+            service); <strong>wrong password</strong> — one sentence, no hint which half was wrong</li>
         </ul>
       </div>
     </details>
@@ -1186,8 +1192,8 @@
     <div class="states">
       <div class="state">
         <h3>Who can do what</h3>
-        <p style="font-size:14.5px"><strong>Signed out:</strong> sign-in, sign-up, Terms, Privacy, share pages, Report,
-          health. <strong>Signed in:</strong> their own work only. <strong>Allowlisted:</strong> higher limits; admin
+        <p style="font-size:14.5px"><strong>Signed out:</strong> sign-in (no sign-up), Terms, Privacy, share pages,
+          Report, health. <strong>Accounts:</strong> only those the learner makes. <strong>Signed in:</strong> their own work only. <strong>Allowlisted:</strong> higher limits; admin
           emails also see the report list.</p>
       </div>
       <div class="state bad">
@@ -1249,13 +1255,19 @@
           Better Auth is MIT-licensed and runs in the app on the studio's own database, with no vendor account. The build
           session recommended, and the learner proceeded with: <strong>email and password; no email service</strong> (so
           no verification email and no password reset); <strong>no CAPTCHA</strong>; the studio's own per-address limits on
-          sign-in and sign-up. The session first kept Google and GitHub as optional (shown only when their keys were set);
+          sign-in and sign-up <em>(sign-up itself removed later the same day, below)</em>. The session first kept Google and GitHub as optional (shown only when their keys were set);
           <strong>the learner cut them the same day:</strong> <em>&ldquo;make sure only email and password sign in / up are there and no google and github&rdquo;</em> &mdash; sign-in and sign-up are email and
           password only.</p>
+        <p style="margin-top:var(--s3)"><strong>No sign-up — the studio is private — the learner's, 2026-10-24:</strong>
+          <em>&ldquo;dans ce cas je veux que tu update scope and prd to remove account creation for other user&rdquo;</em>, after reading the hackathon rule <em>&ldquo;If Entrant&#8217;s website is private, Entrant must include login credentials in its testing instructions&rdquo;</em>. So nobody but the learner creates an account:
+          <code>npm run judge:account</code> makes each one already verified (the learner's own and the judges' — the judge
+          account holds the seeded chapter and is on <code>ALLOWLIST_EMAILS</code>), and its credentials go in the Devpost
+          testing instructions, which the learner writes. Public share pages and Report stay open to anyone holding a
+          link.</p>
       </div>
     </details>
     <details>
-      <summary><span class="tag tag-quiet">Deferred</span> From the POC (v3) <span class="cnt">11</span></summary>
+      <summary><span class="tag tag-quiet">Deferred</span> From the POC (v3) <span class="cnt">12</span></summary>
       <div class="dbody">
         <ul>
           <li>Full-chapter animation</li>
@@ -1268,7 +1280,8 @@
           <li>Emailed reports if no email service is configured</li>
           <li>Email verification, password reset and changing the email address — each needs an email service; none is
             configured, so none is offered</li>
-          <li>A CAPTCHA on sign-up (Clerk's bot protection, dropped with Clerk on 2026-10-24)</li>
+          <li>Public sign-up (cut 2026-10-24 &mdash; the studio is private; accounts are made by the learner)</li>
+          <li>A CAPTCHA (Clerk's bot protection, dropped with Clerk on 2026-10-24; moot without sign-up)</li>
           <li>Google and GitHub sign-in (cut at the learner's word on 2026-10-24 &mdash; not offered)</li>
         </ul>
       </div>

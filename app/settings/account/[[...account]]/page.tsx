@@ -4,8 +4,8 @@
 // something are `components/SettingsAccount.tsx`. Still the optional catch-all
 // `[[...account]]`, so an old link to a sub-path lands here too.
 //
-// What it says plainly: an email typed at sign-up is not verified, because the
-// studio sends no email. Only a verified address counts for the allowlist. The address cannot be changed here (there
+// Every account is made by the learner (`npm run judge:account`), verified;
+// there is no sign-up. Only a verified address counts for the allowlist. The address cannot be changed here (there
 // is no email to prove a new one). On a desk with sign-in off or in test mode
 // there is no account, and the page says that in a sentence rather than
 // showing an empty frame. See `devpost/prd.md > Settings (v3)` and
@@ -54,7 +54,7 @@ async function BetterAccount() {
           <dd>
             {user.emailVerified
               ? 'Yes — the studio confirmed this address for you.'
-              : 'No. The studio sends no email, so an address typed at sign-up is not verified.'}
+              : 'No. The studio sends no email, so it has not confirmed this address.'}
           </dd>
           <dt>Account id</dt>
           <dd>

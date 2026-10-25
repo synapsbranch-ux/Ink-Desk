@@ -1,6 +1,6 @@
 // Privacy (slice 19, updated in slice 21 for sharing, reports, export and deletion, and in slice 23 for the trailer's video, voice and music models): what the studio stores, where, which outside services
 // see what, and how to have it deleted — plainly, and only what is true of the
-// build as it stands. Linked from sign-in and sign-up, readable signed out.
+// build as it stands. Linked from sign-in, readable signed out.
 // See `devpost/prd.md > Terms and Privacy (v3)`.
 import type { Metadata } from 'next'
 import Link from 'next/link'

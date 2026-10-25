@@ -1,9 +1,9 @@
-// Make the judges' demo account (the Better Auth revision, 2026-10-24) — an
-// email-and-password account whose address is marked VERIFIED, so it can be on
-// ALLOWLIST_EMAILS (the studio sends no email, so an account made on the
-// sign-up page never is). Given the email of an account that already exists —
-// the learner's own — it marks that one verified instead, so ADMIN_EMAILS and
-// ALLOWLIST_EMAILS can match it; this is the only way an address is verified. Its credentials go in the Devpost testing
+// Make an account (the Better Auth revision, 2026-10-24) — the ONLY way an
+// account comes to exist: there is no sign-up. The learner makes the judges'
+// demo account and their own with it. Each is an email-and-password account
+// whose address is marked VERIFIED, so ALLOWLIST_EMAILS and ADMIN_EMAILS can
+// match it. Given the email of an account that already exists, it marks that
+// one verified and writes its record again. Its credentials go in the Devpost testing
 // instructions, which the learner writes. Then give it a finished chapter with
 // `scripts/seed-judge.mts --to <the id this prints>`.
 //
@@ -63,7 +63,7 @@ if (process.env.INKDESK_JUDGE_CONFIRMED !== 'yes') {
   fail('This writes an account in the MongoDB that MONGODB_URI (or DB_URL) points at, which may be the live studio’s. Check that it is Ink Desk’s own, then run again with INKDESK_JUDGE_CONFIRMED=yes.')
 }
 
-const { getAuth, recordAccount } = await import('../lib/auth/server')
+const { createAccount, getAuth, recordAccount } = await import('../lib/auth/server')
 const auth = getAuth()
 const ctx = await auth.$context
 const found = await ctx.internalAdapter.findUserByEmail(email)
@@ -79,8 +79,8 @@ if (found) {
   console.log(`${email} already has an account (${userId}); its password is left as it is.`)
 } else {
   if (password.length < PASSWORD_MIN) fail(`Set JUDGE_PASSWORD (or --password) to at least ${PASSWORD_MIN} characters.\n${USAGE}`)
-  const made = await auth.api.signUpEmail({ body: { email, password, name: email.split('@')[0] } })
-  userId = made.user.id
+  const made = await createAccount(auth, { email, password })
+  userId = made.id
   console.log(`Made ${email} (${userId}).`)
 }
 const user = await ctx.internalAdapter.updateUser(userId, { emailVerified: true })

@@ -1856,11 +1856,12 @@ try {
       const SECRET = `${'x'.repeat(32)}SECRETMARK`
       const { betterAuth } = await import('better-auth')
       const { memoryAdapter } = await import('better-auth/adapters/memory')
-      const { authOptions, deleteSignIn } = await import('../lib/auth/server')
+      const { authOptions, createAccount, deleteSignIn } = await import('../lib/auth/server')
       const memory = { user: [], session: [], account: [], verification: [] } as Record<string, Record<string, unknown>[]>
       const auth = betterAuth(authOptions({ secret: SECRET, baseURL: 'https://inkdesk.example', authorizedParties: ['https://inkdesk.example'] }, memoryAdapter(memory)))
-      const made = await auth.api.signUpEmail({ body: { email: 'leaver@inkdesk.invalid', password: 'a long password', name: 'Leaver' } })
-      const id = made.user.id
+      const made = await createAccount(auth, { email: 'leaver@inkdesk.invalid', password: 'a long password' })
+      const id = made.id
+      assert.equal((await auth.api.signInEmail({ body: { email: 'leaver@inkdesk.invalid', password: 'a long password' } })).user.id, id)
       assert.equal(memory.session.filter((x) => x.userId === id).length, 1)
       await deleteSignIn(id, auth)
       assert.deepEqual(

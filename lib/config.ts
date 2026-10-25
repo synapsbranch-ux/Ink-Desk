@@ -226,9 +226,8 @@ const NUMBERS = {
   // Slice 21: the share page's pictures per client address (a reader page is dozens, and a page of a shared manga is read by one address behind a school's NAT), and the report form.
   RATE_ANON_MEDIA_PER_MIN: { schema: wholeNumber(1, 1_000_000), fallback: 600, rule: 'a whole number from 1 to 1000000' },
   RATE_REPORT_PER_HOUR: { schema: wholeNumber(1, 100_000), fallback: 6, rule: 'a whole number from 1 to 100000' },
-  // The Better Auth revision: the studio's own sign-in, per client address — password guesses, and accounts made.
+  // The Better Auth revision: the studio's own sign-in, per client address — password guesses.
   RATE_SIGNIN_PER_MIN: { schema: wholeNumber(1, 100_000), fallback: 10, rule: 'a whole number from 1 to 100000' },
-  RATE_SIGNUP_PER_HOUR: { schema: wholeNumber(1, 100_000), fallback: 5, rule: 'a whole number from 1 to 100000' },
   TRUSTED_PROXY_HOPS: { schema: wholeNumber(0, 5), fallback: 1, rule: 'a whole number from 0 to 5' },
 } as const
 
@@ -471,8 +470,7 @@ export function queueSettings(env: Env = process.env, role: 'web' | 'worker' = '
 //                          1200/min; signed-out callers 60/min per client; and,
 //                          per client address, a shared manga's pictures 600/min
 //                          and reports 6/hour — slice 21; sign-in attempts
-//                          10/min and accounts made 5/hour — the Better Auth
-//                          revision)
+//                          10/min — the Better Auth revision)
 //   TRUSTED_PROXY_HOPS     how many proxies in front of the app append to
 //                          X-Forwarded-For, default 1 (Railway's edge)
 //   CLIENT_IP_HEADER       x-forwarded-for (default) or x-real-ip: which header
@@ -647,7 +645,6 @@ export function limitsSettings(env: Env = process.env): LimitsSettings {
       anonMedia: { limit: n('RATE_ANON_MEDIA_PER_MIN'), windowMs: MINUTE },
       report: { limit: n('RATE_REPORT_PER_HOUR'), windowMs: 60 * MINUTE },
       signin: { limit: n('RATE_SIGNIN_PER_MIN'), windowMs: MINUTE },
-      signup: { limit: n('RATE_SIGNUP_PER_HOUR'), windowMs: 60 * MINUTE },
     },
     trustedProxyHops: n('TRUSTED_PROXY_HOPS'),
     clientIpHeader: env.CLIENT_IP_HEADER?.trim() === 'x-real-ip' ? 'x-real-ip' : 'x-forwarded-for',

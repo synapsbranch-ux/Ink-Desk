@@ -3,7 +3,7 @@
 // `limitRequest` and no route has to remember: the route's kind decides the
 // window (`classify`), the signed-in person's id keys it, and a request over
 // the line is refused 429 with a calm sentence and `Retry-After`. A route with
-// no signed-in person (a share view, a report, sign-up) takes a window keyed by
+// no signed-in person (a share view, a report, a sign-in) takes a window keyed by
 // a hash of the client address (`limitByAddress`). A signed-out request to an
 // API route gets its 401 and takes no window: that path touches no store and no
 // provider, and a counter write per anonymous request would hand a flooder a
@@ -29,7 +29,6 @@
 //   anonMedia  a shared manga's pictures, per client address      600 a minute
 //   report   the share page's report form, per client address     6 an hour
 //   signin   attempts to sign in (any Better Auth write), per client address   10 a minute
-//   signup   accounts made with email and password, per client address       5 an hour
 //
 // Redis down: the windows that guard SPENDING (text, image, upload) fail
 // CLOSED with the studio-busy sentence, and so does `report` — a form anyone can
@@ -115,7 +114,7 @@ export function classify(method: string, pathname: string): RateBucket[] {
 }
 
 /** The windows that guard spending, the report form and the sign-in (public writes): Redis down closes them. */
-const FAIL_CLOSED = new Set<RateBucket>(['text', 'image', 'upload', 'report', 'signin', 'signup'])
+const FAIL_CLOSED = new Set<RateBucket>(['text', 'image', 'upload', 'report', 'signin'])
 
 // --- The client address ---------------------------------------------------------------
 
@@ -197,7 +196,7 @@ export async function limitRequest(req: Request, userId: string): Promise<void> 
 }
 
 /**
- * A window keyed by the client's address, for routes with no signed-in person (a share view, a report, sign-up).
+ * A window keyed by the client's address, for routes with no signed-in person (a share view, a report, a sign-in).
  * `anon` for data, `anonMedia` for pictures, `report` for the report form; any bucket works (it is the key that
  * differs: a hash of the trusted-hop address, never the caller's own claim). Throws `Refused` — 429 with
  * `Retry-After` when the window is full, 503 when the counter store is down and the bucket fails closed.
