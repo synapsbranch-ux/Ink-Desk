@@ -95,7 +95,7 @@ export function CastStation({
 
         {proposing ? (
           <div className="sketch cast-loading" aria-busy="true">
-            <GenerationStatus stages={textStages(chapter.storyMode === 'scenario' ? 'Claude is reading the scenario…' : 'Claude is reading the synopsis…')} />
+            <GenerationStatus stages={textStages(chapter.storyMode === 'scenario' ? 'The AI is reading the scenario…' : 'The AI is reading the synopsis…')} />
           </div>
         ) : empty ? (
           <>

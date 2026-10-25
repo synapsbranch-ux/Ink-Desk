@@ -229,7 +229,7 @@ export function Panel({
                 title={
                   spend.blocked
                     ? (spend.reason ?? undefined)
-                    : 'Claude rephrases only this panel’s action, camera and background — never the dialogue, never the DNA — then redraws.'
+                    : 'The AI rephrases only this panel’s action, camera and background — never the dialogue, never the DNA — then redraws.'
                 }
                 onClick={() => onRewrite(panel.index)}
               >

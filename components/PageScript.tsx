@@ -108,12 +108,12 @@ export function PageScript({ chapter, activity, writing, notice, onRetry, starti
   return (
     <aside className="script" aria-label="Page script">
       <div className="eyebrow eyebrow-sm">
-        {chapter.plan ? `Page ${n} · written from the chapter plan` : 'Page script · written by Claude from the locked cast'}
+        {chapter.plan ? `Page ${n} · written from the chapter plan` : 'Page script · written by the AI from the locked cast'}
       </div>
 
       {writing ? (
         <div className="sketch script-loading" aria-busy="true">
-          <GenerationStatus stages={textStages('Claude is writing the page…')} />
+          <GenerationStatus stages={textStages('The AI is writing the page…')} />
         </div>
       ) : !script ? (
         <div className="notice cast-notice" role="alert">

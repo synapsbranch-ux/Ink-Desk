@@ -7,14 +7,15 @@
 // would make the video wrong rather than unfinished — an unknown or
 // out-of-order mark, a segment with no section in narration.md, music without
 // its licence, an edit over three minutes — stops the render with a sentence.
-// Music is composed by video/music/compose.mts; until it is, that is a draft
-// line too.
+// Music is composed by video/music/compose.mts or generated; until it is,
+// that is a draft line too, as are the method beat's document stills until
+// `npm run video:docs` has made them.
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { CUT, MOTION_PREVIEW } from './src/cut.ts'
 import { MUSIC_BASE } from './src/mix.ts'
-import type { DemoProps, NarrationClip } from './src/props.ts'
+import type { DemoProps, DocsStills, NarrationClip } from './src/props.ts'
 import {
   captionCues,
   narrationKey,
@@ -80,6 +81,25 @@ function stillsExist(s: MoneyShotStills): boolean {
   return all.every((p) => existsSync(pub(p)))
 }
 
+/** The method beat's documents (capture/docs.mts), when every picture the index names is here. */
+function docsStills(draft: string[]): DocsStills | null {
+  const docs = readJson<DocsStills>(pub('capture/docs/docs.json'))
+  if (!docs) {
+    draft.push('The method beat has no stills of the planning documents yet — run `npm run video:docs` (free, offline).')
+    return null
+  }
+  const paths = [
+    docs.scope?.top, docs.scope?.full, docs.prd?.top, docs.prd?.full, docs.spec?.top, docs.spec?.full,
+    docs.checklist?.slices, docs.checklist?.v3, docs.checklist?.review, docs.log, docs.skills,
+  ]
+  const missing = paths.filter((p) => typeof p !== 'string' || !existsSync(pub(p)))
+  if (missing.length) {
+    draft.push(`capture/docs/docs.json names ${missing.length} picture${missing.length === 1 ? '' : 's'} that ${missing.length === 1 ? 'is' : 'are'} not here — run \`npm run video:docs\` again.`)
+    return null
+  }
+  return docs
+}
+
 function narrationClips(
   plan: ResolvedPlan,
   sections: readonly NarrationSegment[],
@@ -128,7 +148,10 @@ export function prepare(): Prepared {
   const footage = timeline.footage && existsSync(pub(timeline.footage)) ? timeline.footage : null
   if (!timeline.footage) draft.push('No capture yet — every footage shot is a slate. Run `npm run video:capture`.')
   else if (!footage) draft.push(`timeline.json names ${timeline.footage}, which is not on this machine (captures are not committed) — footage shots are slates.`)
-  if (footage && timeline.quality !== 'high') draft.push(`The capture ran at \`${timeline.quality ?? 'unknown'}\` quality; the film is captured at \`high\`.`)
+  // A fresh capture generates on camera, so its quality is the film's; a seeded one draws nothing (the chapter's art is whatever it was drawn at).
+  if (footage && timeline.path !== 'seeded' && timeline.quality !== 'high') {
+    draft.push(`The capture ran at \`${timeline.quality ?? 'unknown'}\` quality; the film is captured at \`high\`.`)
+  }
 
   let plan: ResolvedPlan
   try {
@@ -146,11 +169,16 @@ export function prepare(): Prepared {
   const narrationPath = join(VIDEO, 'narration.md')
   if (!existsSync(narrationPath)) fail('video/narration.md is missing.')
   const sections = parseNarration(readFileSync(narrationPath, 'utf8'))
-  const ids = new Set(CUT.map((s) => s.id))
+  // Every beat with words has its section; a silent beat (the outro's title card) has none.
+  const spokenBeats = new Set(CUT.filter((s) => !s.silent).map((s) => s.id))
+  const silentBeats = new Set(CUT.filter((s) => s.silent).map((s) => s.id))
   for (const seg of CUT) {
-    if (!sections.some((s) => s.id === seg.id)) fail(`narration.md has no "## ${seg.id}" section — every beat is captioned.`)
+    if (!seg.silent && !sections.some((s) => s.id === seg.id)) fail(`narration.md has no "## ${seg.id}" section — every beat with words is captioned.`)
   }
-  for (const s of sections) if (!ids.has(s.id)) fail(`narration.md has a "## ${s.id}" section that is not a beat of the edit (src/cut.ts).`)
+  for (const s of sections) {
+    if (silentBeats.has(s.id)) fail(`narration.md has a "## ${s.id}" section, but that beat is a silent title card (src/cut.ts) — remove the section.`)
+    if (!spokenBeats.has(s.id)) fail(`narration.md has a "## ${s.id}" section that is not a beat of the edit (src/cut.ts).`)
+  }
   const placeholders = sections.filter((s) => s.placeholder).map((s) => s.id)
   if (placeholders.length) draft.push(`narration.md still has placeholders in: ${placeholders.join(', ')}.`)
 
@@ -167,6 +195,9 @@ export function prepare(): Prepared {
     stillsArePlaceholder = true
     draft.push('The money shot uses the v1 desk ("Return to Sender") until a capture brings its own stills.')
   }
+
+  // The method beat's documents.
+  const docs = docsStills(draft)
 
   // Music: the repository's own composition (video/music/compose.mts), with
   // its licence file, or none. Never a track without one. The volume here is
@@ -188,6 +219,7 @@ export function prepare(): Prepared {
     footage,
     stills,
     stillsArePlaceholder,
+    docs,
     draft,
     motion: { plan: motionPlan, captions: captionCues(motionPlan, sections, spoken) },
   }
@@ -198,7 +230,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const { props } = prepare()
   mkdirSync(join(VIDEO, 'out'), { recursive: true })
   writeFileSync(join(VIDEO, 'out', 'props.json'), JSON.stringify(props, null, 2))
-  console.log(`Edit: ${props.plan.seconds.toFixed(1)} s · ${props.plan.segments.length} beats · ${props.captions.length} captions · ${props.narration.length} narration clips · music ${props.music ? 'on' : 'none'}`)
+  console.log(`Edit: ${props.plan.seconds.toFixed(1)} s · ${props.plan.segments.length} beats · ${props.captions.length} captions · ${props.narration.length} narration clips · music ${props.music ? 'on' : 'none'} · documents ${props.docs ? 'on' : 'none'}`)
   if (props.draft.length) {
     console.log(`DRAFT — not final yet:\n${props.draft.map((d) => `  · ${d}`).join('\n')}`)
   } else {

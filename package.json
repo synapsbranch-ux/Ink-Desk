@@ -35,6 +35,7 @@
     "check:judge": "tsx scripts/judge-check.mts",
     "check:responsive": "tsx scripts/responsive-check.mts",
     "video:capture": "npm --prefix video run capture --",
+    "video:docs": "npm --prefix video run docs --",
     "video:narrate": "npm --prefix video run narrate --",
     "video:render": "npm --prefix video run render",
     "video:render:motion": "npm --prefix video run render:motion",

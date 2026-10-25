@@ -170,7 +170,7 @@ export function StoryStation({
                 ? 'The story is settled, so the way it is told is fixed. Telling it the other way is a new project.'
                 : scenarioMode
                   ? 'Your own long scenario, with notes and references.'
-                  : 'A line or two; Claude turns it into a synopsis you edit.'}
+                  : 'A line or two; the AI turns it into a synopsis you edit.'}
             </span>
           </div>
         )}
@@ -253,7 +253,7 @@ export function StoryStation({
                 disabled={!ready || pending || textSpend.blocked}
                 title={askWhy}
               >
-                {pending ? 'Pitching…' : castBuilt ? (draft ? 'Pitch it again' : 'Pitch a new story') : synopsis ? 'Pitch it again' : 'Pitch it to Claude'}
+                {pending ? 'Pitching…' : castBuilt ? (draft ? 'Pitch it again' : 'Pitch a new story') : synopsis ? 'Pitch it again' : 'Pitch it to the AI'}
               </button>
               <span className="helper">
                 {castBuilt
@@ -280,7 +280,7 @@ export function StoryStation({
 
             {pending ? (
               <div className="sketch synopsis-loading" aria-busy="true">
-                <GenerationStatus stages={textStages('Claude is reading your pitch…')} />
+                <GenerationStatus stages={textStages('The AI is reading your pitch…')} />
               </div>
             ) : castBuilt && draft ? (
               <article className="card synopsis-card">

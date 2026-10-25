@@ -29,6 +29,14 @@ export type Recording = {
    * lands on it rather than just before it.
    */
   frameSince(wallMs: number, ms: number): Promise<void>
+  /**
+   * Record another page from now on — a second browser window, such as a
+   * signed-out visitor's — on the same clock into the same file. The last
+   * frame of the page left behind holds until the new page's first frame
+   * arrives, so the cut between the two is honest and the file stays
+   * continuous. The page must have the same viewport.
+   */
+  follow(context: BrowserContext, page: Page): Promise<void>
   /** Pad to now, finish the file and wait for ffmpeg. Safe to call more than once. */
   stop(): Promise<RecordingResult>
   /** Set once ffmpeg has failed: why, as a clause that reads after a colon. */
@@ -184,14 +192,20 @@ export async function startRecording(context: BrowserContext, page: Page, file: 
     pending = buf // shown from frame `written` on; a faster frame replaces it before it costs one
   }
 
-  const cdp = await context.newCDPSession(page)
-  cdp.on('Page.screencastFrame', (e) => {
-    // Acked at once: Chromium holds back new frames while too many are unacked,
-    // and could drop the last change before a still screen.
-    cdp.send('Page.screencastFrameAck', { sessionId: e.sessionId }).catch(() => {})
-    onFrame(e.metadata.timestamp ?? Date.now() / 1000, Buffer.from(e.data, 'base64'))
-  })
-  await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 92, maxWidth: width, maxHeight: height, everyNthFrame: 1 })
+  // The screencast session of the page being recorded; `follow` moves it to
+  // another page. Frames carry Chromium's own timestamps (seconds since the
+  // epoch), the same clock whichever page sends them.
+  let cdp = await context.newCDPSession(page)
+  const screencast = async (session: typeof cdp) => {
+    session.on('Page.screencastFrame', (e) => {
+      // Acked at once: Chromium holds back new frames while too many are unacked,
+      // and could drop the last change before a still screen.
+      session.send('Page.screencastFrameAck', { sessionId: e.sessionId }).catch(() => {})
+      onFrame(e.metadata.timestamp ?? Date.now() / 1000, Buffer.from(e.data, 'base64'))
+    })
+    await session.send('Page.startScreencast', { format: 'jpeg', quality: 92, maxWidth: width, maxHeight: height, everyNthFrame: 1 })
+  }
+  await screencast(cdp)
 
   const ticker = setInterval(() => {
     if (t0 !== null) padTo(slot(Date.now() / 1000 - PAD_LAG_S))
@@ -224,6 +238,16 @@ export async function startRecording(context: BrowserContext, page: Page, file: 
         const timer = setTimeout(done, ms)
         waiters.push({ since, done: () => (clearTimeout(timer), done()) })
       })
+    },
+    async follow(nextContext, nextPage) {
+      if (stopping) return
+      const old = cdp
+      // The new page first, so no moment is left unwatched; a frame from the
+      // old page that is still in flight lands by its timestamp like any other.
+      cdp = await nextContext.newCDPSession(nextPage)
+      await screencast(cdp)
+      await old.send('Page.stopScreencast').catch(() => {})
+      await old.detach().catch(() => {})
     },
     stop() {
       result ??= (async () => {

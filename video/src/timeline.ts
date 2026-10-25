@@ -4,7 +4,7 @@
 //
 //   timeline.json  marks written by capture/record.mts as the real app runs
 //   cut.ts         the edit: segments of shots, each footage shot a pair of marks
-//   narration.md   the learner's script, one section per segment (captions)
+//   narration.md   the learner's script, one section per narrated segment (captions)
 //
 // resolvePlan(cut, marks) → frames for every shot. Every shot lasts exactly
 // its budget, so the beats, the narration's word budgets and the captions all
@@ -12,6 +12,11 @@
 // real speed when it fits its budget — then holds its last frame for the rest
 // — and is time-lapsed (sped up, never slowed, never faked) when it does not.
 // A shot whose marks are not in the capture yet is a labelled slate.
+//
+// Two captures can feed the same edit (v3): a fresh project generated on
+// camera, or a finished chapter walked station by station (`--project`). They
+// name some moments differently, so a footage shot may give several marks for
+// one end and the first one the capture has is used (`MarkRef`).
 
 export const FPS = 30
 export const WIDTH = 1920
@@ -23,29 +28,45 @@ export const NARRATION_LEAD_SECONDS = 0.4
 
 /**
  * Marks the recorder writes, in journey order. The edit refers to them by
- * name; the recorder must write exactly these names.
+ * name; the recorder must write exactly these names. Two paths share the list
+ * (capture/record.mts): a fresh project generated on camera writes the marks
+ * noted "fresh", a finished chapter walked with `--project <id>` writes the
+ * ones noted "seeded"; the sign-in, dashboard, reader, export and share marks
+ * are common. Either path visits the list in this order, skipping the other's.
  */
 export const MARKS = [
-  { name: 'dashboard', when: 'the dashboard is on screen, before anything is clicked' },
-  { name: 'project-created', when: 'the studio for the new project has opened on Story' },
-  { name: 'scenario-ready', when: 'the scenario is on the desk (sample pasted or typed) and Story is complete' },
-  { name: 'library-open', when: 'the Library station is on screen with the cast proposed' },
-  { name: 'import-done', when: 'the imported picture is the sheet and its DNA is on the card' },
-  { name: 'cast-locked', when: 'both characters carry the Locked stamp' },
-  { name: 'director-open', when: 'the Director station is on screen' },
-  { name: 'plan-ready', when: 'the chapter plan and its cost estimate are on screen' },
-  { name: 'pages-queued', when: 'Generate page / Generate all was clicked' },
-  { name: 'page1-inked', when: 'every panel of page 1 has inked in' },
+  { name: 'sign-in', when: 'the sign-in card is on screen, nothing typed yet (a private studio)' },
+  { name: 'signed-in', when: 'Sign in was accepted and the desk has appeared' },
+  { name: 'dashboard', when: 'the dashboard is on screen with the pointer in view, before anything is clicked' },
+  { name: 'project-created', when: 'fresh: the studio for the new project has opened on Story' },
+  { name: 'project-open', when: 'seeded: the studio for the finished chapter has opened' },
+  { name: 'scenario-ready', when: 'fresh: the scenario is on the desk (sample pasted or typed) and Story is complete' },
+  { name: 'scenario-shown', when: 'seeded: the saved scenario has been read on the Story station' },
+  { name: 'library-open', when: 'fresh: the Library station is on screen with the cast proposed' },
+  { name: 'import-done', when: 'fresh: the imported picture is the sheet and its DNA is on the card' },
+  { name: 'cast-locked', when: 'fresh: both characters carry the Locked stamp' },
+  { name: 'library-shown', when: 'seeded: both locked cards and the DNA beside the sheet have been shown' },
+  { name: 'director-open', when: 'fresh: the Director station is on screen' },
+  { name: 'plan-ready', when: 'fresh: the chapter plan and its cost estimate are on screen' },
+  { name: 'director-shown', when: 'seeded: the plan and its estimate have been shown on the Director' },
+  { name: 'pages-queued', when: 'fresh: Generate page / Generate all was clicked' },
+  { name: 'page1-inked', when: 'fresh: every panel of page 1 has inked in' },
+  { name: 'pages-shown', when: 'seeded: the Page station is open on page 1 with every panel inked in' },
   { name: 'bubble-edited', when: 'a speech bubble was edited on page 1' },
-  { name: 'redraw-done', when: "a panel's redraw has inked in" },
-  { name: 'chapter-inked', when: 'every planned page and the cover are inked' },
+  { name: 'redraw-done', when: "fresh: a panel's redraw has inked in" },
+  { name: 'chapter-inked', when: 'fresh: every planned page and the cover are inked' },
+  { name: 'chapter-shown', when: 'seeded: every page of the chapter has been shown inked in' },
   { name: 'reader-open', when: 'Ink & Publish is on screen with the cover' },
   { name: 'pdf-exported', when: 'the PDF export has finished' },
+  { name: 'share-link', when: 'the Share dialog shows the public link' },
+  { name: 'share-opened', when: 'the public page is on screen in a signed-out window' },
   { name: 'end', when: 'the last frame worth keeping' },
 ] as const
 
 export type MarkName = (typeof MARKS)[number]['name']
 export type Mark = { name: MarkName; t: number }
+/** One mark, or several in order of preference: the first the capture has is the one used. */
+export type MarkRef = MarkName | readonly MarkName[]
 
 /** The money shot's pictures, as paths under video/public. */
 export type MoneyShotStills = {
@@ -67,18 +88,27 @@ export type CaptureTimeline = {
   duration: number | null
   marks: Mark[]
   stills: MoneyShotStills | null
+  /** Which journey was filmed (v3): a fresh project generated on camera, or a finished chapter walked with --project. Absent on a v2 capture. */
+  path?: 'fresh' | 'seeded'
+  /** The public share page the capture opened, as its path (`/s/<token>`) — a public link by design; absent before the share beat. */
+  share?: string | null
 }
 
 export type Shot =
   | { kind: 'intro'; seconds: number }
   | { kind: 'section'; title: string; kicker: string; seconds: number }
-  | { kind: 'footage'; from: MarkName; to: MarkName; seconds: number; label: string }
+  | { kind: 'footage'; from: MarkRef; to: MarkRef; seconds: number; label: string }
   | { kind: 'moneyshot'; seconds: number }
   | { kind: 'method'; seconds: number }
+  | { kind: 'learned'; seconds: number }
   | { kind: 'outro'; seconds: number }
 
-/** One segment of the edit = one section of narration.md (same id). */
-export type Segment = { id: string; label: string; shots: Shot[] }
+/**
+ * One segment of the edit = one section of narration.md (same id). A `silent`
+ * segment is a title card with no words over it: it has no section, no
+ * captions and no voice (the outro).
+ */
+export type Segment = { id: string; label: string; shots: Shot[]; silent?: true }
 
 export type ResolvedShot = Shot & {
   startFrame: number
@@ -93,6 +123,9 @@ export type ResolvedShot = Shot & {
   realSeconds?: number
   /** Footage only: true when the marks are not in the capture — render a slate. */
   missing?: boolean
+  /** Footage only: which of the shot's marks the capture had. */
+  fromMark?: MarkName
+  toMark?: MarkName
 }
 
 export type ResolvedSegment = {
@@ -131,6 +164,18 @@ export function checkMarks(marks: readonly Mark[], duration: number | null): voi
   }
 }
 
+/** The first of a shot's marks that the capture has, with its time. */
+export function pickMark(ref: MarkRef, at: ReadonlyMap<string, number>): { name: MarkName; t: number } | null {
+  for (const name of typeof ref === 'string' ? [ref] : ref) {
+    const t = at.get(name)
+    if (t !== undefined) return { name, t }
+  }
+  return null
+}
+
+/** Every mark a shot may use, for checks and messages. */
+export const markNames = (ref: MarkRef): readonly MarkName[] => (typeof ref === 'string' ? [ref] : ref)
+
 export function resolvePlan(cut: readonly Segment[], marks: readonly Mark[], hasFootage: boolean): ResolvedPlan {
   const at = new Map(marks.map((m) => [m.name, m.t]))
   const ids = new Set<string>()
@@ -148,15 +193,15 @@ export function resolvePlan(cut: readonly Segment[], marks: readonly Mark[], has
         cursor += budget
         return r
       }
-      const from = at.get(shot.from)
-      const to = at.get(shot.to)
-      if (!hasFootage || from === undefined || to === undefined) {
+      const from = hasFootage ? pickMark(shot.from, at) : null
+      const to = hasFootage ? pickMark(shot.to, at) : null
+      if (!from || !to) {
         const r = { ...shot, startFrame: cursor, durationInFrames: budget, missing: true }
         cursor += budget
         return r
       }
-      const real = to - from
-      if (!(real > 0)) throw new TimelineError(`Footage "${shot.label}" runs from ${shot.from} to ${shot.to}, which is not forward.`)
+      const real = to.t - from.t
+      if (!(real > 0)) throw new TimelineError(`Footage "${shot.label}" runs from ${from.name} to ${to.name}, which is not forward.`)
       // Time-lapse only when the real span does not fit; never slow motion.
       const playbackRate = Math.max(1, real / shot.seconds)
       const playFrames = Math.min(budget, Math.max(1, Math.round((real / playbackRate) * FPS)))
@@ -165,12 +210,14 @@ export function resolvePlan(cut: readonly Segment[], marks: readonly Mark[], has
         startFrame: cursor,
         durationInFrames: budget,
         playFrames,
-        trimBefore: frames(from),
+        trimBefore: frames(from.t),
         // Rounded up: the closing frame is never before its mark, so a hold
         // shows the moment itself, not the frame before it.
-        trimAfter: Math.ceil(to * FPS - 1e-9),
+        trimAfter: Math.ceil(to.t * FPS - 1e-9),
         playbackRate,
         realSeconds: real,
+        fromMark: from.name,
+        toMark: to.name,
       }
       cursor += budget
       return r

@@ -73,7 +73,7 @@ const NO_CLAUDE_KEY =
   'The studio isn’t connected to Claude yet. Add ANTHROPIC_API_KEY to .env and restart the dev server.'
 const NO_OPENROUTER_KEY =
   'The studio isn’t connected to the fallback text model yet. Add OPENROUTER_API_KEY to .env and restart the dev server.'
-const CLAUDE_BUSY = 'Claude didn’t answer just now. Try again in a moment.'
+const CLAUDE_BUSY = 'The AI didn’t answer just now. Try again in a moment.'
 const FALLBACK_BUSY = 'The text model didn’t answer just now. Try again in a moment.'
 
 export async function ask<S extends z.ZodType>(

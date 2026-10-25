@@ -29,7 +29,7 @@ export const SHEET_STAGES: Stages = [
 
 /** Draw sheet: Claude writes the visual DNA first, then the picture starts. */
 export const SHEET_FRESH_STAGES: Stages = [
-  [0, 'Claude is writing the visual DNA…'],
+  [0, 'The AI is writing the visual DNA…'],
   [8, 'Sketching front, three-quarter, expressions…'],
   [18, 'Inking the lines…'],
   [32, 'Adding screentone…'],

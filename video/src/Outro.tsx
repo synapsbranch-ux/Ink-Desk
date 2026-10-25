@@ -8,7 +8,10 @@ import { Paper } from './pieces/Paper'
 import { Words } from './pieces/Words'
 import { color, font, halftone } from './theme'
 
-/** Designed at 10 s; the first ~9 frames sit under the ink wipe. */
+/**
+ * Designed at 10 s and stretched to whatever the edit gives it — a 4 s title
+ * card in the v3 film, with no words over it (cut.ts marks the beat silent).
+ */
 const DESIGN = 300
 
 const T = {

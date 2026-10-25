@@ -108,8 +108,8 @@ export function CharacterCard({ index, character: c, state, onEdit, onCommit, on
         : hasDna
         ? 'Rereads the look, writes fresh DNA, draws again.'
         : hasSheet
-          ? 'The look changed — Claude writes fresh DNA, then draws.'
-          : 'Claude writes the visual DNA from the look, then draws.',
+          ? 'The look changed — the AI writes fresh DNA, then draws.'
+          : 'The AI writes the visual DNA from the look, then draws.',
     },
     imported
       ? {
@@ -122,8 +122,8 @@ export function CharacterCard({ index, character: c, state, onEdit, onCommit, on
           caption: textSpend.blocked
             ? textSpend.short
             : hasDna
-            ? 'Your picture is the sheet — Claude reads it again and rewrites the DNA.'
-            : 'Claude writes the DNA from your picture.',
+            ? 'Your picture is the sheet — the AI reads it again and rewrites the DNA.'
+            : 'The AI writes the DNA from your picture.',
         }
       : {
       key: 'redraw',
@@ -201,7 +201,7 @@ export function CharacterCard({ index, character: c, state, onEdit, onCommit, on
               <GenerationStatus
                 stages={
                   busy === 'importing'
-                    ? textStages('Claude is reading your picture…')
+                    ? textStages('The AI is reading your picture…')
                     : busy === 'redrawing'
                       ? SHEET_STAGES
                       : SHEET_FRESH_STAGES
@@ -245,14 +245,14 @@ export function CharacterCard({ index, character: c, state, onEdit, onCommit, on
           ) : (
             <p className="dna-empty">
               {busy === 'importing'
-                ? 'Claude is writing it from your picture.'
+                ? 'The AI is writing it from your picture.'
                 : drawing
-                ? 'Claude is writing it from the look below.'
+                ? 'The AI is writing it from the look below.'
                 : imported
-                  ? 'Not written yet — use Reread picture and Claude writes it from your picture, then read it against the art before you lock.'
+                  ? 'Not written yet — use Reread picture and the AI writes it from your picture, then read it against the art before you lock.'
                   : c.sheetImageId
-                  ? 'The look changed, so this DNA was retired. Draw the sheet again and Claude writes it fresh from the new words.'
-                  : 'Written by Claude from the look below when you draw the sheet, then pasted word for word into every panel this character appears in. Read it against the art before you lock.'}
+                  ? 'The look changed, so this DNA was retired. Draw the sheet again and the AI writes it fresh from the new words.'
+                  : 'Written by the AI from the look below when you draw the sheet, then pasted word for word into every panel this character appears in. Read it against the art before you lock.'}
             </p>
           )}
         </div>
@@ -324,7 +324,7 @@ export function CharacterCard({ index, character: c, state, onEdit, onCommit, on
               >
                 {busy === 'importing' ? 'Reading…' : 'Use as sheet'}
               </button>
-              <span className="action-caption">Your picture becomes the sheet; Claude writes the DNA from it.</span>
+              <span className="action-caption">Your picture becomes the sheet; the AI writes the DNA from it.</span>
             </>
           )}
         </div>

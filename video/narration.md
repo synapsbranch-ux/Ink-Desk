@@ -2,56 +2,67 @@
 
 <!--
   The words spoken over the demo, and the burned-in English captions (the same
-  words, so they never disagree). This draft was written for you to change:
-  rewrite any line in your own words, then run `npm run video:narrate` — only
-  the sections whose words changed are recorded again.
+  words, so they never disagree). They are YOURS: the hackathon's shipping skill
+  says the narration is the learner's own, so this file holds no drafted lines —
+  one bracketed placeholder per beat, for you to replace with what you want to
+  say. Then run `npm run video:narrate` — only the sections whose words changed
+  are recorded again.
 
-  One `## <id>` section per beat of the edit (src/cut.ts); keep the ids.
-  A section left as a [bracketed placeholder] is a draft: it is captioned as
-  written so you can judge the timing, and never sent to the voice. Comments
-  like this one are never spoken.
+  One `## <id>` section per beat of the edit that has words (src/cut.ts);
+  keep the ids. The outro is a silent title card and has no section. A section
+  left as a [bracketed placeholder] is a draft: it is captioned as written so
+  you can judge the timing, and never sent to the voice. Comments like this one
+  are never spoken.
 
   The word budget is what fits the beat at a calm pace (≈ 2.2 words a second,
   src/script.ts wordBudget): the voice starts 0.4 s into its beat and must end
   before the beat does. Stay at or under it — shorter is safer than longer.
-  `npm run narrate` measures the real audio and says if a beat runs long.
-  Rules from the hackathon: no third-party trademarks, under three minutes.
-  Applied here: no provider or brand is named ("the AI", "an image model",
-  "the hackathon's Learn Skill Pack"), and only the character lock is claimed.
+  `npm run video:narrate` measures the real audio and says if a beat runs long.
+  Rules from the hackathon: no third-party trademarks, under three minutes,
+  English. Applied here: name no provider or brand ("the AI", "an image model",
+  "the hackathon's Learn Skill Pack"), and claim only what the app does.
 -->
 
 ## intro
-<!-- Problem and audience · 19 s · about 39 words -->
-I have stories, and I cannot draw. Ask an image model for my hero four times, and I get four strangers. Ink Desk keeps one face in every panel. The look freezes once. Only the action changes.
+<!-- Problem and audience · 14 s · about 28 words -->
+[Your words: the problem, and who it is for.]
 
-## dashboard
-<!-- Dashboard, new project, style · 20 s · about 41 words -->
-My desk. Every project sits here with its cover. New project asks for a title and a style preset: manga in black and white, or manhwa in colour. That style stays fixed for the project. The studio opens.
+## signin
+<!-- Sign in to the studio · 10 s · about 19 words -->
+[Your words over the sign-in and the desk appearing.]
+
+## project
+<!-- The desk, and a project · 10 s · about 19 words -->
+[Your words over the desk and the project opening.]
 
 ## library
-<!-- Scenario and library, import and lock · 28 s · about 59 words -->
-I paste the whole scenario. The Library proposes the cast from it. For the lead, I bring my own drawing. Import reference puts it on the card, and the AI reads the picture and writes its visual DNA in words beside the art. Lock freezes the picture and the words together. Both cards, locked.
+<!-- The scenario, the library and the locked cast · 20 s · about 41 words -->
+[Your words over the scenario, the library and the locked cast with its DNA.]
 
 ## director
-<!-- The Director plans the chapter · 24 s · about 50 words -->
-The Director opens. It reads the scenario, the cast and the style, and plans the chapter: pages and a cover, one locked character per panel, with action, camera, background and dialogue. Every line is mine to edit. The estimate shows before anything is drawn. I press Generate all.
+<!-- The Director's plan and its estimate · 16 s · about 33 words -->
+[Your words over the Director's plan and the estimate.]
 
 ## pages
-<!-- Pages ink in, bubble edit, redraw · 32 s · about 68 words -->
-Page one inks in, panel by panel. Every panel request carries the locked sheet and the DNA word for word; the AI writes only the action, the angle, the expression. Locked appearance, free action. Bubbles are app lettering: a line is retyped, never regenerated. A panel that misses gets Redraw: the same request again, the earlier version kept. Then the rest, and the cover.
+<!-- Pages ink in, a bubble edit · 22 s · about 46 words -->
+[Your words over the pages inking in and the bubble edit.]
 
 ## moneyshot
-<!-- The money shot · 15 s · about 30 words -->
-My imported reference, and beside it what came back: pages one, two and three, and the cover. Nothing retouched. Every action is different. The face is not.
+<!-- The money shot · 12 s · about 24 words -->
+[Your words over the sheet beside its panels.]
 
 ## reader
-<!-- Reader and PDF export · 14 s · about 28 words -->
-Ink and Publish opens on the cover, then every page in the style's reading order. Export binds the whole chapter into one PDF, lettering included.
+<!-- The reader and the PDF export · 12 s · about 24 words -->
+[Your words over the reader and the export.]
+
+## share
+<!-- A public link, opened signed out · 10 s · about 19 words -->
+[Your words over the share link and the public page.]
 
 ## method
-<!-- How it was made: planned before built · 15 s · about 30 words -->
-Planned with the hackathon's Learn Skill Pack: scope, PRD and spec before code, then built slice by slice, each verified and committed. Version two revised the same documents.
+<!-- How it was built: the Learn Skill Pack, step by step · 22 s · about 46 words -->
+[Your words on how it was built with the hackathon's Learn Skill Pack.]
 
-## outro
-<!-- What I learned, and the outro · 10 s · about 19 words -->
-What I learned: plan first, prove the one risky idea with a kernel test, then build.
+## learned
+<!-- What I learned, and how the skill helped · 15 s · about 30 words -->
+[Your words: what you learned, and how the skill helped. The last words of the film.]

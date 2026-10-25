@@ -10,6 +10,7 @@
     "render": "tsx prepare.mts && remotion render src/index.ts Demo out/inkdesk-demo.mp4 --props=out/props.json --codec=h264 --audio-codec=aac --enforce-audio-track",
     "render:motion": "tsx prepare.mts && remotion render src/index.ts Motion out/motion-draft.mp4 --props=out/props.json --codec=h264 --audio-codec=aac --enforce-audio-track",
     "capture": "tsx capture/record.mts",
+    "docs": "tsx capture/docs.mts",
     "narrate": "tsx narrate.mts",
     "music": "tsx music/compose.mts",
     "music:generate": "tsx music/generate.mts",

@@ -29,7 +29,7 @@ The learner's rule (`scope.md > Revision — Ink Desk Studio v3`, item 9): an au
 | SEC-11 | low | Configuration and infrastructure details leak to anonymous users in error responses and on pages | slice 16 | fixed — slice 19 |
 | SEC-12 | low | Cloud listProjects loads every full project document for every dashboard view, and GET requests have write side effects | slice 16, 19 | fixed — slice 19 |
 | SEC-13 | low | Cloud storage configuration doesn't match the provisioned environment, so cloud mode cannot start and could be pointed at a shared bucket | slice 16 | fixed — slice 16 |
-| SEC-14 | low | Local-mode user data is tracked in git (data/ is 136 MB), so a deployed or shared local desk would commit users' stories and uploads to a public repo | slice 16 | partly fixed — slices 16, 21 (media in the bucket, runtime records ignored), 23 (production refuses the local desk); `data/` is still tracked |
+| SEC-14 | low | Local-mode user data is tracked in git (data/ is 136 MB), so a deployed or shared local desk would commit users' stories and uploads to a public repo | slice 16 | partly fixed — slices 16, 21 (media in the bucket, runtime records ignored), 23 (production refuses the local desk); `data/` is still tracked. *6-ship, 2026-10-25:* `data/` is 154 MB in 86 tracked files (the kernel-test evidence and the filmed desks); the learner's decision stands — tracked, no history rewrite |
 | SEC-15 | low | Secret-reading server modules have no `server-only` guard | slice 16 | fixed — slice 16 |
 
 ### SEC-01 — No authentication or authorization on any route or page: every project can be listed, read, edited and spent from (IDOR on project ids)

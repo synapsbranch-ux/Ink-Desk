@@ -17,7 +17,7 @@ import { Words } from './pieces/Words'
 import { color, font, halftone, shadow } from './theme'
 import type { MoneyShotStills } from './timeline'
 
-/** Designed at 15 s; the first ~9 frames sit under the ink wipe. */
+/** Designed at 15 s (12 s in the v3 film, stretched to fit); the first ~9 frames sit under the ink wipe. */
 const DESIGN = 450
 
 // When things happen, in design frames.

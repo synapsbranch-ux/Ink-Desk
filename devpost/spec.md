@@ -2079,6 +2079,7 @@ Against the approved v2 spec:
 6. **New surfaces** — share pages, reports, settings, usage, Terms/Privacy, health, the Animate pipeline.
 7. **Security baseline** — the pre-build audit (`devpost/security-report.md`, 15 security and 18 stability findings, every one confirmed by an adversarial verifier) is part of the plan: each finding is closed by a named slice.
 8. **Text model id** unchanged; **image model** unchanged; **video** `bytedance/seedance-2.0` and **speech** `elevenlabs/eleven-v4` join, all through OpenRouter.
+9. **No custom domain — 2026-10-25 (6-ship).** Production answers at `https://web-production-a947d.up.railway.app` (Railway's generated domain for the `web` service); `APP_URL` and `NEXT_PUBLIC_APP_URL` name it, and *Domain and DNS (v3)* below applies only if a custom domain is added later. The v3 demo was captured on a local desk running this build with `INKDESK_AUTH=better` on a local MongoDB and generation on (see `scope.md > Revision v3 > Changes Since Approval`, item 12).
 
 ## How This Works, In Plain Language (v3)
 

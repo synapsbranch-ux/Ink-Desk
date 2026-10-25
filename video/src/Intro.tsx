@@ -13,7 +13,7 @@ import { Paper } from './pieces/Paper'
 import { Words } from './pieces/Words'
 import { color, font, halftone } from './theme'
 
-/** The intro is timed at 20 s and stretched to whatever the edit gives it. */
+/** The intro is timed at 20 s and stretched to whatever the edit gives it (14 s in the v3 film). */
 const DESIGN = 600
 
 // When things happen, in design frames.
