@@ -6,11 +6,11 @@
 import type { NarrationClip } from './props'
 import { FPS } from './timeline'
 
-// Set against a voice leveled to −16 LUFS (narrate.mts) and a track around
-// −14 LUFS: between the lines the music sits ≈ 8 dB under the voice's level,
-// under a line ≈ 16 dB.
+// Set against a voice leveled to −16 LUFS (narrate.mts) and a track levelled
+// to −14 LUFS (public/music/LICENSE.txt): between the lines the music sits
+// ≈ 12 dB under the voice's level, under a line ≈ 16 dB.
 /** The level between the voice's lines — what prepare.mts puts in the props. */
-export const MUSIC_BASE = 0.3
+export const MUSIC_BASE = 0.2
 /** The level under a narration clip. */
 export const MUSIC_DUCKED = 0.12
 export const MUSIC_FADE_IN_FRAMES = 30

@@ -56,7 +56,12 @@ export const wordCount = (text: string) => (text.trim() === '' ? 0 : text.trim()
 
 export const estimateSpokenSeconds = (text: string) => wordCount(text) / WORDS_PER_SECOND
 
-/** Sentences, then any sentence too long for two lines split at word boundaries, evenly. */
+/**
+ * Sentences, then any sentence too long for two lines split evenly — at the
+ * comma, colon or semicolon nearest the even break, so a phrase is never cut
+ * in two ("interviewed | me"), and at a word boundary only when the sentence
+ * has no such pause that leaves both halves fitting. The words never change.
+ */
 export function chunkCaption(text: string, maxChars = MAX_CUE_CHARS): string[] {
   const sentences = text
     .replace(/\s+/g, ' ')
@@ -65,32 +70,32 @@ export function chunkCaption(text: string, maxChars = MAX_CUE_CHARS): string[] {
     .filter(Boolean)
   const chunks: string[] = []
   for (const sentence of sentences) {
-    if (sentence.length <= maxChars) {
-      chunks.push(sentence)
-      continue
+    let rest = sentence
+    while (rest.length > maxChars) {
+      const parts = Math.ceil(rest.length / maxChars)
+      const at = breakAt(rest, rest.length / parts, maxChars)
+      chunks.push(rest.slice(0, at).trimEnd())
+      rest = rest.slice(at).trimStart()
     }
-    const words = sentence.split(' ')
-    const parts = Math.ceil(sentence.length / maxChars)
-    const target = sentence.length / parts
-    let line = ''
-    for (const w of words) {
-      const next = line ? `${line} ${w}` : w
-      if (line && (next.length > maxChars || line.length >= target)) {
-        chunks.push(line)
-        line = w
-      } else {
-        line = next
-      }
-    }
-    if (line) chunks.push(line)
+    if (rest) chunks.push(rest)
   }
   return chunks
+}
+
+/** Where to cut `s`: after the pause nearest `target` whose first part fits two lines; failing that, at the space nearest it. */
+function breakAt(s: string, target: number, maxChars: number): number {
+  const nearest = (spots: number[]) => spots.reduce((best, p) => (Math.abs(p - target) < Math.abs(best - target) ? p : best))
+  const pauses = [...s.matchAll(/[,:;](?=\s)/g)].map((m) => m.index! + 1).filter((p) => p <= maxChars)
+  if (pauses.length) return nearest(pauses)
+  const spaces = [...s.matchAll(/ /g)].map((m) => m.index!).filter((p) => p > 0 && p <= maxChars)
+  return spaces.length ? nearest(spaces) : maxChars
 }
 
 /**
  * One cue per chunk, timed across the spoken length of the segment — the
  * narration's measured duration when the mp3 exists, the estimate otherwise —
- * in proportion to its characters. Never past the end of the segment.
+ * in proportion to its characters. The last cue of a beat holds until the
+ * beat ends rather than vanishing the moment the voice stops.
  */
 export function captionCues(
   plan: ResolvedPlan,
@@ -112,7 +117,7 @@ export function captionCues(
     chunks.forEach((text, i) => {
       const last = i === chunks.length - 1
       const len = Math.max(1, Math.round((span * (text.length + 8)) / total))
-      const end = last ? seg.startFrame + lead + span : Math.min(at + len, seg.startFrame + lead + span)
+      const end = last ? seg.startFrame + seg.durationInFrames : Math.min(at + len, seg.startFrame + lead + span)
       cues.push({ segmentId: seg.id, startFrame: at, endFrame: Math.max(at + 1, end), text })
       at = end
     })

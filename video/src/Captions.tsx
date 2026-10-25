@@ -6,6 +6,8 @@ import type { CaptionCue } from './script'
 import { color, font } from './theme'
 
 export const CAPTION_SAFE_BOTTOM = 180
+/** A cue fades in and out over at most this long (0.2 s). */
+export const CUE_FADE_FRAMES = 6
 
 export const Captions: React.FC<{ cues: readonly CaptionCue[] }> = ({ cues }) => {
   const frame = useCurrentFrame()
@@ -14,7 +16,7 @@ export const Captions: React.FC<{ cues: readonly CaptionCue[] }> = ({ cues }) =>
   const local = frame - cue.startFrame
   const length = cue.endFrame - cue.startFrame
   // A very short cue gets a shorter fade (interpolate needs a rising range).
-  const ramp = Math.min(4, Math.floor((length - 1) / 2))
+  const ramp = Math.min(CUE_FADE_FRAMES, Math.floor((length - 1) / 2))
   const opacity =
     ramp < 1
       ? 1

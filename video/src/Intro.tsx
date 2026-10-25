@@ -30,7 +30,6 @@ const T = {
   stamp: 336,
   reink: 352,
   lineB1: 350,
-  lineB2: 392,
   out: 566,
 }
 const INK_STAGGER = 22
@@ -191,9 +190,9 @@ export const Intro: React.FC<{ durationInFrames: number }> = ({ durationInFrames
               </AbsoluteFill>
             ) : null}
             {f >= T.lineB1 - 2 ? (
+              // The learner's own line (narration.md › intro), word for word.
               <AbsoluteFill style={{ justifyContent: 'center' }}>
-                <Words text="Ink Desk keeps *one* *face*" frame={f} enterAt={T.lineB1} style={headline} />
-                <Words text="in every panel." frame={f} enterAt={T.lineB2} style={headline} />
+                <Words text="Ink Desk keeps *one* *face.*" frame={f} enterAt={T.lineB1} style={headline} />
               </AbsoluteFill>
             ) : null}
           </div>

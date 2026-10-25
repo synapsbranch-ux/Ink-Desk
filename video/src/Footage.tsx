@@ -11,20 +11,25 @@ const clock = (s: number) => {
   return `${Math.floor(r / 60)}:${String(r % 60).padStart(2, '0')}`
 }
 
+/** The first footage shot of a beat fades in from the paper its section card left. */
+const FADE_IN_FRAMES = 8
+
 export const Footage: React.FC<{ shot: ResolvedShot; src: string | null }> = ({ shot, src }) => {
   const frame = useCurrentFrame()
-  const fade = interpolate(frame, [0, 8, shot.durationInFrames - 8, shot.durationInFrames], [0, 1, 1, 0], {
-    extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp',
-  })
   if (shot.kind !== 'footage') return null
   if (!src || shot.missing) return <Slate label={shot.label} seconds={shot.durationInFrames / FPS} />
+  // Footage that follows footage cuts straight in, and no shot fades out: its
+  // closing frame — the lock, the export done, the redrawn panel — is the
+  // point of the shot, and the beat's ink wipe covers the last cut anyway.
+  const fade = shot.cutIn
+    ? 1
+    : interpolate(frame, [0, FADE_IN_FRAMES], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' })
   const rate = shot.playbackRate ?? 1
   // Every speed-up is labelled, however small: the film never speeds up real
   // footage without saying so.
   const lapse = rate > 1.01
   // A span shorter than its budget plays at real speed, then holds its last
-  // frame so the beat keeps its length.
+  // frame so the beat keeps its length; a time-lapse lands early and holds too.
   const play = shot.playFrames ?? shot.durationInFrames
   return (
     <AbsoluteFill style={{ background: color.paper }}>
@@ -53,26 +58,31 @@ export const Footage: React.FC<{ shot: ResolvedShot; src: string | null }> = ({ 
       {lapse ? (
         <div
           style={{
-            // Under the studio's rail, clear of its header — the cost readout
-            // there is worth seeing on camera.
+            // In the right gutter under the studio's rail. The content column
+            // ends at x ≈ 1580 whether the page is scrolled or not, the
+            // header's own controls sit above y 50 and the rail above y 125,
+            // so this corner is paper in every station — the DNA on the
+            // card, the panel plan and the cost readout stay in view.
             position: 'absolute',
             top: 148,
-            right: 40,
-            padding: '10px 18px',
+            right: 32,
+            width: 248,
+            padding: '10px 16px',
             background: color.ink,
             color: color.paper,
             fontFamily: font.body,
-            fontSize: 26,
             borderRadius: 4,
             boxShadow: shadow.md,
             opacity: fade * 0.92,
             display: 'flex',
-            gap: 14,
-            alignItems: 'baseline',
+            flexDirection: 'column',
+            gap: 2,
           }}
         >
-          <span style={{ fontWeight: 700 }}>{rate >= 10 ? Math.round(rate) : rate.toFixed(rate < 2 ? 2 : 1)}×</span>
-          <span style={{ opacity: 0.8 }}>{clock(shot.realSeconds ?? 0)} of real time, sped up</span>
+          <span style={{ fontWeight: 700, fontSize: 30, lineHeight: 1.1 }}>
+            {rate >= 10 ? Math.round(rate) : rate.toFixed(rate < 2 ? 2 : 1)}×
+          </span>
+          <span style={{ fontSize: 20, lineHeight: 1.25, opacity: 0.8 }}>{clock(shot.realSeconds ?? 0)} of real time, sped up</span>
         </div>
       ) : null}
     </AbsoluteFill>

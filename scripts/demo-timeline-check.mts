@@ -22,6 +22,7 @@ import {
   budgetSeconds,
   checkMarks,
   FPS,
+  LANDING_FRAMES,
   markNames,
   MARKS,
   MAX_SECONDS,
@@ -112,11 +113,11 @@ const fresh: Partial<Record<MarkName, number>> = {
   'scenario-ready': 36,
   'library-open': 39,
   'import-done': 66,
-  'cast-locked': 111, // 72 s real → time-lapsed into 12.5 s
+  'cast-locked': 111, // 45 s real → time-lapsed into 9.5 s
   'director-open': 114,
-  'plan-ready': 156,
-  'pages-queued': 166,
-  'page1-inked': 346, // 180 s of inking → 8 s, 22.5×
+  'plan-ready': 158, // 44 s of the Director thinking → 4 s
+  'pages-queued': 166, // the plan, 8 s real < 9.5 s budget → real speed, then a hold
+  'page1-inked': 346, // 180 s of inking → 9.5 s less the landing, 20.2×
   'bubble-edited': 358,
   'redraw-done': 426,
   'chapter-inked': 906,
@@ -160,12 +161,13 @@ for (const [i, seg] of plan.segments.entries()) {
   const budget = CUT[i].shots.reduce((s, shot) => s + shot.seconds, 0)
   near(sec(seg.durationInFrames), budget, `beat "${seg.id}" keeps its budget`)
 }
-// Neither path leaves a slate: every footage shot finds its marks on both.
-for (const [name, p] of [['fresh', plan], ['seeded', seededPlan]] as const) {
-  for (const s of p.segments.flatMap((g) => g.shots)) {
-    if (s.kind === 'footage') assert.ok(!s.missing, `${name}: "${s.label}" is a slate`)
-  }
-}
+// The fresh path leaves no slate: every footage shot finds its marks. The
+// seeded walk writes no mark inside the three spans the fresh edit splits (the
+// import before the lock, the Director thinking before the plan, the redraw),
+// so on that path those three shots are slates and the rest resolve.
+const slates = (p: typeof plan) => p.segments.flatMap((g) => g.shots).flatMap((s) => (s.kind === 'footage' && s.missing ? [s.label] : []))
+assert.deepEqual(slates(plan), [], 'fresh: no slate')
+assert.deepEqual(slates(seededPlan), ['The library, and the import', 'The estimate, and the Director thinking', 'The redraw'], 'seeded: only the fresh-only shots are slates')
 
 const footage = plan.segments.flatMap((s) => s.shots).filter((s) => s.kind === 'footage')
 const byLabel = (p: typeof plan, label: string) => {
@@ -182,12 +184,26 @@ near(sec(signin.durationInFrames), 10, 'and holds to its budget')
 assert.equal(signin.trimBefore, 1 * FPS)
 assert.equal(signin.trimAfter, 7 * FPS)
 assert.ok(!signin.missing)
-// Overruns → time-lapsed to exactly its budget, and the real time is kept.
+// Overruns → time-lapsed into its budget less the landing, which holds the
+// closing frame; the real time is kept.
 const inking = byLabel(plan, 'Page 1 inks in')
-assert.equal(inking.playbackRate, 22.5)
-near(sec(inking.durationInFrames), 8, 'a long wait is time-lapsed into its budget')
-assert.equal(inking.playFrames, inking.durationInFrames, 'a time-lapse fills its shot, no hold')
+near(sec(inking.durationInFrames), 9.5, 'a long wait is time-lapsed into its budget')
+assert.equal(inking.playFrames, inking.durationInFrames - LANDING_FRAMES, 'a time-lapse lands early and holds the closing frame')
+assert.ok(Math.abs(inking.playbackRate! - (180 * FPS) / (9.5 * FPS - LANDING_FRAMES)) < 1e-9, `20.2×, not ${inking.playbackRate}`)
 assert.equal(inking.realSeconds, 180)
+assert.ok(LANDING_FRAMES > 9, 'the landing outlasts the ink wipe’s first half, so the closing frame is seen before the ink')
+// A span that barely fits still plays at real speed — the landing is only for a time-lapse.
+const plan2 = byLabel(plan, 'The plan')
+assert.equal(plan2.playbackRate, 1)
+near(sec(plan2.playFrames!), 8, 'the plan plays its 8 s at real speed')
+// A footage shot that follows footage in its beat cuts straight in; the first one fades in.
+assert.equal(byLabel(plan, 'The scenario').cutIn, false)
+assert.equal(byLabel(plan, 'The library, and the import').cutIn, true)
+assert.equal(byLabel(plan, 'The DNA, and the lock').cutIn, true)
+assert.equal(byLabel(plan, 'Share publicly').cutIn, false)
+assert.equal(byLabel(plan, 'The link, copied and opened').cutIn, true)
+assert.equal(byLabel(plan, 'The public page, signed out').cutIn, true)
+assert.equal(byLabel(seededPlan, 'The library, and the import').cutIn, true, 'a slate keeps its place in the beat')
 // Played source frames ≈ shown frames × rate: nothing is invented.
 for (const s of footage) {
   const source = s.trimAfter! - s.trimBefore!
@@ -208,19 +224,25 @@ for (const seg of plan.segments) {
 assert.equal(cursor, plan.durationInFrames)
 
 // The same shot, resolved by each path's own marks (the first the capture has wins).
-const rest = (p: typeof plan) => byLabel(p, 'The rest of the chapter')
-assert.deepEqual([rest(plan).fromMark, rest(plan).toMark], ['bubble-edited', 'chapter-inked'])
-assert.deepEqual([rest(seededPlan).fromMark, rest(seededPlan).toMark], ['bubble-edited', 'chapter-shown'])
-assert.deepEqual([byLabel(seededPlan, 'The plan and the estimate').fromMark, byLabel(seededPlan, 'The plan and the estimate').toMark], ['library-shown', 'director-shown'])
-assert.deepEqual([byLabel(plan, 'The plan and the estimate').fromMark, byLabel(plan, 'The plan and the estimate').toMark], ['director-open', 'pages-queued'])
-assert.deepEqual([byLabel(seededPlan, 'The desk, and a project').fromMark, byLabel(seededPlan, 'The desk, and a project').toMark], ['signed-in', 'project-open'])
+const span = (p: typeof plan, label: string) => [byLabel(p, label).fromMark, byLabel(p, label).toMark]
+assert.deepEqual(span(plan, 'The rest of the chapter'), ['redraw-done', 'chapter-inked'])
+assert.deepEqual(span(seededPlan, 'The rest of the chapter'), ['bubble-edited', 'chapter-shown'])
+assert.deepEqual(span(plan, 'The redraw'), ['bubble-edited', 'redraw-done'])
+assert.deepEqual(span(plan, 'The DNA, and the lock'), ['import-done', 'cast-locked'])
+assert.deepEqual(span(seededPlan, 'The DNA, and the lock'), ['scenario-shown', 'library-shown'])
+assert.deepEqual(span(plan, 'The estimate, and the Director thinking'), ['director-open', 'plan-ready'])
+assert.deepEqual(span(plan, 'The plan'), ['plan-ready', 'pages-queued'])
+assert.deepEqual(span(seededPlan, 'The plan'), ['library-shown', 'director-shown'])
+assert.deepEqual(span(seededPlan, 'The desk, and a project'), ['signed-in', 'project-open'])
+assert.deepEqual(span(plan, 'The public page, signed out'), ['share-opened', 'end'])
 assert.equal(pickMark(['chapter-inked', 'chapter-shown', 'redraw-done'], new Map([['redraw-done', 5]]))?.name, 'redraw-done')
 assert.equal(pickMark('end', new Map()), null)
 
-// A short test capture (page 1 only): the rest of the chapter falls back to the redraw.
+// A short test capture (page 1 only): the redraw is filmed, the chapter's end is not.
 const short = freshMarks.filter((m) => m.name !== 'chapter-inked')
 const partial = resolvePlan(CUT, short, true)
-assert.deepEqual([rest(partial).fromMark, rest(partial).toMark], ['bubble-edited', 'redraw-done'], 'on --short the shot shows the redraw')
+assert.deepEqual(span(partial, 'The redraw'), ['bubble-edited', 'redraw-done'], 'on --short the redraw shot still shows the redraw')
+assert.deepEqual(slates(partial), ['The rest of the chapter'], 'on --short only the chapter’s end is a slate')
 // A local app with INKDESK_AUTH=off: no sign-in marks, so the sign-in beat is a
 // slate and the project beat starts on the dashboard instead.
 const local = freshMarks.filter((m) => m.name !== 'sign-in' && m.name !== 'signed-in')
@@ -272,6 +294,26 @@ const chunks = chunkCaption(parsed[0].text)
 assert.equal(chunks.join(' '), parsed[0].text, 'captions are the words, in order, nothing lost')
 for (const c of chunks) assert.ok(c.length <= MAX_CUE_CHARS, `"${c}" is longer than two lines`)
 assert.ok(chunks.length >= 2)
+// A sentence too long for two lines breaks at the pause nearest the even
+// break — a comma, colon or semicolon — never inside a phrase; only a
+// sentence with no usable pause breaks at a word.
+assert.deepEqual(chunkCaption('Under the hackathon’s Learn Skill Pack, the AI interviewed me before any code: scope, PRD, spec, each approved.'), [
+  'Under the hackathon’s Learn Skill Pack,',
+  'the AI interviewed me before any code: scope, PRD, spec, each approved.',
+])
+assert.deepEqual(chunkCaption('The Director plans the chapter: pages and a cover, one locked character per panel, with action, camera, setting and dialogue.'), [
+  'The Director plans the chapter: pages and a cover,',
+  'one locked character per panel, with action, camera, setting and dialogue.',
+])
+assert.deepEqual(chunkCaption('What I learned about consistent character art across AI panels: one sheet, one DNA text, every request.'), [
+  'What I learned about consistent character art across AI panels:',
+  'one sheet, one DNA text, every request.',
+])
+assert.deepEqual(chunks, ['Draw a character once.', 'Keep them, in every single panel of every page,', 'from the cover to the last speech bubble on page six!'])
+const plain = 'one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty'
+const plainChunks = chunkCaption(plain)
+assert.equal(plainChunks.join(' '), plain, 'no pause: a word break, nothing lost')
+assert.ok(plainChunks.length === 2 && plainChunks.every((c) => c.length <= MAX_CUE_CHARS && !c.startsWith(' ') && !c.endsWith(' ')))
 
 const cuesPlan = resolvePlan(CUT, [], false)
 const cues = captionCues(cuesPlan, parsed, {})
@@ -284,11 +326,16 @@ for (let i = 0; i < introCues.length; i++) {
   assert.ok(c.startFrame >= intro.startFrame && c.endFrame <= intro.startFrame + intro.durationInFrames, 'a cue stays inside its beat')
   if (i > 0) assert.equal(c.startFrame, introCues[i - 1].endFrame, 'cues follow one another without overlap')
 }
-// A measured narration length stretches the cues to it.
+// A measured narration length stretches the cues to it; the last cue of a
+// beat then holds until the beat ends rather than vanishing with the voice.
 const measured = captionCues(cuesPlan, parsed, { intro: 11 })
-const lastIntro = measured.filter((c) => c.segmentId === 'intro').at(-1)!
-near(sec(lastIntro.endFrame - intro.startFrame), 11 + 0.4, 'cues end with the measured narration')
-// …but never past the beat, even when the voice runs long.
+const measuredIntro = measured.filter((c) => c.segmentId === 'intro')
+const lastIntro = measuredIntro.at(-1)!
+assert.equal(lastIntro.endFrame, intro.startFrame + intro.durationInFrames, 'the last cue holds to the end of its beat')
+assert.ok(lastIntro.startFrame < intro.startFrame + Math.round((11 + 0.4) * FPS), 'and starts while the voice still speaks')
+assert.equal(measuredIntro.at(-2)!.endFrame, lastIntro.startFrame)
+assert.ok(measuredIntro.at(-2)!.endFrame < intro.startFrame + Math.round((11 + 0.4) * FPS), 'the cues before it end with the measured narration')
+// …and never past the beat, even when the voice runs long.
 const long = captionCues(cuesPlan, parsed, { intro: 99 })
 assert.ok(long.filter((c) => c.segmentId === 'intro').every((c) => c.endFrame <= intro.startFrame + intro.durationInFrames))
 // Placeholders are captioned as written (so a draft can be timed); empty is not.

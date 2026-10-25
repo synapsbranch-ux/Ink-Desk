@@ -18,8 +18,8 @@
 //   checklist-v3.png                  the v3 slices (16–23) with their lines
 //   checklist-review.png              devpost/checklist.md › Final Review
 //   checklist-revisions.png           devpost/checklist.md › Revisions: three of the
-//                                     entries (the two dated 2026-10-24 and the v3
-//                                     plan revision), the learner's quoted words
+//                                     entries whose learner quotes are English and
+//                                     verbatim (pickRevisions), the quoted words
 //                                     marked, long entries cut with an ellipsis
 //   scope-changes.png                 devpost/scope.html scrolled to the v3
 //                                     "Changes Since Approval" heading, items 1–7
@@ -347,13 +347,26 @@ function quoted(r: Revision): string[] {
 /** A quote the roles table would rewrite is not the learner's words any more; such an entry stays off the still. */
 const verbatim = (r: Revision) => quoted(r).every((q) => roles(q) === q)
 
-/** The three entries the still shows, in the file's order: the first two dated 2026-10-24, and the v3 plan revision. */
+/**
+ * The film is English, so a quote the learner typed in French (its function
+ * words, or any accented letter) stays off the still — the words are shown
+ * verbatim or not at all, never translated.
+ */
+const FRENCH = /[àâäçéèêëîïôöùûüÿœ]|\b(?:je|tu|il|elle|nous|vous|ils|elles|oui|tout|tous|toute|dans|veux|veut|est|que|qui|pas|les|des|une|ce|cette|sur|mais|ou|et|avec|être|etre|dois|doit)\b/i
+const english = (r: Revision) => quoted(r).every((q) => !FRENCH.test(q))
+
+/**
+ * The three entries the still shows, in the file's order: the first two dated
+ * 2026-10-24 and the v3 plan revision when their quotes are shown, else the
+ * first entries with a marked quote, else any — never the ship entry (this
+ * film), a rewritten quote or a French one.
+ */
 function pickRevisions(all: Revision[]): Revision[] {
-  const rest = all.filter((r) => !/^6-ship\b/.test(r.lead) && verbatim(r))
+  const rest = all.filter((r) => !/^6-ship\b/.test(r.lead) && verbatim(r) && english(r))
   const dated = rest.filter((r) => r.lead.includes('2026-10-24')).slice(0, 2)
   const plan = rest.find((r) => /^v3 — .*a plan revision after the v2 film/.test(r.lead))
   const chosen = [...dated, ...(plan && !dated.includes(plan) ? [plan] : [])]
-  for (const r of rest) {
+  for (const r of [...rest.filter((r) => quoted(r).length > 0), ...rest]) {
     if (chosen.length >= 3) break
     if (!chosen.includes(r)) chosen.push(r)
   }

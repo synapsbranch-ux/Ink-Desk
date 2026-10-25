@@ -10,8 +10,10 @@
 // its budget, so the beats, the narration's word budgets and the captions all
 // agree whatever the capture did. A footage shot between two marks plays at
 // real speed when it fits its budget — then holds its last frame for the rest
-// — and is time-lapsed (sped up, never slowed, never faked) when it does not.
-// A shot whose marks are not in the capture yet is a labelled slate.
+// — and is time-lapsed (sped up, never slowed, never faked) when it does not,
+// landing LANDING_FRAMES early so the closing mark's frame is seen, not only
+// cut away from. A shot whose marks are not in the capture yet is a labelled
+// slate.
 //
 // Two captures can feed the same edit (v3): a fresh project generated on
 // camera, or a finished chapter walked station by station (`--project`). They
@@ -25,6 +27,13 @@ export const HEIGHT = 1080
 export const MAX_SECONDS = 180
 /** Narration starts this long after its segment begins. */
 export const NARRATION_LEAD_SECONDS = 0.4
+/**
+ * A time-lapsed shot lands this many frames early and holds its closing
+ * mark's frame — the lock, the export done, the redrawn panel — so the moment
+ * the shot was cut to is on screen before the next cut or the beat's ink wipe
+ * (which covers a beat's last 9 frames), not only in its last frame.
+ */
+export const LANDING_FRAMES = 18
 
 /**
  * Marks the recorder writes, in journey order. The edit refers to them by
@@ -126,6 +135,8 @@ export type ResolvedShot = Shot & {
   /** Footage only: which of the shot's marks the capture had. */
   fromMark?: MarkName
   toMark?: MarkName
+  /** Footage only: true when the shot before it in the beat is footage too — it cuts straight in, no fade. */
+  cutIn?: boolean
 }
 
 export type ResolvedSegment = {
@@ -185,7 +196,7 @@ export function resolvePlan(cut: readonly Segment[], marks: readonly Mark[], has
     ids.add(seg.id)
     if (seg.shots.length === 0) throw new TimelineError(`Segment "${seg.id}" has no shots.`)
     const start = cursor
-    const shots = seg.shots.map((shot): ResolvedShot => {
+    const shots = seg.shots.map((shot, i): ResolvedShot => {
       if (!(shot.seconds > 0)) throw new TimelineError(`A shot in "${seg.id}" has no length.`)
       const budget = frames(shot.seconds)
       if (shot.kind !== 'footage') {
@@ -193,23 +204,31 @@ export function resolvePlan(cut: readonly Segment[], marks: readonly Mark[], has
         cursor += budget
         return r
       }
+      // Footage after footage cuts straight in: the closing frame of the shot
+      // before is the point, and a fade would blur it.
+      const cutIn = i > 0 && seg.shots[i - 1].kind === 'footage'
       const from = hasFootage ? pickMark(shot.from, at) : null
       const to = hasFootage ? pickMark(shot.to, at) : null
       if (!from || !to) {
-        const r = { ...shot, startFrame: cursor, durationInFrames: budget, missing: true }
+        const r = { ...shot, startFrame: cursor, durationInFrames: budget, missing: true, cutIn }
         cursor += budget
         return r
       }
       const real = to.t - from.t
       if (!(real > 0)) throw new TimelineError(`Footage "${shot.label}" runs from ${from.name} to ${to.name}, which is not forward.`)
-      // Time-lapse only when the real span does not fit; never slow motion.
-      const playbackRate = Math.max(1, real / shot.seconds)
-      const playFrames = Math.min(budget, Math.max(1, Math.round((real / playbackRate) * FPS)))
+      // A span that fits plays at real speed and holds its closing frame for
+      // the rest. One that does not is time-lapsed — never slow motion — into
+      // the budget less the landing, and the landing holds the closing frame.
+      const realFrames = Math.max(1, Math.round(real * FPS))
+      const fits = realFrames <= budget
+      const playFrames = fits ? realFrames : Math.max(1, budget - LANDING_FRAMES)
+      const playbackRate = fits ? 1 : realFrames / playFrames
       const r: ResolvedShot = {
         ...shot,
         startFrame: cursor,
         durationInFrames: budget,
         playFrames,
+        cutIn,
         trimBefore: frames(from.t),
         // Rounded up: the closing frame is never before its mark, so a hold
         // shows the moment itself, not the frame before it.

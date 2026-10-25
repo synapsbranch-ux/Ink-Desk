@@ -8,3 +8,5 @@ composition by any third party. The render fades it in, ducks it under the
 voice and fades it out (video/src/mix.ts). Generate another with
 `npm run video:music:generate`, or compose one in code with
 `npm run video:music`.
+
+The installed copy is this same generation levelled with ffmpeg dynaudnorm (f=250:g=15:p=0.95:m=30, then −1.4 dB, to about −14 LUFS integrated, true peak −1.8 dBFS) for the mix on 2026-10-25, so its quiet first 22 s and last 19 s sit within a few dB of its body; the untouched original is video/out/music/track-original.mp3.

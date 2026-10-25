@@ -14,7 +14,11 @@
 // MARKS): a fresh project generated on camera, or a finished chapter walked
 // with `--project <id>`. Where the two paths name the same moment
 // differently the shot lists both, the first the capture has winning; a shot
-// whose marks are in neither is a slate until it is filmed.
+// whose marks are in neither is a slate until it is filmed. Within a beat the
+// long waits get the short shots and the actions the long ones, so the waits
+// compress harder and the actions breathe: a split shot's seeded fallback
+// goes to the shot whose content the seeded walk has, and the other shot is
+// a slate on that path (the seeded recorder writes no mark between them).
 import type { Segment } from './timeline'
 
 export const CUT: Segment[] = [
@@ -42,8 +46,11 @@ export const CUT: Segment[] = [
     label: 'The scenario, the library and the locked cast',
     shots: [
       { kind: 'section', title: 'Your story, your character', kicker: 'Two', seconds: 2.5 },
-      { kind: 'footage', from: ['project-open', 'project-created'], to: ['scenario-shown', 'scenario-ready'], seconds: 5, label: 'The scenario' },
-      { kind: 'footage', from: ['scenario-shown', 'library-open'], to: ['library-shown', 'cast-locked'], seconds: 12.5, label: 'The locked cast and its DNA' },
+      { kind: 'footage', from: ['project-open', 'project-created'], to: ['scenario-shown', 'scenario-ready'], seconds: 3.5, label: 'The scenario' },
+      // Fresh: the cast proposed, the picture imported, its DNA written (a 16 s wait, compressed hard)…
+      { kind: 'footage', from: 'library-open', to: 'import-done', seconds: 4.5, label: 'The library, and the import' },
+      // …then the DNA read, the lock, the second sheet drawn, both locked. Seeded: the locked cards and the DNA, shown.
+      { kind: 'footage', from: ['import-done', 'scenario-shown'], to: ['cast-locked', 'library-shown'], seconds: 9.5, label: 'The DNA, and the lock' },
     ],
   },
   {
@@ -51,7 +58,10 @@ export const CUT: Segment[] = [
     label: "The Director's plan and its estimate",
     shots: [
       { kind: 'section', title: 'The Director plans the chapter', kicker: 'Three', seconds: 2.5 },
-      { kind: 'footage', from: ['library-shown', 'director-open'], to: ['director-shown', 'pages-queued'], seconds: 13.5, label: 'The plan and the estimate' },
+      // Fresh: the estimate, then the Director thinking (28 s, compressed hard).
+      { kind: 'footage', from: 'director-open', to: 'plan-ready', seconds: 4, label: 'The estimate, and the Director thinking' },
+      // The plan, at real speed, then Generate all. Seeded: the plan and its estimate, shown.
+      { kind: 'footage', from: ['plan-ready', 'library-shown'], to: ['pages-queued', 'director-shown'], seconds: 9.5, label: 'The plan' },
     ],
   },
   {
@@ -59,10 +69,13 @@ export const CUT: Segment[] = [
     label: 'Pages ink in, a bubble edit',
     shots: [
       { kind: 'section', title: 'Every panel, the same face', kicker: 'Four', seconds: 2.5 },
-      { kind: 'footage', from: ['director-shown', 'pages-queued'], to: ['pages-shown', 'page1-inked'], seconds: 8, label: 'Page 1 inks in' },
+      { kind: 'footage', from: ['director-shown', 'pages-queued'], to: ['pages-shown', 'page1-inked'], seconds: 9.5, label: 'Page 1 inks in' },
+      // Placed so the typing is on screen while the voice says "I retype one." (≈ 85.5–86.9 s).
       { kind: 'footage', from: ['pages-shown', 'page1-inked'], to: 'bubble-edited', seconds: 5.5, label: 'A bubble, retyped' },
-      // Fresh: the redraw and the rest of the chapter (the redraw alone on --short); seeded: the other pages, each inking in.
-      { kind: 'footage', from: 'bubble-edited', to: ['chapter-inked', 'chapter-shown', 'redraw-done'], seconds: 6, label: 'The rest of the chapter' },
+      // Fresh only: the redraw (a 2-minute wait) ending on the redrawn panel.
+      { kind: 'footage', from: 'bubble-edited', to: 'redraw-done', seconds: 2, label: 'The redraw' },
+      // Fresh: the other pages complete, and the cover. Seeded: the other pages, each shown inked in.
+      { kind: 'footage', from: ['redraw-done', 'bubble-edited'], to: ['chapter-inked', 'chapter-shown'], seconds: 2.5, label: 'The rest of the chapter' },
     ],
   },
   {
@@ -82,8 +95,10 @@ export const CUT: Segment[] = [
     id: 'share',
     label: 'A public link, opened signed out',
     shots: [
-      { kind: 'footage', from: 'pdf-exported', to: 'share-link', seconds: 5, label: 'Share publicly' },
-      { kind: 'footage', from: 'share-link', to: 'share-opened', seconds: 5, label: 'The public page, signed out' },
+      { kind: 'footage', from: 'pdf-exported', to: 'share-link', seconds: 2.5, label: 'Share publicly' },
+      { kind: 'footage', from: 'share-link', to: 'share-opened', seconds: 2.5, label: 'The link, copied and opened' },
+      // At real speed, then held: the public page and its Report control.
+      { kind: 'footage', from: 'share-opened', to: 'end', seconds: 5, label: 'The public page, signed out' },
     ],
   },
   {
