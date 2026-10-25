@@ -11,16 +11,17 @@ const clock = (s: number) => {
   return `${Math.floor(r / 60)}:${String(r % 60).padStart(2, '0')}`
 }
 
-/** The first footage shot of a beat fades in from the paper its section card left. */
+/** Footage after a section card fades in from the card's paper. */
 const FADE_IN_FRAMES = 8
 
 export const Footage: React.FC<{ shot: ResolvedShot; src: string | null }> = ({ shot, src }) => {
   const frame = useCurrentFrame()
   if (shot.kind !== 'footage') return null
   if (!src || shot.missing) return <Slate label={shot.label} seconds={shot.durationInFrames / FPS} />
-  // Footage that follows footage cuts straight in, and no shot fades out: its
-  // closing frame — the lock, the export done, the redrawn panel — is the
-  // point of the shot, and the beat's ink wipe covers the last cut anyway.
+  // Footage that opens its beat (under the ink wipe) or follows footage cuts
+  // straight in, and no shot fades out: its closing frame — the lock, the
+  // export done, the redrawn panel — is the point of the shot, and the beat's
+  // ink wipe covers the last cut anyway.
   const fade = shot.cutIn
     ? 1
     : interpolate(frame, [0, FADE_IN_FRAMES], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' })
@@ -82,7 +83,11 @@ export const Footage: React.FC<{ shot: ResolvedShot; src: string | null }> = ({ 
           <span style={{ fontWeight: 700, fontSize: 30, lineHeight: 1.1 }}>
             {rate >= 10 ? Math.round(rate) : rate.toFixed(rate < 2 ? 2 : 1)}×
           </span>
-          <span style={{ fontSize: 20, lineHeight: 1.25, opacity: 0.8 }}>{clock(shot.realSeconds ?? 0)} of real time, sped up</span>
+          <span style={{ fontSize: 20, lineHeight: 1.25, opacity: 0.8 }}>
+            {clock(shot.realSeconds ?? 0)} of real time,
+            <br />
+            sped up
+          </span>
         </div>
       ) : null}
     </AbsoluteFill>

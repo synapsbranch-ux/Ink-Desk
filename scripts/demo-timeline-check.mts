@@ -112,12 +112,12 @@ const fresh: Partial<Record<MarkName, number>> = {
   'project-created': 20,
   'scenario-ready': 36,
   'library-open': 39,
-  'import-done': 66,
-  'cast-locked': 111, // 45 s real → time-lapsed into 9.5 s
+  'import-done': 66, // 27 s of the import → 2.5 s, the beat's short shot
+  'cast-locked': 111, // 45 s real → time-lapsed into 12.5 s
   'director-open': 114,
   'plan-ready': 158, // 44 s of the Director thinking → 4 s
   'pages-queued': 166, // the plan, 8 s real < 9.5 s budget → real speed, then a hold
-  'page1-inked': 346, // 180 s of inking → 9.5 s less the landing, 20.2×
+  'page1-inked': 346, // 180 s of inking → 10 s less the landing, 19.1×
   'bubble-edited': 358,
   'redraw-done': 426,
   'chapter-inked': 906,
@@ -187,20 +187,29 @@ assert.ok(!signin.missing)
 // Overruns → time-lapsed into its budget less the landing, which holds the
 // closing frame; the real time is kept.
 const inking = byLabel(plan, 'Page 1 inks in')
-near(sec(inking.durationInFrames), 9.5, 'a long wait is time-lapsed into its budget')
+near(sec(inking.durationInFrames), 10, 'a long wait is time-lapsed into its budget')
 assert.equal(inking.playFrames, inking.durationInFrames - LANDING_FRAMES, 'a time-lapse lands early and holds the closing frame')
-assert.ok(Math.abs(inking.playbackRate! - (180 * FPS) / (9.5 * FPS - LANDING_FRAMES)) < 1e-9, `20.2×, not ${inking.playbackRate}`)
+assert.ok(Math.abs(inking.playbackRate! - (180 * FPS) / (10 * FPS - LANDING_FRAMES)) < 1e-9, `19.1×, not ${inking.playbackRate}`)
 assert.equal(inking.realSeconds, 180)
 assert.ok(LANDING_FRAMES > 9, 'the landing outlasts the ink wipe’s first half, so the closing frame is seen before the ink')
 // A span that barely fits still plays at real speed — the landing is only for a time-lapse.
 const plan2 = byLabel(plan, 'The plan')
 assert.equal(plan2.playbackRate, 1)
 near(sec(plan2.playFrames!), 8, 'the plan plays its 8 s at real speed')
-// A footage shot that follows footage in its beat cuts straight in; the first one fades in.
-assert.equal(byLabel(plan, 'The scenario').cutIn, false)
+// The library beat: the import (a wait) is the short shot and lands on the sheet with its DNA as the voice ends "…becomes the sheet"; the lock gets the long one.
+near(sec(byLabel(plan, 'The scenario').durationInFrames), 2.5, 'the scenario, pasted')
+near(sec(byLabel(plan, 'The library, and the import').durationInFrames), 2.5, 'the import lands as the voice reaches the sheet')
+near(sec(byLabel(plan, 'The DNA, and the lock').durationInFrames), 12.5, 'the DNA and the lock breathe')
+// Footage cuts straight in when it opens its beat (the ink wipe covers that cut, and a fade would wash the drained part
+// to paper) or follows footage (its closing frame is the point); only footage after a section card fades in.
+assert.equal(byLabel(plan, 'Sign in').cutIn, true, 'a beat that opens on footage cuts in under the wipe')
+assert.equal(byLabel(plan, 'Share publicly').cutIn, true, 'a beat that opens on footage cuts in under the wipe')
+assert.equal(byLabel(plan, 'The scenario').cutIn, false, 'footage after a section card fades in from its paper')
+assert.equal(byLabel(plan, 'The estimate, and the Director thinking').cutIn, false)
+assert.equal(byLabel(plan, 'Page 1 inks in').cutIn, false)
+assert.equal(byLabel(plan, 'The reader and the PDF').cutIn, false)
 assert.equal(byLabel(plan, 'The library, and the import').cutIn, true)
 assert.equal(byLabel(plan, 'The DNA, and the lock').cutIn, true)
-assert.equal(byLabel(plan, 'Share publicly').cutIn, false)
 assert.equal(byLabel(plan, 'The link, copied and opened').cutIn, true)
 assert.equal(byLabel(plan, 'The public page, signed out').cutIn, true)
 assert.equal(byLabel(seededPlan, 'The library, and the import').cutIn, true, 'a slate keeps its place in the beat')
@@ -210,6 +219,28 @@ for (const s of footage) {
   assert.ok(Math.abs(s.playFrames! * s.playbackRate! - source) <= s.playbackRate! + 1, `${s.kind === 'footage' ? s.label : ''} covers its source span`)
   assert.ok(s.playFrames! <= s.durationInFrames)
   assert.ok(s.playbackRate! >= 1, 'never slow motion')
+}
+// Where one shot's closing mark opens the next, the held frame and the next shot's first frame are the same
+// source frame — both trims round up — so the cut never steps back a frame. Checked on fractional marks, where it matters.
+const fractional = resolvePlan(CUT, freshMarks.map((m) => ({ ...m, t: m.t + 0.27 })), true)
+assert.equal(byLabel(fractional, 'Sign in').trimBefore, 39, 'a mark at 1.27 s opens on frame 39, never 38')
+assert.equal(byLabel(fractional, 'Sign in').trimAfter, 219)
+let joins = 0
+for (const p of [plan, fractional]) {
+  for (const seg of p.segments) {
+    for (let i = 1; i < seg.shots.length; i++) {
+      const a = seg.shots[i - 1]
+      const b = seg.shots[i]
+      if (a.kind !== 'footage' || b.kind !== 'footage' || a.toMark !== b.fromMark) continue
+      assert.equal(b.trimBefore, a.trimAfter, `"${b.label}" opens on the frame "${a.label}" holds`)
+      joins++
+    }
+  }
+}
+assert.ok(joins >= 10, `${joins} joined cuts checked`)
+for (const s of fractional.segments.flatMap((g) => g.shots)) {
+  if (s.kind !== 'footage') continue
+  assert.ok(Math.abs(s.playFrames! * s.playbackRate! - (s.trimAfter! - s.trimBefore!)) <= s.playbackRate! + 1, `${s.label} covers its source span on fractional marks`)
 }
 // Shots tile the film: no gap, no overlap.
 let cursor = 0
@@ -351,6 +382,9 @@ assert.ok(!real.some((c) => c.segmentId === 'outro'), 'the silent outro has no c
 // A pure function of the frame: silent at the first frame, the base level
 // away from the voice, ducked under a clip, silent again at the last frame.
 const film = TOTAL * FPS
+// The levels are tuned, not free: a bed at 0.35 would sit ≈ 7 dB under the voice and bury it.
+assert.equal(MUSIC_BASE, 0.2, 'the bed sits ≈ 12 dB under the −16 LUFS voice between lines (src/mix.ts)')
+assert.equal(MUSIC_DUCKED, 0.12, 'and ≈ 16 dB under a line')
 const clipA: NarrationClip = { segmentId: 'intro', src: 'narration/intro.mp3', startFrame: 12, seconds: 10 }
 const clipB: NarrationClip = { segmentId: 'project', src: 'narration/project.mp3', startFrame: 600, seconds: 6 }
 const clips = [clipA, clipB]
@@ -386,4 +420,4 @@ assert.notEqual(k, narrationKey('Hello.', 'sarah', 'elevenlabs/eleven-v4'), 'a c
 assert.notEqual(k, narrationKey('Hello.', 'george', 'elevenlabs/eleven-flash-v2.5'), 'a changed model is new audio')
 assert.equal(wordCount('  one two\nthree '), 3)
 
-console.log(`  Demo timeline check passed — the edit is ${budgetSeconds(CUT)} s, ${CUT.length} beats (${spoken.length} with words, 1 silent), both capture paths resolve without a slate.`)
+console.log(`  Demo timeline check passed — the edit is ${budgetSeconds(CUT)} s, ${CUT.length} beats (${spoken.length} with words, 1 silent); the fresh path resolves without a slate, the seeded path with its ${slates(seededPlan).length} known ones.`)

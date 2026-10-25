@@ -25,7 +25,9 @@ export const Captions: React.FC<{ cues: readonly CaptionCue[] }> = ({ cues }) =>
           extrapolateRight: 'clamp',
         })
   return (
-    <AbsoluteFill style={{ justifyContent: 'flex-end', alignItems: 'center', paddingBottom: 56, pointerEvents: 'none' }}>
+    // 44 px off the bottom: a two-line box (2 × 40 × 1.32 + 30 = 136 px) then
+    // spans y 900–1036, inside the CAPTION_SAFE_BOTTOM band every composition keeps clear.
+    <AbsoluteFill style={{ justifyContent: 'flex-end', alignItems: 'center', paddingBottom: 44, pointerEvents: 'none' }}>
       <div
         style={{
           maxWidth: 1320,
@@ -35,6 +37,8 @@ export const Captions: React.FC<{ cues: readonly CaptionCue[] }> = ({ cues }) =>
           fontFamily: font.body,
           fontSize: 40,
           lineHeight: 1.32,
+          // Two lines break evenly, never a one-word second line; the words are untouched.
+          textWrap: 'balance',
           textAlign: 'center',
           borderRadius: 6,
           opacity,

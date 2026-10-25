@@ -313,10 +313,11 @@ function checklistPages(markdown: string): { slices: string; v3: string; review:
 
 // ---------------------------------------------------------------------------
 // The checklist's Revisions: every mid-build change, dated, with the learner's
-// words. Three entries fit a legible sheet — the two dated 2026-10-24 (the
-// learner's approval of the slices on the live studio, and the last change of
-// plan) and the v3 plan revision itself; the ship entry is skipped (it is this
-// film). Long entries end in an ellipsis.
+// words. Three entries fit a legible sheet: the v3 plan revision and the first
+// two entries whose marked quote is English and verbatim (today Slice 23 and
+// Slice 22 — the 2026-10-24 entries quote the learner in French or naming
+// products, so they stay off); never the ship entry (it is this film). Long
+// entries end in an ellipsis.
 
 type Revision = { lead: string; body: string }
 
@@ -356,16 +357,14 @@ const FRENCH = /[àâäçéèêëîïôöùûüÿœ]|\b(?:je|tu|il|elle|nous|vou
 const english = (r: Revision) => quoted(r).every((q) => !FRENCH.test(q))
 
 /**
- * The three entries the still shows, in the file's order: the first two dated
- * 2026-10-24 and the v3 plan revision when their quotes are shown, else the
- * first entries with a marked quote, else any — never the ship entry (this
- * film), a rewritten quote or a French one.
+ * The three entries the still shows, in the file's order: the v3 plan
+ * revision, then the first entries with a marked quote, then any — never the
+ * ship entry (this film), a rewritten quote or a French one.
  */
 function pickRevisions(all: Revision[]): Revision[] {
   const rest = all.filter((r) => !/^6-ship\b/.test(r.lead) && verbatim(r) && english(r))
-  const dated = rest.filter((r) => r.lead.includes('2026-10-24')).slice(0, 2)
   const plan = rest.find((r) => /^v3 — .*a plan revision after the v2 film/.test(r.lead))
-  const chosen = [...dated, ...(plan && !dated.includes(plan) ? [plan] : [])]
+  const chosen = plan ? [plan] : []
   for (const r of [...rest.filter((r) => quoted(r).length > 0), ...rest]) {
     if (chosen.length >= 3) break
     if (!chosen.includes(r)) chosen.push(r)

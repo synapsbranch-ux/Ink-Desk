@@ -135,7 +135,7 @@ export type ResolvedShot = Shot & {
   /** Footage only: which of the shot's marks the capture had. */
   fromMark?: MarkName
   toMark?: MarkName
-  /** Footage only: true when the shot before it in the beat is footage too — it cuts straight in, no fade. */
+  /** Footage only: true when the shot cuts straight in, no fade — it opens its beat (the ink wipe covers that cut) or follows footage. */
   cutIn?: boolean
 }
 
@@ -204,9 +204,12 @@ export function resolvePlan(cut: readonly Segment[], marks: readonly Mark[], has
         cursor += budget
         return r
       }
-      // Footage after footage cuts straight in: the closing frame of the shot
-      // before is the point, and a fade would blur it.
-      const cutIn = i > 0 && seg.shots[i - 1].kind === 'footage'
+      // Footage cuts straight in unless a section card is before it. A beat's
+      // first cut is already under the ink wipe — a fade there would wash the
+      // part the wipe drains off to paper — and after footage the closing
+      // frame of the shot before is the point, which a fade would blur. Only
+      // footage after a section card fades in, from the card's paper.
+      const cutIn = i === 0 || seg.shots[i - 1].kind === 'footage'
       const from = hasFootage ? pickMark(shot.from, at) : null
       const to = hasFootage ? pickMark(shot.to, at) : null
       if (!from || !to) {
@@ -229,9 +232,11 @@ export function resolvePlan(cut: readonly Segment[], marks: readonly Mark[], has
         durationInFrames: budget,
         playFrames,
         cutIn,
-        trimBefore: frames(from.t),
-        // Rounded up: the closing frame is never before its mark, so a hold
-        // shows the moment itself, not the frame before it.
+        // Both rounded up: the closing frame is never before its mark, so a
+        // hold shows the moment itself, not the frame before it — and where one
+        // shot's closing mark opens the next, the held frame and the next
+        // shot's first frame are the same frame, so the cut never steps back.
+        trimBefore: Math.ceil(from.t * FPS - 1e-9),
         trimAfter: Math.ceil(to.t * FPS - 1e-9),
         playbackRate,
         realSeconds: real,
