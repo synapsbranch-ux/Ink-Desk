@@ -263,7 +263,7 @@ Order by risk, as the learner set it — *domain + storage + Redis/BullMQ worker
   Learner check: with a free test account, spend down a day's quota and watch the meter warn at 80% and the buttons disable with the reset time; lower the global cap to $0.01 in Railway and see generation pause for everyone with the message. **Hands-on checkpoint.**
   Commit: `Limits: quotas, rate limits, spend reservation and the kill switch; generation opens` — tag `v3-cp5`
 
-- [ ] **21. The studio around the work — dashboard v3, sharing, reports, settings**
+- [x] **21. The studio around the work — dashboard v3, sharing, reports, settings**
   Becomes usable: the dashboard shows projects, videos and the library; a manga can be **shared publicly** on `/s/<token>` (read-only, Open Graph preview, `noindex`, unpublish at once), with **Report** reaching the learner's admin list; **Settings** holds the account (the studio's own page since 2026-10-24; Clerk's before), sharing, data (export, delete account) and usage.
   Why now: the learner's order — the Studio features after the foundations; and the share page is where the trailer will live in slice 22.
   PRD ref: `prd.md > Dashboard (v3)`, `prd.md > Sharing (v3)`, `prd.md > Report (v3)`, `prd.md > Settings (v3)`
