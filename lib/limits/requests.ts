@@ -28,6 +28,8 @@
 //   anon     routes with no signed-in person, per client address   60 a minute
 //   anonMedia  a shared manga's pictures, per client address      600 a minute
 //   report   the share page's report form, per client address     6 an hour
+//   signin   attempts to sign in (any Better Auth write), per client address   10 a minute
+//   signup   accounts made with email and password, per client address       5 an hour
 //
 // Redis down: the windows that guard SPENDING (text, image, upload) fail
 // CLOSED with the studio-busy sentence, and so does `report` — a form anyone can
@@ -91,7 +93,7 @@ const UPLOAD = new RegExp(`${PROJECT}/assets$`)
  */
 const PAID_POSTS = [new RegExp(`${PROJECT}/pages/[^/]+/animate$`), /^\/api\/videos\/[^/]+$/]
 /** The pictures and the trailer's files (`final.mp4`, `poster.jpg`, `captions.vtt`) are served from the media window: a player asks for a file again and again, one range at a time. */
-const MEDIA = [/^\/api\/image\/[^/]+$/, new RegExp(`${PROJECT}/image/[^/]+$`), /^\/api\/videos\/[^/]+\/file\/[^/]+$/]
+const MEDIA = [new RegExp(`${PROJECT}/image/[^/]+$`), /^\/api\/videos\/[^/]+\/file\/[^/]+$/]
 
 const SAFE = new Set(['GET', 'HEAD', 'OPTIONS'])
 
@@ -112,8 +114,8 @@ export function classify(method: string, pathname: string): RateBucket[] {
   return ['edit']
 }
 
-/** The windows that guard spending, and the report form (a public write): Redis down closes them. */
-const FAIL_CLOSED = new Set<RateBucket>(['text', 'image', 'upload', 'report'])
+/** The windows that guard spending, the report form and the sign-in (public writes): Redis down closes them. */
+const FAIL_CLOSED = new Set<RateBucket>(['text', 'image', 'upload', 'report', 'signin', 'signup'])
 
 // --- The client address ---------------------------------------------------------------
 
@@ -153,7 +155,7 @@ export function clientKey(headers: Headers, hops?: number, header?: 'x-forwarded
   const settings = limitsSettings()
   const address = clientAddress(headers, hops ?? settings.trustedProxyHops, header ?? settings.clientIpHeader)
   if (!address) return 'unknown'
-  return createHmac('sha256', process.env.CLERK_SECRET_KEY || 'inkdesk-client-address').update(address).digest('base64url').slice(0, 22)
+  return createHmac('sha256', process.env.BETTER_AUTH_SECRET || 'inkdesk-client-address').update(address).digest('base64url').slice(0, 22)
 }
 
 // --- Taking a hit ----------------------------------------------------------------------

@@ -4,9 +4,8 @@
 // The phrase must be typed (the dialog asks twice; the server checks it again — trimmed, any
 // case — and a different one is a 400 that says what to type). On a desk with SIGN-IN OFF the
 // request is refused before anything is read: the one owner there, `local`, is the whole desk,
-// so "delete my account" would wipe it. The job is the same one the Clerk webhook starts for
-// `user.deleted`; one deletion per person is ever in flight (the dedupe key), so a second click,
-// the webhook and a retry all find the same job. It reserves nothing and is not stopped by
+// so "delete my account" would wipe it. One deletion per person is ever in flight (the dedupe
+// key), so a second click, a second tab and a retry all find the same job. It reserves nothing and is not stopped by
 // GENERATION_ENABLED or the in-flight caps — a person must always be able to leave. Never cached.
 // See `lib/account/deletion.ts` for what goes and in what order.
 import { z } from 'zod'

@@ -5,7 +5,7 @@
 //   npm run check:config
 //
 // The learner's variable names are mapped, never renamed: each fallback
-// (DB_URL, DB_DATABASE, S3_BUCKET, the outputs bucket, S3_PUBLIC_ENDPOINT,
+// (DB_URL, DB_DATABASE, S3_BUCKET, the outputs bucket,
 // S3_FORCE_PATH_STYLE) is taken only when the preferred name is unset or
 // blank. A missing or malformed setting is refused in one sentence that names
 // it by both its names — and never repeats a value, even a secret-looking one.
@@ -78,7 +78,6 @@ try {
   assert.equal(p.mongoDb, 'preferred_db')
   assert.equal(p.projectFilesBucket, 'preferred-files')
   assert.equal(p.outputsBucket, 'preferred-files', 'no outputs bucket: the project-files bucket')
-  assert.equal(p.publicEndpoint, 'https://s3.preferred.example', 'no S3_PUBLIC_ENDPOINT: S3_ENDPOINT')
   assert.equal(p.forcePathStyle, true, 'S3_FORCE_PATH_STYLE defaults to true')
   const l = cloudSettings(learner)
   assert.equal(l.mongoUrl, 'mongodb://learner-host:27017/', 'MONGODB_URI blank: DB_URL')
@@ -97,7 +96,6 @@ try {
   const oldBucket = cloudSettings({ ...preferred, S3_BUCKET_PROJECT_FILES: '  ', S3_BUCKET: 'v2-bucket' })
   assert.equal(oldBucket.projectFilesBucket, 'v2-bucket', 'S3_BUCKET_PROJECT_FILES blank: S3_BUCKET, the v2 name')
   assert.equal(oldBucket.outputsBucket, 'v2-bucket', 'and the outputs bucket follows it')
-  assert.equal(cloudSettings({ ...preferred, S3_PUBLIC_ENDPOINT: 'https://files.example' }).publicEndpoint, 'https://files.example')
   assert.equal(cloudSettings({ ...preferred, S3_FORCE_PATH_STYLE: 'false' }).forcePathStyle, false)
   assert.equal(cloudSettings({ ...preferred, S3_FORCE_PATH_STYLE: 'true' }).forcePathStyle, true)
   assert.equal(cloudSettings({ ...preferred, S3_FORCE_PATH_STYLE: '' }).forcePathStyle, true, 'blank is the default')
@@ -111,7 +109,7 @@ try {
   assert.equal(parseConfig({}).storage, 'local')
   assert.equal(parseConfig({}).cloud, null, 'a local desk reads no cloud setting')
   assert.equal(parseConfig({ DB_URL: 'not even a url' }).storage, 'local', 'and refuses none: another app’s DB_URL in the shell is not ours to judge')
-  console.log('  ok  the mapping: DB_URL, DB_DATABASE, S3_BUCKET, the outputs bucket, S3_PUBLIC_ENDPOINT and S3_FORCE_PATH_STYLE each fall back only when the preferred name is unset or blank; keys go under S3_KEY_PREFIX (inkdesk/), never the root')
+  console.log('  ok  the mapping: DB_URL, DB_DATABASE, S3_BUCKET, the outputs bucket and S3_FORCE_PATH_STYLE each fall back only when the preferred name is unset or blank; keys go under S3_KEY_PREFIX (inkdesk/), never the root')
 
   // 2. Missing settings: every one named, by both names where two are accepted.
   const nothing = refusal(() => parseConfig({ INKDESK_STORAGE: 'cloud' }))
@@ -139,7 +137,6 @@ try {
     DB_URL: 'postgres://admin:Sup3r-S3cret-Pw@db.internal.example:5432/prod',
     DB_DATABASE: 'prod/../db',
     S3_ENDPOINT: 'ftp://r2-account-1234567890abcdef.example',
-    S3_PUBLIC_ENDPOINT: 'gopher://public-host-0987654321.example',
     S3_REGION: 'auto',
     S3_BUCKET_PROJECT_FILES: '!!zq-hidden-7781!!',
     S3_BUCKET_COMPILE_OUTPUTS: '_x_',
@@ -159,7 +156,6 @@ try {
     'MONGODB_URI (or DB_URL) must be',
     'MONGODB_DB (or DB_DATABASE) must be',
     'S3_ENDPOINT must be',
-    'S3_PUBLIC_ENDPOINT must be',
     'S3_BUCKET_PROJECT_FILES (or S3_BUCKET) must be',
     'S3_BUCKET_COMPILE_OUTPUTS must be',
     'S3_FORCE_PATH_STYLE must be true or false',
@@ -275,7 +271,11 @@ try {
     const rates = Object.fromEntries(Object.entries(limitsSettings({}).rates).map(([k, v]) => [k, `${v.limit}/${v.windowMs / 60_000}min`]))
     assert.equal(rates.report, '6/60min', 'reports: 6 an hour')
     assert.equal(rates.anonMedia, '600/1min', 'a shared manga’s pictures: 600 a minute')
-    assert.deepEqual(Object.keys(rates).sort(), ['anon', 'anonMedia', 'edit', 'image', 'media', 'read', 'report', 'text', 'upload'])
+    assert.deepEqual(Object.keys(rates).sort(), ['anon', 'anonMedia', 'edit', 'image', 'media', 'read', 'report', 'signin', 'signup', 'text', 'upload'])
+    // The Better Auth revision's two: sign-in attempts and accounts made, per client address.
+    assert.equal(rates.signin, '10/1min', 'sign-in attempts: 10 a minute')
+    assert.equal(rates.signup, '5/60min', 'accounts made: 5 an hour')
+    assert.equal(limitsSettings({ RATE_SIGNIN_PER_MIN: '', RATE_SIGNUP_PER_HOUR: '' }).rates.signup.limit, 5, 'blank is the default, never 0')
     assert.equal(limitsSettings({ RATE_REPORT_PER_HOUR: '' }).rates.report.limit, 6, 'blank is the default, never 0')
     assert.equal(limitsSettings({ RATE_ANON_MEDIA_PER_MIN: '' }).rates.anonMedia.limit, 600)
     assert.equal(limitsSettings({ RATE_REPORT_PER_HOUR: ' 2 ', RATE_ANON_MEDIA_PER_MIN: '30' }).rates.report.limit, 2)
@@ -479,7 +479,7 @@ try {
   // 10. The worker's own boot (`npm run worker`, a process of its own): refused in one sentence, before it takes a job,
   //     when production would run it on the local desk (after-audit #10), when video is open and ffmpeg is not on its
   //     PATH (#12 — every trailer would pay for its shots and then fail at the assembly), and when it shares the cloud
-  //     desk with sign-in left unset (#2 — it would read sign-in as off and skip Clerk when deleting an account).
+  //     desk with sign-in left unset (#2 — it would read sign-in as off and skip ending the sign-in when deleting an account).
   {
     const { spawn } = await import('node:child_process')
     const { mkdir } = await import('node:fs/promises')
@@ -489,7 +489,7 @@ try {
     const redis = { INKDESK_QUEUE: 'bullmq', REDIS_URL: 'redis://127.0.0.1:1' } // never reached by a refused worker
     const boot = (vars: Env, ms: number) =>
       new Promise<{ code: number | null; said: string }>((resolve) => {
-        const env: Env = { ...process.env, INKDESK_STORAGE: undefined, NODE_ENV: undefined, INKDESK_AUTH: undefined, VIDEO_ENABLED: undefined, CLERK_SECRET_KEY: undefined, ...vars }
+        const env: Env = { ...process.env, INKDESK_STORAGE: undefined, NODE_ENV: undefined, INKDESK_AUTH: undefined, VIDEO_ENABLED: undefined, BETTER_AUTH_SECRET: undefined, ...vars }
         for (const [name, value] of Object.entries(env)) if (value === undefined) delete env[name]
         const child = spawn(process.execPath, ['--import', 'tsx', '--import', './scripts/server-only.mts', 'worker/index.ts'], { cwd: ROOT, env: env as NodeJS.ProcessEnv, stdio: ['ignore', 'pipe', 'pipe'] })
         let said = ''
@@ -501,9 +501,9 @@ try {
           resolve({ code, said })
         })
       })
-    const SECRET_KEY = `sk_test_${'w'.repeat(32)}`
+    const SECRET_KEY = 'w'.repeat(32)
     const [local, unset, noFfmpeg, started] = await Promise.all([
-      boot({ ...redis, NODE_ENV: 'production', INKDESK_STORAGE: 'local', CLERK_SECRET_KEY: SECRET_KEY }, 15_000),
+      boot({ ...redis, NODE_ENV: 'production', INKDESK_STORAGE: 'local', BETTER_AUTH_SECRET: SECRET_KEY }, 15_000),
       boot({ ...redis, ...preferred }, 15_000),
       boot({ ...redis, VIDEO_ENABLED: 'true', PATH: noTools }, 15_000),
       boot({ ...redis, VIDEO_ENABLED: 'true' }, 8_000),

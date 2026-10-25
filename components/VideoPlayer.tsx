@@ -17,31 +17,21 @@
 //     in, Tab stays inside, Escape and a press on the dimmed page close it, and
 //     focus goes back to the button that opened it. Drawn in a portal on <body>
 //     so no ancestor's overflow can clip it.
-//   • `VideoActions` — Share and Remove for a finished trailer. Share opens the
-//     Share dialog in its video form; Remove asks first, because the files and
-//     the share link go with it. It knows whether the trailer is shared (one
-//     read when it mounts, then whatever the dialog says), and every refusal is
-//     the server's own sentence.
+//   • `VideoActions` — Share for a finished trailer: it opens the Share dialog in
+//     its video form, and knows whether the trailer is shared (one read when it
+//     mounts, then whatever the dialog says).
 //
 // Nothing here knows a key, a cost or an owner: the addresses come from the
 // `VideoView` / `VideoSummary` the server sent. Implements `devpost/prd.md >
 // Animate a Page (v3)` and `> Responsive (v3)`.
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { apiFetch } from '@/components/api-fetch'
-import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { ShareDialog } from '@/components/ShareDialog'
 import { useSheetViewport } from '@/components/use-sheet-viewport'
 import type { ShareView } from '@/lib/share/types'
 
 const CANT_PLAY = 'This video can’t be played just now. Try again in a moment.'
-const REMOVE_FAILED = 'The trailer couldn’t be removed just now. Try again in a moment.'
-
-/** The server's own sentence when it sent a short one, else ours. */
-async function sentenceOf(res: Response, fallback: string): Promise<string> {
-  const body = (await res.json().catch(() => null)) as { error?: unknown } | null
-  return typeof body?.error === 'string' && body.error.length > 0 && body.error.length < 300 ? body.error : fallback
-}
 
 // --- The player -------------------------------------------------------------------------------
 
@@ -174,26 +164,19 @@ export function VideoDialog({ title, onClose, children }: { title: string; onClo
   )
 }
 
-// --- Share and Remove -----------------------------------------------------------------------------
+// --- Share ------------------------------------------------------------------------------------
 
 type ActionsProps = {
   videoId: string
-  /** The trailer is finished, so there is something to share; a trailer that did not finish has only Remove. */
+  /** The trailer is finished, so there is something to share. */
   shareable: boolean
-  /** The trailer is gone (the server said so): the screen drops it. */
-  onRemoved: () => void
-  /** Where the sentence for a failed removal is announced; by default the actions show their own. */
   className?: string
 }
 
-export function VideoActions({ videoId, shareable, onRemoved, className = '' }: ActionsProps) {
+export function VideoActions({ videoId, shareable, className = '' }: ActionsProps) {
   const base = `/api/videos/${encodeURIComponent(videoId)}`
   const [sharing, setSharing] = useState(false)
-  const [asking, setAsking] = useState(false)
-  const [removing, setRemoving] = useState(false)
   const [shared, setShared] = useState<boolean | null>(null)
-  const [problem, setProblem] = useState<string | null>(null)
-  const removeRef = useRef<HTMLButtonElement>(null)
 
   // Is it shared already? One read; the dialog reports every change after it. A failed read leaves the button as "Share", which is still true to what it does.
   useEffect(() => {
@@ -210,72 +193,22 @@ export function VideoActions({ videoId, shareable, onRemoved, className = '' }: 
     }
   }, [base, shareable])
 
-  const remove = useCallback(async () => {
-    setRemoving(true)
-    setProblem(null)
-    try {
-      const res = await apiFetch(base, { method: 'DELETE' })
-      if (!res.ok && res.status !== 404) {
-        setProblem(await sentenceOf(res, REMOVE_FAILED))
-        setAsking(false)
-        requestAnimationFrame(() => removeRef.current?.focus())
-        return
-      }
-      setAsking(false)
-      onRemoved()
-    } catch {
-      setProblem(REMOVE_FAILED)
-      setAsking(false)
-      requestAnimationFrame(() => removeRef.current?.focus())
-    } finally {
-      setRemoving(false)
-    }
-  }, [base, onRemoved])
-
+  if (!shareable) return null
   return (
     <div className={`video-actions ${className}`.trim()}>
       <div className="video-actions-row">
-        {shareable && (
-          <>
-            <button type="button" className="btn btn-secondary" aria-haspopup="dialog" onClick={() => setSharing(true)}>
-              {shared ? 'Share link…' : 'Share…'}
-            </button>
-            {shared && (
-              <span className="tag tag-outline" title="Anyone with its link can watch this trailer">
-                Shared
-              </span>
-            )}
-          </>
-        )}
-        <button ref={removeRef} type="button" className="btn btn-ghost" aria-haspopup="dialog" onClick={() => setAsking(true)}>
-          Remove
+        <button type="button" className="btn btn-secondary" aria-haspopup="dialog" onClick={() => setSharing(true)}>
+          {shared ? 'Share link…' : 'Share…'}
         </button>
+        {shared && (
+          <span className="tag tag-outline" title="Anyone with its link can watch this trailer">
+            Shared
+          </span>
+        )}
       </div>
-      {problem && (
-        <p className="notice" role="alert">
-          {problem}
-        </p>
-      )}
       {sharing &&
         createPortal(
           <ShareDialog videoId={videoId} readable={shareable} onChange={(share) => setShared(Boolean(share))} onClose={() => setSharing(false)} />,
-          document.body
-        )}
-      {asking &&
-        createPortal(
-          <ConfirmDialog
-            title="Remove this trailer?"
-            body="The video and its four shots are deleted from the studio, and its share link, if it has one, stops working. Your page is not touched. Making the trailer again uses the day’s video allowance again."
-            confirmLabel="Remove trailer"
-            cancelLabel="Keep it"
-            busyLabel="Removing…"
-            busy={removing}
-            onConfirm={() => void remove()}
-            onCancel={() => {
-              setAsking(false)
-              requestAnimationFrame(() => removeRef.current?.focus())
-            }}
-          />,
           document.body
         )}
     </div>

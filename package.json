@@ -39,12 +39,13 @@
     "video:render": "npm --prefix video run render",
     "video:render:motion": "npm --prefix video run render:motion",
     "video:music": "npm --prefix video run music --",
-    "video:music:generate": "npm --prefix video run music:generate --"
+    "video:music:generate": "npm --prefix video run music:generate --",
+    "judge:account": "tsx --env-file-if-exists=.env scripts/judge-account.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",
     "@aws-sdk/client-s3": "3.1151.0",
-    "@clerk/nextjs": "7.9.14",
+    "better-auth": "1.7.12",
     "bullmq": "6.3.12",
     "ioredis": "5.11.1",
     "mongodb": "7.7.0",

@@ -12,7 +12,7 @@
 // provider call and nothing of alice's changed; a caller with no name gets
 // 401; alice gets past every one. Bob's listing does not hold alice's
 // project; he cannot reach her pictures by her project's image route, by his
-// own project's, or by the old `/api/image` route; her spend never reaches
+// own project's; her spend never reaches
 // him; her job is hers. The account records, the v1 migration (off mode
 // only) and `scripts/claim-projects.mts` are held here too.
 //
@@ -59,7 +59,7 @@ const CLOUD_NAMES = [
   'MONGODB_DB',
   'DB_DATABASE',
   'S3_ENDPOINT',
-  'S3_PUBLIC_ENDPOINT',
+ 
   'S3_REGION',
   'S3_BUCKET',
   'S3_BUCKET_PROJECT_FILES',
@@ -71,11 +71,7 @@ const CLOUD_NAMES = [
 ]
 const SECRET_NAMES = [
   'ANTHROPIC_API_KEY',
-  'CLERK_SECRET_KEY',
-  'CLERK_PUBLISHABLE_KEY',
-  'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY',
-  'CLERK_JWT_KEY',
-  'CLERK_WEBHOOK_SIGNING_SECRET',
+  'BETTER_AUTH_SECRET',
   'RAILWAY_TOKEN',
   'REDIS_URL',
   'GENERATION_ENABLED',
@@ -191,8 +187,8 @@ async function call(handler: Handler, method: string, params: Record<string, str
 
 // --- Every route, from disk ---------------------------------------------------------
 type Route = { path: string; params: string[]; methods: Record<string, Handler> }
-/** Callable without signing in: the deploy's health check and Clerk's signed webhooks. */
-const PUBLIC = (path: string) => path === 'health' || path.startsWith('health/') || path.startsWith('webhooks/')
+/** Callable without signing in: the deploy's health check, and Better Auth's own routes (which guard themselves). */
+const PUBLIC = (path: string) => path === 'health' || path.startsWith('health/') || path === 'auth/[...all]'
 /** Public by design (slice 21): the share page's data. Held in its own section below — no session, an address window instead. */
 const SESSIONLESS = (path: string) => path.startsWith('s/')
 const METHODS = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE']
@@ -480,17 +476,6 @@ try {
   assert.deepEqual((await store.shares.listActiveOf(ALICE)).filter((x) => x.videoId === aliceVideo.id), [], 'and bob’s POST to her trailer’s share published nothing')
   assert.ok(videoTried >= 3 * 4 + 6, `the trailer routes were walked (${videoTried} attempts)`)
   ok(`bob → 404 "${NO_SUCH_PROJECT}" (or, on the ${videoTried} attempts at the trailer routes, "${NO_SUCH_VIDEO}", word for word an unknown id’s) on all ${tried} attempts (every route with a project, job or video, generation open and closed: the owner is checked before the flag and the body), no provider call, alice’s project, trailer and files untouched`)
-
-  // The old image route: no owner, so nobody gets it with accounts on.
-  const oldImage = routes.find((r) => r.path === 'image/[id]')
-  if (oldImage) {
-    for (const who of [BOB, ALICE]) {
-      const r = await call(oldImage.methods.GET, 'GET', { id: alice.images.sheet }, who)
-      if (who === BOB) toBob.push(r)
-      assert.equal(r.status, 404, `/api/image as ${who}`)
-    }
-    ok('the old /api/image/<id> answers 404 to everyone signed in, alice included, once accounts are on')
-  }
 
   // Bob's own views: his listing and his project hold nothing of alice's.
   const list = (await import('../app/api/projects/route')) as unknown as Record<'GET' | 'POST', Handler>

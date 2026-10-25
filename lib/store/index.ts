@@ -99,9 +99,9 @@ export interface JobStore {
   deleteJobsOf(ownerId: string, exceptId?: string): Promise<number>
 }
 
-/** One account as the app records it (v3, slice 19), written by Clerk's webhook. */
+/** One account as the app records it (v3, slice 19), mirrored from Better Auth (`lib/auth/server.ts`). */
 export type UserRecord = {
-  /** Clerk's user id. */
+  /** The account's id (Better Auth's). */
   id: string
   email: string
   createdAt: string

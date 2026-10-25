@@ -7,7 +7,7 @@ import { ConfigError, appConfig, authSettings, videoSettings } from './config'
 export function boot() {
   try {
     // Sign-in (slice 19) is checked beside the rest, so production refuses
-    // INKDESK_AUTH=off or test, and Clerk without its keys, in the same one
+    // INKDESK_AUTH=off or test, and Better Auth without its secret or database, in the same one
     // sentence as every other problem.
     const problems: string[] = []
     const read = <T,>(fn: () => T): T | null => {

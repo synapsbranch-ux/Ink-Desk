@@ -1,5 +1,5 @@
 // The studio for one project. A Server Component: it asks who is looking
-// (signed out in clerk mode → sign-in, slice 19), checks the project exists
+// (signed out with sign-in on → sign-in, slice 19), checks the project exists
 // and is theirs — someone else's project is the same not-found page as a
 // missing one, so an id cannot be probed — and hands the id to the client
 // studio, which does everything else through `/api/projects/<id>`. `params`

@@ -2,9 +2,8 @@
 //
 //   • every page, from `proxy.ts`: a fresh nonce per request, and scripts only
 //     from that nonce — 'strict-dynamic' lets the scripts it allows load their
-//     own (Next's chunks, Clerk's UI, Turnstile). No 'unsafe-inline' for
-//     scripts. Next reads the nonce from the request's policy and puts it on
-//     its own scripts; the root layout hands it to Clerk's script tag.
+//     own (Next's chunks). No 'unsafe-inline' for scripts. Next reads the
+//     nonce from the request's policy and puts it on its own scripts.
 //   • the static header in `next.config.ts`, for every response the proxy
 //     does not shape (API answers, Next's own files, `public/`): the same
 //     policy with no nonce, so no inline script runs there at all.
@@ -14,13 +13,10 @@
 // `node_modules/next/dist/docs/01-app/02-guides/content-security-policy.md`,
 // and `devpost/spec.md > Security Headers and CSP (v3)`.
 //
-// With sign-in through Clerk (`clerkHost`), its Frontend API host serves its
-// script, API calls, images and frames; img.clerk.com its avatars;
-// challenges.cloudflare.com its bot protection on sign-up (Turnstile); and
-// blob: workers its session refresh. In script-src those hosts only matter to
-// a browser too old for 'strict-dynamic' — a current one ignores them and
-// trusts the nonce. Styles keep 'unsafe-inline': React's `style` attributes
-// and Clerk's components need it, and a nonce there would switch it off.
+// Sign-in is the studio's own (Better Auth, since 2026-10-24): its pages, its
+// forms and its API are all 'self', so the policy names no outside host at
+// all. Styles keep 'unsafe-inline': React's
+// `style` attributes need it, and a nonce there would switch it off.
 //
 // Pure, with no Node or Next imports: `next.config.ts` and `proxy.ts` both use it.
 
@@ -29,23 +25,18 @@ export type CspOptions = {
   nonce?: string
   /** `next dev`: adds 'unsafe-eval'. */
   dev?: boolean
-  /** Clerk's Frontend API host, in clerk mode (`clerkHostForCsp`). */
-  clerkHost?: string | null
 }
 
-export function contentSecurityPolicy({ nonce, dev = false, clerkHost = null }: CspOptions = {}): string {
-  const fapi = clerkHost ? ` https://${clerkHost}` : ''
-  const turnstile = clerkHost ? ' https://challenges.cloudflare.com' : ''
+export function contentSecurityPolicy({ nonce, dev = false }: CspOptions = {}): string {
   const scripts = nonce ? ` 'nonce-${nonce}' 'strict-dynamic'` : ''
   return [
     "default-src 'self'",
-    `script-src 'self'${scripts}${dev ? " 'unsafe-eval'" : ''}${fapi}${turnstile}`,
+    `script-src 'self'${scripts}${dev ? " 'unsafe-eval'" : ''}`,
     "style-src 'self' 'unsafe-inline'",
-    `img-src 'self' data: blob:${fapi}${clerkHost ? ' https://img.clerk.com' : ''}`,
+    "img-src 'self' data: blob:",
     "font-src 'self' data:",
-    `connect-src 'self'${fapi}`,
+    "connect-src 'self'",
     "media-src 'self' blob:",
-    ...(clerkHost ? [`frame-src 'self'${fapi}${turnstile}`, "worker-src 'self' blob:"] : []),
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",

@@ -1,7 +1,7 @@
 // Hand projects made before accounts to one account (v3, slice 19): the
 // migrated v1 desk and the filmed project go to the learner.
 //
-//   npx tsx scripts/claim-projects.mts --owner user_xxx [--data-dir data] [--project <id>] [--dry-run]
+//   npx tsx scripts/claim-projects.mts --owner <accountId> [--data-dir data] [--project <id>] [--dry-run]
 //
 // A project with no owner (or `local`, the owner on a desk without accounts)
 // gets `--owner`; a project that already has another owner is never changed.
@@ -15,11 +15,12 @@
 // may belong to another app. See `devpost/spec.md > Data Access and Ownership (v3)`.
 import './server-only.mts' // first: lets server modules load outside Next (SEC-15)
 import { parseArgs } from 'node:util'
+import { ACCOUNT_ID } from '../lib/auth/config'
 
-const USAGE = 'Usage: npx tsx scripts/claim-projects.mts --owner user_xxx [--data-dir data] [--project <id>] [--dry-run]'
+const USAGE = 'Usage: npx tsx scripts/claim-projects.mts --owner <accountId> [--data-dir data] [--project <id>] [--dry-run]'
 
-/** Clerk's user id shape — the only owner a claim may set. */
-const OWNER = /^user_[A-Za-z0-9]{1,40}$/
+/** An account id (`lib/auth/config.ts > ACCOUNT_ID`) — the only owner a claim may set. */
+const OWNER = ACCOUNT_ID
 
 function fail(sentence: string): never {
   console.error(sentence)
@@ -43,7 +44,7 @@ try {
 }
 
 const owner = args.owner ?? ''
-if (!OWNER.test(owner)) fail(`--owner must be a Clerk user id (user_…).\n${USAGE}`)
+if (!OWNER.test(owner)) fail(`--owner must be an account id (as Settings › Account and judge:account print it, or user_… in test mode).\n${USAGE}`)
 const dryRun = args['dry-run'] === true
 
 const env = process.env as Record<string, string | undefined>

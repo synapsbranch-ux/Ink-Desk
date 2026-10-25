@@ -1,31 +1,38 @@
 // Slice 19's sign-in rules (`devpost/spec.md > Revision v3 > Auth (v3)`,
 // `devpost/security-report.md` SEC-01, SEC-10), against a scratch folder with
-// `fetch` stubbed and FAKE Clerk keys made here — no Clerk, no database, no
-// bucket, nothing outside this machine:
+// `fetch` stubbed and fake settings made here — Better Auth runs for real, on
+// an in-memory database: no MongoDB, no bucket, nothing outside this machine:
 //
 //   npm run check:auth
 //
 //   a. Every `app/api/**/route.ts` handler asks who is calling (`requireUser`,
 //      or `requireAdmin`, which does) unless it is on the public list (the
-//      health check, Clerk's webhook) or is public by design (slice 21:
-//      `app/api/s/**`, the share page's data — those take NO session and must
-//      take an address window instead); under a project's address it checks the
+//      health check) or is public by design: slice 21's `app/api/s/**`, the
+//      share page's data, and Better Auth's own `app/api/auth/[...all]` — those
+//      take NO session and must take an address window instead, before
+//      anything else; under a project's address it checks the
 //      owner before it reads a body, under `/api/shares/[token]` the share's
 //      owner, under `/api/admin` the admin.
-//   b. INKDESK_AUTH: off outside production, clerk in it; production refuses
-//      off, test, and clerk without its keys — by name, never by value.
+//   b. INKDESK_AUTH: off outside production, better in it; production refuses
+//      off, test, and better without its secret or database — by name, never
+//      by value.
 //   c. requireUser in test mode (a valid header, none, a malformed one) and
 //      in off mode.
-//   d. Clerk's webhook: a signed user.created is recorded; a bad signature is
-//      a 400 with nothing echoed and nothing written; a replayed message id
-//      writes nothing; an old timestamp is refused.
-//   e. The proxy: the Origin check, the www redirect, the health check's
-//      host, and Clerk's redirect of a signed-out page — offline.
-//   f. A session token is verified with CLERK_JWT_KEY alone: one minted with
-//      that key passes, one signed by another key does not.
-//   g. The browser's apiFetch: a 401 while Clerk still holds a session (a
-//      token that lapsed while the machine slept) refreshes and asks once
-//      more; only a 401 that stays one sends the page to sign-in.
+//   d. Better Auth, for real, on a memory database (`authOptions`, the very
+//      options production uses): sign-up makes an account and a session; the
+//      studio's record carries the email only once it is verified; sign-in
+//      with a wrong password is refused; `currentUser` reads the session from
+//      the cookie and nothing else; sign-out ends it; a write from another
+//      origin is refused by Better Auth too; `deleteSignIn` removes the user,
+//      its sessions and its sign-ins, and is safe to repeat.
+//   e. The proxy: the Origin check (Better Auth's routes included), the www
+//      redirect, the health check's host, and the redirect of a signed-out
+//      page to `/sign-in?next=…` from the cookie alone — offline. `safeNext`
+//      never sends anyone to another site.
+//   f. The `/api/auth` route: 404 unless sign-in is on, a body too large is
+//      refused unread, and the `signin` and `signup` windows hold per address.
+//   g. The browser's apiFetch: a 401 sends the page to sign-in with the way
+//      back, once, and never from the sign-in pages.
 //   h. Admins (slice 21): ADMIN_EMAILS against the verified email, case-
 //      insensitively; a deleted account, an unknown one and `local` (with
 //      sign-in on) are not; a non-admin gets 404 "There is no such page.",
@@ -35,7 +42,7 @@
 //      check on the share routes' writes while leaving them open to a stranger.
 import './server-only.mts' // first: lets server modules load outside Next (SEC-15)
 import assert from 'node:assert/strict'
-import { createHmac, generateKeyPairSync, randomBytes, sign as rsaSign, type KeyObject } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
@@ -45,15 +52,15 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const dir = await mkdtemp(join(tmpdir(), 'inkdesk-auth-'))
 const env = process.env as Record<string, string | undefined>
 
-// Whatever this shell holds — another app's Clerk, database or bucket — is
+// Whatever this shell holds — another app's sign-in, database or bucket — is
 // never read here: every real credential is dropped before anything loads.
 for (const name of Object.keys(env)) {
-  if (/^(CLERK_|NEXT_PUBLIC_CLERK_|S3_|DB_|MONGODB_|REDIS_|RAILWAY_)/.test(name)) delete env[name]
+  if (/^(BETTER_AUTH_|S3_|DB_|MONGODB_|REDIS_|RAILWAY_)/.test(name)) delete env[name]
 }
-for (const name of ['OPENROUTER_API_KEY', 'ANTHROPIC_API_KEY', 'APP_URL', 'NEXT_PUBLIC_APP_URL', 'INKDESK_AUTH', 'INKDESK_QUEUE', 'GENERATION_ENABLED', 'CONTACT_EMAIL']) delete env[name]
+for (const name of ['OPENROUTER_API_KEY', 'ANTHROPIC_API_KEY', 'APP_URL', 'NEXT_PUBLIC_APP_URL', 'INKDESK_AUTH', 'INKDESK_QUEUE', 'GENERATION_ENABLED', 'CONTACT_EMAIL', 'INKDESK_LIMITS', 'ADMIN_EMAILS', 'ALLOWLIST_EMAILS']) delete env[name]
 env.INKDESK_DATA_DIR = dir
 env.INKDESK_STORAGE = 'local'
-env.CLERK_TELEMETRY_DISABLED = '1' // the fake development key would otherwise announce Clerk's telemetry
+env.BETTER_AUTH_TELEMETRY = '0' // Better Auth asks nothing of the network here
 const NODE_ENV = env.NODE_ENV
 delete env.NODE_ENV
 
@@ -64,22 +71,8 @@ globalThis.fetch = (async (input: RequestInfo | URL) => {
   throw new Error('auth-check: nothing here may reach the network')
 }) as typeof fetch
 
-// --- Fake keys, made here and never valid anywhere ------------------------------
-const FAPI = 'clerk.inkdesk.invalid'
-const b64 = (s: string) => Buffer.from(s).toString('base64')
-const alnum = (n: number) =>
-  Array.from(randomBytes(n), (b) => 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'[b % 62]).join('')
-const FAKE = {
-  publishable: `pk_test_${b64(`${FAPI}$`)}`,
-  publishableLive: `pk_live_${b64(`${FAPI}$`)}`,
-  secret: `sk_test_${alnum(40)}`,
-  secretLive: `sk_live_${alnum(40)}`,
-  webhook: `whsec_${randomBytes(24).toString('base64')}`,
-}
-const pair = () => generateKeyPairSync('rsa', { modulusLength: 2048 })
-const ours = pair()
-const theirs = pair()
-const PEM = ours.publicKey.export({ type: 'spki', format: 'pem' }).toString()
+// --- Fake settings, made here and never valid anywhere ---------------------------
+const SECRET = randomBytes(32).toString('base64')
 const APP = 'https://inkdesk.example'
 
 const ok = (line: string) => console.log(`  ok  ${line}`)
@@ -101,11 +94,12 @@ async function withEnv<T>(vars: Record<string, string | undefined>, fn: () => T 
   }
 }
 
-const clerkEnv = (extra: Record<string, string | undefined> = {}) => ({
-  INKDESK_AUTH: 'clerk',
-  NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: FAKE.publishable,
-  CLERK_SECRET_KEY: FAKE.secret,
-  CLERK_JWT_KEY: PEM,
+/** Better mode's settings, all fake: nothing here connects (the accounts' database below is in memory). */
+const betterEnv = (extra: Record<string, string | undefined> = {}) => ({
+  INKDESK_AUTH: 'better',
+  BETTER_AUTH_SECRET: SECRET,
+  MONGODB_URI: 'mongodb://auth-check.invalid:27017/',
+  MONGODB_DB: 'auth_check',
   APP_URL: APP,
   ...extra,
 })
@@ -113,7 +107,9 @@ const clerkEnv = (extra: Record<string, string | undefined> = {}) => ({
 try {
   // --- a. Every API route asks who is calling --------------------------------------
   const { scanRoute, PUBLIC_ROUTES } = await (async () => {
-    const PUBLIC_ROUTES = ['app/api/health/route.ts', 'app/api/webhooks/clerk/route.ts']
+    const PUBLIC_ROUTES = ['app/api/health/route.ts']
+    /** Better Auth's own route: public by design (a signed-out person signs in there), so it is judged whole below. */
+    const AUTH_ROUTE = 'app/api/auth/[...all]/route.ts'
     const METHODS = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
     const BODY = /\b(readJson|parseJson|readForm|readBytes|req\.json|req\.formData|req\.text|req\.arrayBuffer)\s*\(/
     /** Each exported handler's own text: from its `export` to the closing brace at column 0. */
@@ -132,6 +128,18 @@ try {
     function scanRoute(path: string, source: string): string[] {
       if (PUBLIC_ROUTES.includes(path)) return []
       const problems: string[] = []
+      if (path === AUTH_ROUTE) {
+        // Its handlers are one shared function: the guard (sign-in on, the body cap, the address windows) runs before Better Auth sees the request.
+        if (/\b(requireUser|requireAdmin)\(/.test(source)) problems.push(`${path}: is public by design and must take no session`)
+        for (const needle of ['signInOn()', "limitByAddress(req, 'signin')", "limitByAddress(req, 'signup')", "limitByAddress(req, 'anon')", 'BODY_LIMIT_BYTES']) {
+          if (!source.includes(needle)) problems.push(`${path}: is missing ${needle}`)
+        }
+        const handle = source.slice(source.indexOf('async function handle('))
+        const guard = handle.indexOf('await guard(req)')
+        const handler = handle.indexOf('.handler(req)')
+        if (guard === -1 || handler === -1 || handler < guard) problems.push(`${path}: Better Auth sees the request before the guard`)
+        return problems
+      }
       const list = handlers(source)
       if (list.length === 0) problems.push(`${path}: no handler found to check`)
       for (const { method, body } of list) {
@@ -221,21 +229,24 @@ try {
   assert.match(scanRoute('app/api/admin/reports/[id]/route.ts', 'export async function POST(req: Request) {\n  await requireUser(req)\n}\n').join(), /does not call requireAdmin/)
   assert.match(scanRoute('app/api/admin/reports/[id]/route.ts', 'export async function POST(req: Request) {\n  const b = await readJson(req, 1)\n  await requireAdmin(req)\n}\n').join(), /reads the body before the admin is checked/)
   assert.deepEqual(scanRoute('app/api/admin/reports/[id]/route.ts', 'export async function POST(req: Request) {\n  await requireAdmin(req)\n  const b = await readJson(req, 1)\n}\n'), [])
+  assert.ok(routes.includes('app/api/auth/[...all]/route.ts'), 'Better Auth’s route exists')
+  assert.ok(!routes.some((r) => r.includes('webhooks')), 'there is no webhook any more')
+  assert.match(scanRoute('app/api/auth/[...all]/route.ts', 'async function handle(req) {\n  return getAuth().handler(req)\n}\nexport const POST = handle\n').join(), /missing signInOn/, 'an unguarded auth route is caught')
   const sessionless = routes.filter((r) => r.startsWith('app/api/s/'))
-  ok(`all ${routes.length} API routes ask who is calling (public: ${PUBLIC_ROUTES.map((p) => p.split('/').slice(2, -1).join('/')).join(', ')}; public by design, with an address window and no session: ${sessionless.length} under /api/s); project, share and admin routes check the owner before the body`)
+  ok(`all ${routes.length} API routes ask who is calling (public: ${PUBLIC_ROUTES.map((p) => p.split('/').slice(2, -1).join('/')).join(', ')}; public by design, with an address window and no session: ${sessionless.length} under /api/s, and Better Auth’s /api/auth behind its guard); project, share and admin routes check the owner before the body`)
 
   // --- b. The mode, its defaults and production's refusals ---------------------------
   const authConfig = await import('../lib/auth/config')
-  const { authMode, AuthConfigError, authProblems, workerAuthProblems, clerkSettings, authorizedParties, frontendApiOf } = authConfig
+  const { authMode, AuthConfigError, authProblems, workerAuthProblems, betterSettings, authorizedParties, signInOn } = authConfig
   const config = await import('../lib/config')
   const { authSettings, ConfigError } = config
 
   assert.equal(authMode({}), 'off', 'unset outside production: off')
   assert.equal(authMode({ NODE_ENV: 'development' }), 'off')
-  assert.equal(authMode({ NODE_ENV: 'production' }), 'clerk', 'unset in production: clerk')
+  assert.equal(authMode({ NODE_ENV: 'production' }), 'better', 'unset in production: better')
   // `next start` keeps any NODE_ENV it is given: anything but development (or unset) is a public server (S19-SEC-1).
   for (const nodeEnv of ['test', 'staging', ' production ', 'Development']) {
-    assert.equal(authMode({ NODE_ENV: nodeEnv }), 'clerk', `NODE_ENV=${nodeEnv}, INKDESK_AUTH unset: clerk, never off`)
+    assert.equal(authMode({ NODE_ENV: nodeEnv }), 'better', `NODE_ENV=${nodeEnv}, INKDESK_AUTH unset: better, never off`)
     for (const mode of ['off', 'test']) {
       assert.throws(() => authMode({ NODE_ENV: nodeEnv, INKDESK_AUTH: mode }), AuthConfigError, `NODE_ENV=${nodeEnv} refuses INKDESK_AUTH=${mode}`)
     }
@@ -243,22 +254,25 @@ try {
   }
   assert.equal(authMode({ NODE_ENV: 'development', INKDESK_AUTH: 'test' }), 'test', 'next dev may play two people')
   assert.equal(authMode({ INKDESK_AUTH: 'test' }), 'test')
-  assert.equal(authMode({ INKDESK_AUTH: ' clerk ' }), 'clerk')
-  assert.equal(authMode({ NODE_ENV: 'production', INKDESK_AUTH: 'clerk' }), 'clerk')
+  assert.equal(authMode({ INKDESK_AUTH: ' better ' }), 'better')
+  assert.equal(authMode({ NODE_ENV: 'production', INKDESK_AUTH: 'better' }), 'better')
   for (const mode of ['off', 'test']) {
     assert.throws(() => authMode({ NODE_ENV: 'production', INKDESK_AUTH: mode }), (err: unknown) => {
       assert.ok(err instanceof AuthConfigError)
-      assert.match(err.message, /INKDESK_AUTH must be clerk in production/)
+      assert.match(err.message, /INKDESK_AUTH must be better in production/)
       return true
     })
   }
-  assert.throws(() => authMode({ INKDESK_AUTH: 'maybe-later' }), (err: unknown) => {
-    assert.ok(err instanceof AuthConfigError && /INKDESK_AUTH must be clerk, off or test/.test(err.message))
-    assert.ok(!err.message.includes('maybe-later'), 'the value is never repeated')
-    return true
-  })
+  // The old mode is gone, and says so rather than falling open.
+  for (const value of ['maybe-later', 'clerk']) {
+    assert.throws(() => authMode({ INKDESK_AUTH: value }), (err: unknown) => {
+      assert.ok(err instanceof AuthConfigError && /INKDESK_AUTH must be better, off or test/.test(err.message))
+      assert.ok(!err.message.includes(value), 'the value is never repeated')
+      return true
+    })
+  }
 
-  // Production, clerk, nothing set: every missing name, one sentence.
+  // Production, better, nothing set: every missing name, one sentence.
   const missing = (() => {
     try {
       authSettings({ NODE_ENV: 'production' })
@@ -266,47 +280,43 @@ try {
       assert.ok(err instanceof ConfigError, 'the boot’s own error')
       return err.message
     }
-    return assert.fail('production without Clerk’s keys must be refused')
+    return assert.fail('production without the sign-in settings must be refused')
   })()
-  for (const name of ['NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY (or CLERK_PUBLISHABLE_KEY) is not set', 'CLERK_SECRET_KEY is not set', 'APP_URL is not set']) {
+  for (const name of ['BETTER_AUTH_SECRET is not set', 'MONGODB_URI (or DB_URL) is not set', 'MONGODB_DB (or DB_DATABASE) is not set', 'APP_URL is not set']) {
     assert.ok(missing.includes(name), `names ${name}: ${missing}`)
   }
-  assert.match(refused(() => authSettings({ NODE_ENV: 'production', INKDESK_AUTH: 'off' })), /INKDESK_AUTH must be clerk in production/)
-  assert.match(refused(() => authSettings({ NODE_ENV: 'production', INKDESK_AUTH: 'test' })), /INKDESK_AUTH must be clerk in production/)
+  assert.match(refused(() => authSettings({ NODE_ENV: 'production', INKDESK_AUTH: 'off' })), /INKDESK_AUTH must be better in production/)
+  assert.match(refused(() => authSettings({ NODE_ENV: 'production', INKDESK_AUTH: 'test' })), /INKDESK_AUTH must be better in production/)
   // Malformed values are named, never repeated — a secret-looking value least of all.
-  const leaky = { NODE_ENV: 'production', NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: 'pk_nope_SECRETPUB', CLERK_SECRET_KEY: 'sk_SECRETVALUE', CLERK_JWT_KEY: 'SECRETJWT', CLERK_WEBHOOK_SIGNING_SECRET: 'SECRETHOOK', APP_URL: 'SECRETURL' }
+  const leaky = { NODE_ENV: 'production', BETTER_AUTH_SECRET: 'SECRETSHORT', MONGODB_URI: 'SECRETURI', MONGODB_DB: 'SECRET.DB', APP_URL: 'SECRETURL' }
   const malformed = refused(() => authSettings(leaky))
-  for (const name of ['NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY', 'CLERK_SECRET_KEY', 'CLERK_JWT_KEY', 'CLERK_WEBHOOK_SIGNING_SECRET', 'APP_URL must be']) assert.ok(malformed.includes(name), `names ${name}`)
-  assert.ok(!/SECRET(PUB|VALUE|JWT|HOOK|URL)/.test(malformed), 'no value appears in the sentence')
-  // Fake keys pass, under either publishable name; the learner's name is mapped, the SDK's wins when both are set.
-  assert.deepEqual(authSettings({ NODE_ENV: 'production', CLERK_PUBLISHABLE_KEY: FAKE.publishableLive, CLERK_SECRET_KEY: FAKE.secretLive, APP_URL: APP }), { mode: 'clerk' })
-  assert.equal(clerkSettings(clerkEnv({ NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: undefined, CLERK_PUBLISHABLE_KEY: FAKE.publishable })).publishableKey, FAKE.publishable)
-  assert.equal(clerkSettings(clerkEnv({ CLERK_PUBLISHABLE_KEY: FAKE.publishableLive })).publishableKey, FAKE.publishable)
-  assert.equal(clerkSettings(clerkEnv({ CLERK_JWT_KEY: PEM.replace(/\n/g, '\\n') })).jwtKey, PEM, 'a one-line PEM with literal \\n is read as the key')
-  assert.equal(clerkSettings(clerkEnv({ CLERK_JWT_KEY: undefined })).jwtKey, undefined, 'the JWT key is optional')
-  assert.equal(frontendApiOf(FAKE.publishable), FAPI)
-  assert.equal(frontendApiOf('pk_test_' + b64('evil.example; script-src *$')), null, 'a key whose host is not a host is not trusted into the CSP')
+  for (const name of ['BETTER_AUTH_SECRET must be at least 32', 'MONGODB_URI (or DB_URL) must be', 'MONGODB_DB (or DB_DATABASE) must be', 'APP_URL must be']) assert.ok(malformed.includes(name), `names ${name}: ${malformed}`)
+  assert.ok(!/SECRET(SHORT|URI|\.DB|URL)/.test(malformed), 'no value appears in the sentence')
+  // Good settings pass. Email and password is the only way in: no outside sign-in is configured or configurable.
+  assert.deepEqual(authSettings({ NODE_ENV: 'production', ...betterEnv() }), { mode: 'better' })
+  const settings = betterSettings(betterEnv({ GOOGLE_CLIENT_ID: 'g', GOOGLE_CLIENT_SECRET: 's' }))
+  assert.deepEqual(Object.keys(settings).sort(), ['authorizedParties', 'baseURL', 'mongoDb', 'mongoUrl', 'secret'], 'a stray provider key changes nothing')
+  assert.equal(settings.baseURL, APP)
+  assert.equal(betterSettings(betterEnv({ APP_URL: undefined })).baseURL, 'http://localhost:3000', 'a development desk answers on localhost')
   assert.deepEqual(authorizedParties({ APP_URL: `${APP}/some/path`, NEXT_PUBLIC_APP_URL: 'https://app.inkdesk.example' }), [APP, 'https://app.inkdesk.example', 'http://localhost:3000'])
   assert.deepEqual(authorizedParties({ NODE_ENV: 'production', APP_URL: APP }), [APP], 'no localhost in production')
-  // The layout's read never throws: `next build` runs with NODE_ENV=production whatever a development .env says (S19-REG-1).
-  const { providerKey } = authConfig
-  for (const mode of ['off', 'test', 'maybe-later']) {
-    assert.equal(providerKey({ NODE_ENV: 'production', INKDESK_AUTH: mode, NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: FAKE.publishable }), undefined, `a build with INKDESK_AUTH=${mode} renders bare`)
-  }
-  assert.equal(providerKey({ NODE_ENV: 'production' }), undefined, 'clerk with no key renders bare')
-  assert.equal(providerKey({ INKDESK_AUTH: 'off', NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: FAKE.publishable }), undefined, 'off never loads Clerk')
-  assert.equal(providerKey(clerkEnv({ NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: undefined, CLERK_PUBLISHABLE_KEY: FAKE.publishable })), FAKE.publishable)
-  for (const file of ['app/layout.tsx', 'components/AuthControls.tsx']) {
+  // The renderers' read never throws: `next build` runs with NODE_ENV=production whatever a development .env says (S19-REG-1).
+  for (const mode of ['off', 'test', 'maybe-later']) assert.equal(signInOn({ NODE_ENV: 'production', INKDESK_AUTH: mode }), false, `a build with INKDESK_AUTH=${mode} renders no account menu`)
+  assert.equal(signInOn({ NODE_ENV: 'production' }), true)
+  for (const file of ['components/AuthControls.tsx', 'app/api/auth/[...all]/route.ts']) {
     const source = await readFile(join(ROOT, file), 'utf8')
-    assert.ok(source.includes('providerKey(') && !/\bauthMode\(/.test(source), `${file} reads the mode through providerKey, which cannot fail a build`)
+    assert.ok(source.includes('signInOn(') && !/\bauthMode\(/.test(source), `${file} reads the mode through signInOn, which cannot fail a build`)
   }
+  assert.ok(!(await readFile(join(ROOT, 'app/layout.tsx'), 'utf8')).includes('auth'), 'the root layout carries no sign-in provider at all')
   assert.deepEqual(authProblems({ INKDESK_AUTH: 'off' }), [], 'off needs nothing')
   assert.deepEqual(authProblems({ INKDESK_AUTH: 'test' }), [], 'test needs nothing')
-  assert.ok(authProblems({ INKDESK_AUTH: 'clerk' }).length >= 2, 'clerk in development still needs its keys')
-  // The worker never signs anyone in, but deleting an account deletes the Clerk user: in clerk mode it needs the secret key, and only that.
-  assert.deepEqual(workerAuthProblems({ NODE_ENV: 'production', CLERK_SECRET_KEY: FAKE.secret }), [], 'a production worker with the key is fine without the publishable key or APP_URL')
-  assert.deepEqual(workerAuthProblems({ NODE_ENV: 'production' }), ['CLERK_SECRET_KEY is not set'], 'a production worker without the key is refused')
-  assert.match(workerAuthProblems({ INKDESK_AUTH: 'clerk', CLERK_SECRET_KEY: 'nope' })[0], /must be a Clerk secret key/)
+  assert.ok(authProblems({ INKDESK_AUTH: 'better' }).length >= 3, 'better in development still needs its secret and its database')
+  // The worker never signs anyone in, but deleting an account ends its sign-in: in better mode it needs the secret and the accounts' database.
+  const workerEnv = { NODE_ENV: 'production', BETTER_AUTH_SECRET: SECRET, MONGODB_URI: 'mongodb://check.invalid:27017/', MONGODB_DB: 'check' }
+  assert.deepEqual(workerAuthProblems(workerEnv), [], 'a production worker with the secret and the database is fine without APP_URL')
+  assert.deepEqual(workerAuthProblems({ ...workerEnv, BETTER_AUTH_SECRET: undefined }), ['BETTER_AUTH_SECRET is not set'], 'a production worker without the secret is refused')
+  assert.match(workerAuthProblems({ ...workerEnv, BETTER_AUTH_SECRET: 'short' })[0], /at least 32 characters/)
+  assert.match(workerAuthProblems({ ...workerEnv, MONGODB_URI: undefined }).join(), /MONGODB_URI \(or DB_URL\) is not set/)
   assert.deepEqual(workerAuthProblems({ INKDESK_AUTH: 'off' }), [], 'off needs nothing')
   assert.deepEqual(workerAuthProblems({}), [], 'a bare development worker needs nothing')
   assert.ok(workerAuthProblems({ NODE_ENV: 'production', INKDESK_AUTH: 'off' }).length > 0, 'production off is refused here too')
@@ -336,24 +346,23 @@ try {
     }
   }
   assert.equal(await stopped({ NODE_ENV: 'production', INKDESK_AUTH: 'off' }), 1, 'production with sign-in off does not start')
-  assert.match(exits.join(), /INKDESK_AUTH must be clerk in production/)
+  assert.match(exits.join(), /INKDESK_AUTH must be better in production/)
   assert.equal(await stopped({ NODE_ENV: 'production', INKDESK_AUTH: 'test' }), 1)
-  assert.equal(await stopped({ NODE_ENV: 'production' }), 1, 'production without Clerk’s keys does not start')
-  assert.match(exits.join(), /CLERK_SECRET_KEY is not set/)
+  assert.equal(await stopped({ NODE_ENV: 'production' }), 1, 'production without the sign-in settings does not start')
+  assert.match(exits.join(), /BETTER_AUTH_SECRET is not set/)
   assert.equal(await stopped({ NODE_ENV: 'production', PANEL_CONCURRENCY: 'many' }), 1)
-  assert.match(exits.join(), /PANEL_CONCURRENCY must be.*CLERK_SECRET_KEY is not set/, 'every problem, config and sign-in, in one sentence')
-  assert.equal(await stopped({ NODE_ENV: 'test' }), 1, 'NODE_ENV=test with sign-in unset is clerk, and without its keys does not start')
-  assert.match(exits.join(), /CLERK_SECRET_KEY is not set/)
+  assert.match(exits.join(), /PANEL_CONCURRENCY must be.*BETTER_AUTH_SECRET is not set/, 'every problem, config and sign-in, in one sentence')
+  assert.equal(await stopped({ NODE_ENV: 'test' }), 1, 'NODE_ENV=test with sign-in unset is better, and without its settings does not start')
+  assert.match(exits.join(), /BETTER_AUTH_SECRET is not set/)
   assert.equal(await stopped({ NODE_ENV: 'staging', INKDESK_AUTH: 'test' }), 1, 'nor does a staging server in test mode')
-  assert.match(exits.join(), /INKDESK_AUTH must be clerk in production/)
+  assert.match(exits.join(), /INKDESK_AUTH must be better in production/)
   assert.equal(await stopped({ NODE_ENV: 'development', INKDESK_AUTH: 'test' }), null, 'next dev in test mode starts')
   // Production also runs on Mongo and the buckets (after-audit #10): placeholders here, nothing connects at boot.
   const cloudEnv = { INKDESK_STORAGE: 'cloud', MONGODB_URI: 'mongodb://boot-check.invalid:27017/', MONGODB_DB: 'boot_check', S3_ENDPOINT: 'https://s3.boot-check.invalid', S3_REGION: 'auto', S3_BUCKET_PROJECT_FILES: 'boot-check', S3_ACCESS_KEY_ID: 'id', S3_SECRET_ACCESS_KEY: 'secret' }
-  const liveKeys = clerkEnv({ NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: FAKE.publishableLive, CLERK_SECRET_KEY: FAKE.secretLive })
-  assert.equal(await stopped({ NODE_ENV: 'production', ...liveKeys }), 1, 'production with its keys on the local desk does not start')
+  assert.equal(await stopped({ NODE_ENV: 'production', ...betterEnv() }), 1, 'production with its sign-in settings on the local desk does not start')
   assert.match(exits.join(), /INKDESK_STORAGE must be cloud in production/)
-  assert.equal(await stopped({ NODE_ENV: 'production', ...liveKeys, ...cloudEnv }), null, 'production with its keys and its cloud settings starts')
-  ok('INKDESK_AUTH: off in development, clerk under any other NODE_ENV (test, staging included); production refuses off, test and missing keys at boot, in one sentence of names, never values; the layout’s read never fails a build')
+  assert.equal(await stopped({ NODE_ENV: 'production', ...betterEnv(), ...cloudEnv }), null, 'production with its sign-in and cloud settings starts')
+  ok('INKDESK_AUTH: off in development, better under any other NODE_ENV (test, staging included); `clerk` is refused; production refuses off, test, a missing or short secret, and no database at boot, in one sentence of names, never values; the renderers’ read never fails a build')
 
   // --- c. requireUser ------------------------------------------------------------------
   const { requireUser, currentUser, LOCAL_OWNER, SIGN_IN_SENTENCE, TEST_USER_HEADER } = await import('../lib/auth/session')
@@ -382,134 +391,116 @@ try {
   assert.equal(await requireUser(asking('user_alice1')), LOCAL_OWNER, 'unset outside production is off')
   ok('requireUser: test mode takes a well-formed header and refuses none or a malformed one with 401 and the one sentence; off mode is always "local"')
 
-  // --- d. Clerk's webhook -----------------------------------------------------------------
+  // --- d. Better Auth, for real, on a memory database --------------------------------------
   const { store } = await import('../lib/store')
-  const webhook = await import('../app/api/webhooks/clerk/route')
-  const writes: string[] = []
-  const realUpsert = store.users.upsert
-  const realMarkDeleted = store.users.markDeleted
-  store.users.upsert = async (user) => {
-    writes.push(`upsert:${user.id}`)
-    return realUpsert(user)
+  const { betterAuth } = await import('better-auth')
+  const { memoryAdapter } = await import('better-auth/adapters/memory')
+  const authServer = await import('../lib/auth/server')
+  const memory = { user: [], session: [], account: [], verification: [] } as Record<string, Record<string, unknown>[]>
+  // The very options production uses (`authOptions`), on a memory database instead of MongoDB.
+  const testAuth = betterAuth(authServer.authOptions({ secret: SECRET, baseURL: APP, authorizedParties: [APP] }, memoryAdapter(memory)))
+  /** Make `getAuth()` answer with the memory instance for these settings — the check's seam; production builds its own on MongoDB. */
+  const pinAuth = () => {
+    ;(globalThis as { __inkdeskAuth?: unknown }).__inkdeskAuth = { key: JSON.stringify(betterSettings()), auth: testAuth }
   }
-  store.users.markDeleted = async (id) => {
-    writes.push(`deleted:${id}`)
-    return realMarkDeleted(id)
-  }
-  const signed = (body: string, opts: { id?: string; at?: number; secret?: string } = {}) => {
-    const id = opts.id ?? `msg_${alnum(20)}`
-    const at = String(Math.floor((opts.at ?? Date.now()) / 1000))
-    const key = Buffer.from((opts.secret ?? FAKE.webhook).replace(/^whsec_/, ''), 'base64')
-    const signature = createHmac('sha256', key).update(`${id}.${at}.${body}`).digest('base64')
-    return new Request('http://check/api/webhooks/clerk', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'svix-id': id, 'svix-timestamp': at, 'svix-signature': `v1,${signature}` },
-      body,
-    })
-  }
-  const userEvent = (type: string, id: string, email: string) =>
-    JSON.stringify({
-      type,
-      object: 'event',
-      data: {
-        id,
-        object: 'user',
-        created_at: Date.parse('2026-10-14T09:00:00Z'),
-        primary_email_address_id: 'idn_2',
-        email_addresses: [
-          { id: 'idn_1', email_address: 'old@inkdesk.invalid' },
-          { id: 'idn_2', email_address: email },
-        ],
-      },
-    })
-
-  await withEnv({ CLERK_WEBHOOK_SIGNING_SECRET: undefined }, async () => {
-    const res = await webhook.POST(signed(userEvent('user.created', 'user_nosecret', 'a@inkdesk.invalid')))
-    assert.equal(res.status, 503, 'no secret: refused, nothing verified')
-  })
-  await withEnv({ CLERK_WEBHOOK_SIGNING_SECRET: FAKE.webhook }, async () => {
-    const created = userEvent('user.created', 'user_alice1', 'alice@inkdesk.invalid')
-    const first = signed(created, { id: 'msg_first' })
-    const res = await webhook.POST(first)
-    assert.equal(res.status, 200, await res.clone().text())
-    const alice = await store.users.get('user_alice1')
-    assert.equal(alice?.email, 'alice@inkdesk.invalid', 'the primary address is the one recorded')
-    assert.equal(alice?.createdAt, '2026-10-14T09:00:00.000Z')
-    assert.deepEqual(writes, ['upsert:user_alice1'])
-
-    // Clerk's retry of the same message (same id, a fresh timestamp and signature): no second write.
-    const again = await webhook.POST(signed(created, { id: 'msg_first' }))
-    assert.equal(again.status, 200)
-    assert.equal(((await again.json()) as { duplicate?: boolean }).duplicate, true)
-    assert.deepEqual(writes, ['upsert:user_alice1'], 'a replayed message id writes nothing')
-
-    // A forged signature: 400, no body echoed, nothing written.
-    const forgedBody = userEvent('user.created', 'user_mallory', 'mallory-SECRET-MARK@inkdesk.invalid')
-    const forged = await webhook.POST(signed(forgedBody, { secret: `whsec_${randomBytes(24).toString('base64')}` }))
-    assert.equal(forged.status, 400)
-    const forgedText = await forged.text()
-    assert.ok(!forgedText.includes('SECRET-MARK') && !forgedText.includes('user_mallory'), 'nothing from the body comes back')
-    // A tampered body under a good signature, and no signature at all.
-    const tampered = signed(created, { id: 'msg_tamper' })
-    const swapped = new Request(tampered.url, { method: 'POST', headers: tampered.headers, body: forgedBody })
-    assert.equal((await webhook.POST(swapped)).status, 400)
-    assert.equal((await webhook.POST(new Request('http://check/api/webhooks/clerk', { method: 'POST', body: forgedBody }))).status, 400)
-    // An old message, correctly signed, ten minutes late: refused.
-    const stale = await webhook.POST(signed(forgedBody, { at: Date.now() - 10 * 60 * 1000 }))
-    assert.equal(stale.status, 400)
-    assert.equal(await store.users.get('user_mallory'), null)
-    assert.deepEqual(writes, ['upsert:user_alice1'], 'no refused message wrote anything')
-
-    // Too large: refused before it is read whole.
-    const huge = await webhook.POST(signed(JSON.stringify({ type: 'user.created', data: { id: 'user_big', pad: 'x'.repeat(300 * 1024) } })))
-    assert.ok(huge.status === 413 || huge.status === 400, `an oversized webhook is refused, got ${huge.status}`)
-
-    // An update refreshes the email; a deletion marks the account; a late creation cannot bring it back.
-    assert.equal((await webhook.POST(signed(userEvent('user.updated', 'user_alice1', 'alice@new.invalid')))).status, 200)
-    assert.equal((await store.users.get('user_alice1'))?.email, 'alice@new.invalid')
-    const gone = JSON.stringify({ type: 'user.deleted', object: 'event', data: { id: 'user_alice1', object: 'user', deleted: true } })
-    assert.equal((await webhook.POST(signed(gone))).status, 200)
-    assert.ok((await store.users.get('user_alice1'))?.deletedAt, 'the account is marked deleted')
-    assert.equal((await webhook.POST(signed(userEvent('user.created', 'user_alice1', 'alice@inkdesk.invalid')))).status, 200)
-    assert.ok((await store.users.get('user_alice1'))?.deletedAt, 'and stays deleted')
-    // An address Clerk says is unverified is not a person's identity — the allowlist is matched against what is stored, so a stranger who typed
-    // an allowlisted address into a sign-up must not be recorded under it. Primary or not, the first verified address stands in; none leaves it blank.
-    const withAddresses = (id: string, primary: string | null, addresses: { id: string; email_address: string; verification?: { status: string; strategy: string } | null }[]) =>
-      JSON.stringify({ type: 'user.created', object: 'event', data: { id, object: 'user', created_at: Date.parse('2026-10-14T09:00:00Z'), primary_email_address_id: primary, email_addresses: addresses } })
-    const verified = { status: 'verified', strategy: 'email_code' }
-    const unverified = { status: 'unverified', strategy: 'email_code' }
-    assert.equal((await webhook.POST(signed(withAddresses('user_typed1', 'idn_1', [{ id: 'idn_1', email_address: 'judge@inkdesk.invalid', verification: unverified }])))).status, 200)
-    assert.equal((await store.users.get('user_typed1'))?.email, '', 'an unverified primary address is not recorded')
-    assert.equal(
-      (await webhook.POST(signed(withAddresses('user_typed2', null, [{ id: 'idn_1', email_address: 'judge@inkdesk.invalid', verification: unverified }, { id: 'idn_2', email_address: 'me@inkdesk.invalid', verification: verified }])))).status,
-      200
+  const authCall = (path: string, body?: unknown, headers: Record<string, string> = {}) =>
+    testAuth.handler(
+      new Request(`${APP}/api/auth${path}`, {
+        method: body === undefined ? 'GET' : 'POST',
+        headers: { origin: APP, ...(body === undefined ? {} : { 'content-type': 'application/json' }), ...headers },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      })
     )
-    assert.equal((await store.users.get('user_typed2'))?.email, 'me@inkdesk.invalid', 'with no primary, the first address is not taken on faith: a verified one is')
-    assert.equal(
-      (await webhook.POST(signed(withAddresses('user_typed3', 'idn_2', [{ id: 'idn_1', email_address: 'old@inkdesk.invalid', verification: verified }, { id: 'idn_2', email_address: 'judge@inkdesk.invalid', verification: null }])))).status,
-      200
-    )
-    assert.equal((await store.users.get('user_typed3'))?.email, 'judge@inkdesk.invalid', 'a payload that says nothing about verification is taken as it is')
-    // Something the studio does not subscribe to is acknowledged and ignored.
-    const before = writes.length
-    assert.equal((await webhook.POST(signed(JSON.stringify({ type: 'session.created', object: 'event', data: { id: 'sess_1' } })))).status, 200)
-    assert.equal(writes.length, before)
+  /** The session cookie a reply set, as a request's `cookie` header. */
+  const cookieOf = (res: Response): string => {
+    const set = res.headers.getSetCookie().find((c) => /inkdesk\.session_token=/.test(c))
+    assert.ok(set, `a session cookie was set (${res.headers.getSetCookie().join(' | ')})`)
+    assert.match(set, /HttpOnly/i, 'the session cookie is HttpOnly')
+    assert.match(set, /SameSite=Lax/i, 'and SameSite=Lax')
+    return set.split(';')[0]
+  }
+  await withEnv(betterEnv(), async () => {
+    pinAuth()
+    const signedUp = await authCall('/sign-up/email', { email: 'Alice@Inkdesk.invalid', password: 'correct horse battery', name: 'Alice' })
+    assert.equal(signedUp.status, 200, await signedUp.clone().text())
+    const alice = ((await signedUp.clone().json()) as { user: { id: string; emailVerified: boolean } }).user
+    assert.match(alice.id, authConfig.ACCOUNT_ID, 'an account id the scripts accept')
+    assert.equal(alice.emailVerified, false, 'an address typed at sign-up is not verified: nothing was sent to prove it')
+    const aliceCookie = cookieOf(signedUp)
+    assert.match(aliceCookie, /^__Secure-inkdesk\.session_token=/, 'on an https studio the cookie is __Secure-')
+    const record = await store.users.get(alice.id)
+    assert.ok(record, 'the studio’s own record exists the moment the account is made')
+    assert.equal(record.email, '', 'and carries no address while it is unverified — the allowlist and ADMIN_EMAILS cannot match it')
+
+    // currentUser reads the session from the cookie, checked against the database.
+    const asked = (cookie?: string) => new Request(`${APP}/api/projects`, cookie ? { headers: { cookie } } : {})
+    assert.equal(await currentUser(asked(aliceCookie)), alice.id)
+    assert.equal(await currentUser(asked()), null, 'no cookie, nobody')
+    assert.equal(await currentUser(asked('__Secure-inkdesk.session_token=forged.value')), null, 'a forged cookie is nobody')
+    assert.equal(await currentUser(asked(`${aliceCookie}x`)), null, 'an altered cookie is nobody')
+    assert.equal(await requireUser(asked(aliceCookie)), alice.id)
+    await signInRefusal(asked())
+    // A test-mode header means nothing here.
+    assert.equal(await currentUser(new Request(`${APP}/api/projects`, { headers: { [TEST_USER_HEADER]: 'user_alice1' } })), null)
+
+    // Sign-in: the right password opens a second session; a wrong one, or an unknown address, is refused.
+    const signedIn = await authCall('/sign-in/email', { email: 'alice@inkdesk.invalid', password: 'correct horse battery' })
+    assert.equal(signedIn.status, 200)
+    const secondCookie = cookieOf(signedIn)
+    for (const wrong of [{ email: 'alice@inkdesk.invalid', password: 'wrong horse battery' }, { email: 'nobody@inkdesk.invalid', password: 'correct horse battery' }]) {
+      const res = await authCall('/sign-in/email', wrong)
+      assert.equal(res.status, 401, 'a wrong password or an unknown address is refused, the same way')
+      assert.equal(res.headers.getSetCookie().length, 0, 'and sets no cookie')
+    }
+    assert.equal((await authCall('/sign-up/email', { email: 'alice@inkdesk.invalid', password: 'another long one', name: 'x' })).status >= 400, true, 'one account per address')
+    assert.ok((await authCall('/sign-up/email', { email: 'short@inkdesk.invalid', password: 'short', name: 'x' })).status >= 400, 'a password under ten characters is refused')
+    // A write from another origin, carrying the session: Better Auth refuses it too (the proxy already has).
+    const crossSite = await authCall('/sign-out', {}, { origin: 'https://evil.example', cookie: aliceCookie })
+    assert.equal(crossSite.status, 403, `Better Auth refuses another origin (got ${crossSite.status})`)
+    assert.equal(await currentUser(asked(aliceCookie)), alice.id, 'and the session survives it')
+    // Email and password is the only way in: an outside sign-in is not offered at all.
+    assert.ok((await authCall('/sign-in/social', { provider: 'google', callbackURL: '/' })).status >= 400, 'no Google sign-in')
+    assert.ok((await authCall('/sign-in/social', { provider: 'github', callbackURL: '/' })).status >= 400, 'no GitHub sign-in')
+    // Better Auth's own delete endpoint is closed: deleting is the studio's job.
+    assert.ok((await authCall('/delete-user', {}, { cookie: aliceCookie })).status >= 400, 'Better Auth’s delete-user is off')
+    assert.equal(await currentUser(asked(aliceCookie)), alice.id)
+
+    // Verified (as judge:account makes it): the record carries the address, lower-cased by Better Auth.
+    const ctx = await testAuth.$context
+    await ctx.internalAdapter.updateUser(alice.id, { emailVerified: true })
+    assert.equal((await store.users.get(alice.id))?.email, 'alice@inkdesk.invalid', 'a verified address is recorded')
+
+    // Sign-out ends that session, and only that one.
+    const out = await authCall('/sign-out', {}, { cookie: secondCookie })
+    assert.equal(out.status, 200)
+    assert.equal(await currentUser(asked(secondCookie)), null, 'a signed-out session is nobody')
+    assert.equal(await currentUser(asked(aliceCookie)), alice.id, 'the other device stays signed in')
+
+    // The end of an account deletion: the user, every session and every sign-in go; again is fine.
+    await authServer.deleteSignIn(alice.id, testAuth)
+    assert.equal(await currentUser(asked(aliceCookie)), null, 'a deleted account’s session is nobody')
+    assert.equal(memory.user.filter((u) => u.id === alice.id).length, 0)
+    assert.equal(memory.session.filter((x) => x.userId === alice.id).length, 0)
+    assert.equal(memory.account.filter((x) => x.userId === alice.id).length, 0)
+    await authServer.deleteSignIn(alice.id, testAuth)
+    assert.equal((await authCall('/sign-in/email', { email: 'alice@inkdesk.invalid', password: 'correct horse battery' })).status, 401, 'and nobody signs in as them again')
+    // A deleted account's record stays a tombstone, whatever is written after.
+    await store.users.markDeleted(alice.id)
+    await authServer.recordAccount({ id: alice.id, email: 'alice@inkdesk.invalid', emailVerified: true, createdAt: new Date() })
+    assert.ok((await store.users.get(alice.id))?.deletedAt, 'a late account write cannot bring it back')
   })
-  store.users.upsert = realUpsert
-  store.users.markDeleted = realMarkDeleted
-  ok('the webhook: a signed user.created is recorded; a forged, tampered, unsigned or ten-minute-old one is a 400 that echoes nothing and writes nothing; a replayed id writes nothing')
+  ok('Better Auth on a memory database, with production’s options: sign-up makes an account (unverified, so its record carries no address) and an HttpOnly, SameSite=Lax, __Secure- session; a wrong password, a forged cookie, a short password, another origin and any outside (Google/GitHub) sign-in are refused; verified, the address is recorded; sign-out ends one session; deleteSignIn removes the user, its sessions and sign-ins, and repeats safely')
 
   // --- e. The proxy, offline ----------------------------------------------------------------
   const { NextRequest } = await import('next/server')
   const { proxy } = await import('../proxy')
-  const event = { waitUntil() {} } as unknown as import('next/server').NextFetchEvent
   const call = async (url: string, init: { method?: string; headers?: Record<string, string> } = {}): Promise<Response> => {
     const host = new URL(url).host
-    const res = await proxy(new NextRequest(url, { method: init.method ?? 'GET', headers: { host, ...init.headers } }), event)
+    const res = await proxy(new NextRequest(url, { method: init.method ?? 'GET', headers: { host, ...init.headers } }))
     assert.ok(res instanceof Response, 'the proxy always answers with a response')
     return res
   }
-  // Through to the route: NextResponse.next() — Clerk's carries its verified headers as overrides instead of the plain marker.
+  // Through to the route: NextResponse.next(), with the page's headers (nonce, policy, path) as overrides.
   const passes = (res: Response) =>
     res.status === 200 && !res.headers.get('location') && (res.headers.get('x-middleware-next') === '1' || res.headers.has('x-middleware-override-headers'))
   const refusedOrigin = async (res: Response) => {
@@ -522,8 +513,8 @@ try {
   assert.ok(passes(await POST(`${APP}/api/projects`, { origin: 'https://evil.example', cookie: '__session=x' })), 'off mode: a pass-through')
   assert.ok(passes(await call('https://www.inkdesk.example/', {})))
 
-  for (const mode of ['test', 'clerk'] as const) {
-    await withEnv(mode === 'test' ? { INKDESK_AUTH: 'test', APP_URL: APP } : clerkEnv(), async () => {
+  for (const mode of ['test', 'better'] as const) {
+    await withEnv(mode === 'test' ? { INKDESK_AUTH: 'test', APP_URL: APP } : betterEnv(), async () => {
       // The Origin check, on API writes only.
       await refusedOrigin(await POST(`${APP}/api/projects`, { origin: 'https://evil.example' }))
       await refusedOrigin(await POST(`${APP}/api/projects/abc/plan`, { origin: 'https://inkdesk.example.evil.example', cookie: '__session=x' }))
@@ -538,7 +529,11 @@ try {
       assert.notEqual(bare.status, 403, 'no Origin and no cookie (a script, curl) is left to the route’s own check')
       const read = await call(`${APP}/api/projects`, { headers: { origin: 'https://evil.example', cookie: '__session=x' } })
       assert.notEqual(read.status, 403, 'a GET is not a write')
-      assert.ok(passes(await POST(`${APP}/api/webhooks/clerk`, { origin: 'https://evil.example' })), 'Clerk’s webhooks are exempt')
+      // Better Auth's routes are open to a signed-out person, and their writes keep the Origin check: no other site signs anyone in or out.
+      await refusedOrigin(await POST(`${APP}/api/auth/sign-in/email`, { origin: 'https://evil.example' }))
+      await refusedOrigin(await POST(`${APP}/api/auth/sign-out`, { origin: 'https://evil.example', cookie: 'inkdesk.session_token=x' }))
+      assert.ok(passes(await POST(`${APP}/api/auth/sign-in/email`, { origin: APP })), 'the studio’s own sign-in form passes')
+      assert.ok(passes(await call(`${APP}/api/auth/get-session`)), 'a read of the session (a GET) reaches the route')
       // The share page’s routes (slice 21) need no session but are NOT exempt: a write to them keeps the Origin check, so a
       // page on another site cannot post reports for a visitor; a read from anywhere (a crawler, a chat app’s preview) is fine.
       await refusedOrigin(await POST(`${APP}/api/s/tok123/report`, { origin: 'https://evil.example' }))
@@ -558,104 +553,117 @@ try {
     })
   }
   // The reason the Origin check survives on /api/s/*: it is not among the routes the proxy waves through unchecked.
-  assert.deepEqual([...authConfig.PUBLIC_API_PREFIXES], ['/api/health', '/api/webhooks/'], 'nothing public-by-design is on the unchecked list')
-  for (const path of ['/api/s/tok123', '/api/s/tok123/report', '/api/s/tok123/image/img-1.png', '/api/admin/reports/r1']) assert.equal(authConfig.isPublicApi(path), false, `${path} is not skipped by the proxy`)
+  assert.deepEqual([...authConfig.PUBLIC_API_PREFIXES], ['/api/health'], 'nothing public-by-design is on the unchecked list')
+  for (const path of ['/api/s/tok123', '/api/s/tok123/report', '/api/s/tok123/image/img-1.png', '/api/admin/reports/r1', '/api/auth/sign-in/email', '/api/webhooks/clerk']) assert.equal(authConfig.isPublicApi(path), false, `${path} is not skipped by the proxy`)
   for (const path of ['/s/tok123', '/s/tok123/opengraph-image']) assert.equal(authConfig.isPublicPage(path), true, `${path} is an open page`)
   for (const path of ['/s', '/admin', '/admin/reports', '/settings/account', '/p/abc', '/share/tok']) assert.equal(authConfig.isPublicPage(path), false, `${path} needs sign-in`)
   // APP_URL on www: nothing to move.
   await withEnv({ INKDESK_AUTH: 'test', APP_URL: 'https://www.inkdesk.example' }, async () => {
     assert.notEqual((await call('https://www.inkdesk.example/')).status, 308)
   })
-  ok('the proxy: a cross-origin, null-origin or cookie-without-origin API write is a calm 403; reads, the studio’s own origin and the webhook pass; www → apex 308; the health check passes')
+  ok('the proxy: a cross-origin, null-origin or cookie-without-origin API write is a calm 403, Better Auth’s routes included; reads, the studio’s own origin and a session read pass; www → apex 308; the health check passes')
 
-  // Clerk mode, offline: a signed-out page goes to sign-in; a session minted with CLERK_JWT_KEY is accepted.
-  const b64url = (data: Buffer | string) => Buffer.from(data).toString('base64url')
-  const mint = (key: KeyObject, claims: Record<string, unknown>) => {
-    const header = b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT', kid: 'ins_check' }))
-    const payload = b64url(JSON.stringify(claims))
-    const signature = rsaSign('RSA-SHA256', Buffer.from(`${header}.${payload}`), key)
-    return `${header}.${payload}.${b64url(signature)}`
-  }
-  const now = Math.floor(Date.now() / 1000)
-  const claims = (extra: Record<string, unknown> = {}) => ({
-    sub: 'user_alice1',
-    sid: 'sess_check',
-    iss: `https://${FAPI}`,
-    azp: APP,
-    iat: now - 5,
-    nbf: now - 5,
-    exp: now + 60,
-    v: 2,
-    ...extra,
-  })
-  await withEnv(clerkEnv({ NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: FAKE.publishableLive, CLERK_SECRET_KEY: FAKE.secretLive, NODE_ENV: 'production' }), async () => {
-    const signedOut = await call(`${APP}/p/abc`, { headers: { accept: 'text/html', 'sec-fetch-dest': 'document' } })
-    assert.ok([302, 307, 308].includes(signedOut.status), `a signed-out page is redirected, got ${signedOut.status}`)
+  // Better mode, offline: a signed-out page goes to sign-in with the way back, from the cookie alone; the open pages stay open.
+  const pageHeaders = { accept: 'text/html', 'sec-fetch-dest': 'document' }
+  await withEnv({ ...betterEnv(), NODE_ENV: 'production' }, async () => {
+    const signedOut = await call(`${APP}/p/abc?page=2`, { headers: pageHeaders })
+    assert.equal(signedOut.status, 307, `a signed-out page is redirected, got ${signedOut.status}`)
     const to = new URL(signedOut.headers.get('location') ?? '')
     assert.equal(`${to.origin}${to.pathname}`, `${APP}/sign-in`)
-    assert.equal(to.searchParams.get('redirect_url'), `${APP}/p/abc`, 'and comes back where it was going')
-    // Slice 21: a shared manga and its picture card are open to a stranger holding the link; the admin pages are pages like any other.
-    for (const open of ['/sign-in', '/sign-up/verify', '/terms', '/privacy', '/s/tok123', '/s/tok123/opengraph-image']) {
-      const res = await call(`${APP}${open}`, { headers: { accept: 'text/html', 'sec-fetch-dest': 'document' } })
+    assert.equal(to.searchParams.get('next'), '/p/abc?page=2', 'and comes back where it was going')
+    assert.equal((await call(`${APP}/`, { headers: pageHeaders })).headers.get('location'), `${APP}/sign-in`, 'the desk itself needs no way back')
+    for (const open of ['/sign-in', '/sign-up', '/terms', '/privacy', '/s/tok123', '/s/tok123/opengraph-image']) {
+      const res = await call(`${APP}${open}`, { headers: pageHeaders })
       assert.ok(passes(res), `${open} is open to a stranger (got ${res.status})`)
     }
     for (const closed of ['/admin', '/admin/reports', '/settings/account', '/settings/sharing']) {
-      const res = await call(`${APP}${closed}`, { headers: { accept: 'text/html', 'sec-fetch-dest': 'document' } })
-      assert.ok([302, 307, 308].includes(res.status), `${closed} needs sign-in like any page, got ${res.status}`)
+      const res = await call(`${APP}${closed}`, { headers: pageHeaders })
+      assert.equal(res.status, 307, `${closed} needs sign-in like any page, got ${res.status}`)
       assert.equal(new URL(res.headers.get('location') ?? '').pathname, '/sign-in', `${closed} goes to sign-in`)
     }
-    for (const stranger of ['/api/s/tok123', '/api/s/tok123/image/img-1.png', '/api/admin/reports/r1', '/api/shares']) {
-      assert.ok(passes(await call(`${APP}${stranger}`)), `${stranger}: a signed-out call reaches its route, which decides (an address window, or 401, or 404) — the proxy never redirects an API call`)
+    for (const stranger of ['/api/s/tok123', '/api/s/tok123/image/img-1.png', '/api/admin/reports/r1', '/api/shares', '/api/auth/get-session']) {
+      assert.ok(passes(await call(`${APP}${stranger}`)), `${stranger}: a signed-out call reaches its route, which decides — the proxy never redirects an API call`)
     }
-    const api = await call(`${APP}/api/projects`)
-    assert.ok(passes(api), 'a signed-out API call reaches its route, which answers 401 itself')
-    assert.equal(api.headers.get('x-middleware-request-x-clerk-auth-status') ?? 'signed-out', 'signed-out')
-
-    const session = mint(ours.privateKey, claims())
-    const signedIn = await call(`${APP}/p/abc`, {
-      headers: { accept: 'text/html', 'sec-fetch-dest': 'document', cookie: `__session=${session}; __client_uat=${now - 5}` },
-    })
-    assert.ok(passes(signedIn), `a session signed with CLERK_JWT_KEY opens the page (status ${signedIn.status} ${signedIn.headers.get('location') ?? ''})`)
-    assert.equal(signedIn.headers.get('x-middleware-request-x-clerk-auth-status'), 'signed-in')
-    const forgedSession = mint(theirs.privateKey, claims())
-    const intruder = await call(`${APP}/p/abc`, {
-      headers: { accept: 'text/html', 'sec-fetch-dest': 'document', cookie: `__session=${forgedSession}; __client_uat=${now - 5}` },
-    })
-    assert.ok(!passes(intruder), 'a session signed by another key does not open the page')
+    // The cookie's presence lets a page through (optimistically: the page checks the session for real), under either name.
+    for (const cookie of ['__Secure-inkdesk.session_token=anything', 'inkdesk.session_token=anything']) {
+      const res = await call(`${APP}/p/abc`, { headers: { ...pageHeaders, cookie } })
+      assert.ok(passes(res), `${cookie.split('=')[0]} lets the page decide (got ${res.status})`)
+      assert.equal(res.headers.get('x-middleware-request-x-inkdesk-path'), '/p/abc', 'and the page is told its own path')
+    }
+    assert.equal((await call(`${APP}/p/abc`, { headers: { ...pageHeaders, cookie: 'better-auth.session_token=x; other=1' } })).status, 307, 'another app’s cookie is not ours')
   })
+  // Where sign-in sends someone back: a path on this studio, never another site.
+  const { safeNext, signInHref } = await import('../lib/auth/next')
+  for (const [input, expected] of [
+    ['/p/abc?page=2', '/p/abc?page=2'],
+    ['/settings/account#x', '/settings/account#x'],
+    [null, '/'],
+    ['', '/'],
+    ['https://evil.example/', '/'],
+    ['//evil.example/x', '/'],
+    ['/\\evil.example', '/'],
+    ['/\tevil', '/'],
+    ['javascript:alert(1)', '/'],
+    ['/sign-in?next=/x', '/'],
+    ['/api/projects', '/'],
+    [`/${'a'.repeat(3000)}`, '/'],
+  ] as const) assert.equal(safeNext(input), expected, `safeNext(${JSON.stringify(input)})`)
+  assert.equal(signInHref('/p/abc'), '/sign-in?next=%2Fp%2Fabc')
+  assert.equal(signInHref('//evil.example'), '/sign-in')
   assert.deepEqual(outbound, [], 'nothing reached the network')
-  ok('Clerk mode, offline: a signed-out page → /sign-in?redirect_url=…; sign-in, sign-up, terms, privacy and a shared manga (/s/…) open, /admin and /settings need sign-in; a session minted with CLERK_JWT_KEY is signed-in; another key’s is not')
+  ok('better mode, offline: a signed-out page → /sign-in?next=<path> from the cookie alone; sign-in, sign-up, terms, privacy and a shared manga open, /admin and /settings need sign-in, API calls reach their routes; safeNext never leaves the studio')
 
-  // --- f. Networkless verification with the JWT key --------------------------------------
-  const { verifyToken } = await import('@clerk/backend')
-  const good = await verifyToken(mint(ours.privateKey, claims()), { jwtKey: PEM, authorizedParties: [APP] })
-  assert.equal(good.sub, 'user_alice1')
-  const refusedToken = async (token: string, why: string, parties: string[] = [APP]) => {
-    await assert.rejects(verifyToken(token, { jwtKey: PEM, authorizedParties: parties }), Error, why)
+  // --- f. The /api/auth route: its guard ------------------------------------------------------
+  {
+    const route = await import('../app/api/auth/[...all]/route')
+    const { resetBackend } = await import('../lib/limits/backend')
+    const post = (path: string, body: unknown, from: string, extra: Record<string, string> = {}) =>
+      route.POST(
+        new Request(`${APP}/api/auth${path}`, {
+          method: 'POST',
+          headers: { origin: APP, 'content-type': 'application/json', 'x-forwarded-for': from, ...extra },
+          body: JSON.stringify(body),
+        })
+      )
+    // Sign-in off, or test mode: there are no accounts, and the route is a 404.
+    for (const mode of ['off', 'test']) {
+      await withEnv({ INKDESK_AUTH: mode }, async () => {
+        assert.equal((await post('/sign-in/email', { email: 'a@b.c', password: 'x' }, '203.0.113.1')).status, 404, `${mode}: no such page`)
+      })
+    }
+    await withEnv({ ...betterEnv(), INKDESK_LIMITS: 'on', RATE_SIGNIN_PER_MIN: '3', RATE_SIGNUP_PER_HOUR: '1' }, async () => {
+      pinAuth()
+      resetBackend()
+      const big = await post('/sign-in/email', { pad: 'x' }, '203.0.113.9', { 'content-length': String(64 * 1024) })
+      assert.equal(big.status, 413, 'a body larger than a sign-in form is refused unread')
+      // Password guesses from one address: the window closes, and says when to come back.
+      const guess = () => post('/sign-in/email', { email: 'bob@inkdesk.invalid', password: 'not the password' }, '203.0.113.2')
+      for (let i = 0; i < 3; i++) assert.equal((await guess()).status, 401)
+      const shut = await guess()
+      assert.equal(shut.status, 429, 'the fourth guess in a minute is refused')
+      assert.ok(Number(shut.headers.get('Retry-After')) > 0, 'with Retry-After')
+      assert.match(((await shut.json()) as { error: string }).error, /going a little fast/)
+      // Another address has its own window; one account an hour per address with a password.
+      assert.equal((await post('/sign-up/email', { email: 'carol@inkdesk.invalid', password: 'a long password', name: 'Carol' }, '203.0.113.3')).status, 200)
+      assert.equal((await post('/sign-up/email', { email: 'dave@inkdesk.invalid', password: 'a long password', name: 'Dave' }, '203.0.113.3')).status, 429, 'a second account from that address within the hour is refused')
+      assert.equal((await post('/sign-up/email', { email: 'dave@inkdesk.invalid', password: 'a long password', name: 'Dave' }, '203.0.113.4')).status, 200, 'another address may')
+      resetBackend()
+    })
   }
-  await refusedToken(mint(theirs.privateKey, claims()), 'another key’s signature')
-  await refusedToken(mint(ours.privateKey, claims({ exp: now - 120, iat: now - 300, nbf: now - 300 })), 'an expired token')
-  await refusedToken(mint(ours.privateKey, claims({ azp: 'https://evil.example' })), 'a token minted for another origin')
-  const parts = mint(ours.privateKey, claims()).split('.')
-  await refusedToken(`${parts[0]}.${b64url(JSON.stringify(claims({ sub: 'user_mallory' })))}.${parts[2]}`, 'a token whose claims were changed')
-  assert.deepEqual(outbound, [], 'verification made no network call')
-  ok('verifyToken with CLERK_JWT_KEY alone: our token passes; another key’s, an expired one, another origin’s and an altered one are refused — offline')
+  ok('the /api/auth route: a 404 unless sign-in is on; a body larger than a form is a 413 unread; sign-in attempts and accounts made are windowed per client address, with Retry-After')
 
-  // --- g. The browser: a lapsed token is refreshed before anyone is sent away ---------------
+  // --- g. The browser: a 401 goes to sign-in, once, with the way back ------------------------
   {
     const { apiFetch } = await import('../components/api-fetch')
-    const seen = { fetches: 0, refreshes: 0, assigned: [] as string[], replies: [] as number[] }
+    const seen = { fetches: 0, assigned: [] as string[] }
     const g = globalThis as unknown as { window?: unknown }
     const offline = globalThis.fetch
-    const session = { getToken: async (o?: { skipCache?: boolean }) => (seen.refreshes++, assert.equal(o?.skipCache, true), 'fresh') }
-    const browser = (clerk: unknown) => ({
-      location: { pathname: '/p/abc', href: `${APP}/p/abc`, origin: APP, assign: (to: URL) => void seen.assigned.push(String(to)) },
+    const browser = (pathname: string) => ({
+      location: { pathname, search: '?page=2', origin: APP, assign: (to: string) => void seen.assigned.push(String(to)) },
       dispatchEvent: () => true,
-      Clerk: clerk,
     })
     const replying = (statuses: number[]) => {
       seen.fetches = 0
-      seen.refreshes = 0
       globalThis.fetch = (async () => {
         seen.fetches++
         const status = statuses.shift() ?? 500
@@ -663,29 +671,24 @@ try {
       }) as typeof fetch
     }
     try {
-      // Still signed in, the token lapsed: refreshed, asked once more, and the page stays.
-      g.window = browser({ session })
-      replying([401, 200])
-      assert.equal((await apiFetch('/api/projects/abc', { method: 'POST', body: '{}' })).status, 200)
-      assert.deepEqual([seen.fetches, seen.refreshes, seen.assigned.length], [2, 1, 0], 'a lapsed token: one refresh, one retry, no trip to sign-in')
-      // The session is really gone (the retry is a 401 too): off to sign-in, with the way back.
+      // On the sign-in page itself, a 401 never sends anyone anywhere.
+      g.window = browser('/sign-in')
+      replying([401])
+      assert.equal((await apiFetch('/api/projects')).status, 401)
+      assert.equal(seen.assigned.length, 0, 'never from the sign-in pages')
+      // Anywhere else: asked once (no retry), then off to sign-in with the way back — once, however many replies follow.
+      g.window = browser('/p/abc')
       replying([401, 401])
+      assert.equal((await apiFetch('/api/projects/abc', { method: 'POST', body: '{}' })).status, 401)
+      assert.equal(seen.fetches, 1, 'nothing is asked twice')
+      assert.deepEqual(seen.assigned, ['/sign-in?next=%2Fp%2Fabc%3Fpage%3D2'])
       assert.equal((await apiFetch('/api/projects/abc')).status, 401)
-      assert.deepEqual([seen.fetches, seen.refreshes], [2, 1])
-      assert.equal(seen.assigned.length, 1, 'a 401 that stays one goes to sign-in')
-      assert.equal(new URL(seen.assigned[0]).searchParams.get('redirect_url'), `${APP}/p/abc`)
-      // No Clerk session (signed out, or test mode): no refresh, no retry.
-      for (const clerk of [undefined, { session: null }, { session: { getToken: async () => { throw new Error('offline') } } }]) {
-        g.window = browser(clerk)
-        replying([401, 200])
-        assert.equal((await apiFetch('/api/projects/abc')).status, 401)
-        assert.equal(seen.fetches, 1, 'nothing is asked twice without a live session')
-      }
+      assert.equal(seen.assigned.length, 1, 'once')
     } finally {
       delete g.window
       globalThis.fetch = offline
     }
-    ok('apiFetch: a 401 while Clerk still holds a session refreshes the token and retries once, so a waking laptop stays on its page; only a lasting 401 goes to sign-in')
+    ok('apiFetch: a 401 is asked once and sends the page to /sign-in?next=<where it was>, once; never from the sign-in pages')
   }
 
   // --- h. Admins (slice 21) -------------------------------------------------------------------
@@ -781,7 +784,7 @@ try {
       assert.equal(await adminPageGate(LOCAL_OWNER), LOCAL_OWNER)
     })
     // Production, blank list: nobody — and `local` is nobody there either.
-    await withEnv({ ...clerkEnv(), NODE_ENV: 'production', ADMIN_EMAILS: undefined }, async () => {
+    await withEnv({ ...betterEnv(), NODE_ENV: 'production', ADMIN_EMAILS: undefined }, async () => {
       forgetAdmins()
       assert.equal(await isAdmin('user_boss1'), false)
       assert.equal(await isAdmin(LOCAL_OWNER), false)

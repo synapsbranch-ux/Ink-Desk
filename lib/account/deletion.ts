@@ -1,16 +1,16 @@
-// The deletion of an account (v3, slice 21): one idempotent job, also run by the
-// `user.deleted` webhook. A person who leaves takes everything with them — their
+// The deletion of an account (v3, slice 21): one idempotent job, started from
+// Settings › Data and privacy. A person who leaves takes everything with them — their
 // projects and every picture in them, their videos, their shared links and the
 // reports about them, their queued work, their export files, their counters and
 // their settings — and the studio keeps nothing of theirs but a tombstone on
-// their account record (so a late `user.created` can never bring them back) and
+// their account record (so a late account write can never bring them back) and
 // the studio-wide spend totals, which hold no names.
 //
 // THE ORDER (the slice 21 contract), and why:
-//   0  check Clerk can be asked      in clerk mode the worker needs CLERK_SECRET_KEY; without it the job
-//                                     ends `failed` at once, with nothing changed
+//   0  check the sign-in can be ended in better mode the worker needs BETTER_AUTH_SECRET and the accounts'
+//                                     MongoDB; without them the job ends `failed` at once, with nothing changed
 //   1  mark the account deleted       the record loses its email at once; nothing can revive it; their
-//                                     active shares are revoked, so a public page dies now, whatever Clerk does
+//                                     active shares are revoked, so a public page dies now, whatever comes next
 //   2  cancel their other work        through `endJob`, so every hold is released (a trailer's is
 //                                     settled at what it billed and has at the providers, so the
 //                                     studio's day still counts it); a worker mid-draw finds its
@@ -27,11 +27,11 @@
 //   5  verify                         re-list everything by owner; if anything is left, cancel and
 //                                     sweep again, a few times; if it is STILL there the job ends
 //                                     `failed` with a sentence and its record stays for the status route
-//   6  delete the Clerk user          (clerk mode) LAST: their sign-in lasts until the data is gone, so
-//                                     a deletion that cannot finish leaves them able to sign in, see
-//                                     the sentence and try again (once Clerk's user is gone nobody can
-//                                     ask for the status or press the button). Already gone is success;
-//                                     any other answer throws
+//   6  end the sign-in               (better mode) LAST: their Better Auth sessions, sign-ins and user.
+//                                     Their sign-in lasts until the data is gone, so a deletion that
+//                                     cannot finish leaves them able to sign in, see the sentence and
+//                                     try again (once the user is gone nobody can ask for the status or
+//                                     press the button). Already gone is success; a failure throws
 //   7  verify again                   what they made while their sign-in lasted is swept before `done`
 //   8  the job's own record           deleted by the processor on `done` (`forgetDeletion`)
 //
@@ -44,7 +44,7 @@
 // by owner and may remain. It names no one, and the bucket's lifecycle rules are the backstop.
 //
 // TESTING SEAM: `DeletionDeps` is dependency injection, not a flag. Production passes `productionDeps()`;
-// the check passes a fake Clerk, and an `afterStep` that throws to stand in for a crash. Nothing in
+// the check passes a fake sign-in, and an `afterStep` that throws to stand in for a crash. Nothing in
 // production reads an environment variable to decide any of it.
 import 'server-only'
 import { projectImageIds } from '../auth/access'
@@ -56,17 +56,17 @@ import { LOCAL_OWNER, NO_ACCOUNT_TO_DELETE, finish, isActive, reservationOf, typ
 import type { Outcome } from '../queue/run'
 import { revokeShare } from '../share/pins'
 import { store } from '../store'
-import { clerkNotReady, deleteClerkUser } from './clerk'
+import { deleteSignInUser, signInNotReady } from './signin'
 import { purgeCounters } from './counters'
 import { exportFolder, hasOutputFolder, videoFolder } from './keys'
 
 /** The order the steps run in; `afterStep` is told each one as it completes. */
-export const DELETION_STEPS = ['marked', 'cancelled', 'shares', 'projects', 'jobs', 'videos', 'outputs', 'settings', 'counters', 'verified', 'clerk'] as const
+export const DELETION_STEPS = ['marked', 'cancelled', 'shares', 'projects', 'jobs', 'videos', 'outputs', 'settings', 'counters', 'verified', 'signin'] as const
 export type DeletionStep = (typeof DELETION_STEPS)[number]
 
 export type DeletionDeps = {
-  /** Ends the person's sign-in; null where there is no Clerk to ask (every mode but `clerk`). */
-  clerk: { deleteUser(userId: string): Promise<void>; /** Why Clerk cannot be asked (a missing secret), or null; asked before anything is changed. */ ready?(): string | null } | null
+  /** Ends the person's sign-in; null where there are no accounts (every mode but `better`). */
+  signIn: { deleteUser(userId: string): Promise<void>; /** Why the sign-in cannot be ended (a missing secret or database), or null; asked before anything is changed. */ ready?(): string | null } | null
   /** Removes their counters and windows; how many keys went. */
   purgeCounters(userId: string): Promise<number>
   now(): Date
@@ -75,7 +75,7 @@ export type DeletionDeps = {
 }
 
 export function productionDeps(): DeletionDeps {
-  return { clerk: authMode() === 'clerk' ? { deleteUser: deleteClerkUser, ready: clerkNotReady } : null, purgeCounters, now: () => new Date() }
+  return { signIn: authMode() === 'better' ? { deleteUser: deleteSignInUser, ready: signInNotReady } : null, purgeCounters, now: () => new Date() }
 }
 
 /** What the person is told when the sweep ended with something still there. */
@@ -94,8 +94,8 @@ export async function deleteAccount(job: JobRecord, deps: DeletionDeps = product
   const owner = job.ownerId
   // The door (`enqueueAccountJob`) and the processor refuse this already; a sweep of `local` would be the whole desk.
   if (owner === LOCAL_OWNER) return { outcome: 'refused', error: NO_ACCOUNT_TO_DELETE }
-  // Before anything is changed: a worker that cannot ask Clerk would drop the email and stop the person's work, then fail on every retry.
-  const notReady = deps.clerk?.ready?.()
+  // Before anything is changed: a worker that cannot end the sign-in would drop the email and stop the person's work, then fail on every retry.
+  const notReady = deps.signIn?.ready?.()
   if (notReady) {
     console.error(`[account] deletion of ${owner} was not started: ${notReady}`)
     return { outcome: 'failed', error: DELETION_NOT_SET_UP }
@@ -104,9 +104,9 @@ export async function deleteAccount(job: JobRecord, deps: DeletionDeps = product
     await deps.afterStep?.(name)
   }
 
-  // 1. The record first: the email goes now, and a late `user.created` finds the tombstone.
+  // 1. The record first: the email goes now, and a late account write finds the tombstone.
   if (!(await store.users.get(owner))?.deletedAt) await store.users.markDeleted(owner)
-  // Their public links die with the press of the button, not after Clerk answers: a slow or failing Clerk must not keep a page live.
+  // Their public links die with the press of the button, not at the end: a slow sweep must not keep a page live.
   await revokeShares(owner, deps)
   await step('marked')
 
@@ -126,8 +126,8 @@ export async function deleteAccount(job: JobRecord, deps: DeletionDeps = product
   await step('verified')
 
   // 6. Their sign-in ends last: until the data is gone they can still sign in to see a deletion that did not finish, and try again.
-  if (deps.clerk) await deps.clerk.deleteUser(owner)
-  await step('clerk')
+  if (deps.signIn) await deps.signIn.deleteUser(owner)
+  await step('signin')
 
   // 7. Whatever they made while that lasted (a second tab) goes too.
   if (!(await verified(owner, job.id, deps))) return { outcome: 'failed', error: DELETION_INCOMPLETE }
@@ -188,7 +188,7 @@ async function removeData(owner: string, selfId: string, deps: DeletionDeps, ann
   await announce?.('settings')
 }
 
-/** Revoke every active share of the owner (idempotent, and nothing to do with Clerk): the link is dead from here on. Returns their tokens. */
+/** Revoke every active share of the owner (idempotent, and nothing to do with the sign-in): the link is dead from here on. Returns their tokens. */
 async function revokeShares(owner: string, deps: DeletionDeps): Promise<string[]> {
   const active = await store.shares.listActiveOf(owner)
   const now = deps.now().toISOString()

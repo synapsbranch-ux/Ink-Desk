@@ -26,10 +26,10 @@ async function main() {
     config = parseConfig(process.env, 'worker')
     // The trailer's models, resolution and motion method (slice 22): a worker that would film with a malformed one is refused here, not on the first trailer.
     videoSettings()
-    // Deleting an account deletes its Clerk user, so a worker in clerk mode needs CLERK_SECRET_KEY: refused here, not on the first deletion.
+    // Deleting an account ends its sign-in, so a worker in better mode needs BETTER_AUTH_SECRET and the accounts' MongoDB: refused here, not on the first deletion.
     const auth = workerAuthProblems()
     // Outside production an unset INKDESK_AUTH reads as off — and a worker on the cloud desk the web service signs people
-    // in to would then delete an account but not its Clerk user (after-audit #2). On that desk it says which mode it is.
+    // in to would then delete an account but not its sign-in (after-audit #2). On that desk it says which mode it is.
     if (config.storage === 'cloud' && !isProduction() && !process.env.INKDESK_AUTH?.trim()) auth.push('INKDESK_AUTH is not set (a worker on cloud storage uses the web service’s sign-in mode)')
     if (auth.length > 0) throw new ConfigError(auth)
   } catch (err) {

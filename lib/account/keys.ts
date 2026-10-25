@@ -15,7 +15,7 @@ export const EXPORT_CAP_BYTES = 400 * 1024 * 1024
 export const EXPORT_TOO_BIG =
   'Your desk is larger than the studio can pack into one download (400 MB). Nothing was changed. Download your pages from the Reader, one project at a time, and try again.'
 
-/** Can this owner id be a folder name in the outputs store? Clerk's ids and the test users' ids can; anything else could never have stored a file there. */
+/** Can this owner id be a folder name in the outputs store? Better Auth's ids and the test users' ids can; anything else could never have stored a file there. */
 export const hasOutputFolder = (ownerId: string): boolean => isOutputKey(ownerId)
 
 export const exportFolder = (ownerId: string): string => `exports/${ownerId}/`

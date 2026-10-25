@@ -4,7 +4,7 @@
 // the PRD wants them one click from Settings. Each page supplies its own head
 // and body. See `devpost/prd.md > Settings (v3)`.
 //
-// Who is looking is a request-time fact: signed out in clerk mode goes to
+// Who is looking is a request-time fact: signed out with sign-in on goes to
 // sign-in and returns here; in test mode the page says there is nobody. The
 // pages and the routes behind them check again — a layout is not where a
 // door is locked (`node_modules/next/dist/docs/01-app/02-guides/

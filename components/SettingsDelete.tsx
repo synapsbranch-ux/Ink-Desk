@@ -11,7 +11,7 @@
 // the same phrase again.
 //
 // Deleting is a background job (`POST /api/settings/delete`, 202): it removes
-// the work first and the Clerk sign-in last, so this panel polls
+// the work first and the sign-in last, so this panel polls
 // (`GET /api/settings/delete`) and, when it is done — or when the session has
 // already gone, a 401 — sends the browser to sign-in. A reload mid-way picks
 // the same state up from the server. A failure ends in the server's sentence and
@@ -229,7 +229,7 @@ export function SettingsDelete({ available }: { available: boolean }) {
               <div className="settings-dialog-list">
                 <h3>What stays</h3>
                 <ul>
-                  <li>A minimal record of the account: your Clerk user id and when it was created and deleted, no email. It stops the account being brought back by mistake.</li>
+                  <li>A minimal record of the account: your account id and when it was created and deleted, no email. It stops the account being brought back by mistake.</li>
                   <li>The studio’s own anonymous spend totals, which hold no names and none of your work.</li>
                   <li>Server logs and backups, until they expire.</li>
                   <li>Rarely, a picture that no record of yours names, which cannot be traced to you to be removed.</li>

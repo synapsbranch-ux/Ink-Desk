@@ -1363,7 +1363,7 @@ ChapterPlan { pageCount, coverBrief, pages[{ panels: PanelLine[4] }] }</pre>
     <span class="stamp">Draft &mdash; awaiting your review</span>
     <span class="tag tag-solid">Railway · web + worker</span>
     <span class="tag">Mongo · Redis · R2</span>
-    <span class="tag tag-red">Clerk Core 3</span>
+    <span class="tag tag-red">Better Auth</span>
     <span class="tag tag-quiet">Public</span>
   </div>
   <p class="note">Draft, 2026-10-14 &mdash; awaiting the learner&#8217;s review. Implements
@@ -1372,12 +1372,24 @@ ChapterPlan { pageCount, coverBrief, pages[{ panels: PanelLine[4] }] }</pre>
     v1 and v2. The facts below marked <em>verified</em> were read off the live APIs, the installed
     packages and the providers&#8217; docs on 2026-10-14 &mdash; not from memory; <strong>no paid
     call was made to gather them.</strong></p>
+  <div class="warn" style="margin-top:var(--s3)">
+    <p style="margin:0"><strong>Revised 2026-10-24 &mdash; Better Auth replaces Clerk.</strong> The learner&#8217;s
+      decision (<code>prd.md &gt; Product Decisions (v3)</code>, <code>checklist.md &gt; Revisions</code>): sign-in is
+      <code>better-auth</code> 1.7.12, open source, inside the <code>web</code> service, with accounts and sessions in the
+      studio&#8217;s own MongoDB. <strong>Email and password only</strong> &mdash; Google and GitHub sign-in were cut the same
+      day at the learner&#8217;s word, <em>&ldquo;make sure only email and password sign in / up are there and no google and github&rdquo;</em>; <strong>no
+      email service</strong> (no verified email for password accounts, no password reset, no email change) and
+      <strong>no CAPTCHA</strong> (per-address sign-in and sign-up limits instead). No webhook, no DNS records, no outside
+      host in the CSP. The sections below are updated where they described Clerk; the full as-built record is in
+      <code>spec.md &gt; As built &mdash; Better Auth (2026-10-24)</code>. Docs:
+      <code>https://www.better-auth.com/docs</code>.</p>
+  </div>
 
   <h2 style="margin-top:var(--s4)">What changes, in plain language</h2>
   <p>A visitor opens the domain. The <strong>web</strong> service answers: if they are not signed in,
-    Clerk&#8217;s sign-in screen; if they are, their dashboard, built from <strong>Mongo</strong>
-    &mdash; their projects, videos and quota. Every request the browser makes carries the Clerk
-    session; the server asks &ldquo;who is this?&rdquo; and then reads only that user&#8217;s
+    the studio&#8217;s own sign-in card; if they are, their dashboard, built from <strong>Mongo</strong>
+    &mdash; their projects, videos and quota. Every request the browser makes carries the studio&#8217;s
+    session cookie (Better Auth&#8217;s, checked against the session in Mongo); the server asks &ldquo;who is this?&rdquo; and then reads only that user&#8217;s
     records.</p>
   <p>When they press a button that costs money, the web service first asks <strong>Redis</strong>
     &ldquo;is this user under their limit, and is the whole site under today&#8217;s spend
@@ -1387,7 +1399,7 @@ ChapterPlan { pageCount, coverBrief, pages[{ panels: PanelLine[4] }] }</pre>
     voice line), stores the file in the <strong>bucket</strong>, writes the result and the real cost
     to Mongo, and settles the reservation in Redis. The browser polls the job records and shows
     progress.</p>
-  <p>To show a file, the server hands the browser a signed URL that works for a few minutes. To
+  <p>To show a file, the server streams it through a route that checks the owner first (no signed URLs). To
     share, the owner creates a snapshot with an unguessable token; anyone with the link sees that
     snapshot and nothing else.</p>
 
@@ -1406,8 +1418,8 @@ ChapterPlan { pageCount, coverBrief, pages[{ panels: PanelLine[4] }] }</pre>
           <td>Local by default, Mongo + one bucket switchable.</td>
           <td><strong>MongoDB as the source of truth in production</strong> and <strong>two private
             R2 buckets</strong> (<code>S3_BUCKET_PROJECT_FILES</code> for images and uploads,
-            <code>S3_BUCKET_COMPILE_OUTPUTS</code> for videos, audio and exports), served through
-            short-lived signed URLs. The local adapter stays for development and the checks.</td></tr>
+            <code>S3_BUCKET_COMPILE_OUTPUTS</code> for videos, audio and exports). <strong>As built: no signed URLs</strong> &mdash; every file
+            streams through an owner-checked route, or through <code>/api/s/[token]/…</code> for a share. The local adapter stays for development and the checks.</td></tr>
         <tr class="hl"><td class="num">3</td><td><strong>The queue</strong></td>
           <td>An in-process FIFO with a <code>serverRunId</code> floor and a per-project
             promise-chain lock on <code>globalThis</code> &mdash; all of which stop protecting
@@ -1418,7 +1430,9 @@ ChapterPlan { pageCount, coverBrief, pages[{ panels: PanelLine[4] }] }</pre>
           <td>None.</td>
           <td><strong>Clerk</strong> (<code>@clerk/nextjs</code> Core 3), a <code>proxy.ts</code>
             gate, and a <strong>data-access layer</strong> that checks the owner next to every read
-            and write.</td></tr>
+            and write. <strong>Revised 2026-10-24: Better Auth replaces Clerk</strong> (open source, in
+            the app, accounts in the studio&#8217;s MongoDB); the gate and the data-access layer are
+            unchanged in principle.</td></tr>
         <tr><td class="num">5</td><td><strong>Limits</strong></td>
           <td>None.</td>
           <td>Redis sliding windows, daily quota counters, a per-user spend reservation and a global
@@ -1445,7 +1459,7 @@ ChapterPlan { pageCount, coverBrief, pages[{ panels: PanelLine[4] }] }</pre>
   <h3 style="margin-top:var(--s5)">The v3 architecture</h3>
   <figure>
     <div class="svgbox">
-      <svg viewBox="0 0 900 560" role="img" aria-label="v3 architecture: the browser calls the Railway web service (proxy.ts, route handlers, data-access layer), which reads and writes Mongo, Redis and two R2 buckets and enqueues jobs on BullMQ; the Railway worker takes jobs from Redis, calls OpenRouter for images, Seedance video, ElevenLabs speech, Lyria music and fallback text, assembles with ffmpeg, and writes files to the buckets and status and cost to Mongo">
+      <svg viewBox="0 0 900 560" role="img" aria-label="v3 architecture: the browser calls the Railway web service (proxy.ts, route handlers, data-access layer), which reads and writes Mongo, Redis and two R2 buckets and enqueues jobs on BullMQ; the Railway worker takes jobs from Redis, calls OpenRouter for images, Seedance video, ElevenLabs speech, Lyria music and fallback text, assembles with ffmpeg, and writes files to the buckets and status and cost to Mongo. Sign-in is Better Auth inside the web service, email and password only, with accounts in Mongo.">
         <defs>
           <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
             <path d="M0 0 L10 5 L0 10 z" fill="#201f1d"/></marker>
@@ -1460,13 +1474,13 @@ ChapterPlan { pageCount, coverBrief, pages[{ panels: PanelLine[4] }] }</pre>
         <text x="89" y="100" text-anchor="middle" font-size="11.5" fill="#605d5d">on your domain</text>
         <line x1="30" y1="114" x2="148" y2="114" stroke="#d7d3d3"/>
         <g font-size="12" fill="#444141" text-anchor="middle">
-          <text x="89" y="136">Clerk session</text>
+          <text x="89" y="136">session cookie</text>
           <text x="89" y="152">on every request</text>
           <text x="89" y="176">polls job records,</text>
           <text x="89" y="192">shows progress</text>
         </g>
         <rect x="26" y="210" width="126" height="28" fill="#eae9e9" stroke="#bab6b6"/>
-        <text class="mono" x="89" y="228" text-anchor="middle" font-size="10" fill="#605d5d">files: signed URL</text>
+        <text class="mono" x="89" y="228" text-anchor="middle" font-size="10" fill="#605d5d">files: owner-checked</text>
 
         <!-- WEB -->
         <rect x="200" y="50" width="360" height="200" fill="#f3f2f2" stroke="#201f1d" stroke-width="1.5"/>
@@ -1474,7 +1488,7 @@ ChapterPlan { pageCount, coverBrief, pages[{ panels: PanelLine[4] }] }</pre>
         <text x="380" y="72" text-anchor="middle" font-size="15" font-weight="700" fill="#201f1d">web service</text>
         <rect x="216" y="84" width="328" height="46" fill="#fcecea" stroke="#eba49d"/>
         <text class="mono" x="226" y="102" font-size="11.5" font-weight="700" fill="#3e140f">proxy.ts</text>
-        <text x="226" y="120" font-size="11" fill="#444141">Clerk gate · Origin check · www → apex · per-IP limits</text>
+        <text x="226" y="120" font-size="11" fill="#444141">sign-in gate · Origin check · www → apex · CSP nonce</text>
         <rect x="216" y="138" width="328" height="46" fill="#f8f4f4" stroke="#d7d3d3"/>
         <text class="mono" x="226" y="156" font-size="11.5" font-weight="700" fill="#201f1d">route handlers · app/api/…</text>
         <text x="226" y="174" font-size="11" fill="#444141">requireUser() inside every handler · only enqueues</text>
@@ -1489,7 +1503,7 @@ ChapterPlan { pageCount, coverBrief, pages[{ panels: PanelLine[4] }] }</pre>
           <text x="255" y="327">PROJECT_FILES</text>
           <text x="255" y="342">COMPILE_OUTPUTS</text>
         </g>
-        <text x="255" y="362" text-anchor="middle" font-size="10.5" fill="#605d5d">signed URLs only</text>
+        <text x="255" y="362" text-anchor="middle" font-size="10.5" fill="#605d5d">private · via the app only</text>
 
         <rect x="325" y="290" width="110" height="84" fill="#eae9e9" stroke="#201f1d" stroke-width="1.5"/>
         <text x="380" y="309" text-anchor="middle" font-size="13" font-weight="700" fill="#201f1d">MongoDB</text>
@@ -1520,9 +1534,6 @@ ChapterPlan { pageCount, coverBrief, pages[{ panels: PanelLine[4] }] }</pre>
         <text x="212" y="528" font-size="11" fill="#605d5d">reconciler on start · heartbeat every 15 s</text>
 
         <!-- EXTERNAL -->
-        <rect x="620" y="50" width="266" height="52" fill="#f3f2f2" stroke="#201f1d" stroke-width="1.5"/>
-        <text x="753" y="72" text-anchor="middle" font-size="14" font-weight="700" fill="#201f1d">Clerk</text>
-        <text x="753" y="91" text-anchor="middle" font-size="11" fill="#605d5d">sign-in · users · webhooks</text>
 
         <rect x="620" y="116" width="266" height="56" fill="#f3f2f2" stroke="#201f1d" stroke-width="1.5"/>
         <text x="753" y="138" text-anchor="middle" font-size="13.5" font-weight="700" fill="#201f1d">Claude · Anthropic API</text>
@@ -1551,10 +1562,6 @@ ChapterPlan { pageCount, coverBrief, pages[{ panels: PanelLine[4] }] }</pre>
         <text x="180" y="92" text-anchor="middle" font-size="10" fill="#605d5d">fetch</text>
         <line x1="200" y1="170" x2="170" y2="170" stroke="#b5382e" stroke-width="1.5" marker-end="url(#ar3R)"/>
         <text x="184" y="162" text-anchor="middle" font-size="10" fill="#b5382e">status</text>
-        <!-- browser -> bucket by signed URL -->
-        <path d="M89 250 V331 H194" fill="none" stroke="#b5382e" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#ar3R)"/>
-        <text x="96" y="284" font-size="10" fill="#b5382e">signed URL,</text>
-        <text x="96" y="298" font-size="10" fill="#b5382e">a few minutes</text>
 
         <!-- web -> stores -->
         <line x1="255" y1="250" x2="255" y2="286" stroke="#201f1d" stroke-width="1.5" marker-end="url(#ar3)"/>
@@ -1575,8 +1582,6 @@ ChapterPlan { pageCount, coverBrief, pages[{ panels: PanelLine[4] }] }</pre>
         <text x="536" y="398" font-size="10" fill="#605d5d">settle</text>
 
         <!-- external -->
-        <line x1="620" y1="76" x2="566" y2="76" stroke="#201f1d" stroke-width="1.5" marker-end="url(#ar3)"/>
-        <text x="592" y="68" text-anchor="middle" font-size="10" fill="#605d5d">webhook</text>
         <line x1="560" y1="144" x2="614" y2="144" stroke="#201f1d" stroke-width="1.5" marker-end="url(#ar3)"/>
         <text x="587" y="136" text-anchor="middle" font-size="10" fill="#605d5d">text</text>
         <line x1="560" y1="228" x2="614" y2="228" stroke="#201f1d" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#ar3)"/>
@@ -1600,11 +1605,13 @@ ChapterPlan { pageCount, coverBrief, pages[{ panels: PanelLine[4] }] }</pre>
       <thead><tr><th style="width:14%">Service</th><th style="width:30%">Start</th><th>Needs</th></tr></thead>
       <tbody>
         <tr><td class="num">web</td><td><code>npm run build &amp;&amp; npm run start</code></td>
-          <td>Mongo, Redis, the buckets, Clerk, OpenRouter (text only &mdash; estimates and vision
+          <td>Mongo (the studio&#8217;s records and the accounts and sessions), Redis, the buckets,
+            <code>BETTER_AUTH_SECRET</code>, OpenRouter (text only &mdash; estimates and vision
             calls stay synchronous only where they already are), the health check on
             <code>/api/health</code></td></tr>
         <tr class="hl"><td class="num">worker</td><td><code>npm run worker</code> (<code>tsx worker/index.ts</code>, or the compiled file)</td>
-          <td>Mongo, Redis, the buckets, OpenRouter, <strong>ffmpeg in the image</strong> (nixpacks
+          <td>Mongo, Redis, the buckets, OpenRouter, <code>BETTER_AUTH_SECRET</code> (account deletion
+            ends the sign-in), <strong>ffmpeg in the image</strong> (nixpacks
             <code>aptPkgs = ["ffmpeg"]</code> or a Dockerfile)</td></tr>
         <tr><td class="num">redis</td><td>Railway&#8217;s Redis template</td>
           <td>Private network only: <code>redis.railway.internal</code> (<em>verified</em>: Railway
@@ -1625,7 +1632,8 @@ ChapterPlan { pageCount, coverBrief, pages[{ panels: PanelLine[4] }] }</pre>
       <h4 style="margin-top:0">Development</h4>
       <p style="margin-bottom:0"><code>npm run dev</code> with <code>INKDESK_AUTH=off</code> (single
         local owner, no account, local files) &mdash; the path every <code>check:*</code>, the
-        Playwright capture and CI use; or with Clerk development keys for real sign-in.
+        Playwright capture and CI use; or <code>INKDESK_AUTH=better</code> with
+        <code>BETTER_AUTH_SECRET</code> and a MongoDB for real sign-in (accounts always live in Mongo).
         <code>npm run worker</code> in a second terminal when Redis is available; with
         <code>INKDESK_QUEUE=inline</code> the web process runs jobs itself, for the checks.</p>
     </div>
@@ -1762,8 +1770,9 @@ ChapterPlan { pageCount, coverBrief, pages[{ panels: PanelLine[4] }] }</pre>
     <summary>Config and Boot <span class="cnt">lib/config.ts</span></summary>
     <div class="dbody">
       <p><code>lib/config.ts</code> (zod, server-only); <code>instrumentation.ts</code> calls it on
-        boot. Production <strong>refuses to start</strong> with <code>INKDESK_AUTH=off</code>, without
-        Clerk keys, or without Mongo/Redis/buckets. It fails fast with a sentence naming the missing
+        boot. Production <strong>refuses to start</strong> with <code>INKDESK_AUTH=off</code> or
+        <code>test</code>, without <code>BETTER_AUTH_SECRET</code> (&ge; 32 characters), <code>APP_URL</code> and
+        the Mongo settings, or without Mongo/Redis/buckets. It fails fast with a sentence naming the missing
         or malformed variable &mdash; never its value.</p>
       <p class="quiet">Implements <code>prd.md &gt; Status and Health (v3)</code></p>
     </div>
@@ -1775,23 +1784,27 @@ ChapterPlan { pageCount, coverBrief, pages[{ panels: PanelLine[4] }] }</pre>
       <p><code>proxy.ts</code> at the repo root (Next 16 renamed <code>middleware</code> to
         <code>proxy</code>; it always runs on Node &mdash; <em>verified</em> in
         <code>node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/proxy.md</code>):</p>
+      <p class="note"><em>Planned with Clerk on 2026-10-14; revised 2026-10-24 to Better Auth &mdash; this
+        is the plan as it now stands.</em></p>
       <ul>
-        <li><code>clerkMiddleware({ publishableKey, jwtKey, authorizedParties: [APP_URL] })</code></li>
-        <li>an <strong>optimistic</strong> redirect of signed-out page requests to <code>/sign-in</code></li>
+        <li>an <strong>optimistic</strong> redirect of signed-out page requests to <code>/sign-in?next=&lt;path&gt;</code>,
+          from the presence of Better Auth&#8217;s session cookie alone (no database call)</li>
         <li>an <code>Origin</code> check on non-GET <code>/api/*</code> (CSRF defence beside SameSite cookies)</li>
         <li><code>www</code> → apex redirect; cheap per-IP limits on public routes</li>
       </ul>
       <p style="margin-top:var(--s3)"><strong>Next&#8217;s own docs say Proxy must not be the only
         check</strong>, so <code>lib/auth/session.ts</code> (<code>requireUser()</code>, server-only)
-        runs inside every handler. Sign-in/up pages: <code>app/sign-in/[[...sign-in]]</code>,
-        <code>app/sign-up/[[...sign-up]]</code>. Core 3 components: <code>&lt;Show
-        when="signed-in"&gt;</code>, <code>&lt;UserButton&gt;</code>, <code>&lt;UserProfile&gt;</code>
-        (not the removed <code>SignedIn</code>/<code>SignedOut</code>).</p>
-      <p>Webhook: <code>app/api/webhooks/clerk/route.ts</code> with <code>verifyWebhook()</code>
-        (<code>@clerk/nextjs/webhooks</code>, Standard Webhooks &mdash; no <code>svix</code> package),
-        de-duplicated on the message id; <code>user.created</code> → <code>users</code>,
-        <code>user.deleted</code> → the account-deletion job. <code>INKDESK_AUTH=off</code> keeps the
-        single-owner local desk for development, the checks and the capture.</p>
+        runs inside every handler and checks the session against Mongo. Sign-in/up pages:
+        <code>app/sign-in/[[...sign-in]]</code>, <code>app/sign-up/[[...sign-up]]</code>, both the
+        studio&#8217;s own <code>components/AuthForm.tsx</code>; the header&#8217;s
+        <code>components/AccountMenu.tsx</code> (Account, Sign out).</p>
+      <p><code>lib/auth/server.ts</code> builds one Better Auth instance per process (Mongo adapter,
+        <code>transaction: false</code>); <code>app/api/auth/[...all]/route.ts</code> is its handler (404
+        unless <code>better</code> mode; 16 KB body cap; per-address <code>signin</code> and
+        <code>signup</code> windows that fail closed). No webhook: Better Auth&#8217;s database hooks mirror
+        each account into the studio&#8217;s <code>users</code> record, with the email only when verified.
+        <code>INKDESK_AUTH=off</code> keeps the single-owner local desk for development, the checks and the
+        capture; <code>test</code> names the caller in a header for the checks.</p>
       <p class="quiet">Implements <code>prd.md &gt; Accounts and Sign-in (v3)</code></p>
     </div>
   </details>
@@ -1804,7 +1817,7 @@ ChapterPlan { pageCount, coverBrief, pages[{ panels: PanelLine[4] }] }</pre>
         so ids cannot be probed. Mongo filters always include <code>ownerId</code>.
         <code>/api/image/[id]</code> is replaced by
         <code>/api/projects/[id]/image/[imageId]</code> (owner, and the image must belong to that
-        project) and signed URLs; closes SEC-01, SEC-06.
+        project; the old route is deleted, 2026-10-24); closes SEC-01, SEC-06.
         <code>scripts/claim-projects.mts</code> assigns the migrated v1 desk and the filmed project to
         the learner&#8217;s user id.</p>
       <p class="quiet">Implements <code>prd.md &gt; Ownership and Privacy (v3)</code></p>
@@ -1830,8 +1843,8 @@ COMPILE_OUTPUTS  u/&lt;userId&gt;/p/&lt;projectId&gt;/video/&lt;videoId&gt;/
                  …/audio/…   …/export/…
                  <b>archive/…</b>   the repo&#8217;s media</div>
       <p style="margin-top:var(--s3)">Every S3 and Mongo call gets a timeout (CR-6); images stream
-        with an <code>ETag</code>, video always by signed redirect (CR-17).
-        <code>S3_FORCE_PATH_STYLE</code> and <code>S3_PUBLIC_ENDPOINT</code> are honoured.</p>
+        with an <code>ETag</code>; trailer files stream through <code>/api/videos/[videoId]/file/[name]</code>
+        (as built: no signed redirect) (CR-17). <code>S3_FORCE_PATH_STYLE</code> is honoured.</p>
     </div>
   </details>
 
@@ -1839,7 +1852,8 @@ COMPILE_OUTPUTS  u/&lt;userId&gt;/p/&lt;projectId&gt;/video/&lt;videoId&gt;/
     <summary>Queue and Worker <span class="cnt cnt-red">lib/queue/ · worker/index.ts</span></summary>
     <div class="dbody">
       <p><code>lib/queue/</code> (BullMQ 6, ioredis 5): three queues &mdash; <code>image</code>
-        (concurrency 2), <code>video</code> (1), <code>audio</code> (2) &mdash; with
+        (concurrency 2), <code>video</code> (1) and, from slice 21, <code>account</code> (1); the planned
+        <code>audio</code> queue was never needed (speech and music run inside the trailer job) &mdash; with
         <code>attempts</code>, exponential back-off, a per-job timeout, and BullMQ&#8217;s stalled-job
         recovery replacing the <code>serverRunId</code> demote rule (CR-1, CR-9, CR-13).
         <code>worker/index.ts</code> runs the processors; the web service only enqueues.</p>
@@ -1910,8 +1924,9 @@ COMPILE_OUTPUTS  u/&lt;userId&gt;/p/&lt;projectId&gt;/video/&lt;videoId&gt;/
   <details>
     <summary>Security Headers and CSP <span class="cnt">next.config.ts</span></summary>
     <div class="dbody">
-      <p>CSP allowing only <code>self</code>, the Clerk Frontend API host, the bucket&#8217;s
-        signed-URL host, and nothing else for scripts; <code>frame-ancestors 'none'</code>; HSTS;
+      <p>CSP allowing only <code>self</code> &mdash; <strong>no outside
+        script, frame or image host</strong> since Clerk left on 2026-10-24 (pages get a per-request nonce
+        from <code>proxy.ts</code> since slice 23); <code>frame-ancestors 'none'</code>; HSTS;
         <code>Referrer-Policy: strict-origin-when-cross-origin</code>; <code>nosniff</code>;
         <code>poweredByHeader: false</code> (SEC-09). Errors shown to users never carry internals
         (SEC-11). Secret-reading modules import <code>server-only</code> (SEC-15).</p>
@@ -1950,11 +1965,14 @@ COMPILE_OUTPUTS  u/&lt;userId&gt;/p/&lt;projectId&gt;/video/&lt;videoId&gt;/
     <summary>Settings, Usage, Terms and Privacy <span class="cnt">app/settings/</span></summary>
     <div class="dbody">
       <p><code>app/settings/(account|defaults|sharing|data|usage)</code> &mdash; account through
-        Clerk&#8217;s <code>&lt;UserProfile&gt;</code>; defaults in <code>settings</code>; export as
-        one zip (<code>yazl</code>) streamed to the bucket and downloaded by signed URL.</p>
+        the studio&#8217;s own page (<code>components/SettingsAccount.tsx</code> since 2026-10-24: email,
+        verified yes/no, how it signs in, change password, signed-in devices; the email cannot be changed);
+        defaults in <code>settings</code>; export as
+        one zip (<code>yazl</code>) streamed to the outputs store and downloaded through
+        <code>/api/settings/export/download</code> (the caller&#8217;s own zip only).</p>
       <p><strong>Delete account</strong> is a worker job that removes Mongo records, bucket prefixes,
-        queued jobs, shares, and then the Clerk user &mdash; idempotent, so <code>user.deleted</code>
-        from the webhook runs the same job. <code>app/terms</code>, <code>app/privacy</code> &mdash;
+        queued jobs, shares, and <strong>last</strong> the sign-in (Better Auth&#8217;s sessions, accounts and
+        user) &mdash; idempotent. No outside service can delete a user, so there is no webhook. <code>app/terms</code>, <code>app/privacy</code> &mdash;
         static pages.</p>
       <p class="quiet">Implements <code>prd.md &gt; Settings (v3)</code>,
         <code>prd.md &gt; Terms and Privacy (v3)</code></p>
@@ -1971,7 +1989,7 @@ COMPILE_OUTPUTS  u/&lt;userId&gt;/p/&lt;projectId&gt;/video/&lt;videoId&gt;/
           &mdash; <strong>no 3:2</strong>; wide 3:2 panels are cropped to 16:9, square panels go at
           1:1 and are padded onto a 16:9 paper canvas at assembly), uploaded to
           <code>COMPILE_OUTPUTS</code>, sent as a signed URL &mdash; never a user-supplied URL (no
-          SSRF path).</li>
+          SSRF path). <em>(As built: sent inside the request as a JPEG data URI.)</em></li>
         <li><strong>Motion prompt</strong> (<code>lib/video/prompt.ts</code>): Claude (Terra
           fallback) turns the panel&#8217;s action, camera and dialogue, the locked DNA word for word
           and the style rules into one continuous motion beat and one camera move, ending &ldquo;no
@@ -2022,9 +2040,10 @@ COMPILE_OUTPUTS  u/&lt;userId&gt;/p/&lt;projectId&gt;/video/&lt;videoId&gt;/
     <div class="dbody">
       <p><code>GET /api/health</code> &mdash; 200 with <code>{web: ok, mongo, redis, worker}</code>
         (the worker writes a heartbeat key every 15 s); Railway deploys on it; a status line appears
-        in the app when Redis or the worker is down. <code>pino</code> structured logs with a
-        redaction list (keys, tokens, emails, prompts), request ids; error tracking only if the
-        learner adds a service (open question).</p>
+        in the app when Redis or the worker is down. Logs are plain <code>console</code> lines tagged
+        with a scope and an error reference (<code>lib/errors.ts</code>); the person sees only the reference.
+        <em>(As built: the planned <code>pino</code> logger and <code>lib/log.ts</code> were never built.)</em>
+        Error tracking only if the learner adds a service (open question).</p>
     </div>
   </details>
 
@@ -2044,16 +2063,14 @@ COMPILE_OUTPUTS  u/&lt;userId&gt;/p/&lt;projectId&gt;/video/&lt;videoId&gt;/
         <tr><td>Mongo database name</td><td><code>DB_DATABASE</code></td><td>Mapped</td></tr>
         <tr><td>Redis</td><td>&mdash;</td><td><strong>Missing</strong>: add Railway Redis; it provides <code>REDIS_URL</code></td></tr>
         <tr><td>Buckets</td><td><code>S3_BUCKET_PROJECT_FILES</code>, <code>S3_BUCKET_COMPILE_OUTPUTS</code>,
-            <code>S3_ENDPOINT</code>, <code>S3_PUBLIC_ENDPOINT</code>, <code>S3_REGION</code>,
+            <code>S3_ENDPOINT</code>, <code>S3_REGION</code>,
             <code>S3_ACCESS_KEY_ID</code>, <code>S3_SECRET_ACCESS_KEY</code>, <code>S3_FORCE_PATH_STYLE</code></td>
-          <td>All used (v2 read only one <code>S3_BUCKET</code> and hard-coded path style &mdash; fixed)</td></tr>
-        <tr><td>Clerk</td><td><code>CLERK_SECRET_KEY</code>, <code>CLERK_PUBLISHABLE_KEY</code>,
-            <code>CLERK_JWT_KEY</code>, <code>CLERK_WEBHOOK_SIGNING_SECRET</code></td>
-          <td>The SDK reads <code>NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY</code>, <strong>not</strong>
-            <code>CLERK_PUBLISHABLE_KEY</code> (<em>verified</em> in <code>@clerk/nextjs</code>
-            7.9.15&#8217;s source): add it with the same value, or the config passes
-            <code>publishableKey</code> explicitly; <code>CLERK_JWT_KEY</code> is passed explicitly as
-            <code>jwtKey</code> (the SDK does not read it)</td></tr>
+          <td>All used (v2 read only one <code>S3_BUCKET</code> and hard-coded path style &mdash; fixed);
+            <code>S3_PUBLIC_ENDPOINT</code> is not read (signed URLs were never built; removed 2026-10-24)</td></tr>
+        <tr><td>Sign-in (Better Auth, since 2026-10-24)</td><td>&mdash;</td>
+          <td><strong>New:</strong> <code>BETTER_AUTH_SECRET</code> (&ge; 32 characters, web and worker);
+            <code>RATE_SIGNIN_PER_MIN</code> (10), <code>RATE_SIGNUP_PER_HOUR</code> (5). The Clerk
+            variables this row listed until 2026-10-24 are no longer read.</td></tr>
         <tr class="hl"><td>The URL</td><td><code>APP_URL</code> (points at another app&#8217;s domain today)</td>
           <td><code>APP_URL</code> + <code>NEXT_PUBLIC_APP_URL</code> &mdash; <strong>must be set to
             the Ink Desk domain</strong></td></tr>
@@ -2072,7 +2089,8 @@ COMPILE_OUTPUTS  u/&lt;userId&gt;/p/&lt;projectId&gt;/video/&lt;videoId&gt;/
       <strong>share that app&#8217;s Clerk users, its bucket and its database</strong>.</p>
     <p><strong>Ink Desk needs its own Clerk application, its own buckets (or a dedicated prefix with
       its own scoped key), and its own database</strong> unless you confirm these are Ink
-      Desk&#8217;s.</p>
+      Desk&#8217;s. <em>(2026-10-24: the Clerk part no longer applies &mdash; accounts live in Ink
+      Desk&#8217;s own MongoDB through Better Auth.)</em></p>
     <p style="margin-bottom:0"><code>RAILWAY_TOKEN</code> is also present; the build never uses it
       without your explicit word.</p>
   </div>
@@ -2082,11 +2100,9 @@ COMPILE_OUTPUTS  u/&lt;userId&gt;/p/&lt;projectId&gt;/video/&lt;videoId&gt;/
     <div class="dbody">
       <p class="quiet">Values in Railway, never in files.</p>
       <h4 style="margin-top:0">web</h4>
-      <p><code>NODE_ENV=production</code>, <code>APP_URL</code>, <code>NEXT_PUBLIC_APP_URL</code>,
-        <code>NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY</code>, <code>CLERK_SECRET_KEY</code>,
-        <code>CLERK_JWT_KEY</code>, <code>CLERK_WEBHOOK_SIGNING_SECRET</code>,
-        <code>NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in</code>,
-        <code>NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up</code>, <code>DB_URL</code>,
+      <p><code>NODE_ENV=production</code>, <code>APP_URL</code> (required: base URL and trusted
+        origin), <code>NEXT_PUBLIC_APP_URL</code>, <code>BETTER_AUTH_SECRET</code>, <code>RATE_SIGNIN_PER_MIN</code>,
+        <code>RATE_SIGNUP_PER_HOUR</code>, <code>DB_URL</code>,
         <code>DB_DATABASE</code>, <code>REDIS_URL</code>, the eight <code>S3_*</code>,
         <code>OPENROUTER_API_KEY</code>, <code>ANTHROPIC_API_KEY</code> (optional),
         <code>ANTHROPIC_MODEL</code>, <code>IMAGE_MODEL</code>, <code>LLM_FALLBACK</code>,
@@ -2094,10 +2110,11 @@ COMPILE_OUTPUTS  u/&lt;userId&gt;/p/&lt;projectId&gt;/video/&lt;videoId&gt;/
         <code>INKDESK_STORAGE=cloud</code>, <code>INKDESK_QUEUE=bullmq</code>,
         <code>ALLOWLIST_EMAILS</code>, <code>ADMIN_EMAILS</code>, <code>GLOBAL_DAILY_USD_CAP=5</code>,
         <code>GLOBAL_TOTAL_USD_CAP</code> (proposed, see Budget), the per-plan quota numbers,
-        <code>VIDEO_ENABLED</code>, <code>SHARE_ENABLED</code> (feature flags).</p>
+        <code>VIDEO_ENABLED</code> (feature flag; a <code>SHARE_ENABLED</code> flag was planned and never
+        built &mdash; sharing is always on).</p>
       <h4>worker</h4>
-      <p style="margin-bottom:0"><code>NODE_ENV</code>, <code>CLERK_SECRET_KEY</code> (deleting an account
-        deletes its Clerk user; the worker refuses to boot in clerk mode without it), <code>DB_URL</code>, <code>DB_DATABASE</code>,
+      <p style="margin-bottom:0"><code>NODE_ENV</code>, <code>BETTER_AUTH_SECRET</code> (deleting an account
+        ends its sign-in; the worker refuses to boot in better mode without it or the Mongo settings), <code>DB_URL</code>, <code>DB_DATABASE</code>,
         <code>REDIS_URL</code>, the eight <code>S3_*</code>, <code>OPENROUTER_API_KEY</code>,
         <code>ANTHROPIC_API_KEY</code> (optional), the model and quality variables,
         <code>VIDEO_MODEL=bytedance/seedance-2.0</code>, <code>VIDEO_RESOLUTION=720p</code>,
@@ -2108,9 +2125,10 @@ COMPILE_OUTPUTS  u/&lt;userId&gt;/p/&lt;projectId&gt;/video/&lt;videoId&gt;/
   </details>
 
   <details>
-    <summary>Domain and DNS <span class="cnt cnt-red">start this first</span></summary>
+    <summary>Domain and DNS <span class="cnt cnt-red">Railway only</span></summary>
     <div class="dbody">
-      <p class="note"><em>Verified</em> against Railway&#8217;s and Clerk&#8217;s current docs. The
+      <p class="note"><em>Verified</em> against Railway&#8217;s current docs (Clerk&#8217;s records, listed
+        here until 2026-10-24, are gone with Clerk: Better Auth needs no DNS record). The
         exact targets are generated per project and are shown in each dashboard &mdash; copy them
         from there, never from here.</p>
       <h4>Railway, on the <code>web</code> service → Settings → Networking → Custom domain</h4>
@@ -2136,27 +2154,18 @@ COMPILE_OUTPUTS  u/&lt;userId&gt;/p/&lt;projectId&gt;/video/&lt;videoId&gt;/
       <p style="margin-top:var(--s3)">If DNS is on Cloudflare: the Railway records may be proxied once
         verified, with SSL mode <strong>Full</strong>; the verification CNAME must be <strong>DNS
         only</strong> during verification.</p>
-      <h4>Clerk production instance (Dashboard → Domains)</h4>
-      <p>Clerk lists the records for the instance &mdash; typically <code>CNAME clerk.&lt;domain&gt;</code>
-        (Frontend API), <code>CNAME accounts.&lt;domain&gt;</code> (Account Portal), and the email
-        records (<code>clkmail.&lt;domain&gt;</code> and two DKIM <code>CNAME</code>s) that make
-        sign-in emails come <strong>from the domain</strong>. On Cloudflare these must be <strong>DNS
-        only</strong> (Clerk&#8217;s check fails behind the proxy). No <code>CAA</code> record on the
-        apex may block Let&#8217;s Encrypt or Google Trust Services. Propagation can take up to 48 h
-        &mdash; <strong>start this first</strong>. Restrict the Frontend API&#8217;s allowed
-        subdomains (Clerk&#8217;s subdomain allowlist).</p>
-      <h4>OAuth apps for production</h4>
-      <p>Development keeps Clerk&#8217;s shared credentials. Production: a Google OAuth client and a
-        GitHub OAuth app, each with the <strong>Authorized redirect URI / callback URL that
-        Clerk&#8217;s dashboard shows</strong> for the production instance; the Google consent screen
-        published &ldquo;In production&rdquo; (basic scopes &mdash; <code>openid</code>,
-        <code>email</code>, <code>profile</code> &mdash; normally publish without the full
-        verification review, but check on day one). Block email subaddresses for Google sign-ups
-        (Clerk recommends it).</p>
+      <h4>No DNS for sign-in</h4>
+      <p>Better Auth runs inside the <code>web</code> service on the domain itself: no sign-in
+        subdomain and no email records (the studio sends no email). No <code>CAA</code> record on the
+        apex may block Let&#8217;s Encrypt or Google Trust Services (Railway&#8217;s certificate).</p>
+      <h4>No OAuth apps</h4>
+      <p>Google and GitHub sign-in were cut at the learner&#8217;s word on 2026-10-24; sign-in is email and
+        password only, so there are no OAuth clients, consent screens or callback URLs to set up.</p>
       <h4>The bucket (R2)</h4>
       <p style="margin-bottom:0">CORS allows <code>GET</code> and <code>PUT</code> from
         <code>APP_URL</code> (and <code>http://localhost:3000</code> in development) only; no public
-        bucket access; signed URLs only.</p>
+        bucket access; files reach the browser only through the app&#8217;s owner-checked routes (as
+        built: no signed URLs).</p>
     </div>
   </details>
 
@@ -2197,8 +2206,9 @@ GET  /api/v1/videos/{id}/content?index=0   with the bearer key
     </div>
   </details>
   <details>
-    <summary>Clerk <span class="cnt">@clerk/nextjs 7.9.15 unpacked</span></summary>
+    <summary>Clerk <span class="cnt">@clerk/nextjs 7.9.15 unpacked · replaced 2026-10-24</span></summary>
     <div class="dbody">
+      <p class="quiet"><em>2026-10-24: Clerk was replaced by Better Auth; kept as what was verified on 2026-10-14.</em></p>
       <p style="margin-bottom:0">Peer <code>next ^16</code>, <code>react ~19.3</code>; Node &ge; 20.9;
         <code>proxy.ts</code> on Next 16; <code>NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY</code> is the name
         read; <code>CLERK_JWT_KEY</code> passed as <code>jwtKey</code>; <code>verifyWebhook</code>
@@ -2246,6 +2256,9 @@ GET  /api/v1/videos/{id}/content?index=0   with the bearer key
         <tr><td class="num">bytedance/seedance-2.0-fast</td><td>development and previews at 480p</td><td>$0.040/s at 480p 16:9</td><td>used for dev only; never the claim</td></tr>
         <tr><td class="num">bytedance/seedance-2.0-mini</td><td>cheapest 2.x; <code>return_last_frame</code> chains shots</td><td>$3.5/M tokens</td><td>continuity test across two shots</td></tr>
         <tr><td class="num">bytedance/seedance-2.5</td><td>30 s shots, 30 references, extend a shot</td><td>$10.7/M tokens</td><td>motion kernel test</td></tr>
+        <tr><td colspan="4" class="quiet"><em>As built: <code>lib/video/cost.ts</code> prices only
+          <code>seedance-2.0</code> and <code>seedance-2.0-fast</code>; the other rows are proposals, not supported or priced in
+          the code.</em></td></tr>
         <tr><td class="num">black-forest-labs/flux-video-upscale</td><td>a 1080p master from 720p</td><td>7.5&cent; per megapixel-second (input or output basis unstated)</td><td>one paid probe to read the bill</td></tr>
         <tr><td class="num">black-forest-labs/flux-video-edit</td><td>fix one detail without re-generating</td><td>listed per second</td><td>a before/after on a failed shot</td></tr>
         <tr><td class="num">kwaivgi/kling-v3.0-std / -pro</td><td>fallback image-to-video</td><td>$0.084 / $0.112 per s</td><td>the motion kernel test</td></tr>
@@ -2261,13 +2274,17 @@ GET  /api/v1/videos/{id}/content?index=0   with the bearer key
   <!-- ---------- DATA MODEL ---------- -->
   <h3 style="margin-top:var(--s5)">Data model (v3)</h3>
   <details>
-    <summary>Mongo collections and Redis keys <span class="cnt">7 collections</span></summary>
+    <summary>Mongo collections and Redis keys <span class="cnt">7 collections + Better Auth's 4</span></summary>
     <div class="dbody">
-      <div class="wire">users    {_id: clerkUserId, email, plan: 'free'|'allowlisted', admin: bool,
-          createdAt, deletedAt?}
+      <div class="wire">users    {_id: userId, email, plan: 'free'|'allowlisted', admin: bool,
+          createdAt, deletedAt?}   <i>userId = Better Auth's id (24 hex) since 2026-10-24;
+          email only when verified, else '' — so the allowlist and admin list
+          match verified addresses only; written by Better Auth's hooks and
+          re-written by currentUser; the tombstone wins</i>
+<b>Better Auth</b> user · session (30 days) · account (password hash) · verification
 projects  v2&#8217;s Project + <b>ownerId</b>; nothing else moves
-jobs     {_id, ownerId, projectId, kind: 'sheet'|'panel'|'cover'|'text'|'shot'|
-          'speech'|'music'|'assemble'|'export'|'delete-account', status, attempts,
+jobs     {_id, ownerId, projectId, kind: 'sheet'|'panel'|'cover'|'text'|'trailer'|
+          'export'|'delete-account', status, attempts,   <i>as built, 2026-10-24</i>
           <b>reservedUsd, costUsd</b>, error?, providerJobId?, createdAt, updatedAt}
 videos   {_id, ownerId, projectId, page, status,
           shots: [{panel, method, state, providerJobId?, blobKey?, seconds,
@@ -2293,13 +2310,13 @@ settings {_id: userId, defaultStyle, readingDirection, voices: {lead, counterpar
       <tbody>
         <tr><td><strong>Redis down</strong></td><td>&ldquo;The studio is busy &mdash; try again in a few minutes&rdquo; on generate buttons</td><td>enqueue refused (503); reads, reader, shares work from Mongo and the bucket</td></tr>
         <tr><td><strong>Worker down</strong></td><td>the status line; jobs stay <em>queued</em></td><td>the reconciler re-enqueues on start; nothing paid is lost</td></tr>
-        <tr><td><strong>Mongo down</strong></td><td>an error page with a retry</td><td>health check fails; Railway holds the old deploy</td></tr>
+        <tr><td><strong>Mongo down</strong></td><td>an error page with a retry; on sign-in or sign-up: &ldquo;Signing in isn&#8217;t working just now. Try again in a moment.&rdquo; (500)</td><td>health check fails; Railway holds the old deploy; no session can be checked, so nobody is let in</td></tr>
+        <tr><td><strong>Redis down, on sign-in or sign-up</strong></td><td>a calm &ldquo;busy&rdquo; sentence (503)</td><td>the <code>signin</code> and <code>signup</code> windows <strong>fail closed</strong></td></tr>
         <tr><td><strong>A Seedance shot fails or is refused</strong> <span class="quiet">(real face, policy)</span></td><td>that shot&#8217;s card: why, <strong>Try again</strong></td><td>others continue; reservation released</td></tr>
         <tr class="hl"><td><strong>OpenRouter 402</strong> <span class="quiet">(credit)</span></td><td>&ldquo;The studio has paused generation for today&rdquo;</td><td>global switch trips; learner alerted in logs</td></tr>
         <tr><td><strong>Global daily cap reached</strong></td><td>the same pause message for everyone</td><td><code>reserve</code> refuses before any call</td></tr>
         <tr><td><strong>A user over quota</strong></td><td>disabled buttons with reason and reset time</td><td><code>reserve</code> refuses</td></tr>
         <tr class="hl"><td><strong>Crash between a paid video POST and saving its job id</strong></td><td>the shot shows <em>failed &mdash; not charged twice</em></td><td>marked <code>orphaned</code>, never re-submitted; findable in OpenRouter&#8217;s logs by <code>session_id</code></td></tr>
-        <tr><td><strong>Clerk webhook replay</strong></td><td>nothing</td><td>de-duplicated on the message id</td></tr>
         <tr><td><strong>Share revoked</strong></td><td>not found</td><td>same page as an unknown token</td></tr>
       </tbody>
     </table>
@@ -2310,18 +2327,19 @@ settings {_id: userId, defaultStyle, readingDirection, voices: {lead, counterpar
   <details>
     <summary>New and changed files <span class="cnt">v3</span></summary>
     <div class="dbody">
-      <div class="tree"><b>proxy.ts</b>                               <i># Clerk gate, www→apex, Origin check, per-IP limits on public routes</i>
+      <div class="tree"><b>proxy.ts</b>                               <i># sign-in gate (Better Auth cookie, optimistic), www→apex, Origin check, CSP nonce</i>
 instrumentation.ts                     <i># boot: validate config (fail fast)</i>
-<b>worker/index.ts</b>                        <i># BullMQ processors: image, video, audio; reconciler; heartbeat</i>
+<b>worker/index.ts</b>                        <i># BullMQ processors: image, video, account; reconciler; heartbeat</i>
 lib/config.ts                          <i># every env variable, zod-validated, server-only; the learner&#8217;s names mapped</i>
 <b>lib/auth/{session,access}.ts</b>           <i># requireUser(); ownedProject/ownedVideo/ownedBlob → 404</i>
-<b>lib/limits/{rate,quota,spend}.ts</b>       <i># Redis sliding windows, daily counters, reserve/settle/release (Lua)</i>
+<b>lib/auth/{server,client,next}.ts</b>       <i># Better Auth instance (Mongo); browser client; safe ?next= (2026-10-24)</i>
+lib/account/signin.ts                  <i># deletion's last step: end the sign-in (replaced clerk.ts, 2026-10-24)</i>
+<b>lib/limits/</b>                           <i># as built in slice 20: rules, backends (memory, redis Lua), plan, hold, jobs, requests, usage…</i>
 lib/queue/{queues,jobs,enqueue}.ts     <i># BullMQ queues; Mongo jobs as the record</i>
-lib/store/{cloud,local,index}.ts       <i># + users, jobs, videos, shares, reports, settings; two buckets; signed URLs</i>
-lib/video/{frames,prompt,shots,assemble,cost,models}.ts
-lib/audio/{tts,music}.ts               <i># ported from video/narrate.mts and video/music/generate.mts</i>
-lib/share/snapshot.ts
-lib/log.ts                             <i># pino with redaction</i>
+lib/store/{cloud,local,index}.ts       <i># + users, jobs, videos, shares, reports, settings; two private buckets</i>
+lib/video/{animate,assemble,bubbles,captions,cards,cost,envelope,frames,plan,prompt,record,run,seedance,serve,status,types}.ts
+lib/audio/{tts,music,media}.ts         <i># ported from video/narrate.mts and video/music/generate.mts</i>
+lib/share/{snapshot,service,pins,page,public,report,report-copy,url,types}.ts
 app/sign-in/[[...sign-in]]/page.tsx, app/sign-up/[[...sign-up]]/page.tsx
 app/terms/page.tsx, app/privacy/page.tsx
 app/settings/{account,defaults,sharing,data,usage}/page.tsx
@@ -2329,25 +2347,27 @@ app/admin/reports/page.tsx
 app/s/[token]/{page,opengraph-image}.tsx
 app/api/health/route.ts
 app/api/usage/route.ts
-app/api/webhooks/clerk/route.ts
+app/api/auth/[...all]/route.ts         <i># Better Auth's handler (replaced app/api/webhooks/clerk, 2026-10-24)</i>
 app/api/projects/[id]/image/[imageId]/route.ts     <i># replaces /api/image/[id]</i>
 app/api/projects/[id]/pages/[n]/animate/route.ts   <i># estimate (GET), confirm (POST)</i>
-app/api/videos/[videoId]/route.ts                  <i># status, retry a shot</i>
+app/api/videos/[videoId]/route.ts                  <i># status, retry a shot (no DELETE: removed 2026-10-24)</i>
+app/api/videos/[videoId]/file/[name]/route.ts      <i># the trailer's files, streamed after the owner check</i>
 app/api/projects/[id]/share/route.ts, app/api/videos/[videoId]/share/route.ts
 app/api/s/[token]/{image/[imageId],video,report}/route.ts
 app/api/settings/{export,delete}/route.ts
 components/{QuotaMeter,AnimateStation,ShotCard,ShareDialog,ReportDialog,UsagePanel}.tsx
-scripts/{claim-projects,move-media-to-bucket}.mts
+components/{AuthForm,AccountMenu,SettingsAccount}.tsx   <i># sign-in card, header menu, Settings › Account (2026-10-24)</i>
+scripts/{claim-projects,move-media-to-bucket,seed-judge,judge-account}.mts
 scripts/{auth,limits,queue,share,video,config}-check.mts
 devpost/security-report.md</div>
     </div>
   </details>
   <p style="margin-top:var(--s3)"><strong>Pinned exactly, each at least a few days old at
-    install:</strong> <code>@clerk/nextjs</code> 7.9.14 (7.9.15 published 2026-10-13),
+    install:</strong> <code>better-auth</code> 1.7.12 (replaced <code>@clerk/nextjs</code> 7.9.14 on 2026-10-24),
     <code>bullmq</code> 6.3.12 (2026-10-09), <code>ioredis</code> 5.11.1 (6.0.0 is two days old;
-    BullMQ accepts &ge; 5), <code>sharp</code> 0.35.5, <code>yazl</code> 3.3.1, <code>pino</code>
-    10.4.0, <code>server-only</code>.</p>
-  <p class="quiet">Docs: clerk.com/docs, docs.bullmq.io, docs.railway.com, openrouter.ai/docs (video,
+    BullMQ accepts &ge; 5), <code>sharp</code> 0.35.5, <code>yazl</code> 3.3.1, <code>server-only</code>.
+    <em>(<code>pino</code> 10.4.0 was planned here and never installed.)</em></p>
+  <p class="quiet">Docs: https://www.better-auth.com/docs, docs.bullmq.io, docs.railway.com, openrouter.ai/docs (video,
     audio), sharp.pixelplumbing.com.</p>
 
   <!-- ---------- BUDGET ---------- -->
@@ -2392,8 +2412,10 @@ devpost/security-report.md</div>
       here.</li>
     <li class="is-lock"><b>Whose variables are these?</b> (Environment and configuration, above)
       &mdash; blocks slice 16.</li>
-    <li class="is-lock"><b>The domain</b> &mdash; blocks the DNS work in slice 16 and Clerk
-      production in slice 18.</li>
+    <li class="is-lock"><b>The domain</b> &mdash; blocks the DNS work in slice 16 (Clerk production,
+      once also blocked by it, is gone since 2026-10-24).</li>
+    <li><b>No email service</b> (2026-10-24) &mdash; no verified email for password accounts, no password
+      reset, no email change; adding one is <em>Later</em>.</li>
     <li><b>Budget, kill switch, cumulative cap</b> &mdash; the learner&#8217;s
       (<code>scope.md &gt; Budget (v3)</code>).</li>
     <li><b>Error tracking service, email service for reports</b> &mdash; the learner&#8217;s; logs and

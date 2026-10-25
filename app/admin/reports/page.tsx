@@ -6,7 +6,7 @@
 // studio's own "no such page", the very page an unknown address gets, with the
 // same 404 status. Nothing above that line renders, nothing is read from a store,
 // and no part of the answer differs, so a stranger cannot learn that this page
-// exists. (The proxy has already sent a signed-out visitor to sign-in in clerk
+// exists. (The proxy has already sent a signed-out visitor to sign-in when sign-in is on
 // mode, as for every page; the check here is the page's own, because a proxy
 // redirect is only optimistic.) On a desk with sign-in off the single `local`
 // owner is the admin, so the learner can see this while building.

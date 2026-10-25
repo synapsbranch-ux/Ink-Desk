@@ -1,6 +1,6 @@
 // Usage (v3, slice 20; inside Settings since slice 21): today's allowance and
 // what it has cost. A Server Component shell — it asks who is looking (signed
-// out in clerk mode → sign-in, test mode → the sentence) and hands the rest to
+// out with sign-in on → sign-in, test mode → the sentence) and hands the rest to
 // the client panel, which shows the numbers the server enforces
 // (`GET /api/usage`). The frame — header, nav, Terms and Privacy — is
 // `app/settings/layout.tsx`'s. See `devpost/prd.md > Limits and Usage (v3)` and

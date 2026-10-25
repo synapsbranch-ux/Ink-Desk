@@ -22,12 +22,50 @@
   font-size: 20px;
   color: var(--neutral-700);
 }
-/* Clerk's card keeps its own width, but never more than the screen. */
+/* The studio's own sign-in card (components/AuthForm.tsx): one column, never wider than the screen. */
 .auth-card {
   display: flex;
   justify-content: center;
   min-width: 0;
-  max-width: 100%;
+  width: 100%;
+  max-width: 420px;
+}
+.auth-form {
+  width: 100%;
+  padding: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.auth-title {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-heading), Georgia, serif;
+  font-size: 30px;
+  font-weight: 500;
+  line-height: 1.1;
+}
+.auth-switch,
+.auth-fine,
+.auth-hint {
+  margin: 0;
+  font-size: 14px;
+  color: var(--neutral-700);
+}
+.auth-fine {
+  font-size: 13px;
+  line-height: 1.5;
+}
+.auth-error {
+  margin: 0 0 var(--space-3);
+}
+.auth-submit {
+  width: 100%;
+}
+/* The header's account menu (components/AccountMenu.tsx). */
+.account-menu {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 .auth-links {
   margin: 0;
@@ -54,6 +92,14 @@
   .auth-links a {
     min-width: 44px;
     min-height: 44px;
+  }
+  .auth-form .btn,
+  .auth-form .input,
+  .account-menu .btn {
+    min-height: 44px;
+  }
+  .auth-form {
+    padding: var(--space-4);
   }
   .error-actions .btn,
   .quota-pop .btn {

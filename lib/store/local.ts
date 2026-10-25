@@ -6,7 +6,7 @@
 //   data/projects/v1-migrated.json       the marker: the v1 desk was migrated once
 //   data/images/<kind>-<uuid>.<ext>      every image, sheets and panels alike
 //   data/jobs/<id>.json                  one job record each (v3, slice 18)
-//   data/users/<id>.json                 one account each, from Clerk's webhook (v3, slice 19)
+//   data/users/<id>.json                 one account each, mirrored from the sign-in (v3, slice 19)
 //   data/shares/<token>.json             one public share each, a revoked one with no snapshot (v3, slice 21)
 //   data/reports/<id>.json               one visitor report each (v3, slice 21)
 //   data/settings/<userId>.json          one person's defaults (v3, slice 21)
@@ -725,10 +725,10 @@ const jobs: JobStore = {
 // --- Users ----------------------------------------------------------------------
 //
 // One file per account, `data/users/<id>.json`, written whole (temp, fsync,
-// rename) under that account's lock — Clerk may deliver one event twice, or
+// rename) under that account's lock — the sign-in may write one account twice, or
 // two at once.
 
-/** A user id is a filename: Clerk's ids (`user_…`) pass, a path never does. */
+/** A user id is a filename: Better Auth's ids and the test users' `user_…` pass, a path never does. */
 const USER_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
 
 export function isUserId(id: string): boolean {

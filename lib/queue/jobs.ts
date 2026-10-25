@@ -13,9 +13,9 @@
 
 // --- What a job is --------------------------------------------------------------
 
-export type JobKind = 'sheet' | 'panel' | 'cover' | 'text' | 'trailer' | 'shot' | 'speech' | 'music' | 'assemble' | 'export' | 'delete-account'
+export type JobKind = 'sheet' | 'panel' | 'cover' | 'text' | 'trailer' | 'export' | 'delete-account'
 
-export const QUEUE_NAMES = ['image', 'video', 'audio', 'account'] as const
+export const QUEUE_NAMES = ['image', 'video', 'account'] as const
 export type QueueName = (typeof QUEUE_NAMES)[number]
 
 /**
@@ -31,12 +31,7 @@ export const QUEUE_OF: Record<JobKind, QueueName> = {
   text: 'image',
   // Slice 22: one job carries a whole trailer — its shots, voices, music and assembly run inside it, each part
   // checkpointed on the video record (`lib/video/run.ts`), so a crash resumes and nothing paid for is paid for twice.
-  // `shot`, `speech`, `music` and `assemble` stay as names; no record is ever written with them.
   trailer: 'video',
-  shot: 'video',
-  assemble: 'video',
-  speech: 'audio',
-  music: 'audio',
   export: 'account',
   'delete-account': 'account',
 }

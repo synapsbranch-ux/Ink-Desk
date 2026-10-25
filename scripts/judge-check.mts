@@ -54,12 +54,12 @@ const section = (n: number, title: string) => console.log(`\n${n}. ${title}`)
 const env = process.env as Record<string, string | undefined>
 // Section 8 runs in a child of this file (`--cloud-child`), given only the cloud settings captured here, before the scrub.
 const CLOUD_CHILD = process.argv[2] === '--cloud-child'
-const CLOUD_NAMES = ['MONGODB_URI', 'DB_URL', 'MONGODB_DB', 'DB_DATABASE', 'S3_ENDPOINT', 'S3_PUBLIC_ENDPOINT', 'S3_REGION', 'S3_BUCKET', 'S3_BUCKET_PROJECT_FILES', 'S3_BUCKET_COMPILE_OUTPUTS', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY', 'S3_FORCE_PATH_STYLE', 'S3_KEY_PREFIX']
+const CLOUD_NAMES = ['MONGODB_URI', 'DB_URL', 'MONGODB_DB', 'DB_DATABASE', 'S3_ENDPOINT', 'S3_REGION', 'S3_BUCKET', 'S3_BUCKET_PROJECT_FILES', 'S3_BUCKET_COMPILE_OUTPUTS', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY', 'S3_FORCE_PATH_STYLE', 'S3_KEY_PREFIX']
 const cloudGiven: Record<string, string> = Object.fromEntries(CLOUD_NAMES.filter((name) => env[name]?.trim()).map((name) => [name, env[name] as string]))
 const checkCloud = env.INKDESK_CHECK_CLOUD === 'yes'
 for (const name of Object.keys(env)) {
   if (CLOUD_CHILD && CLOUD_NAMES.includes(name)) continue
-  if (/^(CLERK_|NEXT_PUBLIC_CLERK_|S3_|DB_|MONGODB_|REDIS_|RAILWAY_|ANTHROPIC_|OPENROUTER_|ELEVENLABS_|INKDESK_|IMAGE_|QUOTA_|RATE_|USER_DAILY_|GLOBAL_|ALLOWLIST_|TRUSTED_|QUEUE_|GENERATION_|LLM_|VIDEO_)/.test(name)) delete env[name]
+  if (/^(BETTER_AUTH_|S3_|DB_|MONGODB_|REDIS_|RAILWAY_|ANTHROPIC_|OPENROUTER_|ELEVENLABS_|INKDESK_|IMAGE_|QUOTA_|RATE_|USER_DAILY_|GLOBAL_|ALLOWLIST_|TRUSTED_|QUEUE_|GENERATION_|LLM_|VIDEO_)/.test(name)) delete env[name]
 }
 const work = await mkdtemp(join(tmpdir(), 'inkdesk-judge-'))
 const dir = join(work, 'desk')
@@ -142,12 +142,12 @@ function pairs(a: Project, b: Project): [string, string][] {
   return out
 }
 
-/** An account deletion as the worker runs it (no Clerk on a test desk, no counters to purge), then the processor's last step (`forgetDeletion`). */
+/** An account deletion as the worker runs it (no sign-in to end on a test desk, no counters to purge), then the processor's last step (`forgetDeletion`). */
 async function deleteAccountOf(owner: string) {
   const job = claim(newJob({ key: deleteAccountKey(owner), ownerId: owner, projectId: '', kind: 'delete-account', payload: { kind: 'delete-account' } }, crypto.randomUUID(), new Date()), 'w-check', new Date())
   assert.ok(job)
   assert.equal((await store.jobs.insertJob(job)).created, true)
-  const outcome = await deleteAccount(job, { clerk: null, purgeCounters: async () => 0, now: () => new Date() })
+  const outcome = await deleteAccount(job, { signIn: null, purgeCounters: async () => 0, now: () => new Date() })
   await store.jobs.deleteJob(job.id)
   return outcome
 }
@@ -370,7 +370,7 @@ try {
   for (const bad of ['local', 'judge', 'user_', 'user_a/b', '../x']) {
     const r = seed(['--from', SOURCE, '--to', bad, '--data-dir', dir])
     assert.equal(r.status, 1, `--to ${bad}`)
-    assert.match(r.out, /--to must be a Clerk user id/)
+    assert.match(r.out, /--to must be an account id/)
   }
   const self = seed(['--from', SOURCE, '--to', LEARNER, '--data-dir', dir])
   assert.equal(self.status, 1)
@@ -385,7 +385,7 @@ try {
   assert.equal(cloudDir.status, 1)
   assert.match(cloudDir.out, /--data-dir is for the local store/)
   assert.ok(same(afterTrailer, await tree()), 'no refusal wrote anything')
-  ok('a target that is not a Clerk id, the source’s own owner, a missing project, cloud without INKDESK_JUDGE_CONFIRMED=yes and cloud with --data-dir are each refused with a sentence, and nothing is written')
+  ok('a target that is not an account id, the source’s own owner, a missing project, cloud without INKDESK_JUDGE_CONFIRMED=yes and cloud with --data-dir are each refused with a sentence, and nothing is written')
 
   // A source with a picture missing is refused before anything is stored; a trailer with a file missing is not copied, and
   // the files it had already copied are taken back.

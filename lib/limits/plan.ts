@@ -1,9 +1,9 @@
 // Which plan a person is on (v3, slice 20): `allowlisted` when their account's
 // email is in ALLOWLIST_EMAILS (case-insensitive), `free` otherwise — and the
 // local owner of a desk without accounts is always allowlisted. The email comes
-// from `store.users`, which Clerk's webhook fills (`devpost/spec.md > Data
-// Model (v3)`); an account the webhook has not delivered yet is `free` until it
-// does. A deleted account is free. Server only.
+// from `store.users`, which the sign-in fills with VERIFIED addresses only
+// (`lib/auth/server.ts`, `devpost/spec.md > Data Model (v3)`); an account with
+// no verified address, or whose record is not written yet, is `free`. A deleted account is free. Server only.
 import 'server-only'
 import { limitsSettings } from '../config'
 import { LOCAL_OWNER } from '../queue/jobs'

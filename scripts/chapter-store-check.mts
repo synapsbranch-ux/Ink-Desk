@@ -421,12 +421,14 @@ try {
   assert.equal(s3Client({ ...credentials, forcePathStyle: true }).config.forcePathStyle, true)
   console.log('  ok  images stream with their size; a silent S3 endpoint, or a body that stalls after its headers, ends in an error in time; path style is honoured')
 
-  // 11. The image route (CR-17, SEC-05): streamed with an ETag and nosniff,
-  //     a 304 for a browser that already has it, a Content-Type only from the
-  //     allow-list, and a 404 for anything that isn't a stored image.
-  const imageRoute = await import('../app/api/image/[id]/route')
+  // 11. How an image is served (CR-17, SEC-05) — `imageResponse`, which the
+  //     project's image route answers with once the owner is checked: streamed
+  //     with an ETag and nosniff, a 304 for a browser that already has it, a
+  //     Content-Type only from the allow-list, and a 404 for anything that isn't
+  //     a stored image.
+  const { imageResponse } = await import('../lib/images')
   const get = (id: string, headers: Record<string, string> = {}) =>
-    imageRoute.GET(new Request(`http://desk.test/api/image/${encodeURIComponent(id)}`, { headers }), { params: Promise.resolve({ id }) })
+    imageResponse(new Request(`http://desk.test/api/projects/p/image/${encodeURIComponent(id)}`, { headers }), id)
   const served = await get(streamedId)
   assert.equal(served.status, 200)
   assert.equal(served.headers.get('content-type'), 'image/png')

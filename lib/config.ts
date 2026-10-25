@@ -12,7 +12,6 @@
 //   project-files bucket S3_BUCKET_PROJECT_FILES, else S3_BUCKET
 //   outputs bucket       S3_BUCKET_COMPILE_OUTPUTS, else the project-files bucket
 //   S3_FORCE_PATH_STYLE  'true' | 'false', default true
-//   S3_PUBLIC_ENDPOINT   the host for signed URLs, default S3_ENDPOINT
 //   S3_KEY_PREFIX        where in the buckets Ink Desk writes, default `inkdesk/`
 //   Redis                REDIS_URL (Railway's Redis provides it)
 //   queue mode           INKDESK_QUEUE: `inline` (this process runs jobs; the
@@ -58,7 +57,6 @@ export const NAMES = {
   accessKeyId: ['S3_ACCESS_KEY_ID'],
   secretAccessKey: ['S3_SECRET_ACCESS_KEY'],
   outputsBucket: ['S3_BUCKET_COMPILE_OUTPUTS'],
-  publicEndpoint: ['S3_PUBLIC_ENDPOINT'],
   forcePathStyle: ['S3_FORCE_PATH_STYLE'],
   keyPrefix: ['S3_KEY_PREFIX'],
 } as const satisfies Record<string, readonly string[]>
@@ -99,7 +97,6 @@ export type StorageMode = 'local' | 'cloud'
 export type BucketSettings = {
   endpoint: string
   /** The host signed and public URLs are made on; S3_ENDPOINT unless set. */
-  publicEndpoint: string
   region: string
   accessKeyId: string
   secretAccessKey: string
@@ -147,7 +144,6 @@ function cloudProblems(env: Env, withMongo = true): string[] {
     check('mongoDb', MONGO_DB, 'a database name without spaces, dots or slashes')
   }
   check('endpoint', HTTP_URL, 'an http:// or https:// address')
-  check('publicEndpoint', HTTP_URL, 'an http:// or https:// address')
   check('projectFilesBucket', BUCKET, 'a bucket name')
   check('outputsBucket', BUCKET, 'a bucket name')
   check('forcePathStyle', FLAG, 'true or false')
@@ -178,7 +174,6 @@ function readBuckets(env: Env): BucketSettings {
   const projectFilesBucket = get('projectFilesBucket')
   return {
     endpoint: get('endpoint'),
-    publicEndpoint: pick(env, NAMES.publicEndpoint) ?? get('endpoint'),
     region: get('region'),
     accessKeyId: get('accessKeyId'),
     secretAccessKey: get('secretAccessKey'),
@@ -231,6 +226,9 @@ const NUMBERS = {
   // Slice 21: the share page's pictures per client address (a reader page is dozens, and a page of a shared manga is read by one address behind a school's NAT), and the report form.
   RATE_ANON_MEDIA_PER_MIN: { schema: wholeNumber(1, 1_000_000), fallback: 600, rule: 'a whole number from 1 to 1000000' },
   RATE_REPORT_PER_HOUR: { schema: wholeNumber(1, 100_000), fallback: 6, rule: 'a whole number from 1 to 100000' },
+  // The Better Auth revision: the studio's own sign-in, per client address — password guesses, and accounts made.
+  RATE_SIGNIN_PER_MIN: { schema: wholeNumber(1, 100_000), fallback: 10, rule: 'a whole number from 1 to 100000' },
+  RATE_SIGNUP_PER_HOUR: { schema: wholeNumber(1, 100_000), fallback: 5, rule: 'a whole number from 1 to 100000' },
   TRUSTED_PROXY_HOPS: { schema: wholeNumber(0, 5), fallback: 1, rule: 'a whole number from 0 to 5' },
 } as const
 
@@ -289,7 +287,7 @@ export function videoEnabled(env: Env = process.env): boolean {
 // --- The trailer's models (v3, slice 22) ---------------------------------------
 //
 //   VIDEO_MODEL          the Seedance model; unset: seedance-2.0 in production, seedance-2.0-fast in development
-//   VIDEO_RESOLUTION     480p | 720p | 1080p; unset: 720p in production, 480p in development
+//   VIDEO_RESOLUTION     480p | 720p; unset: 720p in production, 480p in development
 //   VIDEO_MOTION_METHOD  A (the panel as the first frame) | B (the panel and the character's sheet as references);
 //                        unset: B — PROVISIONAL, until the learner's verdict on the slice 17 motion test
 //   TTS_MODEL            default elevenlabs/eleven-v4
@@ -297,7 +295,7 @@ export function videoEnabled(env: Env = process.env): boolean {
 //   VIDEO_FAIL_SHOT      0–3, development only: that panel's first attempt is refused before anything is spent, so a
 //                        retry can be seen. Ignored in production.
 // Development runs the cheap model at 480p (about $0.04 a second); the claim and the filming run seedance-2.0 at 720p.
-const VIDEO_RESOLUTIONS = ['480p', '720p', '1080p'] as const
+const VIDEO_RESOLUTIONS = ['480p', '720p'] as const
 const MODEL_ID = z.string().regex(/^[a-z0-9][a-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._:-]*$/)
 
 export type VideoSettings = {
@@ -324,7 +322,7 @@ function videoProblems(env: Env): string[] {
   const model = env.VIDEO_MODEL?.trim()
   if (model && !MODEL_ID.safeParse(model).success) problems.push('VIDEO_MODEL must be a model id like bytedance/seedance-2.0')
   const resolution = env.VIDEO_RESOLUTION?.trim()
-  if (resolution && !(VIDEO_RESOLUTIONS as readonly string[]).includes(resolution)) problems.push('VIDEO_RESOLUTION must be 480p, 720p or 1080p')
+  if (resolution && !(VIDEO_RESOLUTIONS as readonly string[]).includes(resolution)) problems.push('VIDEO_RESOLUTION must be 480p or 720p')
   const method = env.VIDEO_MOTION_METHOD?.trim()
   if (method && method !== 'A' && method !== 'B') problems.push('VIDEO_MOTION_METHOD must be A or B')
   for (const name of ['TTS_MODEL', 'MUSIC_MODEL'] as const) {
@@ -458,7 +456,7 @@ export function queueSettings(env: Env = process.env, role: 'web' | 'worker' = '
 // the default (CR-15); a malformed value is refused at boot by name, never by
 // its value. See `devpost/spec.md > Limits, Quotas and the Kill Switch (v3)`.
 //
-//   INKDESK_LIMITS         on | off; unset = on whenever sign-in is on (clerk or
+//   INKDESK_LIMITS         on | off; unset = on whenever sign-in is on (better or
 //                          test) and in production, off only on a local desk
 //                          with INKDESK_AUTH=off. Production refuses off.
 //   ALLOWLIST_EMAILS       comma list, case-insensitive: these accounts get the
@@ -472,7 +470,9 @@ export function queueSettings(env: Env = process.env, role: 'web' | 'worker' = '
 //                          20/hour, edit 120/min, read 240/min; pictures served
 //                          1200/min; signed-out callers 60/min per client; and,
 //                          per client address, a shared manga's pictures 600/min
-//                          and reports 6/hour — slice 21)
+//                          and reports 6/hour — slice 21; sign-in attempts
+//                          10/min and accounts made 5/hour — the Better Auth
+//                          revision)
 //   TRUSTED_PROXY_HOPS     how many proxies in front of the app append to
 //                          X-Forwarded-For, default 1 (Railway's edge)
 //   CLIENT_IP_HEADER       x-forwarded-for (default) or x-real-ip: which header
@@ -646,6 +646,8 @@ export function limitsSettings(env: Env = process.env): LimitsSettings {
       anon: { limit: n('RATE_ANON_PER_MIN'), windowMs: MINUTE },
       anonMedia: { limit: n('RATE_ANON_MEDIA_PER_MIN'), windowMs: MINUTE },
       report: { limit: n('RATE_REPORT_PER_HOUR'), windowMs: 60 * MINUTE },
+      signin: { limit: n('RATE_SIGNIN_PER_MIN'), windowMs: MINUTE },
+      signup: { limit: n('RATE_SIGNUP_PER_HOUR'), windowMs: 60 * MINUTE },
     },
     trustedProxyHops: n('TRUSTED_PROXY_HOPS'),
     clientIpHeader: env.CLIENT_IP_HEADER?.trim() === 'x-real-ip' ? 'x-real-ip' : 'x-forwarded-for',
@@ -727,21 +729,19 @@ export function appConfig(): AppConfig {
 
 // --- Sign-in (v3, slice 19) -----------------------------------------------------
 //
-// INKDESK_AUTH and Clerk's variables; the rules live in `lib/auth/config.ts`
+// INKDESK_AUTH and Better Auth's variables; the rules live in `lib/auth/config.ts`
 // (the proxy and the CSP read them too, and cannot load a server-only module).
 // Kept out of `parseConfig` on purpose: the worker never signs anyone in, and
 // a web service's boot asks for them on its own (`lib/boot.ts`).
 //
-//   INKDESK_AUTH                       clerk | off | test; unset = clerk in production, off elsewhere
-//   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY  else CLERK_PUBLISHABLE_KEY (mapped, not renamed)
-//   CLERK_SECRET_KEY                   required in clerk mode
-//   CLERK_JWT_KEY                      optional: sessions verified with no network call
-//   CLERK_WEBHOOK_SIGNING_SECRET       optional at boot; the webhook refuses without it
+//   INKDESK_AUTH                       better | off | test; unset = better in production, off elsewhere
+//   BETTER_AUTH_SECRET                 required in better mode, 32 characters or more
+//   MONGODB_URI / DB_URL, MONGODB_DB / DB_DATABASE   required in better mode: the accounts live there
 //   APP_URL, NEXT_PUBLIC_APP_URL       the trusted origins; APP_URL required in production
 
 export type AuthSettings = { mode: AuthMode }
 
-/** The sign-in settings from `env`, or a `ConfigError` naming every problem — production refuses off, test, and clerk without its keys. */
+/** The sign-in settings from `env`, or a `ConfigError` naming every problem — production refuses off, test, and better without its secret or database. */
 export function authSettings(env: Env = process.env): AuthSettings {
   const problems = authProblems(env)
   if (problems.length > 0) throw new ConfigError(problems)

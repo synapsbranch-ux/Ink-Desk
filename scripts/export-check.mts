@@ -62,7 +62,7 @@ const { PDFDocument, PDFName } = await import('pdf-lib')
 const { gates } = await import('../lib/gates')
 const { assertStoryEditable } = await import('../lib/patch')
 const { currentImageId } = await import('../lib/script')
-const { emptyChapter } = await import('../lib/types')
+const { emptyDesk } = await import('../lib/types')
 
 import type { DrawContext, ExportPanel, PageGeometry, Rect } from '../lib/export'
 import type { Chapter, Panel } from '../lib/types'
@@ -341,7 +341,7 @@ await check('export: a filename from the title, safe and never empty', () => {
 // --- The reader's gate ------------------------------------------------------
 
 await check('gate: the reader is unreachable until all four panels have art', () => {
-  const base = emptyChapter()
+  const base = emptyDesk()
   const drawn = { ...base, script: [panelFor(0), panelFor(1), panelFor(2), panelFor(3)] }
   assert.equal(gates(drawn).reader.open, true)
   const blank = panelFor(1, { versions: [], status: 'empty' })
@@ -363,21 +363,21 @@ const lockedCast = (c: Chapter): Chapter => ({
 })
 
 await check('freeze: with a cast on the desk, pitch and synopsis patches are refused', () => {
-  const chapter = lockedCast(emptyChapter())
+  const chapter = lockedCast(emptyDesk())
   assert.throws(() => assertStoryEditable(chapter, { pitch: { text: 'stale tab typing' } }), Refused)
   assert.throws(() => assertStoryEditable(chapter, { synopsis: { title: 'a swap' } }), Refused)
   // Everything that is not the story still flows.
   assertStoryEditable(chapter, { station: 'storyboard' })
   assertStoryEditable(chapter, { panels: { 0: { dialogue: 'new line' } } })
   // And before the cast exists, the story is the learner's to type.
-  assertStoryEditable(emptyChapter(), { pitch: { text: 'fresh desk' }, synopsis: { accepted: true } })
+  assertStoryEditable(emptyDesk(), { pitch: { text: 'fresh desk' }, synopsis: { accepted: true } })
 })
 
 // --- New projects (v2: nothing is ever cleared; a new story is a new project) ----
 
 await check('new project: a fresh project opens at first use, in its locked style', async () => {
   const fresh = await createProject({ title: 'Blank', stylePresetId: 'manhwa-colour' }, 'local')
-  const base = emptyChapter()
+  const base = emptyDesk()
   assert.deepEqual(
     { ...fresh, address: base.address, title: '', stylePresetId: base.stylePresetId, updatedAt: 'x' },
     { ...base, updatedAt: 'x' }

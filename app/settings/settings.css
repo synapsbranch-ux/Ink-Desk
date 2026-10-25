@@ -135,22 +135,65 @@
   outline: 2px solid var(--hanko);
   outline-offset: 1px;
 }
-.settings-voices {
+
+/* --- Account (components/SettingsAccount.tsx) ------------------------------ */
+
+.settings-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-2) var(--space-4);
   margin: 0;
-  padding: var(--space-3) var(--space-4);
-  border-left: 3px solid var(--neutral-400);
-  background: var(--surface);
-  font-size: 14px;
-  line-height: 1.55;
-  color: var(--neutral-800);
+  font-size: 15px;
 }
-
-/* --- Account (Clerk's panel) ----------------------------------------------- */
-
-.settings-clerk {
-  min-width: 0;
-  max-width: 100%;
-  overflow-x: auto;
+.settings-facts dt {
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--neutral-700);
+  padding-top: 3px;
+}
+.settings-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.settings-check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 15px;
+  min-height: 44px;
+}
+.settings-check input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+}
+.settings-devices {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.settings-devices li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--divider);
+}
+.settings-device-name {
+  font-weight: 500;
+}
+.settings-device-meta {
+  font-size: 14px;
+  color: var(--neutral-700);
+}
+@media (max-width: 520px) {
+  .settings-facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* --- Sharing list ---------------------------------------------------------- */

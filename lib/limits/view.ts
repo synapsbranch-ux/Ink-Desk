@@ -71,12 +71,3 @@ export type RefusalBody = {
   retryAfterSec?: number
 }
 
-/** The reset time as a person reads it: "at 02:00" for today's remaining hours, in the viewer's own clock. */
-export function resetClause(resetsAt: string | null, now: Date = new Date()): string {
-  if (!resetsAt) return ''
-  const at = new Date(resetsAt)
-  if (Number.isNaN(at.getTime())) return ''
-  const hours = Math.max(1, Math.round((at.getTime() - now.getTime()) / 3_600_000))
-  const clock = at.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
-  return ` It resets at ${clock} (in about ${hours} hour${hours === 1 ? '' : 's'}).`
-}

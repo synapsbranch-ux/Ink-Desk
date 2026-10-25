@@ -78,7 +78,7 @@ if (!redisUrl) {
 const dir = await mkdtemp(join(tmpdir(), 'inkdesk-queue-'))
 const env = process.env as Record<string, string | undefined>
 for (const name of [
-  'MONGODB_URI', 'DB_URL', 'MONGODB_DB', 'DB_DATABASE', 'S3_ENDPOINT', 'S3_PUBLIC_ENDPOINT', 'S3_REGION', 'S3_BUCKET',
+  'MONGODB_URI', 'DB_URL', 'MONGODB_DB', 'DB_DATABASE', 'S3_ENDPOINT', 'S3_REGION', 'S3_BUCKET',
   'S3_BUCKET_PROJECT_FILES', 'S3_BUCKET_COMPILE_OUTPUTS', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY', 'S3_FORCE_PATH_STYLE',
   'S3_KEY_PREFIX', 'ANTHROPIC_API_KEY', 'NODE_ENV',
 ]) delete env[name]
@@ -849,7 +849,7 @@ try {
 
     // (a) The pure side: the queue's name, the kinds, the keys, what the browser would see.
     {
-      assert.deepEqual([...J.QUEUE_NAMES], ['image', 'video', 'audio', 'account'])
+      assert.deepEqual([...J.QUEUE_NAMES], ['image', 'video', 'account'])
       assert.deepEqual([J.QUEUE_OF.export, J.QUEUE_OF['delete-account'], J.QUEUE_OF.panel], ['account', 'account', 'image'])
       assert.ok(J.isAccountKind('export') && J.isAccountKind('delete-account') && !J.isAccountKind('panel') && !J.isAccountKind('sheet'))
       assert.deepEqual([J.exportKey('user_a'), J.deleteAccountKey('user_a')], ['export:user_a', 'delete-account:user_a'])

@@ -2,7 +2,7 @@
 // Server Component that reads the store on every request — `connection()`
 // keeps it from being prerendered with a stale list, since reading the disk is
 // not a request-time API on its own. Since slice 19 it asks who is looking
-// first (signed out in clerk mode → sign-in) and lists only that person's
+// first (signed out with sign-in on → sign-in) and lists only that person's
 // projects; the one-time v1 migration runs only on a desk without accounts.
 //
 // Slice 21 (Dashboard v3) adds three small reads beside the projects, each

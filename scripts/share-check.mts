@@ -35,9 +35,10 @@
 //                    scratch Redis for the counters): zero records and objects left in every
 //                    store and under the data dir, bob byte-identical, the hold of the running
 //                    job released, the studio's totals and a look-alike id untouched; twice and
-//                    at once; a crash after each of the 11 steps and the retry; Clerk's 404, 5xx
-//                    and the secret; an unreadable project; the Clerk webhook (a replay is one
-//                    job, a failure to queue is a 503); sign-in off; the phrase
+//                    at once; a crash after each of the 11 steps and the retry; ending the
+//                    sign-in on a real Better Auth (memory database): already gone is success, a
+//                    failure throws and carries no secret; an unreadable project; two presses at
+//                    once are one job, a failure to queue is a 503; sign-in off; the phrase
 //
 //   THE CLOUD ADAPTER WITHOUT A SERVER (section 14, both modes: plain HTTP stand-ins and a fake collection)
 //   14 cloud adapter  a big upload's timeout sized to its bytes, no wait on 100-continue, only transient
@@ -109,7 +110,7 @@ const CLOUD_NAMES = [
   'MONGODB_DB',
   'DB_DATABASE',
   'S3_ENDPOINT',
-  'S3_PUBLIC_ENDPOINT',
+ 
   'S3_REGION',
   'S3_BUCKET',
   'S3_BUCKET_PROJECT_FILES',
@@ -122,11 +123,7 @@ const CLOUD_NAMES = [
 const SECRET_NAMES = [
   'ANTHROPIC_API_KEY',
   'OPENROUTER_API_KEY',
-  'CLERK_SECRET_KEY',
-  'CLERK_PUBLISHABLE_KEY',
-  'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY',
-  'CLERK_JWT_KEY',
-  'CLERK_WEBHOOK_SIGNING_SECRET',
+  'BETTER_AUTH_SECRET',
   'RAILWAY_TOKEN',
   'REDIS_URL',
   'GENERATION_ENABLED',
@@ -956,7 +953,7 @@ try {
   // =====================================================================================
   // 8. Account export — POST/GET /api/settings/export, the download, lib/account/export.ts
   // =====================================================================================
-  const { createHash, createHmac } = await import('node:crypto')
+  const { createHash } = await import('node:crypto')
   const { spawnSync } = await import('node:child_process')
   const { inflateRawSync } = await import('node:zlib')
   const { accountRunners } = await import('../lib/queue/processors')
@@ -1552,7 +1549,7 @@ try {
   }
 
   // =====================================================================================
-  // 9. Account deletion — POST/GET /api/settings/delete, the Clerk webhook, lib/account/deletion.ts
+  // 9. Account deletion — POST/GET /api/settings/delete, lib/account/deletion.ts
   // =====================================================================================
   const { deleteAccount, productionDeps, DELETION_STEPS, DELETION_INCOMPLETE, DELETION_NOT_SET_UP } = await import('../lib/account/deletion')
   const { purgeCounters } = await import('../lib/account/counters')
@@ -1617,7 +1614,7 @@ try {
   }
   const mentions = (u: string) => (key: string) => key.includes(`:${u}:`) || key.endsWith(`:${u}`)
 
-  const fakeClerk = () => {
+  const fakeSignIn = () => {
     const calls: string[] = []
     return {
       calls,
@@ -1626,8 +1623,8 @@ try {
       },
     }
   }
-  const depsOf = (clerk: ReturnType<typeof fakeClerk> | null, afterStep?: (s: (typeof DELETION_STEPS)[number]) => void | Promise<void>) => ({
-    clerk,
+  const depsOf = (signIn: ReturnType<typeof fakeSignIn> | null, afterStep?: (s: (typeof DELETION_STEPS)[number]) => void | Promise<void>) => ({
+    signIn,
     purgeCounters,
     now: () => new Date(),
     ...(afterStep ? { afterStep } : {}),
@@ -1809,9 +1806,9 @@ try {
         const seed = await seedDesk(owner, `Crashdummy${i}x`, { held: true })
         await seedCounters(owner)
         const record = await deletionJob(owner)
-        const clerk = fakeClerk()
+        const signIn = fakeSignIn()
         await assert.rejects(
-          deleteAccount(record, depsOf(clerk, (step) => { if (step === stepName) throw new Error(`crash after ${step}`) })),
+          deleteAccount(record, depsOf(signIn, (step) => { if (step === stepName) throw new Error(`crash after ${step}`) })),
           new RegExp(`crash after ${stepName}`)
         )
         // What a crash right after this step leaves behind.
@@ -1826,7 +1823,7 @@ try {
           assert.equal(await backend().hold(seed.jobs.running), null, 'and its hold released')
         }
         if (!upTo('cancelled')) assert.equal(running?.status, 'running', 'before the cancel the job still runs')
-        assert.deepEqual(clerk.calls, upTo('clerk') ? [owner] : [], `Clerk was asked ${upTo('clerk') ? 'once' : 'not yet'}`)
+        assert.deepEqual(signIn.calls, upTo('signin') ? [owner] : [], `the sign-in was ended ${upTo('signin') ? 'once' : 'not yet'}`)
         const liveShare = await store.shares.get(seed.tokens[0])
         assert.ok(!liveShare || liveShare.revokedAt, `after ${stepName}: the public link is already dead, whatever else is left`)
         assert.equal(has('active shares') || has('share '), !upTo('shares'), 'shares and their reports go together')
@@ -1839,116 +1836,109 @@ try {
         assert.equal(has('settings'), !upTo('settings'))
         if (redisReady) assert.equal(Object.keys(await redisDump(mentions(owner))).length > 0, !upTo('counters'), 'the counters go at step 5')
         if (upTo('verified')) assert.deepEqual(left, [], 'a crash after the data is verified gone has nothing left to sweep')
-        if (!upTo('verified')) assert.deepEqual(clerk.calls, [], 'their sign-in ends only once the data is verified gone: a deletion cut off before that leaves them signed in, to see it and try again')
+        if (!upTo('verified')) assert.deepEqual(signIn.calls, [], 'their sign-in ends only once the data is verified gone: a deletion cut off before that leaves them signed in, to see it and try again')
         // The retry.
-        const finished = await deleteAccount(record, depsOf(clerk))
+        const finished = await deleteAccount(record, depsOf(signIn))
         assert.deepEqual(finished, { outcome: 'done' }, `resumed after ${stepName}`)
         await store.jobs.deleteJob(record.id)
         assert.deepEqual(await leftovers(seed), [], `after a crash at "${stepName}" and a retry, nothing is left`)
         if (redisReady) assert.deepEqual(await redisDump(mentions(owner)), {})
-        assert.equal(clerk.calls.length, upTo('clerk') ? 2 : 1, 'a retried run asks Clerk again and is fine with "already gone"')
+        assert.equal(signIn.calls.length, upTo('signin') ? 2 : 1, 'a retried run ends the sign-in again and is fine with "already gone"')
       }
       assert.deepEqual(await fingerprint(bob), bobBefore, 'bob’s desk is untouched by all of it')
       await wipeDesk(bob)
       ok(`${where} deletion: a crash after each of the ${DELETION_STEPS.length} steps (${DELETION_STEPS.join(', ')}) leaves the state that step says, and the retry converges on zero records; bob untouched`)
     }
 
-    // 9d. Clerk (clerk mode): "already gone" is success, any other answer throws for the queue to retry, and the secret is never logged.
+    // 9d. Ending the sign-in (better mode), on a real Better Auth with a memory database: the user, its sessions and its
+    // sign-ins go; "already gone" is success; a failure throws for the queue to retry and carries no secret.
     {
-      const SECRET = `sk_test_${'x'.repeat(30)}SECRETMARK`
-      const answers: { status: number; body: unknown }[] = []
-      const calls: { method: string; path: string; auth: string }[] = []
-      const priorFetch = globalThis.fetch
-      // Installed BEFORE the Clerk SDK is first loaded: it keeps the fetch it finds at load.
-      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = input instanceof Request ? input.url : String(input)
-        if (!/^https:\/\/api\.clerk\.com\/v1\/users\//.test(url)) return priorFetch(input, init)
-        calls.push({ method: init?.method ?? 'GET', path: new URL(url).pathname, auth: new Headers(init?.headers).get('authorization') ?? '' })
-        const answer = answers.shift() ?? { status: 200, body: { object: 'deleted_object', id: 'x', deleted: true } }
-        return new Response(JSON.stringify(answer.body), { status: answer.status, headers: { 'content-type': 'application/json' } })
-      }) as typeof fetch
-      env.CLERK_SECRET_KEY = SECRET
+      const SECRET = `${'x'.repeat(32)}SECRETMARK`
+      const { betterAuth } = await import('better-auth')
+      const { memoryAdapter } = await import('better-auth/adapters/memory')
+      const { authOptions, deleteSignIn } = await import('../lib/auth/server')
+      const memory = { user: [], session: [], account: [], verification: [] } as Record<string, Record<string, unknown>[]>
+      const auth = betterAuth(authOptions({ secret: SECRET, baseURL: 'https://inkdesk.example', authorizedParties: ['https://inkdesk.example'] }, memoryAdapter(memory)))
+      const made = await auth.api.signUpEmail({ body: { email: 'leaver@inkdesk.invalid', password: 'a long password', name: 'Leaver' } })
+      const id = made.user.id
+      assert.equal(memory.session.filter((x) => x.userId === id).length, 1)
+      await deleteSignIn(id, auth)
+      assert.deepEqual(
+        [memory.user, memory.session, memory.account].map((rows) => rows.filter((x) => x.id === id || x.userId === id).length),
+        [0, 0, 0],
+        'the user, its sessions and its sign-ins are gone'
+      )
+      await deleteSignIn(id, auth) // already gone: success
+      // A database that fails: the error is thrown (the queue retries), and says nothing secret.
       const logged: string[] = []
       const real = { log: console.log, warn: console.warn, error: console.error }
       for (const level of ['log', 'warn', 'error'] as const) console[level] = (...args: unknown[]) => void logged.push(args.map(String).join(' '))
       try {
-        const { deleteClerkUser, isGone } = await import('../lib/account/clerk')
-        assert.equal(isGone({ status: 404 }), true)
-        assert.equal(isGone({ errors: [{ code: 'resource_not_found' }] }), true)
-        assert.equal(isGone({ status: 500 }), false)
-        assert.equal(isGone(new Error('x')), false)
-        assert.equal(isGone(null), false)
-        answers.push({ status: 200, body: { object: 'deleted_object', id: 'user_c1', deleted: true } })
-        await deleteClerkUser('user_c1')
-        assert.deepEqual(calls.map((c) => [c.method, c.path]), [['DELETE', '/v1/users/user_c1']])
-        assert.equal(calls[0].auth, `Bearer ${SECRET}`, 'it signed in with the studio’s key (to Clerk only)')
-        answers.push({ status: 404, body: { errors: [{ code: 'resource_not_found', message: 'Not found', long_message: 'No user' }] } })
-        await deleteClerkUser('user_c1') // already gone: success
-        for (const status of [500, 401, 429]) {
-          answers.push({ status, body: { errors: [{ code: 'internal_clerk_error', message: 'boom' }] } })
-          const err = await deleteClerkUser('user_c2').then(() => null, (e: unknown) => e as Error)
-          assert.ok(err instanceof Error, `HTTP ${status} throws, so the queue retries`)
-          assert.match(err.message, new RegExp(`HTTP ${status}`))
-          assert.ok(!err.message.includes('SECRETMARK') && !String((err as { cause?: unknown }).cause ?? '').includes('SECRETMARK'), 'the error does not carry the secret')
-        }
+        const broken = { $context: Promise.resolve({ internalAdapter: { deleteUserSessions: async () => { throw new Error(`connection refused ${SECRET}`) } } }) }
+        await assert.rejects(deleteSignIn('user_c2', broken as never), /connection refused/)
+        const { deleteSignInUser } = await import('../lib/account/signin')
+        const err = await deleteSignInUser('user_c2').then(() => null, (e: unknown) => e as Error) // no sign-in settings here: it fails, calmly
+        assert.ok(err instanceof Error, 'a sign-in that cannot be ended throws, so the queue retries')
+        assert.match(err.message, /could not be ended/)
+        assert.ok(!err.message.includes('SECRETMARK'), 'the error does not carry the secret')
       } finally {
         Object.assign(console, real)
-        globalThis.fetch = priorFetch
-        delete env.CLERK_SECRET_KEY
       }
       assert.ok(!logged.join('\n').includes('SECRETMARK'), 'nothing logged carries the secret')
 
-      // A failed Clerk call comes LAST, after the data is verified gone: the job throws for the queue to retry, and what is left to do is ending the sign-in.
-      const owner = 'user_clerkfail'
-      const seed = await seedDesk(owner, 'Clerkfail', { held: true })
+      // A failed end of the sign-in comes LAST, after the data is verified gone: the job throws for the queue to retry, and what is left to do is ending the sign-in.
+      const owner = 'user_signinfail'
+      const seed = await seedDesk(owner, 'Signinfail', { held: true })
       const record = await deletionJob(owner)
-      const failing = { calls: [] as string[], deleteUser: async (): Promise<void> => { throw new Error('Clerk would not delete the user (HTTP 500); the deletion will be tried again') } }
-      await assert.rejects(deleteAccount(record, depsOf(failing)), /HTTP 500/)
+      const failing = { calls: [] as string[], deleteUser: async (): Promise<void> => { throw new Error('The sign-in could not be ended (Error); the deletion will be tried again') } }
+      await assert.rejects(deleteAccount(record, depsOf(failing)), /could not be ended/)
       assert.ok((await store.users.get(owner))?.deletedAt, 'the tombstone is set')
-      assert.deepEqual(await leftovers(seed, record.id), [], 'the data was already gone when Clerk was asked')
+      assert.deepEqual(await leftovers(seed, record.id), [], 'the data was already gone when the sign-in was ended')
       const link = await store.shares.get(seed.tokens[0])
       assert.equal(link, null, 'and so was the public link')
       assert.equal((await store.jobs.getJob(seed.jobs.running))?.outcome ?? null, null, 'their jobs were swept with the rest')
-      assert.deepEqual(await deleteAccount(record, depsOf(fakeClerk())), { outcome: 'done' })
+      assert.deepEqual(await deleteAccount(record, depsOf(fakeSignIn())), { outcome: 'done' })
       await store.jobs.deleteJob(record.id)
       assert.deepEqual(await leftovers(seed), [])
-      ok(`${where} deletion: Clerk’s 404 is success, a 500/401/429 throws for the queue to retry (Clerk is asked last, after the data is verified gone, so the retry only has the sign-in left to end), the secret is sent only to Clerk and appears in no error or log line`)
+      ok(`${where} deletion: ending the sign-in removes the Better Auth user, its sessions and sign-ins, and "already gone" is success; a failure throws for the queue to retry (it comes last, after the data is verified gone, so the retry only has the sign-in left to end) and no error or log line carries the secret`)
     }
 
-    // 9d2. A worker that cannot ask Clerk (no CLERK_SECRET_KEY) changes nothing and ends the job at once: it does not drop the email, stop
+    // 9d2. A worker that cannot end the sign-in (no BETTER_AUTH_SECRET or no MongoDB) changes nothing and ends the job at once: it does not drop the email, stop
     // their work and then fail every retry.
     {
       const owner = 'user_nokey'
       const seed = await seedDesk(owner, 'Nokey', { held: true })
       const record = await deletionJob(owner)
-      const blind = { ...fakeClerk(), ready: () => 'CLERK_SECRET_KEY is not set' }
+      const blind = { ...fakeSignIn(), ready: () => 'BETTER_AUTH_SECRET is not set' }
       assert.deepEqual(await deleteAccount(record, depsOf(blind)), { outcome: 'failed', error: DELETION_NOT_SET_UP })
       assert.equal((await store.users.get(owner))?.deletedAt ?? null, null, 'the account is not marked')
       assert.equal((await store.projectsOf(owner)).length, 2, 'the data is all there')
       assert.equal((await store.jobs.getJob(seed.jobs.running))?.status, 'running', 'their work still runs')
       assert.ok(!(await store.shares.get(seed.tokens[0]))?.revokedAt, 'their link is untouched')
-      assert.deepEqual(blind.calls, [], 'Clerk was not asked')
-      // What production wires in: clerk mode without the key is not ready; with it, ready; no clerk mode, no Clerk.
-      const saved = { NODE_ENV: env.NODE_ENV, INKDESK_AUTH: env.INKDESK_AUTH, CLERK_SECRET_KEY: env.CLERK_SECRET_KEY }
+      assert.deepEqual(blind.calls, [], 'the sign-in was not touched')
+      // What production wires in: better mode without the secret is not ready; with it and the database, ready; no better mode, no sign-in to end.
+      const saved = { NODE_ENV: env.NODE_ENV, INKDESK_AUTH: env.INKDESK_AUTH, BETTER_AUTH_SECRET: env.BETTER_AUTH_SECRET, MONGODB_URI: env.MONGODB_URI, MONGODB_DB: env.MONGODB_DB }
       try {
         env.NODE_ENV = 'production'
         delete env.INKDESK_AUTH
-        delete env.CLERK_SECRET_KEY
-        assert.match(productionDeps().clerk?.ready?.() ?? '', /CLERK_SECRET_KEY is not set/, 'a production worker without the key is not ready')
-        env.CLERK_SECRET_KEY = `sk_test_${'x'.repeat(30)}`
-        assert.equal(productionDeps().clerk?.ready?.(), null, 'and with it, ready')
+        delete env.BETTER_AUTH_SECRET
+        env.MONGODB_URI = 'mongodb://check.invalid:27017/'
+        env.MONGODB_DB = 'check'
+        assert.match(productionDeps().signIn?.ready?.() ?? '', /BETTER_AUTH_SECRET is not set/, 'a production worker without the secret is not ready')
+        env.BETTER_AUTH_SECRET = 'x'.repeat(32)
+        assert.equal(productionDeps().signIn?.ready?.(), null, 'and with it, ready')
         delete env.NODE_ENV
-        assert.equal(productionDeps().clerk, null, 'outside production there is no Clerk to ask')
+        assert.equal(productionDeps().signIn, null, 'outside production there is no sign-in to end')
       } finally {
         for (const [name, value] of Object.entries(saved)) {
           if (value === undefined) delete env[name]
           else env[name] = value
         }
       }
-      assert.deepEqual(await deleteAccount(record, depsOf(fakeClerk())), { outcome: 'done' }, 'once the key is there, the same job finishes')
+      assert.deepEqual(await deleteAccount(record, depsOf(fakeSignIn())), { outcome: 'done' }, 'once the key is there, the same job finishes')
       await store.jobs.deleteJob(record.id)
       assert.deepEqual(await leftovers(seed), [])
-      ok(`${where} deletion: a worker with no Clerk secret ends the job at once with nothing changed (account, data, work and link untouched); production wires that check in`)
+      ok(`${where} deletion: a worker with no sign-in secret ends the job at once with nothing changed (account, data, work and link untouched); production wires that check in`)
     }
 
     // 9e. A project too damaged to read is deleted anyway; the pictures that can be found are removed; the one picture only that project's lost copy named is the documented limit.
@@ -1970,20 +1960,10 @@ try {
       ok('local deletion: an unreadable project is deleted anyway (its readable sibling’s pictures and every job’s stored picture go); only a picture that nothing readable names remains — the documented limit')
     }
 
-    // 9f. The Clerk webhook: `user.deleted` marks the account and enqueues the SAME job; a replay finds it; a failure to enqueue makes Clerk retry.
+    // 9f. Two presses at once (two tabs) find the one job; a job that cannot be queued is a 503 with no record, and the next press works.
     {
-      const WEBHOOK_SECRET = `whsec_${randomBytes(24).toString('base64')}`
-      env.CLERK_WEBHOOK_SIGNING_SECRET = WEBHOOK_SECRET
-      const webhook = await import('../app/api/webhooks/clerk/route')
-      const signed = (body: string, id: string) => {
-        const stamp = String(Math.floor(Date.now() / 1000))
-        const key = Buffer.from(WEBHOOK_SECRET.replace(/^whsec_/, ''), 'base64')
-        const signature = createHmac('sha256', key).update(`${id}.${stamp}.${body}`).digest('base64')
-        return new Request('http://check/api/webhooks/clerk', { method: 'POST', headers: { 'content-type': 'application/json', 'svix-id': id, 'svix-timestamp': stamp, 'svix-signature': `v1,${signature}` }, body })
-      }
-      const gone = (id: string) => JSON.stringify({ type: 'user.deleted', object: 'event', data: { id, object: 'user', deleted: true } })
-      const owner = 'user_hook'
-      const seed = await seedDesk(owner, 'Hookline')
+      const owner = 'user_twotabs'
+      const seed = await seedDesk(owner, 'Twotabs')
       const realRunner = accountRunners['delete-account']
       let release: () => void = () => {}
       const held = new Promise<void>((resolve) => (release = resolve))
@@ -1992,33 +1972,25 @@ try {
         return realRunner(job, run)
       }
       try {
-        const first = await webhook.POST(signed(gone(owner), 'msg_one'))
-        assert.equal(first.status, 200, await first.clone().text())
+        const [first, second] = await Promise.all([deleteAs(owner), deleteAs(owner)])
+        assert.deepEqual([first.status, second.status], [202, 202])
         const jobsFor = () => store.jobs.listJobs({ ownerId: owner, key: deleteAccountKey(owner) })
         const [only] = await jobsFor()
         assert.equal((await jobsFor()).length, 1, 'one deletion job')
         assert.equal(only.kind, 'delete-account')
         assert.equal(only.projectId, '')
         assert.equal(only.reservation, 'none')
-        assert.ok((await store.users.get(owner))?.deletedAt)
-        // Clerk delivers the event again — the same message, then a fresh message with the same content.
-        const again = await webhook.POST(signed(gone(owner), 'msg_one'))
-        assert.equal(((await again.json()) as { duplicate?: boolean }).duplicate, true)
-        assert.equal((await webhook.POST(signed(gone(owner), 'msg_two'))).status, 200)
-        assert.deepEqual((await jobsFor()).map((j) => j.id), [only.id], 'a replayed event leaves exactly one job')
-        // The person pressing the button at the same moment finds that job too.
         const viaApi = await enqueueAccountJob({ ownerId: owner, kind: 'delete-account' })
-        assert.deepEqual([viaApi.created, viaApi.job.id], [false, only.id])
+        assert.deepEqual([viaApi.created, viaApi.job.id], [false, only.id], 'a third ask finds it too')
       } finally {
         release()
         accountRunners['delete-account'] = realRunner
       }
-      await waitFor('the webhook’s job to finish', async () => (await store.jobs.getJob((await store.jobs.listJobs({ ownerId: owner, key: deleteAccountKey(owner) }))[0]?.id ?? 'none')) === null)
-      assert.deepEqual(await leftovers(seed), [], 'the job the webhook started removed everything')
+      await waitFor('the job to finish', async () => (await store.jobs.listJobs({ ownerId: owner, key: deleteAccountKey(owner) })).length === 0)
+      assert.deepEqual(await leftovers(seed), [], 'the one job removed everything')
 
-      // The job cannot be queued: Clerk is told to retry (503), the account stays marked, and the retry then works.
-      const owner2 = 'user_hook2'
-      const seed2 = await seedDesk(owner2, 'Hooktwo')
+      const owner2 = 'user_noqueue'
+      const seed2 = await seedDesk(owner2, 'Noqueue')
       const savedRedis = env.REDIS_URL
       delete env.REDIS_URL
       env.INKDESK_QUEUE = 'bullmq' // a Redis queue with no Redis: the studio is busy, and nothing is recorded
@@ -2026,20 +1998,18 @@ try {
       console.error = () => {}
       let refused: Response
       try {
-        refused = await webhook.POST(signed(gone(owner2), 'msg_three'))
+        refused = await deleteAs(owner2)
       } finally {
         console.error = quiet
         delete env.INKDESK_QUEUE
         if (savedRedis) env.REDIS_URL = savedRedis
       }
-      assert.equal(refused.status, 503, 'a store failure makes Clerk retry')
+      assert.equal(refused.status, 503, 'a queue that is down is a 503')
       assert.deepEqual(await store.jobs.listJobs({ ownerId: owner2 }).then((js) => js.filter((j) => j.kind === 'delete-account')), [], 'and no record of a job that was never queued')
-      assert.ok((await store.users.get(owner2))?.deletedAt, 'the tombstone is idempotent and stays')
-      assert.equal((await webhook.POST(signed(gone(owner2), 'msg_three'))).status, 200, 'Clerk’s retry of the same message is handled, not taken for a duplicate')
+      assert.equal((await deleteAs(owner2)).status, 202, 'the next press works')
       await waitFor('the retried job to finish', async () => (await store.jobs.listJobs({ ownerId: owner2, key: deleteAccountKey(owner2) })).length === 0)
       assert.deepEqual(await leftovers(seed2), [])
-      delete env.CLERK_WEBHOOK_SIGNING_SECRET
-      ok(`${where} webhook: user.deleted marks the account and enqueues the deletion job; a replayed event (same message or a fresh one) and the button find the one job; a failure to queue answers 503 and Clerk’s retry succeeds`)
+      ok(`${where} deletion: two presses at once are one job (a third ask finds it); a queue that is down answers 503 with no record, and the next press succeeds`)
     }
 
     // 9g. A desk with sign-in OFF: there is no account to delete, and deleting its one owner would wipe the desk.
@@ -2104,9 +2074,9 @@ try {
       console.warn = () => {}
       console.error = () => {}
       let outcome
-      const clerk = fakeClerk()
+      const signIn = fakeSignIn()
       try {
-        outcome = await deleteAccount(record, depsOf(clerk))
+        outcome = await deleteAccount(record, depsOf(signIn))
       } finally {
         store.shares.listActiveOf = realListActive
         store.shares.deleteAllOf = realDeleteAll
@@ -2114,11 +2084,11 @@ try {
         console.error = err
       }
       assert.deepEqual(outcome, { outcome: 'failed', error: DELETION_INCOMPLETE })
-      assert.deepEqual(clerk.calls, [], 'a deletion that ends failed never ended their sign-in: they can still sign in, see the sentence and try again')
+      assert.deepEqual(signIn.calls, [], 'a deletion that ends failed never ended their sign-in: they can still sign in, see the sentence and try again')
       assert.ok(await store.jobs.getJob(record.id), 'a failed deletion keeps its record, for the status route to tell the person')
       assert.match(DELETION_INCOMPLETE, /Nothing is lost by trying again/)
-      assert.deepEqual(await deleteAccount(record, depsOf(clerk)), { outcome: 'done' }, 'and once the store behaves, the next run finishes')
-      assert.deepEqual(clerk.calls, [owner], 'and ends the sign-in then')
+      assert.deepEqual(await deleteAccount(record, depsOf(signIn)), { outcome: 'done' }, 'and once the store behaves, the next run finishes')
+      assert.deepEqual(signIn.calls, [owner], 'and ends the sign-in then')
       await store.jobs.deleteJob(record.id)
       assert.deepEqual(await leftovers(seed), [])
       ok(`${where} deletion: if the verification still finds something after its sweeps, the job ends failed with one calm sentence (the record stays, the page offers Try again), and the next run finishes`)
@@ -2247,7 +2217,7 @@ try {
       ok(`${where} deletion: a picture that lands from a worker still drawing, between the sweep’s read of a project and its delete, is found and deleted before the project goes`)
     }
 
-    // 9n. A job made after the cancel (a second tab, a session Clerk has not ended yet) still has its hold released when its record is swept, and so has an
+    // 9n. A job made after the cancel (a second tab, a session not ended yet) still has its hold released when its record is swept, and so has an
     // ended job whose settle never ran: no record is deleted while it still holds quota or spend.
     {
       const { reserve } = await import('../lib/limits')
@@ -2277,21 +2247,21 @@ try {
       ok(`${where} deletion: jobs made after the cancel, and an ended job never settled, give their holds back before their records are deleted`)
     }
 
-    // 9o. Whatever the person makes in the seconds their sign-in lasts (Clerk is asked last) is swept after it, before the job says done.
+    // 9o. Whatever the person makes in the seconds their sign-in lasts (the sign-in is ended last) is swept after it, before the job says done.
     {
       const owner = 'user_lastminute'
       const seed = await seedDesk(owner, 'Lastminute')
       const record = await deletionJob(owner)
       const extra = crypto.randomUUID()
-      const clerk = {
+      const signIn = {
         calls: [] as string[],
         deleteUser: async (id: string): Promise<void> => {
-          clerk.calls.push(id)
+          signIn.calls.push(id)
           await store.createProject({ ...emptyProject({ id: extra, chapterId: crypto.randomUUID(), title: 'Last minute', stylePresetId: 'manga-bw', serverRunId: 'check' }), ownerId: owner })
         },
       }
-      assert.deepEqual(await deleteAccount(record, depsOf(clerk)), { outcome: 'done' })
-      assert.equal(await store.projectStamp(extra), null, 'a project made while Clerk was being asked is swept before done')
+      assert.deepEqual(await deleteAccount(record, depsOf(signIn)), { outcome: 'done' })
+      assert.equal(await store.projectStamp(extra), null, 'a project made while the sign-in was being ended is swept before done')
       await store.jobs.deleteJob(record.id)
       assert.deepEqual(await leftovers(seed), [])
       ok(`${where} deletion: a project made while the sign-in was being ended is swept before the job says done`)
@@ -2318,7 +2288,7 @@ try {
       ok(`${where} deletion: a picture only the live link was holding goes with the account`)
     }
 
-    // 9q. A deletion that failed leaves a live, signed-in person with a tombstone (Clerk is asked last). Once its failed record is pruned the
+    // 9q. A deletion that failed leaves a live, signed-in person with a tombstone (the sign-in is ended last). Once its failed record is pruned the
     // state must not read `done` — that sends the Data page to /sign-in on every visit and hides the Delete card for good.
     {
       const { deleteState } = await import('../lib/account/state')

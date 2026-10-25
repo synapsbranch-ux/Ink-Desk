@@ -15,7 +15,7 @@ const { Refused } = await import('../lib/errors')
 const { applyPatch, mergePatch } = await import('../lib/patch')
 const { BubbleLayoutSchema, ChapterPatchSchema } = await import('../lib/schemas')
 const { bubbleCorner, findPanel } = await import('../lib/script')
-const { emptyChapter } = await import('../lib/types')
+const { emptyDesk } = await import('../lib/types')
 
 function panel(index: 0 | 1 | 2 | 3, camera = 'eye level'): Panel {
   return {
@@ -33,7 +33,7 @@ function panel(index: 0 | 1 | 2 | 3, camera = 'eye level'): Panel {
   }
 }
 
-const chapter: Chapter = { ...emptyChapter(), script: [panel(0), panel(1), panel(2), panel(3)] }
+const chapter: Chapter = { ...emptyDesk(), script: [panel(0), panel(1), panel(2), panel(3)] }
 
 // --- The derived default ---------------------------------------------------
 // Panel 1's figure stands left, eye level → bubble top-right; looking down →
@@ -88,9 +88,9 @@ assert.ok(!ChapterPatchSchema.safeParse({ panels: { '7': { dialogue: 'x' } } }).
 // --- Refused before the script exists --------------------------------------
 // The route checks every edited panel with findPanel; with no script that is
 // a Refused, never a silent drop.
-assert.throws(() => findPanel(emptyChapter(), 2), Refused)
+assert.throws(() => findPanel(emptyDesk(), 2), Refused)
 // And the pure applyPatch ignores it rather than crashing (the browser side).
-const ignored = applyPatch(emptyChapter(), parsed)
+const ignored = applyPatch(emptyDesk(), parsed)
 assert.equal(ignored.script, null)
 
 console.log('  Speech bubble check passed.')

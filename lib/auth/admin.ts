@@ -1,11 +1,11 @@
 // Who may run the studio's admin pages (v3, slice 21): the reports queue, and
 // nothing else for now. One list, ADMIN_EMAILS, matched exactly the way
 // ALLOWLIST_EMAILS is (`lib/limits/plan.ts`): against the VERIFIED email in
-// `store.users` (Clerk's webhook records only a verified address), compared
+// `store.users` (which carries an address only once it is verified — `lib/auth/server.ts`), compared
 // case-insensitively. See `devpost/spec.md > Reports (v3)`.
 //
 //   • An account is an admin when its recorded email is on the list. An
-//     account the webhook has not delivered yet, or one with no verified
+//     account whose record is not written yet, or one with no verified
 //     email, is not.
 //   • A DELETED account is never an admin (the tombstone is checked), and the
 //     list is read fresh on every call, so taking an address off ADMIN_EMAILS
@@ -24,7 +24,7 @@
 //
 // Cached 15 seconds per person like the plan. That is also the bound on how long
 // an account that has just been deleted could still read as an admin in the
-// process that cached it; its Clerk session is gone by then, and every
+// process that cached it; its sessions are gone by then, and every
 // route re-checks.
 //
 // Server only.
@@ -92,7 +92,7 @@ export async function requireAdmin(req: Request): Promise<string> {
 /**
  * The server component's guard: the admin's id, or the studio's own 404 page
  * (`notFound()`) for anyone else — signed out, signed in, or deleted alike. The
- * proxy has already sent a signed-out visitor to sign-in in clerk mode (every page
+ * proxy has already sent a signed-out visitor to sign-in when sign-in is on (every page
  * does that), so a stranger who reaches this line learns nothing from it.
  */
 export async function requireAdminPage(): Promise<string> {

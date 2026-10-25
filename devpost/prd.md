@@ -510,7 +510,7 @@ The ten numbered items of `scope.md > The POC Boundary (v2)`, as behavior above:
 
 Against the approved v2 PRD:
 
-1. **There are users now.** v2 had one desk for whoever opened the app. v3 has accounts (email, Google, GitHub), and every project, image, video, share and quota belongs to one user. *Supersedes* v2's "Accounts" under *Deferred From the POC (v2)*.
+1. **There are users now.** v2 had one desk for whoever opened the app. v3 has accounts (email and password), and every project, image, video, share and quota belongs to one user. *Supersedes* v2's "Accounts" under *Deferred From the POC (v2)*.
 2. **The app is public on the learner's domain**, with no landing page: the domain root is the sign-in screen or the dashboard. *Supersedes* v2's "the demo and the video run local".
 3. **Spending has limits a user can see.** A quota meter in the header, a Usage page, disabled buttons with a reason and a reset time, and a global kill switch. *Supersedes* v2's "Budget … no hard cap in the product".
 4. **Animate a page** is new: a 20–30 s trailer of one finished page. *Supersedes* v2's "In-app video export and in-app dubbing — Later".
@@ -519,25 +519,29 @@ Against the approved v2 PRD:
 7. **Every screen works on a phone.** v2 was designed for a desktop studio.
 8. **The demo video is re-filmed on the live domain on Oct 23–24**, narrated from the learner's own script. *Supersedes* v2's "narration drafted by the AI partner".
 9. **Freeze moves to 2026-10-22, end of day**; the cut line is the learner's: not working and checkpointed by Oct 22 → *Later*, no debate; if v3 is unstable, the last stable tag ships.
+10. **Sign-in is the studio's own (Better Auth), not Clerk's — 2026-10-24, the learner's decision** (see *Product Decisions (v3)*). Email and password only — Google and GitHub sign-in were cut the same day at the learner's word: *"make sure only email and password sign in / up are there and no google and github"*. There is no email service, so the studio sends no email: a password account's address is not verified, there is no password reset and the email cannot be changed. No CAPTCHA. The account screens in Settings are the studio's own.
 
 ## Core Journey (v3)
 
-1. **Open the domain.** Signed out: the Clerk sign-in screen (email, Google, GitHub), with links to Terms and Privacy and to sign up. Signed in: the dashboard.
+1. **Open the domain.** Signed out: the studio's sign-in card (email and password), with links to Terms and Privacy and to sign up. Signed in: the dashboard.
 2. **Dashboard.** My projects (manga), my videos, the library, **New project**, and a compact **quota meter** in the header (today's images, video seconds and audio characters against the limit).
 3. **The studio, as v2** — style preset, scenario, library with an imported reference and locks, the Director's plan with its estimate, pages ink in, the reader, PNG and PDF. Now inside the user's own project, inside their quota.
 4. **Animate a page.** From a finished page (any page whose four panels are inked): **Animate** → the estimate (shots, seconds, dollars, and what it takes from today's quota) → **Confirm**. The page's shots appear as cards, each with its own progress; a failed shot says why and offers **Try again** while the others carry on. When every shot is done the trailer is assembled, and it appears under **My videos**.
 5. **Share.** On a manga or a video: **Share publicly** → a link on the domain (`/s/<token>`) to copy; **Unpublish** at any time.
 6. **Someone opens the link.** Signed in or not, they see a read-only reader or player — title, cover, pages or the video — and nothing else of the owner's. A **Report** button lets them flag it.
-7. **Settings and Usage**, from the dashboard and the user menu.
+7. **Settings and Usage**, from the dashboard and the header's account menu (**Account**, **Sign out**).
 
 ## Features and Behavior (v3)
 
 ### Accounts and Sign-in (v3)
 
 - [ ] Signed out, every page except sign-in, sign-up, Terms, Privacy, share pages and the health check sends the visitor to sign-in; after signing in they land where they were going, or on the dashboard
-- [ ] Sign-in and sign-up offer email, Google and GitHub; a new account exists in the app's own records the moment it is created
-- [ ] Sign-up resists mass account creation (Clerk's bot protection on)
-- [ ] Signing out from the user menu returns to sign-in; "sign out of other sessions" is available in Settings
+- [ ] Sign-in and sign-up offer **email and password only** (10–128 characters) — no Google, GitHub or other outside sign-in; a new account exists in the app's own records the moment it is created
+- [ ] The sign-in and sign-up card says plainly that the studio sends no email, that the address is not verified, and that there is no password reset
+- [ ] Sign-up resists mass account creation without a CAPTCHA: too many sign-ups from one address in an hour, or too many sign-in attempts in a minute, are refused with a calm sentence; if the counter is unavailable, sign-in and sign-up are refused rather than left open
+- [ ] Only a **verified** email counts for the allowlist and the admin list; an address typed on the sign-up page never is. The learner's script (`judge:account`) is the only way an address becomes verified: it makes the judge account, and marks an existing account verified (the learner's own, so `ADMIN_EMAILS` and `ALLOWLIST_EMAILS` can match it). Someone who registers another person's address gets only an unverified free account, which an admin can remove
+- [ ] The header has **Account** (Settings › Account) and **Sign out**; signing out returns to sign-in; "Sign out of other devices" is available in Settings
+- [ ] Edge cases: **Forgot password** — not available, and the card says so (no email service); **email already taken** — sign-up refuses with a sentence; **wrong password** — one sentence, no hint which half was wrong
 
 ### Ownership and Privacy (v3)
 
@@ -548,7 +552,7 @@ Against the approved v2 PRD:
 ### Dashboard (v3)
 
 - [ ] Sections: **Projects** (covers, as v2), **Videos** (poster, length, status, date), **Library**, **New project**
-- [ ] The header shows the quota meter and the user menu on every signed-in screen
+- [ ] The header shows the quota meter and the account menu (Account, Sign out) on every signed-in screen
 - [ ] A video still being made shows its progress on the dashboard; a finished one plays from there
 - [ ] Empty states: a new account sees a short line on what to do first, not a blank page
 
@@ -594,7 +598,7 @@ Source: `scope.md > What "Working" Looks Like (v3)`.
 
 ### Settings (v3)
 
-- [ ] **Account**: Clerk's account management — email, connected Google/GitHub, sessions
+- [ ] **Account** (the studio's own page): the email, whether it is verified (and why not), a note that the email cannot be changed (no way to prove a new one — export your data and make a new account); **Change password** with the current password, and an option to sign out the other devices too; **Where you are signed in** — each session's browser, system and last activity, with **Sign out of other devices**
 - [ ] **Studio defaults**: default style for new projects, default reading direction, default voice per character type
 - [ ] **Sharing**: everything this user has shared, with its link and **Unpublish**
 - [ ] **Data and privacy**: **Export my data** (projects as JSON plus their images, as one download) and **Delete my account** — with a confirmation that names what goes: projects, images, videos, shares, queued work; after it, nothing of theirs remains
@@ -634,18 +638,20 @@ Source: `scope.md > What "Working" Looks Like (v3)`.
 
 ## Product Decisions (v3)
 
-All the learner's, 2026-10-14: v3 is in the submission; Railway web + worker; the domain root is the app (no landing page); Clerk with email, Google and GitHub; Redis + BullMQ for the queue, the limits and the counters, with Mongo as the source of truth; a private bucket with signed URLs; small free quotas, an allowlist, a $5/day global kill switch; Settings with account, defaults, sharing, export and delete; a Report button reaching the learner; Terms and Privacy; one page animated per trailer with `seedance-2.0`, one ElevenLabs voice per character, music, ffmpeg assembly in the worker; other production models only after a test; straight to `main` with tags; re-film on the live domain on Oct 23–24 with the learner's own narration.
+All the learner's, 2026-10-14: v3 is in the submission; Railway web + worker; the domain root is the app (no landing page); Clerk with email, Google and GitHub *(replaced 2026-10-24, below)*; Redis + BullMQ for the queue, the limits and the counters, with Mongo as the source of truth; a private bucket with signed URLs *(as built: no signed URLs — files stream through owner-checked routes)*; small free quotas, an allowlist, a $5/day global kill switch; Settings with account, defaults, sharing, export and delete; a Report button reaching the learner; Terms and Privacy; one page animated per trailer with `seedance-2.0`, one ElevenLabs voice per character, music, ffmpeg assembly in the worker; other production models only after a test; straight to `main` with tags; re-film on the live domain on Oct 23–24 with the learner's own narration.
+
+**Better Auth replaces Clerk — the learner's, 2026-10-24:** *"base on the devpost skill and also what the hackathon says i want you to remove clerk auth to betterauth . update all scope and prd be careful to not leave stuff not implemented"*; and *"no there is no clerk account"* — nothing to migrate. Why: the hackathon asks for a repository with everything needed for the project to work, open source, third-party services used under their terms, and a judge login in the testing instructions; Better Auth is MIT-licensed and runs in the app on the studio's own database, with no vendor account. The build session recommended, and the learner proceeded with: **email and password; no email service** (so no verification email and no password reset); **no CAPTCHA**; the studio's own per-address limits on sign-in and sign-up. The session first kept Google and GitHub as optional (shown only when their keys were set); **the learner cut them the same day:** *"make sure only email and password sign in / up are there and no google and github"* — sign-in and sign-up are email and password only.
 
 ## Deferred From the POC (v3)
 
-Full-chapter animation; upscaling, frame interpolation and alternative video models (each only after its own test); lip-sync; interface languages; a paid plan; a public gallery; indexing of share pages; emailed reports if no email service is configured.
+Full-chapter animation; upscaling, frame interpolation and alternative video models (each only after its own test); lip-sync; interface languages; a paid plan; a public gallery; indexing of share pages; emailed reports if no email service is configured; **email verification, password reset and changing the email address** (each needs an email service — none is configured, so none is offered); **a CAPTCHA on sign-up** (Clerk's bot protection, dropped with Clerk on 2026-10-24); **Google and GitHub sign-in** (cut at the learner's word on 2026-10-24 — not offered).
 
 ## Open Questions (v3)
 
 The decisions below are the learner's; the build stops at each one when it comes up.
 
-- **The domain.** The plan says `<your-domain>`; the DNS records Railway and Clerk need are listed in `spec.md > Revision v3 > Domain and DNS` and can only be added once the domain is known.
-- **The variables in this environment look like another app's.** `APP_URL`, `ADMIN_URL` and `COMPILE_WORKER_URL` point at another app's domain, `DB_PORT` is an unresolved Railway reference to a **Postgres** service, the buckets are named for "project files" and "compile outputs", and `DB_URL` is a MongoDB URL on Railway's public proxy with `DB_SSL=false`. If these belong to another project, Ink Desk would share its users (Clerk), its files (bucket) and its database with it. **Are these Ink Desk's own, or do they need their own Clerk application, bucket and database?** There is **no Redis URL** yet.
+- **The domain.** The plan says `<your-domain>`; the DNS records Railway needs are listed in `spec.md > Revision v3 > Domain and DNS` and can only be added once the domain is known.
+- **The variables in this environment look like another app's.** `APP_URL`, `ADMIN_URL` and `COMPILE_WORKER_URL` point at another app's domain, `DB_PORT` is an unresolved Railway reference to a **Postgres** service, the buckets are named for "project files" and "compile outputs", and `DB_URL` is a MongoDB URL on Railway's public proxy with `DB_SSL=false`. If these belong to another project, Ink Desk would share its users (Clerk), its files (bucket) and its database with it. **Are these Ink Desk's own, or do they need their own Clerk application, bucket and database?** There is **no Redis URL** yet. *(2026-10-24: the Clerk half no longer applies — accounts now live in the studio's own MongoDB through Better Auth.)*
 - **The budget.** v3's honest total (≈ $8.50) is over what remains of the $10 cap (≈ $7.70), and the $5/day kill switch alone could spend ≈ $40 by the end of judging. Raise the cap, run the motion kernel test at 480p, or lower the kill switch? Add a cumulative cap?
 - **The motion method** — A (panel as first frame) or B (panel + sheet as references) — chosen by the learner after the motion kernel test.
 - **Error tracking.** No error-tracking service is configured; structured logs on Railway work without one. Add one (it needs an account and a key), or keep logs only?

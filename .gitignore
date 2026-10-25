@@ -51,6 +51,3 @@ next-env.d.ts
 /data/videos/
 /data/outputs/
 
-# Clerk's keyless development keys (slice 19): written by the SDK when it runs
-# with no keys, and they are credentials.
-.clerk/

@@ -5,7 +5,6 @@
 //   POST   → { video }              body { action: 'retry', shot?: 0..3 }: Try again on one failed shot (a new, smaller
 //                                    job with its own hold), or — with no shot — put a trailer together again when every
 //                                    shot is made and only the assembly failed. Only when nothing is running for it.
-//   DELETE → { ok: true }           remove it: its files, its share and its record. 409 while it is being made.
 // The caller must own the trailer (someone else's, an unknown and a malformed id are one 404, before the body is
 // read). The body is strict and under 1 KB. POST is a spend: the `image` request window, the flags, the quota.
 // Never cached. See `lib/video/animate.ts`.
@@ -14,8 +13,7 @@ import { ownedVideo } from '@/lib/auth/access'
 import { requireUser } from '@/lib/auth/session'
 import { parseJson } from '@/lib/body'
 import { errorResponse } from '@/lib/errors'
-import { assertNoInput } from '@/lib/share/service'
-import { assertVideoOpen, removeVideo, retryShot } from '@/lib/video/animate'
+import { assertVideoOpen, retryShot } from '@/lib/video/animate'
 import { videoViewOf } from '@/lib/video/status'
 
 export const runtime = 'nodejs'
@@ -54,18 +52,5 @@ export async function POST(req: Request, { params }: Params) {
     return Response.json({ video: await retryShot(video, body.shot ?? null) }, { headers: NO_STORE })
   } catch (err) {
     return errorResponse(err, 'video', 'That shot couldn’t be started again just now. Try again in a moment.')
-  }
-}
-
-export async function DELETE(req: Request, { params }: Params) {
-  const { videoId } = await params
-  try {
-    const userId = await requireUser(req)
-    const video = await ownedVideo(userId, videoId)
-    await assertNoInput(req)
-    await removeVideo(video)
-    return Response.json({ ok: true }, { headers: NO_STORE })
-  } catch (err) {
-    return errorResponse(err, 'video', 'The trailer couldn’t be removed just now. Try again in a moment.')
   }
 }

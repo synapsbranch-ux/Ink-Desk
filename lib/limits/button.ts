@@ -262,11 +262,6 @@ export function usesLine(usage: UsageView | null | undefined, images: number, le
 
 // --- What the Director's buttons take --------------------------------------------
 
-/** Pictures Generate page n draws: all four for a page not written yet, else its blank panels. */
-export function imagesToStartPage(chapter: Pick<Chapter, 'pages'>, pageIndex: number): number {
-  const page = chapter.pages.find((p) => p.index === pageIndex)
-  return !page || !page.written ? PANELS_PER_PAGE : page.blank
-}
 
 /** Pictures Generate all draws: every page not written (four each) and every blank panel on the written ones. The cover is its own button. */
 export function imagesToStartAll(chapter: Pick<Chapter, 'pages'>): number {

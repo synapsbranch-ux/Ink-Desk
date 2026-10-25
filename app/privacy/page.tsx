@@ -42,8 +42,9 @@ export default function PrivacyPage() {
             <strong>Generation records</strong> — what was asked to be drawn, when, whether it worked, and its cost.
           </li>
           <li>
-            <strong>Your account</strong> — Clerk keeps your sign-in details: your email address, and your name and profile picture if you sign in
-            with Google or GitHub. Ink Desk keeps your Clerk user id, your email address and the date the account was made.
+            <strong>Your account</strong> — kept by Ink Desk itself, in its own database: your email address, your password stored
+            only as a one-way hash (never the password itself), your active sessions and the browser each one was made from, your account id,
+            and the date the account was made.
           </li>
         </ul>
         <p>
@@ -62,8 +63,8 @@ export default function PrivacyPage() {
         <h2>Which services see what</h2>
         <ul>
           <li>
-            <strong>Clerk</strong> runs sign-in: your email address and sign-in details, and the device and network information it uses to keep
-            sessions safe and stop automated sign-ups (with Cloudflare’s Turnstile check).
+            <strong>Signing in</strong> involves no outside service: you sign in with an email and a password that the studio checks itself,
+            and it sends no email at all.
           </li>
           <li>
             <strong>Anthropic</strong> (Claude) writes the story text, and <strong>OpenRouter</strong> passes requests to the image model, to a
@@ -80,14 +81,15 @@ export default function PrivacyPage() {
             reference instead of details.
           </li>
         </ul>
-        <p>No advertising, no analytics trackers, and nothing is sold. The only cookies are Clerk’s, which keep you signed in.</p>
+        <p>No advertising, no analytics trackers, and nothing is sold. The only cookie is the studio’s own session cookie, which keeps you signed in.</p>
 
         <h2>Deleting your data</h2>
         <p>
           In <Link href="/settings/data">Settings › Data and privacy</Link>, <em>Export my data</em> gives you one zip with your account details, your
           settings, your shared links and every project with its pictures. <em>Delete my account</em> removes your projects, pictures, uploads, videos,
-          shared links (they stop working at once), the reports about them, export files, usage counters and settings, and then your Clerk account.
-          It cannot be undone. A few things stay: a minimal record of the account (your Clerk user id and the dates it was created and deleted, no email),
+          shared links (they stop working at once), the reports about them, export files, usage counters and settings, and then your sign-in: your
+          password and every session. It cannot be undone. A few things stay: a minimal record of the account (your
+          account id and the dates it was created and deleted, no email),
           kept so the account cannot be brought back by mistake; the studio’s own anonymous spend totals, which hold no names and none of your work;
           server logs and backups, until they expire; and, rarely, a picture that no record of yours names, which cannot be traced to you to be removed.
           If you cannot sign in,{' '}

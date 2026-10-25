@@ -827,8 +827,7 @@
     <h3 style="margin-top:var(--s5)">Changes since approval</h3>
     <p class="quiet">Against the approved v2 PRD — nine changes.</p>
     <ul class="reasons" style="margin-top:var(--s3)">
-      <li><b>1 · There are users now.</b> v2 had one desk for whoever opened the app. v3 has accounts (email, Google,
-        GitHub), and every project, image, video, share and quota belongs to one user.
+      <li><b>1 · There are users now.</b> v2 had one desk for whoever opened the app. v3 has accounts (email and password), and every project, image, video, share and quota belongs to one user.
         <span class="quiet"><em>Supersedes</em> v2's “Accounts” under <em>Deferred From the POC (v2)</em>.</span></li>
       <li><b>2 · The app is public on the learner's domain,</b> with no landing page: the domain root is the sign-in
         screen or the dashboard. <span class="quiet"><em>Supersedes</em> v2's “the demo and the video run local”.</span></li>
@@ -844,13 +843,18 @@
         <span class="quiet"><em>Supersedes</em> v2's “narration drafted by the AI partner”.</span></li>
       <li><b>9 · Freeze moves to 2026-10-22, end of day.</b> The cut line is the learner's: not working and checkpointed
         by Oct 22 → <em>Later</em>, no debate; if v3 is unstable, the last stable tag ships.</li>
+      <li><b>10 · Sign-in is the studio's own (Better Auth), not Clerk's — 2026-10-24, the learner's decision</b> (see
+        <em>Product decisions (v3)</em>). Email and password only &mdash; Google and GitHub sign-in were cut the same day at the
+        learner's word: <em>&ldquo;make sure only email and password sign in / up are there and no google and github&rdquo;</em>. There is no email service, so the studio sends no email: a password account's address is not verified, there
+        is no password reset and the email cannot be changed. No CAPTCHA. The account screens in Settings are the studio's
+        own.</li>
     </ul>
 
     <h3 style="margin-top:var(--s5)">The v3 journey, at a glance</h3>
     <figure>
       <div class="svgbox">
         <svg viewBox="0 0 860 350" role="img"
-             aria-label="Diagram of the v3 core journey. Open the domain: signed out goes to the Clerk sign-in, signed in goes straight to the dashboard. Dashboard to the studio (as v2), then Animate a page, which assembles a trailer into My videos; Settings and Usage hang off the dashboard. The studio and every animation spend behind sign-in, the quota and the kill switch. A manga from the studio or a video from My videos can be shared publicly as a /s/ link; anyone, signed in or not, opens it read-only and can Report it; reports reach the learner's admin list, which can unpublish the share.">
+             aria-label="Diagram of the v3 core journey. Open the domain: signed out goes to the studio's own sign-in (email and password only), signed in goes straight to the dashboard. Dashboard to the studio (as v2), then Animate a page, which assembles a trailer into My videos; Settings and Usage hang off the dashboard. The studio and every animation spend behind sign-in, the quota and the kill switch. A manga from the studio or a video from My videos can be shared publicly as a /s/ link; anyone, signed in or not, opens it read-only and can Report it; reports reach the learner's admin list, which can unpublish the share.">
           <defs>
             <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
               <path d="M0 0 L10 5 L0 10 z" fill="#201f1d"/></marker>
@@ -872,7 +876,7 @@
 
             <rect x="184" y="62" width="136" height="70" fill="#f8f4f4" stroke="#201f1d" stroke-width="1.5"/>
             <text x="252" y="88" text-anchor="middle" font-size="16">Sign-in</text>
-            <text x="252" y="106" text-anchor="middle" font-size="10.5" fill="#605d5d">email · Google · GitHub</text>
+            <text x="252" y="106" text-anchor="middle" font-size="10.5" fill="#605d5d">email + password</text>
             <text x="252" y="122" text-anchor="middle" font-size="10" fill="#b5382e">Terms · Privacy · sign up</text>
 
             <rect x="364" y="62" width="152" height="70" fill="#f8f4f4" stroke="#201f1d" stroke-width="1.5"/>
@@ -962,13 +966,14 @@
         </svg>
       </div>
       <figcaption>The v2 studio sits unchanged inside the red zone: everything that spends money is behind sign-in, a
-        quota and the global kill switch. Share pages are a read-only snapshot anyone can open — and Report.</figcaption>
+        quota and the global kill switch. Share pages are a read-only snapshot anyone can open — and Report. Sign-in is
+        email and password only (Better Auth, since 2026-10-24).</figcaption>
     </figure>
 
     <h3 style="margin-top:var(--s5)">Core journey (v3)</h3>
     <ol class="journey">
-      <li class="gate"><strong>Open the domain.</strong> Signed out: the Clerk sign-in screen (email, Google, GitHub),
-        with links to Terms and Privacy and to sign up. Signed in: the dashboard.</li>
+      <li class="gate"><strong>Open the domain.</strong> Signed out: the studio's sign-in card (email and password
+        only), with links to Terms and Privacy and to sign up. Signed in: the dashboard.</li>
       <li><strong>Dashboard.</strong> My projects (manga), my videos, the library, <strong>New project</strong>, and a
         compact <strong>quota meter</strong> in the header (today's images, video seconds and audio characters against the
         limit).</li>
@@ -984,22 +989,34 @@
         (<code>/s/&lt;token&gt;</code>) to copy; <strong>Unpublish</strong> at any time.</li>
       <li><strong>Someone opens the link.</strong> Signed in or not, they see a read-only reader or player — title, cover,
         pages or the video — and nothing else of the owner's. A <strong>Report</strong> button lets them flag it.</li>
-      <li><strong>Settings and Usage</strong>, from the dashboard and the user menu.</li>
+      <li><strong>Settings and Usage</strong>, from the dashboard and the header's account menu (<strong>Account</strong>, <strong>Sign out</strong>).</li>
     </ol>
 
     <h3 style="margin-top:var(--s5)">Features and behavior — the checks</h3>
-    <p class="quiet">Twelve groups, 52 acceptance criteria. Open a group to see its checks.</p>
+    <p class="quiet">Twelve groups, 55 acceptance criteria. Open a group to see its checks.</p>
     <div style="margin-top:var(--s3)">
     <details>
-      <summary>Accounts and sign-in <span class="cnt">4</span></summary>
+      <summary>Accounts and sign-in <span class="cnt">7</span></summary>
       <div class="dbody">
         <ul class="crit">
           <li>Signed out, every page except sign-in, sign-up, Terms, Privacy, share pages and the health check sends the
             visitor to sign-in; after signing in they land where they were going, or on the dashboard</li>
-          <li>Sign-in and sign-up offer email, Google and GitHub; a new account exists in the app's own records the moment
-            it is created</li>
-          <li>Sign-up resists mass account creation (Clerk's bot protection on)</li>
-          <li>Signing out from the user menu returns to sign-in; “sign out of other sessions” is available in Settings</li>
+          <li>Sign-in and sign-up offer <strong>email and password only</strong> (10–128 characters) &mdash; no Google,
+            GitHub or other outside sign-in; a new account exists in the app's own records the moment it is created</li>
+          <li>The sign-in and sign-up card says plainly that the studio sends no email, that the address is not verified, and
+            that there is no password reset</li>
+          <li>Sign-up resists mass account creation without a CAPTCHA: too many sign-ups from one address in an hour, or too
+            many sign-in attempts in a minute, are refused with a calm sentence; if the counter is unavailable, sign-in and
+            sign-up are refused rather than left open</li>
+          <li>Only a <strong>verified</strong> email counts for the allowlist and the admin list; an address typed on the
+            sign-up page never is. The learner's script (<code>judge:account</code>) is the only way an address becomes
+            verified: it makes the judge account, and marks an existing account verified (the learner's own, so
+            <code>ADMIN_EMAILS</code> and <code>ALLOWLIST_EMAILS</code> can match it). Someone who registers another
+            person's address gets only an unverified free account, which an admin can remove</li>
+          <li>The header has <strong>Account</strong> (Settings › Account) and <strong>Sign out</strong>; signing out returns
+            to sign-in; “Sign out of other devices” is available in Settings</li>
+          <li>Edge cases: <strong>Forgot password</strong> — not available, and the card says so (no email service);
+            <strong>email already taken</strong> — sign-up refuses with a sentence; <strong>wrong password</strong> — one sentence, no hint which half was wrong</li>
         </ul>
       </div>
     </details>
@@ -1021,7 +1038,7 @@
         <ul class="crit">
           <li>Sections: <strong>Projects</strong> (covers, as v2), <strong>Videos</strong> (poster, length, status, date),
             <strong>Library</strong>, <strong>New project</strong></li>
-          <li>The header shows the quota meter and the user menu on every signed-in screen</li>
+          <li>The header shows the quota meter and the account menu (Account, Sign out) on every signed-in screen</li>
           <li>A video still being made shows its progress on the dashboard; a finished one plays from there</li>
           <li>Empty states: a new account sees a short line on what to do first, not a blank page</li>
         </ul>
@@ -1104,7 +1121,11 @@
       <summary>Settings <span class="cnt">5</span></summary>
       <div class="dbody">
         <ul class="crit">
-          <li><strong>Account</strong>: Clerk's account management — email, connected Google/GitHub, sessions</li>
+          <li><strong>Account</strong> (the studio's own page): the email, whether it is verified (and why not); a note that the email cannot be changed (no way to prove a
+            new one — export your data and make a new account); <strong>Change password</strong> with the current password,
+            and an option to sign out the other devices too;
+            <strong>Where you are signed in</strong> — each session's browser, system and last activity, with <strong>Sign
+            out of other devices</strong></li>
           <li><strong>Studio defaults</strong>: default style for new projects, default reading direction, default voice
             per character type</li>
           <li><strong>Sharing</strong>: everything this user has shared, with its link and <strong>Unpublish</strong></li>
@@ -1207,9 +1228,9 @@
           <li>v3 is in the submission</li>
           <li>Railway web + worker</li>
           <li>The domain root is the app (no landing page)</li>
-          <li>Clerk with email, Google and GitHub</li>
+          <li>Clerk with email, Google and GitHub <em>(replaced 2026-10-24, below)</em></li>
           <li>Redis + BullMQ for the queue, the limits and the counters, with Mongo as the source of truth</li>
-          <li>A private bucket with signed URLs</li>
+          <li>A private bucket with signed URLs <em>(as built: no signed URLs — files stream through owner-checked routes)</em></li>
           <li>Small free quotas, an allowlist, a $5/day global kill switch</li>
           <li>Settings with account, defaults, sharing, export and delete</li>
           <li>A Report button reaching the learner</li>
@@ -1220,10 +1241,21 @@
           <li>Straight to <code>main</code> with tags</li>
           <li>Re-film on the live domain on Oct 23–24 with the learner's own narration</li>
         </ul>
+        <p style="margin-top:var(--s3)"><strong>Better Auth replaces Clerk — the learner's, 2026-10-24:</strong>
+          <em>“base on the devpost skill and also what the hackathon says i want you to remove clerk auth to betterauth .
+          update all scope and prd be careful to not leave stuff not implemented”</em>; and <em>“no there is no clerk
+          account”</em> — nothing to migrate. Why: the hackathon asks for a repository with everything needed for the project
+          to work, open source, third-party services used under their terms, and a judge login in the testing instructions;
+          Better Auth is MIT-licensed and runs in the app on the studio's own database, with no vendor account. The build
+          session recommended, and the learner proceeded with: <strong>email and password; no email service</strong> (so
+          no verification email and no password reset); <strong>no CAPTCHA</strong>; the studio's own per-address limits on
+          sign-in and sign-up. The session first kept Google and GitHub as optional (shown only when their keys were set);
+          <strong>the learner cut them the same day:</strong> <em>&ldquo;make sure only email and password sign in / up are there and no google and github&rdquo;</em> &mdash; sign-in and sign-up are email and
+          password only.</p>
       </div>
     </details>
     <details>
-      <summary><span class="tag tag-quiet">Deferred</span> From the POC (v3) <span class="cnt">8</span></summary>
+      <summary><span class="tag tag-quiet">Deferred</span> From the POC (v3) <span class="cnt">11</span></summary>
       <div class="dbody">
         <ul>
           <li>Full-chapter animation</li>
@@ -1234,6 +1266,10 @@
           <li>A public gallery</li>
           <li>Indexing of share pages</li>
           <li>Emailed reports if no email service is configured</li>
+          <li>Email verification, password reset and changing the email address — each needs an email service; none is
+            configured, so none is offered</li>
+          <li>A CAPTCHA on sign-up (Clerk's bot protection, dropped with Clerk on 2026-10-24)</li>
+          <li>Google and GitHub sign-in (cut at the learner's word on 2026-10-24 &mdash; not offered)</li>
         </ul>
       </div>
     </details>
@@ -1242,7 +1278,7 @@
       <p class="eyebrow" style="color:var(--hanko-900)">Open questions (v3) · 7</p>
       <h3 style="margin-top:var(--s2)">The decisions below are the learner's; the build stops at each one when it comes up.</h3>
       <ul class="reasons" style="margin-top:var(--s3)">
-        <li><b>The domain.</b> The plan says <code>&lt;your-domain&gt;</code>; the DNS records Railway and Clerk need are
+        <li><b>The domain.</b> The plan says <code>&lt;your-domain&gt;</code>; the DNS records Railway needs are
           listed in <code>spec.md › Revision v3 › Domain and DNS</code> and can only be added once the domain is known.</li>
         <li><b>The variables in this environment look like another app's.</b> <code>APP_URL</code>,
           <code>ADMIN_URL</code> and <code>COMPILE_WORKER_URL</code> point at another app's domain,
@@ -1250,7 +1286,8 @@
           named for “project files” and “compile outputs”, and <code>DB_URL</code> is a MongoDB URL on Railway's public
           proxy with <code>DB_SSL=false</code>. If these belong to another project, Ink Desk would share its users (Clerk),
           its files (bucket) and its database with it. <strong>Are these Ink Desk's own, or do they need their own Clerk
-          application, bucket and database?</strong> There is <strong>no Redis URL</strong> yet.</li>
+          application, bucket and database?</strong> There is <strong>no Redis URL</strong> yet. <em>(2026-10-24: the Clerk half
+          no longer applies — accounts now live in the studio's own MongoDB through Better Auth.)</em></li>
         <li><b>The budget.</b> v3's honest total (≈ $8.50) is over what remains of the $10 cap (≈ $7.70), and the $5/day
           kill switch alone could spend ≈ $40 by the end of judging. Raise the cap, run the motion kernel test at 480p, or
           lower the kill switch? Add a cumulative cap?</li>

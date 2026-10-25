@@ -7,7 +7,6 @@
 //   estimateFor   GET  — what Animate would take, and the page's newest trailer. Spends nothing.
 //   startTrailer  POST — Confirm: re-plan from the project NOW, write the record, take the hold, queue the job.
 //   retryShot     POST — Try again on one shot (or the assembly): re-open the record, queue a smaller job.
-//   removeVideo   DELETE — the files, the share and the record.
 //
 // CONFIRM, STEP BY STEP (each step leaves nothing behind if a later one refuses):
 //   1. The studio must be open for generation AND for video (the picture routes' own sentence for the first).
@@ -33,17 +32,15 @@ import { isJobLive } from '../queue/status'
 import { trailerKey } from '../queue/jobs'
 import { chapterTitle } from '../reader'
 import { cleanText } from '../share/snapshot'
-import { unpublishVideo } from '../share/service'
 import type { VideoRecord } from '../share/types'
 import { store } from '../store'
 import type { Project } from '../types'
-import { newVideoRecord, queueReassemble, queueRetry, videoKeys } from './record'
+import { newVideoRecord, queueReassemble, queueRetry } from './record'
 import { liveTrailerJob, settleStaleVideo, videoViewOf } from './status'
 import { pageIsComplete, planTrailer, planUsd, planUses } from './plan'
 import { FINISH_THIS_PAGE_FIRST, ONE_TRAILER_AT_A_TIME, VIDEO_IS_CLOSED, type AnimateEstimate, type TrailerPlan, type VideoView } from './types'
 
 export const NOT_RETRYABLE = 'That shot can’t be tried again right now.'
-export const STILL_MAKING = 'This trailer is still being made. Remove it once it has finished.'
 const NO_SUCH_PAGE = 'There is no such page.'
 
 /** The studio's title for the chapter, as the card and the share show it: control-free, one line, capped. */
@@ -210,14 +207,3 @@ export async function retryShot(video: VideoRecord, shot: number | null): Promis
   return videoViewOf((await store.videos.get(current.id)) ?? reopened)
 }
 
-/**
- * DELETE /api/videos/<id>: refused (409) while it is being made; otherwise its share goes first (the address is dead
- * before the file is), then its files (`videos/<owner>/<id>/`), then the record. Idempotent past the refusal.
- */
-export async function removeVideo(video: VideoRecord): Promise<void> {
-  const fresh = await settleStaleVideo(video) // a trailer whose job is gone is ended, and can be removed
-  if (fresh.status === 'queued' || fresh.status === 'making') throw new Refused(STILL_MAKING, 409)
-  await unpublishVideo(video)
-  await store.outputs.deletePrefix(videoKeys(video.ownerId, video.id).folder)
-  await store.videos.delete(video.id)
-}

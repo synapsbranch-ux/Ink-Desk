@@ -10,8 +10,8 @@ The project was planned before it was built, under the hackathon's learn skill p
 
 The studio runs at `https://<your-domain>`. The domain is not named yet; `<your-domain>` stands for it everywhere in this file.
 
-- **Judges:** sign in with the demo account in the Devpost testing instructions. It is allowlisted (the higher limits) and already holds a finished chapter and its trailer, so nothing has to be generated to see the result.
-- **Anyone else:** sign up with email, Google or GitHub. A new account is on the free plan: by default 20 images, 1 new project, 20 seconds of video, 2000 characters of voice and $1 of spend a day, resetting at 00:00 UTC.
+- **Judges:** sign in with the demo account's email and password from the Devpost testing instructions. It is allowlisted (the higher limits) and already holds a finished chapter and its trailer, so nothing has to be generated to see the result.
+- **Anyone else:** sign up with an email and a password. The studio sends no email: the address is not verified and there is no password reset, so keep the password safe. A new account is on the free plan: by default 20 images, 1 new project, 20 seconds of video, 2000 characters of voice and $1 of spend a day, resetting at 00:00 UTC.
 - **Signed out:** `/terms`, `/privacy` and any share link (`/s/<token>`) open without an account.
 
 Inside: the dashboard (projects, videos, library, the quota meter), the studio's stations (story, cast, Director, page, reader), Share and Report, Animate a page, and Settings (account, defaults, sharing, usage, Export my data, Delete my account).
@@ -41,7 +41,7 @@ INKDESK_QUEUE=bullmq REDIS_URL=redis://localhost:6379 npm run dev
 INKDESK_QUEUE=bullmq REDIS_URL=redis://localhost:6379 npm run worker     # both read .env (a variable set in the shell wins over the file)
 ```
 
-`INKDESK_AUTH=clerk` with Clerk development keys gives real sign-in locally; `INKDESK_AUTH=test` (a request header names the caller) is for the checks. `VIDEO_ENABLED=true` opens Animate a page; in development it uses `bytedance/seedance-2.0-fast` at 480p unless `VIDEO_MODEL` and `VIDEO_RESOLUTION` say otherwise.
+`INKDESK_AUTH=better` with `BETTER_AUTH_SECRET` (32 characters or more, e.g. `openssl rand -base64 32`) and a MongoDB (`MONGODB_URI`, `MONGODB_DB`) gives real sign-in locally — Better Auth keeps the accounts in that database even on the local desk; `INKDESK_AUTH=test` (a request header names the caller) is for the checks. `VIDEO_ENABLED=true` opens Animate a page; in development it uses `bytedance/seedance-2.0-fast` at 480p unless `VIDEO_MODEL` and `VIDEO_RESOLUTION` say otherwise.
 
 Keep the OpenRouter balance above $1: at or below that the provider returns 402, which the app shows as a calm pause sentence while the terminal names the 402. Top up before filming rather than discovering the floor mid-chapter.
 
@@ -51,45 +51,48 @@ Production runs on Railway from `main`, one replica per service:
 
 | Service | Build and start | Needs |
 |---|---|---|
-| `web` | `npm run build`, then `npm run start`; health check path `/api/health` | Mongo, Redis, the buckets, Clerk, OpenRouter |
-| `worker` | `npm run worker` (same repository, its own start command) | Mongo, Redis, the buckets, OpenRouter, Clerk's secret key, ffmpeg and ffprobe on its PATH when video is open |
+| `web` | `npm run build`, then `npm run start`; health check path `/api/health` | Mongo (the work, and the accounts and sessions), Redis, the buckets, `BETTER_AUTH_SECRET`, OpenRouter |
+| `worker` | `npm run worker` (same repository, its own start command) | Mongo, Redis, the buckets, OpenRouter, `BETTER_AUTH_SECRET` (account deletion ends the sign-in), ffmpeg and ffprobe on its PATH when video is open |
 | `redis` | Railway's Redis template | private network only (`redis.railway.internal`); it provides `REDIS_URL` |
 | `mongo` | a MongoDB on the private network (`*.railway.internal`) | |
 
 Storage is two private S3-compatible buckets (Cloudflare R2 in this deployment): one for images and uploads, one for videos, audio and exports. The repository carries no build file that installs ffmpeg on the worker; the spec suggests nixpacks `aptPkgs = ["ffmpeg"]` or a Dockerfile.
 
-**What production refuses.** Both services stop at start with one sentence that names the setting, never its value, unless `INKDESK_STORAGE=cloud` (the local desk would be the container's own disk, wiped on every deploy), `INKDESK_QUEUE` is `bullmq` (its production default; `inline` is refused), `INKDESK_AUTH` is `clerk` (its production default; `off` and `test` are refused, and so is Clerk without its keys or without `APP_URL`) and the limits are on (`INKDESK_LIMITS=off` is refused, and they read as on in production whatever it says). The worker also refuses to start without `REDIS_URL`, without `CLERK_SECRET_KEY` in clerk mode, and with `VIDEO_ENABLED=true` but no ffmpeg; if ffmpeg goes missing later, a trailer is refused before any paid call. A web service with generation closed may start before Redis exists; one that can generate may not.
+**What production refuses.** Both services stop at start with one sentence that names the setting, never its value, unless `INKDESK_STORAGE=cloud` (the local desk would be the container's own disk, wiped on every deploy), `INKDESK_QUEUE` is `bullmq` (its production default; `inline` is refused), `INKDESK_AUTH` is `better` (its production default; `off` and `test` are refused, and so is Better Auth without `BETTER_AUTH_SECRET`, the Mongo settings or `APP_URL`) and the limits are on (`INKDESK_LIMITS=off` is refused, and they read as on in production whatever it says). The worker also refuses to start without `REDIS_URL`, without `BETTER_AUTH_SECRET` or the Mongo settings in better mode, and with `VIDEO_ENABLED=true` but no ffmpeg; if ffmpeg goes missing later, a trailer is refused before any paid call. A web service with generation closed may start before Redis exists; one that can generate may not.
 
 ### Variables
 
 Names only; values live in Railway, never in files. `.env.example` documents each one, its default and its range.
 
-- **Both services:** `NODE_ENV=production`, `INKDESK_STORAGE=cloud`, `INKDESK_QUEUE=bullmq`, `INKDESK_AUTH=clerk`, `REDIS_URL`, `CLERK_SECRET_KEY`; the store: `DB_URL` (or `MONGODB_URI`), `DB_DATABASE` (or `MONGODB_DB`), `S3_ENDPOINT`, `S3_PUBLIC_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET_PROJECT_FILES`, `S3_BUCKET_COMPILE_OUTPUTS`, `S3_FORCE_PATH_STYLE`, `S3_KEY_PREFIX` (optional); the providers and models: `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY` (optional), `ANTHROPIC_MODEL`, `IMAGE_MODEL`, `LLM_FALLBACK`, `LLM_FALLBACK_MODEL`, the `IMAGE_*` aspects and qualities, `GENERATION_TIMEOUT_MS`; video: `VIDEO_ENABLED`, `VIDEO_MODEL`, `VIDEO_RESOLUTION`, `VIDEO_MOTION_METHOD`, `TTS_MODEL`, `MUSIC_MODEL`.
-- **web only:** `APP_URL`, `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` (or `CLERK_PUBLISHABLE_KEY`; it must be set when Railway builds as well as when it runs), `CLERK_JWT_KEY` (optional), `CLERK_WEBHOOK_SIGNING_SECRET`, `NEXT_PUBLIC_CLERK_SIGN_IN_URL`, `NEXT_PUBLIC_CLERK_SIGN_UP_URL`, `GENERATION_ENABLED`, `ALLOWLIST_EMAILS`, `ADMIN_EMAILS`, `GLOBAL_DAILY_USD_CAP`, `GLOBAL_TOTAL_USD_CAP`, `USER_DAILY_USD_FREE`, `USER_DAILY_USD_ALLOW`, the `QUOTA_*` and `RATE_*` numbers, `TRUSTED_PROXY_HOPS`, `CLIENT_IP_HEADER`, `QUEUE_USER_INFLIGHT`, `QUEUE_MAX_WAITING`, `CONTACT_EMAIL`.
+- **Both services:** `NODE_ENV=production`, `INKDESK_STORAGE=cloud`, `INKDESK_QUEUE=bullmq`, `INKDESK_AUTH=better`, `REDIS_URL`, `BETTER_AUTH_SECRET` (the same value on both); the store: `DB_URL` (or `MONGODB_URI`), `DB_DATABASE` (or `MONGODB_DB`), `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET_PROJECT_FILES`, `S3_BUCKET_COMPILE_OUTPUTS`, `S3_FORCE_PATH_STYLE`, `S3_KEY_PREFIX` (optional); the providers and models: `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY` (optional), `ANTHROPIC_MODEL`, `IMAGE_MODEL`, `LLM_FALLBACK`, `LLM_FALLBACK_MODEL`, the `IMAGE_*` aspects and qualities, `GENERATION_TIMEOUT_MS`; video: `VIDEO_ENABLED`, `VIDEO_MODEL`, `VIDEO_RESOLUTION`, `VIDEO_MOTION_METHOD`, `TTS_MODEL`, `MUSIC_MODEL`.
+- **web only:** `APP_URL` (required: sign-in's base URL and trusted origin), `NEXT_PUBLIC_APP_URL`, `GENERATION_ENABLED`, `ALLOWLIST_EMAILS`, `ADMIN_EMAILS`, `GLOBAL_DAILY_USD_CAP`, `GLOBAL_TOTAL_USD_CAP`, `USER_DAILY_USD_FREE`, `USER_DAILY_USD_ALLOW`, the `QUOTA_*` and `RATE_*` numbers (including `RATE_SIGNIN_PER_MIN`, default 10, and `RATE_SIGNUP_PER_HOUR`, default 5, per client address), `TRUSTED_PROXY_HOPS`, `CLIENT_IP_HEADER`, `QUEUE_USER_INFLIGHT`, `QUEUE_MAX_WAITING`, `CONTACT_EMAIL`.
 - **worker only:** `QUEUE_CONCURRENCY_IMAGE`, `QUEUE_CONCURRENCY_VIDEO`, `VIDEO_SHOT_PARALLEL`, `VIDEO_POLL_MS`, `VIDEO_SHOT_TIMEOUT_MS`, `WORKER_GRACE_MS`, `IMAGE_RETRY_DELAY_MS`; on Railway also `RAILWAY_DEPLOYMENT_DRAINING_SECONDS`, set to about `WORKER_GRACE_MS` (90 s by default), or the platform ends a picture mid-call and it is drawn, and paid for, again.
 
 Every tuning number left blank takes its default; a malformed one stops the service by name.
 
-### Domain, Clerk and the buckets
+### Domain, sign-in and the buckets
 
-The exact records are generated per project: copy them from each dashboard. On the `web` service, Railway's custom domain needs its `CNAME` (CNAME flattening or `ALIAS` at the apex) and its `TXT` record; without the `TXT` the domain answers 404. A request to `www.<your-domain>` is redirected to the apex (308). The Clerk production instance lists its own records (Frontend API, Account Portal, the email records); on Cloudflare they must be DNS only. Google and GitHub sign-in need their own OAuth apps with the callback URL Clerk shows. Clerk's webhook goes to `https://<your-domain>/api/webhooks/clerk` with `user.created`, `user.updated` and `user.deleted`. The buckets stay private; their CORS allows `GET` and `PUT` from `APP_URL` only. See `devpost/spec.md > Domain and DNS (v3)`.
+The exact records are generated per project: copy them from Railway's dashboard. On the `web` service, Railway's custom domain needs its `CNAME` (CNAME flattening or `ALIAS` at the apex) and its `TXT` record; without the `TXT` the domain answers 404. A request to `www.<your-domain>` is redirected to the apex (308).
+
+Sign-in is [Better Auth](https://www.better-auth.com/docs) (open source), running inside the `web` service: accounts and sessions live in the studio's own MongoDB (Better Auth's `user`, `session`, `account` and `verification` collections), so there is no outside account to create, no DNS record and no webhook. Sign-in and sign-up are **email and password only** — no Google, GitHub or other outside sign-in. **There is no email service:** the studio sends no email, so an address typed on the sign-up page is never verified (the judge-account script below is the one exception), there is no password reset and the email cannot be changed; the sign-in card says so. There is no CAPTCHA; sign-in and sign-up are limited per client address. Rotating `BETTER_AUTH_SECRET` signs everyone out. The buckets stay private; their CORS allows `GET` and `PUT` from `APP_URL` only. See `devpost/spec.md > Domain and DNS (v3)`.
 
 ### Opening generation
 
 Generation is off in production until `GENERATION_ENABLED=true`. In order: set `ALLOWLIST_EMAILS` (your address, your friends', the judge account's) and the caps; put a credit limit on the OpenRouter key with auto top-up off, the backstop beyond every cap here; keep `REDIS_URL` on both services (production without Redis has no counters, so nothing can spend); then open generation.
 
 - If `ANTHROPIC_API_KEY` is set on Railway, also set a spend limit on the Anthropic workspace: Claude is billed by Anthropic directly, and the OpenRouter credit limit does not cover it.
-- `GLOBAL_DAILY_USD_CAP` (default $5) is the kill switch, shared by every plan: free sign-ups count toward it, and when it is reached generation pauses for everyone until 00:00 UTC, while reading, the reader, exports and shares keep working. It is read on every request, so lowering it to 0.01 pauses generation at once. Restricting Clerk sign-ups while judging runs keeps the day's budget for the judges.
+- `GLOBAL_DAILY_USD_CAP` (default $5) is the kill switch, shared by every plan: free sign-ups count toward it, and when it is reached generation pauses for everyone until 00:00 UTC, while reading, the reader, exports and shares keep working. It is read on every request, so lowering it to 0.01 pauses generation at once. There is no switch to close sign-ups; the per-address `RATE_SIGNUP_PER_HOUR` window is the only brake, so keep an eye on the day's spend while judging runs.
 - The free plan's $1 a day is below a 720p trailer (held at about $2.69 for four panels), so only allowlisted accounts can animate at 720p.
-- `ADMIN_EMAILS` is matched against the verified email Clerk's webhook delivers: sign in once before relying on `/admin/reports`.
+- `ALLOWLIST_EMAILS` and `ADMIN_EMAILS` match **verified** addresses only, and `npm run judge:account` is the only way an address becomes verified. An address typed on the sign-up page never is, so a stranger who registers your address gets an unverified free account and nothing more (an admin can remove it). To use `/admin/reports`: sign up with your own address, then run `JUDGE_PASSWORD='…' INKDESK_JUDGE_CONFIRMED=yes npm run judge:account -- --email <your address>` — for an existing account it marks the address verified and leaves the password alone.
 - `TRUSTED_PROXY_HOPS` stays at 1 (Railway's edge). Switch `CLIENT_IP_HEADER` to `x-real-ip` only after checking on the live domain that the edge overwrites a client-sent `X-Real-IP`.
 
 ### One-off scripts
 
 Each refuses to write to a cloud store without its own confirmation variable, because the database and buckets a shell points at may belong to another app. Run each with `--dry-run` first.
 
-- **The judge account** (`scripts/seed-judge.mts`): copies one finished project, and with `--with-trailer` its latest finished trailer, to the judge's Clerk user, under new ids, for $0. Nothing is drawn again; the source is never written; shares, reports, jobs, counters and settings are never copied; a second run changes nothing; the judge's account deletion removes the copy. Against production: `INKDESK_STORAGE=cloud INKDESK_JUDGE_CONFIRMED=yes npx tsx scripts/seed-judge.mts --from <projectId> --to user_xxx --with-trailer --dry-run`, then the same without `--dry-run`.
-- **Claiming old projects** (`scripts/claim-projects.mts --owner user_xxx [--project <id>] [--dry-run]`): gives projects made before accounts (owner unset or `local`) to one account, with their job records; a share link they carried is revoked. Cloud needs `INKDESK_CLAIM_CONFIRMED=yes`.
+- **The judge account, step 1** (`scripts/judge-account.mts`): makes an email-and-password account whose address is marked verified (so it can be on `ALLOWLIST_EMAILS`) and prints its id. With the web service's settings (`INKDESK_AUTH=better`, `BETTER_AUTH_SECRET`, the MongoDB): `JUDGE_PASSWORD='…' INKDESK_JUDGE_CONFIRMED=yes npm run judge:account -- --email judge@example.com --dry-run`, then without `--dry-run`. The password (10 characters or more) is never printed; running it again for the same email does not change the password. Add the email to `ALLOWLIST_EMAILS`; the email and password go in the Devpost testing instructions.
+- **The judge account, step 2** (`scripts/seed-judge.mts`): copies one finished project, and with `--with-trailer` its latest finished trailer, to the judge's account, under new ids, for $0. Nothing is drawn again; the source is never written; shares, reports, jobs, counters and settings are never copied; a second run changes nothing; the judge's account deletion removes the copy. Against production: `INKDESK_STORAGE=cloud INKDESK_JUDGE_CONFIRMED=yes npx tsx scripts/seed-judge.mts --from <projectId> --to <the 24-character id step 1 printed> --with-trailer --dry-run`, then the same without `--dry-run`.
+- **Claiming old projects** (`scripts/claim-projects.mts --owner <account id> [--project <id>] [--dry-run]`; the id is Better Auth's, 24 hex characters): gives projects made before accounts (owner unset or `local`) to one account, with their job records; a share link they carried is revoked. Cloud needs `INKDESK_CLAIM_CONFIRMED=yes`.
 - **Moving the repository's media** (`scripts/move-media-to-bucket.mts [--include-tracked] [--yes]`): uploads the generated media under `<prefix>archive/`, checks each object's size and sha256, and writes `data/MEDIA-MANIFEST.json`. It needs `INKDESK_MEDIA_TARGET_CONFIRMED=yes`, is a dry run without `--yes`, and never deletes anything.
 
 ## Prove the setup and the kernel
@@ -132,7 +135,7 @@ Measured at `low`, an image costs about $0.02, so a four-panel page is about $0.
 | Project-files bucket | `S3_BUCKET_PROJECT_FILES`, else `S3_BUCKET` | required: images and uploads |
 | Outputs bucket | `S3_BUCKET_COMPILE_OUTPUTS`, else the project-files bucket | videos, audio, exports; the key needs read, write and list |
 | The bucket host | `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | required |
-| Optional | `S3_PUBLIC_ENDPOINT` (default `S3_ENDPOINT`), `S3_FORCE_PATH_STYLE` (default true), `S3_KEY_PREFIX` (default `inkdesk/`, never the root) | |
+| Optional | `S3_FORCE_PATH_STYLE` (default true), `S3_KEY_PREFIX` (default `inkdesk/`, never the root) | |
 
 A missing or malformed setting is refused by name at startup, and the studio never falls back to the local desk on its own. Both buckets are probed at connect. They stay private: a picture reaches the browser only through the studio's routes, after the owner is checked (a share link serves only the pictures in its snapshot). A cloud desk starts empty; local projects stay on disk. Variables exported in your shell win over `.env`: if your shell sets `DB_*` or `S3_*` for another project, unset them first. The terminal names the database host and bucket host it connected to.
 
@@ -170,7 +173,7 @@ The `check:*` scripts replace `fetch` with a stub wherever a provider would be c
 | `npm run check:hardening` | Bodies capped before parsing (chunked ones too); every schema bounded and strict; generation closed with a 503; the image optimizer off; a fresh CSP nonce on every page, with no `'unsafe-inline'` for scripts. |
 | `npm run check:queue` | Against a real Redis: a page inks through BullMQ, each picture attached once; a killed worker's job finished by another, paid once; a flushed Redis loses nothing; Redis down is a calm 503; caps, fairness, the 402 breaker; the account and video lanes. |
 | `npm run check:activity` | What the studio derives from the jobs it polls: which cards and panels are in flight, when to poll, the status line. |
-| `npm run check:auth` | Every API route asks who is calling; the sign-in modes and production's refusals; webhook signatures and replays; the Origin and `www` rules; offline JWT verification; admins; the share routes' headers. |
+| `npm run check:auth` | Every API route asks who is calling; the sign-in modes and production's refusals; the real Better Auth on an in-memory database — sign-up, sign-in, the session, the account record carrying only a verified email, the sign-in and sign-up windows, a cross-origin write refused, a Google or GitHub sign-in refused; the Origin and `www` rules; admins; the share routes' headers. |
 | `npm run check:ownership` | Two accounts on every API route found on disk: the other person gets the missing-project 404 before a body is read, and never sees a picture, job, share, video or spend that is not theirs. |
 | `npm run check:limits` | Against a real Redis: quotas, spend reservation and settle, atomic under racing requests; the kill switch pauses everyone; sliding windows; plans; the meter equals the enforcement. |
 | `npm run check:share` | Shares, reports, settings, export and account deletion (a crash at every step), on the store and through the routes; a revoked link answers like one that never existed. |
@@ -190,7 +193,7 @@ The security and stability audit was run before the v3 build (on the v2 freeze, 
 
 - **Pre-existing work.** Two things were made by the learner before the hackathon: `reference/Ink Desk.html`, a standalone UI mockup whose look was ported into the app (its code is not reused, and it fakes all of its art with CSS); and the Ink Desk logo, mark and wordmark in `assets/`, regenerated in the brand red `#B5382E` during the build.
 - **How it was built.** Everything else was built during the hackathon with an AI coding agent, from the planning documents in `devpost/`.
-- **Who receives what.** OpenRouter: the image, video, speech, music and fallback text prompts, and the pictures sent as references. Anthropic: the text prompts, when `ANTHROPIC_API_KEY` is set. Clerk: accounts (email address and sign-in details). The MongoDB host and the bucket host: the stored work. Railway hosts the studio and keeps its logs.
+- **Who receives what.** OpenRouter: the image, video, speech, music and fallback text prompts, and the pictures sent as references. Anthropic: the text prompts, when `ANTHROPIC_API_KEY` is set. Accounts (email, the password only as a one-way hash, sessions) are kept by the studio itself in its own MongoDB — signing in involves no outside service. The MongoDB host and the bucket host: the stored work. Railway hosts the studio and keeps its logs.
 - **Generated output** is produced through the operator's provider accounts and is subject to those providers' terms. Uploaded references must be pictures you made or have permission to use; the app says so wherever a file can be uploaded.
 - **Share pages are public** to anyone with the link, without signing in, and are marked `noindex`. They are a snapshot of the finished pages, never the scenario, notes or account; Unpublish turns the link off at once.
 - **Terms and Privacy** are at `/terms` and `/privacy`, readable signed out and linked from sign-in. `CONTACT_EMAIL` sets the address they show.
@@ -216,7 +219,7 @@ devpost/      The planning documents, the build record and the security report
 assets/       The Ink Desk logo kit (SVG, PNG, WebP)
 reference/    The pre-existing UI mockup, Ink Desk.html
 public/       Static files the app serves
-agent/        The hackathon's learn skill pack, as installed
+.agents/      The hackathon's learn skill pack, as installed (linked from .claude/skills; skills-lock.json)
 ```
 
 `data/` is tracked on purpose: the kernel-test images are the evidence the early slices produced, and they travel with the clone. `.env` stays local; so do the local desk's job records and backups, and the demo's rebuilt outputs (`video/.gitignore`).

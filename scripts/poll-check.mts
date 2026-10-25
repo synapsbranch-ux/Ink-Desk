@@ -34,7 +34,7 @@ const ok = (msg: string) => console.log(`  ok  ${msg}`)
 const dir = await mkdtemp(join(tmpdir(), 'inkdesk-poll-'))
 const env = process.env as Record<string, string | undefined>
 for (const name of Object.keys(env)) {
-  if (/^(CLERK_|NEXT_PUBLIC_CLERK_|S3_|DB_|MONGODB_|REDIS_|RAILWAY_|ANTHROPIC_|OPENROUTER_|INKDESK_|IMAGE_|QUOTA_|RATE_|USER_DAILY_|GLOBAL_|ALLOWLIST_|TRUSTED_|QUEUE_|GENERATION_|LLM_)/.test(name)) delete env[name]
+  if (/^(BETTER_AUTH_|S3_|DB_|MONGODB_|REDIS_|RAILWAY_|ANTHROPIC_|OPENROUTER_|INKDESK_|IMAGE_|QUOTA_|RATE_|USER_DAILY_|GLOBAL_|ALLOWLIST_|TRUSTED_|QUEUE_|GENERATION_|LLM_)/.test(name)) delete env[name]
 }
 env.INKDESK_DATA_DIR = dir
 env.INKDESK_STORAGE = 'local'

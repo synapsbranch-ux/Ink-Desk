@@ -397,12 +397,6 @@ export function AnimateStation({ projectId, page, complete }: Props) {
     [video, take]
   )
 
-  const removed = useCallback(() => {
-    setVideo(null)
-    setNotice(null)
-    requestAnimationFrame(() => animateRef.current?.focus())
-  }, [])
-
   const uses = useMemo(
     () => (estimate ? usesVideoLine(usage, estimate.uses) : ''),
     [estimate, usage]
@@ -574,7 +568,7 @@ export function AnimateStation({ projectId, page, complete }: Props) {
                 </ul>
               )}
 
-              {finished && <VideoActions videoId={video.id} shareable={video.status === 'done' && video.videoUrl !== null} onRemoved={removed} />}
+              {finished && <VideoActions videoId={video.id} shareable={video.status === 'done' && video.videoUrl !== null} />}
             </>
           )}
 

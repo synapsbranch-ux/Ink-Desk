@@ -4,22 +4,23 @@
 // Revision v3 > Auth (v3)`.
 //
 // What it does depends on INKDESK_AUTH (`lib/auth/config.ts`):
-//   off    nothing — a single-person desk has no one to keep out.
-//   test   the `www` redirect and the Origin check, with no Clerk at all.
-//   clerk  those two, then Clerk verifies the session (with CLERK_JWT_KEY, no
-//          network call), and a signed-out visitor asking for a page is sent
-//          to sign-in — optimistically: every route handler and page checks
-//          again (`lib/auth/session.ts`), because a proxy must never be the
-//          only check.
+//   off     nothing — a single-person desk has no one to keep out.
+//   test    the `www` redirect and the Origin check, with no sign-in at all.
+//   better  those two, then a signed-out visitor asking for a page is sent to
+//           sign-in — OPTIMISTICALLY, from the presence of Better Auth's
+//           session cookie alone, with no database call: every route handler
+//           and page checks the session for real (`lib/auth/session.ts`),
+//           because a proxy must never be the only check.
 //
-// The health check (Railway asks with the host `healthcheck.railway.app`) and
-// Clerk's webhooks pass straight through: neither has a session, and the
-// webhook proves itself with its signature.
+// The health check (Railway asks with the host `healthcheck.railway.app`)
+// passes straight through. Better Auth's own routes (`/api/auth/*`) are API
+// routes: they answer for themselves, and their writes are Origin-checked here
+// like every other.
 //
 // Every page also gets its Content Security Policy here (slice 23, after-audit
 // #3; `lib/csp.ts`), in every mode, sign-in off included: a fresh nonce per
 // request, handed to the page's render with the policy (Next reads the nonce
-// from it and puts it on its own scripts; the root layout gives it to Clerk),
+// from it and puts it on its own scripts),
 // and the same policy on the response. API answers keep the static policy
 // from `next.config.ts`, which allows no inline script; `check:hardening`
 // holds both.
@@ -35,30 +36,24 @@
 //   • `/admin/*` is a page like any other: a signed-out visitor goes to
 //     sign-in, and the page itself answers anyone who is not an admin with the
 //     studio's 404 (`lib/auth/admin.ts`) — the proxy is never the only check.
-import { NextResponse, type NextFetchEvent, type NextMiddleware, type NextRequest } from 'next/server'
+import { NextResponse, type NextRequest } from 'next/server'
+import { getSessionCookie } from 'better-auth/cookies'
 import {
+  COOKIE_PREFIX,
+  PATH_HEADER,
   CROSS_ORIGIN_SENTENCE,
-  SIGN_IN_PATH,
-  SIGN_UP_PATH,
   authMode,
   authorizedParties,
-  clerkSettings,
   isApi,
   isCrossOrigin,
   isPublicApi,
   isPublicPage,
   wwwRedirect,
-  type ClerkSettings,
-  clerkHostForCsp,
 } from './lib/auth/config'
+import { signInHref } from './lib/auth/next'
 import { contentSecurityPolicy, newNonce } from './lib/csp'
 
-// Built on the first clerk-mode request, not at import: a desk with sign-in
-// off never loads Clerk, and a changed key (the checks change it) builds anew.
-let clerk: { key: string; handler: NextMiddleware } | null = null
-
-// A page request's headers with its nonce and policy, for Clerk's handler to
-// pass on (it gets the same request object; an API call has none).
+// A page request's headers with its nonce and policy.
 const pageHeaders = new WeakMap<Request, Headers>()
 
 /** Through to the page, with the nonce and the policy among its request headers. */
@@ -67,51 +62,31 @@ function next(req: Request): NextResponse {
   return headers ? NextResponse.next({ request: { headers } }) : NextResponse.next()
 }
 
-async function clerkHandler(settings: ClerkSettings): Promise<NextMiddleware> {
-  const key = JSON.stringify(settings)
-  if (clerk?.key === key) return clerk.handler
-  const { clerkMiddleware } = await import('@clerk/nextjs/server')
-  const handler = clerkMiddleware(
-    async (auth, req) => {
-      const { pathname } = req.nextUrl
-      // API routes answer 401 themselves; the open pages stay open.
-      if (isApi(pathname) || isPublicPage(pathname)) return next(req)
-      const { userId, redirectToSignIn } = await auth()
-      if (!userId) return redirectToSignIn({ returnBackUrl: req.url })
-      return next(req)
-    },
-    {
-      publishableKey: settings.publishableKey,
-      // The secret key is read by Clerk from CLERK_SECRET_KEY; it never passes through here.
-      jwtKey: settings.jwtKey,
-      authorizedParties: settings.authorizedParties,
-      signInUrl: SIGN_IN_PATH,
-      signUpUrl: SIGN_UP_PATH,
-    }
-  )
-  clerk = { key, handler }
-  return handler
+/** Sign-in, with the way back to where the visitor was going (a path on this studio, never another site). */
+function toSignIn(req: NextRequest): NextResponse {
+  return NextResponse.redirect(new URL(signInHref(`${req.nextUrl.pathname}${req.nextUrl.search}`), req.url), 307)
 }
 
-export async function proxy(req: NextRequest, event: NextFetchEvent) {
+export async function proxy(req: NextRequest) {
   const mode = authMode()
   const { pathname } = req.nextUrl
 
   let policy: string | null = null
   if (!isApi(pathname)) {
     const nonce = newNonce()
-    policy = contentSecurityPolicy({ nonce, dev: process.env.NODE_ENV === 'development', clerkHost: clerkHostForCsp() })
+    policy = contentSecurityPolicy({ nonce, dev: process.env.NODE_ENV === 'development' })
     const headers = new Headers(req.headers)
     headers.set('x-nonce', nonce)
+    headers.set(PATH_HEADER, `${pathname}${req.nextUrl.search}`)
     headers.set('content-security-policy', policy)
     pageHeaders.set(req, headers)
   }
-  const res = await decide(req, event, mode)
+  const res = decide(req, mode)
   if (policy) res.headers.set('Content-Security-Policy', policy)
   return res
 }
 
-async function decide(req: NextRequest, event: NextFetchEvent, mode: ReturnType<typeof authMode>): Promise<Response> {
+function decide(req: NextRequest, mode: ReturnType<typeof authMode>): Response {
   if (mode === 'off') return next(req)
 
   const { pathname } = req.nextUrl
@@ -125,15 +100,17 @@ async function decide(req: NextRequest, event: NextFetchEvent, mode: ReturnType<
   }
 
   if (mode === 'test') return next(req)
-  const handler = await clerkHandler(clerkSettings())
-  return (await handler(req, event)) ?? next(req)
+  // better: API routes answer 401 themselves; the open pages stay open.
+  if (isApi(pathname) || isPublicPage(pathname)) return next(req)
+  if (!getSessionCookie(req, { cookiePrefix: COOKIE_PREFIX })) return toSignIn(req)
+  return next(req)
 }
 
 export const config = {
-  // Clerk's documented matcher: every page and every API route, never Next's
-  // own files or a static asset (an image, a font, a stylesheet).
+  // Every page and every API route, never Next's own files or a static asset
+  // (an image, a font, a stylesheet).
   matcher: [
     '/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
-    '/(api|trpc)(.*)',
+    '/api(.*)',
   ],
 }

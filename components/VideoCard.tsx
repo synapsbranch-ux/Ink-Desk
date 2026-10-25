@@ -17,7 +17,6 @@
 // server's and the browser's markup agree (no hydration mismatch). `page` is the
 // zero-based index the project's pages use (the studio calls index 0 "Page 1").
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/components/api-fetch'
 import { VideoActions, VideoDialog, VideoPlayer } from '@/components/VideoPlayer'
@@ -46,7 +45,6 @@ export function dateOf(iso: string): string {
 }
 
 export function VideoCard({ video, projectTitle }: { video: VideoSummary; projectTitle: string | null }) {
-  const router = useRouter()
   const [playing, setPlaying] = useState(false)
   const length = lengthOf(video.seconds)
   const date = dateOf(video.createdAt)
@@ -116,14 +114,7 @@ export function VideoCard({ video, projectTitle }: { video: VideoSummary; projec
       )}
       {playing && (
         <VideoDialog title={from} onClose={() => setPlaying(false)}>
-          <Playing
-            video={video}
-            from={from}
-            onRemoved={() => {
-              setPlaying(false)
-              router.refresh()
-            }}
-          />
+          <Playing video={video} from={from} />
         </VideoDialog>
       )}
     </li>
@@ -131,7 +122,7 @@ export function VideoCard({ video, projectTitle }: { video: VideoSummary; projec
 }
 
 /** The dialog's body: asks for the trailer's own addresses (its captions may not exist) and then plays it. */
-function Playing({ video, from, onRemoved }: { video: VideoSummary; from: string; onRemoved: () => void }) {
+function Playing({ video, from }: { video: VideoSummary; from: string }) {
   const [view, setView] = useState<VideoView | null | 'failed'>(null)
   useEffect(() => {
     let alive = true
@@ -165,7 +156,7 @@ function Playing({ video, from, onRemoved }: { video: VideoSummary; from: string
   return (
     <>
       <VideoPlayer src={view.videoUrl} poster={view.posterUrl} captions={view.captionsUrl} title={`Trailer of ${from}`} />
-      <VideoActions videoId={video.id} shareable onRemoved={onRemoved} />
+      <VideoActions videoId={video.id} shareable />
     </>
   )
 }

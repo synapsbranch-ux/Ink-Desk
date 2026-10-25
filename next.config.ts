@@ -1,5 +1,5 @@
 import type { NextConfig } from 'next'
-import { clerkHostForCsp, isProduction } from './lib/auth/config'
+import { isProduction } from './lib/auth/config'
 import { contentSecurityPolicy } from './lib/csp'
 
 // Kept small. The studio is a client-rendered page over a handful of Node
@@ -15,14 +15,13 @@ const dev = process.env.NODE_ENV === 'development'
 const production = isProduction()
 
 // The CSP (`lib/csp.ts`). Slice 16 set it here with 'unsafe-inline' for
-// scripts; slice 19 added Clerk's hosts in clerk mode. Slice 23 (after-audit
+// scripts. Slice 23 (after-audit
 // #3) moves the page's policy to `proxy.ts`, which mints a nonce per request:
 // what stays here is the same policy with no nonce and no 'unsafe-inline',
 // for every response the proxy does not shape (API answers, Next's own files,
-// `public/`). On a page the proxy's header replaces this one. Clerk's host is
-// read from the publishable key, so here it is fixed when the app is BUILT;
-// the proxy reads it at run time.
-const csp = contentSecurityPolicy({ dev, clerkHost: clerkHostForCsp() })
+// `public/`). On a page the proxy's header replaces this one. Sign-in is the
+// studio's own (Better Auth), so the policy names no outside host.
+const csp = contentSecurityPolicy({ dev })
 
 const securityHeaders = [
   { key: 'Content-Security-Policy', value: csp },

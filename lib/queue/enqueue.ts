@@ -211,7 +211,7 @@ export async function enqueueJob(request: NewWork): Promise<Enqueued> {
  *
  *   • no project (`projectId` is ''), and the owner is exactly who is named — the route has already proved it is the caller;
  *   • one in flight per person and kind: the dedupe key (`export:<owner>`, `delete-account:<owner>`) hands back the job
- *     that already holds it, so a second click, the Clerk webhook and a retry all find the same job;
+ *     that already holds it, so a second click, a second tab and a retry all find the same job;
  *   • NO reservation — it draws nothing and calls no paid provider, so the limits layer is never asked (`reservation: none`);
  *   • exempt from GENERATION_ENABLED (the route does not check it), from the credit breaker, from the per-person
  *     in-flight cap and from the studio-wide waiting cap: a person must always be able to take their data and leave,

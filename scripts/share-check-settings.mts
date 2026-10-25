@@ -55,7 +55,7 @@ if (env.INKDESK_STORAGE?.trim() === 'cloud') {
 const dir = await mkdtemp(join(tmpdir(), 'inkdesk-share-settings-'))
 env.INKDESK_DATA_DIR = dir
 for (const name of Object.keys(env)) {
-  if (/^(CLERK_|NEXT_PUBLIC_CLERK_|S3_|DB_|MONGODB_|REDIS_|RAILWAY_)/.test(name)) delete env[name]
+  if (/^(BETTER_AUTH_|S3_|DB_|MONGODB_|REDIS_|RAILWAY_)/.test(name)) delete env[name]
 }
 for (const name of ['ANTHROPIC_API_KEY', 'OPENROUTER_API_KEY', 'GENERATION_ENABLED', 'INKDESK_QUEUE', 'APP_URL', 'NEXT_PUBLIC_APP_URL', 'ADMIN_EMAILS']) delete env[name]
 env.INKDESK_STORAGE = 'local'
@@ -317,7 +317,7 @@ try {
     assert.match(privacy, /Delete my account/, 'Privacy names the Delete my account button as Settings labels it')
     assert.doesNotMatch(privacy, /keeps only its own|Nothing of yours/i, 'Privacy does not claim nothing stays')
     assert.match(privacy, /backups/i, 'Privacy says backups and logs outlive the deletion')
-    assert.match(privacy, /Clerk user id|record of the account/i, 'Privacy names the minimal record that stays')
+    assert.match(privacy, /account id|record of the account/i, 'Privacy names the minimal record that stays')
     const deleteDialog = await read('components/SettingsDelete.tsx')
     assert.doesNotMatch(deleteDialog, /Nothing of yours|ends the sign-in early/, 'The delete dialog does not claim nothing stays, nor the old order')
     assert.match(deleteDialog, /backups/i, 'The delete dialog names backups among what stays')
@@ -335,9 +335,10 @@ try {
     const defaults = await read('components/SettingsDefaults.tsx')
     assert.doesNotMatch(defaults, /on a page you share/i, 'Defaults does not promise the direction reaches a shared page')
     assert.match(defaults, /shared page opens right to left/i, 'Defaults says a shared page opens right to left')
-    // The user menu is a way into Settings (PRD Core Journey step 7), not only Clerk's own profile modal.
-    const auth = await read('components/AuthControls.tsx')
-    assert.match(auth, /<UserButton[^>]*userProfileUrl="\/settings\/account"/, 'the account menu opens Settings, not a second account modal')
+    // The user menu is a way into Settings (PRD Core Journey step 7).
+    const auth = await read('components/AccountMenu.tsx')
+    assert.match(auth, /href="\/settings\/account"/, 'the account menu opens Settings › Account')
+    assert.match(auth, /authClient\.signOut\(\)/, 'and signs out on the server')
     ok('copy: Privacy and Terms describe public links, reports, export and deletion as they are; Defaults promises the direction for the studio only; the user menu opens Settings')
   }
 

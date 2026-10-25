@@ -751,6 +751,17 @@
           feature flag in the environment rather than on screen.</li>
         <li><b>8 · The order is by risk.</b> In the learner’s words: <em>“domain + storage + Redis/BullMQ worker + auth +
           ownership + rate limits first, then the Studio features, then video generation, then polish.”</em></li>
+        <li><b>9 · Sign-in moves from Clerk to Better Auth — 2026-10-24.</b> The learner’s word: <em>“base on the devpost
+          skill and also what the hackathon says i want you to remove clerk auth to betterauth … be careful to not leave stuff
+          not implemented”</em> (and <em>“no there is no clerk account”</em>: nothing to migrate). Why: the hackathon rules ask
+          for a repository that holds everything needed for the project to be functional, open source, with any third-party
+          service used under its terms, and a judge login in the testing instructions. Better Auth is open source (MIT) and
+          runs inside the app on the studio’s own MongoDB — no vendor account, dashboard or DNS records to wait on — and the
+          judge signs in with an ordinary email and password. <strong>What it costs, stated plainly:</strong> there is no email
+          service, so no verified email for password accounts, no password reset and no email change; Clerk’s bot protection
+          is gone (no CAPTCHA — per-address sign-in and sign-up limits instead); the account screens are the studio’s own.
+          <strong>The same day the learner cut Google and GitHub sign-in:</strong> <em>“make sure only email and password sign in / up are there and no google and github”</em> — sign-in and
+          sign-up are email and password only.</li>
       </ul>
     </div>
 
@@ -812,7 +823,7 @@
             <!-- row 1 -->
             <rect x="22" y="38" width="180" height="80" fill="#fff" stroke="#b5382e" stroke-width="2"/>
             <text x="34" y="60" font-size="14" font-weight="bold">1 · Sign in</text>
-            <text x="34" y="78" font-size="11.5" fill="#444141">email · Google · GitHub</text>
+            <text x="34" y="78" font-size="11.5" fill="#444141">email and password</text>
             <text x="34" y="93" font-size="11.5" fill="#444141">domain root goes straight</text>
             <text x="34" y="108" font-size="11.5" fill="#444141">into the app, no landing page</text>
 
@@ -908,7 +919,7 @@
       </div>
       <div class="card">
         <p class="eyebrow">And the public app</p>
-        <p style="margin-top:var(--s2)">A stranger can sign up with email, Google or GitHub, make a small chapter inside a
+        <p style="margin-top:var(--s2)">A stranger can sign up with an email and a password make a small chapter inside a
           free quota, and <strong>cannot see, change or spend anyone else’s work</strong>; when a limit is reached the
           buttons say why and when it resets; the whole thing works on a phone.</p>
       </div>
@@ -927,23 +938,28 @@
             (<code>APP_URL</code>, <code>NEXT_PUBLIC_APP_URL</code>). A health check Railway deploys against, and a calm status
             message when the worker or Redis is down.</li>
           <li><b>2 · Storage.</b> MongoDB is the source of truth for projects, users, jobs, videos, shares and reports; the
-            bucket holds every image, video and audio file, <strong>private</strong>, served through short-lived signed URLs;
+            bucket holds every image, video and audio file, <strong>private</strong>, served only through routes that check the owner first (as built, 2026-10-24: no signed URLs);
             public access only through share links. The local adapter stays for development. The generated art and media that
             git should not carry move to the bucket.</li>
-          <li><b>3 · Queue.</b> Redis + BullMQ on Railway: image, video and audio queues with retries, back-off, timeouts,
+          <li><b>3 · Queue.</b> Redis + BullMQ on Railway: image and video queues (and, as built, an account queue for export and deletion; a trailer’s speech and music run inside its video job) with retries, back-off, timeouts,
             stalled-job recovery and per-queue concurrency (2 for images, 1 for video). Mongo keeps job status and results, so
             progress and history survive a Redis flush.</li>
-          <li><b>4 · Auth and ownership.</b> Clerk with email, Google and GitHub; every route requires sign-in except
-            sign-in/sign-up, the public share pages, Terms and Privacy, and the health check. A signed webhook creates the user
-            in Mongo. <strong>Every resource is checked against the signed-in user on the server</strong> (no IDOR). Clerk’s bot
-            protection on sign-up.</li>
+          <li><b>4 · Auth and ownership.</b> Better Auth (open source, inside the app, accounts in the studio’s own MongoDB)
+            with <strong>email and password only</strong> (Google and GitHub cut at the learner’s word, 2026-10-24); every
+            route requires sign-in except
+            sign-in/sign-up, the public share pages, Terms and Privacy, and the health check. Each account is mirrored into the
+            studio’s own user record as it is made. <strong>Every resource is checked against the signed-in user on the
+            server</strong> (no IDOR). No CAPTCHA and no email service: sign-in and sign-up are rate-limited per address
+            instead, and a password account’s email stays unverified (so it never matches the allowlist or the admin list; the learner’s <code>judge:account</code> script is the one way an
+            address is marked verified).
+            <em>(Clerk until 2026-10-24 — see Changes Since Approval, item 9.)</em></li>
           <li><b>5 · Limits.</b> Per-user and per-IP rate limits on sign-up, generation and upload routes; daily per-user
             quotas (a new account gets a small free quota, e.g. 1 project, 20 images, 1 short video a day; higher limits only
             for allowlisted emails — the learner, testers, a judge demo account); a <strong>global daily spend kill switch,
             starting at $5/day for all users</strong>, that pauses generation with a clear message. The same counters drive the
             header meter, the Usage page and the enforcement.</li>
           <li><b>6 · Studio features.</b> The dashboard as home (projects, manga, videos, library, quota meter, New project);
-            <strong>Settings</strong> (profile and account through Clerk, studio defaults, my shared links with unpublish,
+            <strong>Settings</strong> (the account — email, how it signs in, change password, signed-in devices — studio defaults, my shared links with unpublish,
             export my data, delete my account and everything with it); <strong>Usage</strong> (today vs limit for images, video
             seconds, audio characters, reset time, spend today and this month from real <code>usage.cost</code>, the plan, an
             80% warning); <strong>public sharing</strong> of manga and videos on <code>/s/&lt;token&gt;</code> with Open Graph
@@ -953,7 +969,7 @@
           <li><b>8 · Responsive and polish.</b> Every screen works on mobile, tablet and desktop, following the 5b rules
             (visible actions, explained disabled states, real loading states).</li>
           <li><b>9 · Production readiness and security.</b> Environment validated at boot, HTTPS only, security headers and a
-            CSP that allow only the domain, Clerk and the providers in use, structured logs with no secrets or personal data,
+            CSP that allows only the studio’s own origin (no outside script, frame or image host), structured logs with no secrets or personal data,
             error tracking, graceful failures, and a <strong>security and stability audit before and after the build</strong>,
             written to <code>devpost/security-report.md</code> with severity and fix status.</li>
           <li><b>10 · The judge demo account</b> with a pre-made chapter and video; its credentials go in the Devpost testing
@@ -975,6 +991,11 @@
             edit (<code>flux-video-edit</code>), alternative video models (Kling, Veo, Wan, Hailuo), sound effects —
             <strong>each adopted only after a kernel-style test</strong>, with cost and purpose stated first
             (<code>spec.md &gt; Revision v3 &gt; Production models</code>).</li>
+          <li><strong>An email service</strong> — and with it verified email for password accounts, password reset, changing
+            the email address, and emailed notices. Not in v3: Better Auth would support them, but without a sender they would
+            be features that do not work.</li>
+          <li><strong>A CAPTCHA on sign-up</strong> (Clerk’s bot protection did this until 2026-10-24); the per-address
+            sign-up limit, the free quotas and the kill switch bound the damage meanwhile.</li>
           <li>Lip-sync, interface languages, a paid plan, a public gallery, indexing of share pages (they are
             <code>noindex</code> until the learner decides otherwise).</li>
           <li>Everything still <em>Later</em> from v2 that v3 does not name.</li>
@@ -991,6 +1012,8 @@
             kernel test passes. The honesty rule, extended.</li>
           <li><b>Unlimited anything for strangers</b> No route that spends money is reachable without sign-in, a quota and
             the kill switch.</li>
+          <li><b>Google and GitHub sign-in</b> Cut 2026-10-24 at the learner’s word: <em>“make sure only email and password sign in / up are there and no google and github”</em>. (Clerk offered
+            them; the 2026-10-14 plan above listed them.)</li>
           <li><b>Pushing a red build</b> Typecheck, lint and every <code>check:*</code> pass before every push to
             <code>main</code>.</li>
         </ul>

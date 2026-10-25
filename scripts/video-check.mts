@@ -65,7 +65,7 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
 // --- The environment: a scratch local desk, nothing real ------------------------------------
 for (const name of Object.keys(env)) {
-  if (/^(CLERK_|S3_|MONGODB_|DB_|NEXT_PUBLIC_CLERK_)/.test(name)) delete env[name]
+  if (/^(BETTER_AUTH_|S3_|MONGODB_|DB_)/.test(name)) delete env[name]
 }
 for (const name of [
   'ANTHROPIC_API_KEY', 'RAILWAY_TOKEN', 'APP_URL', 'REDIS_URL', 'REDIS_PRIVATE_URL', 'REDIS_PUBLIC_URL', 'NODE_ENV', 'ALLOWLIST_EMAILS', 'ADMIN_EMAILS',
@@ -451,7 +451,6 @@ try {
   await section('1. Cost — the token formula, the measured bills, the hold', async () => {
     assert.deepEqual(cost.renderDims('16:9', '720p'), { w: 1280, h: 720 })
     assert.deepEqual(cost.renderDims('1:1', '720p'), { w: 960, h: 960 }, 'a square shot renders 960×960 at 720p (measured 2026-10-14)')
-    assert.deepEqual(cost.renderDims('16:9', '1080p'), { w: 1920, h: 1080 })
     assert.deepEqual(cost.renderDims('1:1', '480p'), { w: 640, h: 640 })
     assert.equal(cost.videoTokens({ w: 1280, h: 720 }, 1), 21_600, 'W × H × s × 24 / 1024')
     // OpenRouter's listing: $0.151/s at 720p 16:9 on seedance-2.0, $0.040/s at 480p on -fast.
@@ -464,7 +463,8 @@ try {
     assert.ok(Math.abs(MEASURED_5S_720P - wide5) / MEASURED_5S_720P < 0.01, 'the formula is within 1% of the six measured bills')
     assert.ok(wide5 * cost.HOLD_MARGIN >= MEASURED_5S_720P, `the hold (${(wide5 * cost.HOLD_MARGIN).toFixed(4)}) covers the measured bill (${MEASURED_5S_720P})`)
     assert.ok(cost.HOLD_MARGIN > 1 && cost.HOLD_MARGIN < 1.1, 'the margin is a little over, not a guess')
-    assert.equal(cost.usdPerMToken('bytedance/seedance-2.0', '1080p'), 7.0 * 1.1, '1080p is $7.7/M on seedance-2.0')
+    assert.equal(cost.usdPerMToken('bytedance/seedance-2.0', '480p'), cost.usdPerMToken('bytedance/seedance-2.0', '720p'), '480p and 720p cost the same per token')
+    assert.deepEqual(Object.keys(cost.USD_PER_MTOKEN).sort(), ['bytedance/seedance-2.0', 'bytedance/seedance-2.0-fast'], 'only the two adopted models are priced')
     const dearest = Math.max(...Object.values(cost.USD_PER_MTOKEN))
     assert.equal(cost.usdPerMToken('someone/new-video-model', '720p'), dearest, 'an unknown model is priced as the dearest')
     assert.ok(cost.shotUsd('someone/new-video-model', '720p', '16:9', 5) >= Math.max(...Object.keys(cost.USD_PER_MTOKEN).map((m) => cost.shotUsd(m, '720p', '16:9', 5))))
@@ -1168,7 +1168,7 @@ try {
     const owed = rec.owedSince((await store.videos.get(videoId))!, 0)
     await settleRun(job.id, owed)
     const deletion = { id: randomUUID(), ownerId: IVY, kind: 'delete-account', payload: { kind: 'delete-account' } } as unknown as JobRecord
-    assert.deepEqual(await deleteAccount(deletion, { clerk: null, purgeCounters, now: () => new Date() }), { outcome: 'done' })
+    assert.deepEqual(await deleteAccount(deletion, { signIn: null, purgeCounters, now: () => new Date() }), { outcome: 'done' })
     const folder = `videos/${IVY}/`
     assert.deepEqual(await store.outputs.list(folder), [], 'the deletion leaves the folder empty')
     // The provider answers now: the clips come back to a run whose record, job and person are gone.

@@ -8,7 +8,7 @@
 //
 // THE SIGNATURES BELOW ARE THE CONTRACT with the processor and stay fixed. The
 // work is split by what it does: `export.ts` (the zip) with `zip.ts`, and
-// `deletion.ts` (the sweep) with `clerk.ts` and `counters.ts`; `keys.ts` names
+// `deletion.ts` (the sweep) with `signin.ts` and `counters.ts`; `keys.ts` names
 // where an account's files live and `state.ts` is what the three routes tell the
 // person. A `delete-account` job that ends `failed` keeps its record; only
 // `done` deletes it.

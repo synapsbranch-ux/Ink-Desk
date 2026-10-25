@@ -2,23 +2,25 @@
 // the caller on the server before reading anything: the proxy's redirect is
 // only optimistic, and a page must check for itself.
 //
-//   clerk  signed out → Clerk's sign-in, with the way back to this page
+//   better signed out → the studio's sign-in, with the way back to this page
 //   test   signed out → null; the page says so (there is no sign-in to send to)
 //   off    always `local`
 import 'server-only'
-import { authMode } from '@/lib/auth/config'
+import { authMode, PATH_HEADER } from '@/lib/auth/config'
 import { currentUser } from '@/lib/auth/session'
 import { limitsEnabled } from '@/lib/config'
 import { Refused } from '@/lib/errors'
 
-/** The signed-in user's id; in clerk mode a signed-out visitor never gets past this line. */
+/** The signed-in user's id; with sign-in on, a signed-out visitor never gets past this line. */
 export async function pageUser(): Promise<string | null> {
   const userId = await currentUser()
   if (userId) return userId
-  if (authMode() === 'clerk') {
-    const { auth } = await import('@clerk/nextjs/server')
-    const { redirectToSignIn } = await auth()
-    return redirectToSignIn() // throws Next's redirect; returnBackUrl defaults to this page
+  if (authMode() === 'better') {
+    const { headers } = await import('next/headers')
+    const { redirect } = await import('next/navigation')
+    const { signInHref } = await import('@/lib/auth/next')
+    // The page's own path, as the proxy passed it on (`x-inkdesk-path`); without it, the desk.
+    return redirect(signInHref((await headers()).get(PATH_HEADER))) // throws Next's redirect
   }
   return null
 }

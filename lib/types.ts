@@ -28,8 +28,6 @@ import { DEFAULT_STYLE_PRESET_ID, type StylePresetId } from './styles'
  */
 export type Station = 'story' | 'cast' | 'director' | 'storyboard' | 'reader'
 
-export const STATIONS: readonly Station[] = ['story', 'cast', 'director', 'storyboard', 'reader']
-
 export type Pitch = { text: string; genre: string; tone: string }
 
 export type Synopsis = { title: string; body: string; accepted: boolean }
@@ -178,7 +176,7 @@ export type Project = {
   updatedAt: string
   /** Set on the project the v1 desk migrated into. */
   migratedFrom?: string
-  /** Whose project it is (v3, slice 19): the Clerk user id, or `local` on a
+  /** Whose project it is (v3, slice 19): the account's id, or `local` on a
    *  desk without accounts. Absent on a project written before accounts, which
    *  counts as `local` — so only a desk running with `INKDESK_AUTH=off` opens
    *  it until `scripts/claim-projects.mts` gives it an owner. Set once, at
@@ -311,9 +309,6 @@ export function emptyDesk(
     chapterPanels: [[]],
   }
 }
-
-/** v1's name, kept for the checks and the pure helpers. */
-export const emptyChapter = emptyDesk
 
 export function emptyProject(input: {
   id: string

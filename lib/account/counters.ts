@@ -22,7 +22,7 @@ import { redisUrl } from '../config'
 import { backend } from '../limits/backend'
 import { producerRedis, redisKey, within } from '../queue/redis'
 
-/** Ids are letters, digits, `_` and `-` (Clerk's `user_…`, the test users'); a pattern is never built from anything else. */
+/** Ids are letters, digits, `_` and `-` (Better Auth's ids, the test users' `user_…`); a pattern is never built from anything else. */
 const SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/
 
 /** A scan that cannot end is a bug somewhere else; this many calls is far more than any keyspace needs. */

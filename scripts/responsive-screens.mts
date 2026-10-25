@@ -262,10 +262,10 @@ export const SCREENS: readonly Screen[] = [
     name: 'sign-in',
     area: 'surfaces',
     who: 'stranger',
-    what: 'Clerk’s sign-in in the paper frame',
-    unreachable: 'only rendered in INKDESK_AUTH=clerk; off and test redirect to /, and clerk needs real Clerk keys and Clerk’s network, which the check never touches',
+    what: 'the sign-in card in the paper frame',
+    unreachable: 'only rendered in INKDESK_AUTH=better; off and test redirect to /, and better needs the accounts’ MongoDB, which the check never touches',
   },
-  { name: 'sign-up', area: 'surfaces', who: 'stranger', what: 'Clerk’s sign-up', unreachable: 'as sign-in: clerk mode only' },
+  { name: 'sign-up', area: 'surfaces', who: 'stranger', what: 'the sign-up card', unreachable: 'as sign-in: better mode only' },
   { name: 'error', area: 'surfaces', who: 'owner', what: 'the error boundary (app/error.tsx)', unreachable: 'shown only when a page throws; the check has no way to make one throw without changing product code' },
 
   // --- shell ----------------------------------------------------------------------

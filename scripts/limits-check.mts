@@ -100,7 +100,7 @@ const deadPort = await freePort()
 const dir = await mkdtemp(join(tmpdir(), 'inkdesk-limits-'))
 const env = process.env as Record<string, string | undefined>
 for (const name of Object.keys(env)) {
-  if (/^(CLERK_|NEXT_PUBLIC_CLERK_|S3_|DB_|MONGODB_|REDIS_|RAILWAY_|ANTHROPIC_|OPENROUTER_|INKDESK_|IMAGE_|QUOTA_|RATE_|USER_DAILY_|GLOBAL_|ALLOWLIST_|TRUSTED_|QUEUE_|GENERATION_|LLM_)/.test(name)) delete env[name]
+  if (/^(BETTER_AUTH_|S3_|DB_|MONGODB_|REDIS_|RAILWAY_|ANTHROPIC_|OPENROUTER_|INKDESK_|IMAGE_|QUOTA_|RATE_|USER_DAILY_|GLOBAL_|ALLOWLIST_|TRUSTED_|QUEUE_|GENERATION_|LLM_)/.test(name)) delete env[name]
 }
 delete env.NODE_ENV
 delete env.APP_URL
@@ -449,7 +449,6 @@ try {
     assert.equal(win('GET', '/api/usage'), 'read')
     assert.equal(win('GET', '/api/projects/p1'), 'read')
     assert.equal(win('GET', '/api/projects/p1/image/img-1.png'), 'media')
-    assert.equal(win('GET', '/api/image/img-1.png'), 'media')
     assert.equal(win('POST', '/api/projects'), 'edit')
     assert.equal(win('POST', '/api/projects/p1'), 'edit')
     assert.equal(win('POST', '/api/projects/p1/assets'), 'upload')
@@ -537,7 +536,7 @@ try {
     assert.equal(limitsEnabled({}), false, 'a local desk with sign-in off: off')
     assert.equal(limitsEnabled({ INKDESK_AUTH: 'off' }), false)
     assert.equal(limitsEnabled({ INKDESK_AUTH: 'test' }), true, 'sign-in on: on')
-    assert.equal(limitsEnabled({ INKDESK_AUTH: 'clerk' }), true)
+    assert.equal(limitsEnabled({ INKDESK_AUTH: 'better' }), true)
     assert.equal(limitsEnabled({ INKDESK_AUTH: 'off', INKDESK_LIMITS: 'on' }), true)
     assert.equal(limitsEnabled({ INKDESK_AUTH: 'test', INKDESK_LIMITS: 'off' }), false)
     // Read on every call: lowering the cap in the host changes the very next answer.
@@ -1856,7 +1855,7 @@ try {
       ok('11 a closed studio puts the paid routes in the edit window, not in none')
     }
 
-    // (8) Clerk’s own word about an address decides whether it names a person: see check:auth (the webhook).
+    // (8) Only a VERIFIED address names a person (the account record carries no other): see check:auth (Better Auth).
 
     // The screens’ half of the fixes — pure.
     {

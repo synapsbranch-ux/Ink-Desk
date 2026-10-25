@@ -42,7 +42,7 @@ for (const name of [
   'MONGODB_DB',
   'DB_DATABASE',
   'S3_ENDPOINT',
-  'S3_PUBLIC_ENDPOINT',
+ 
   'S3_REGION',
   'S3_BUCKET',
   'S3_BUCKET_PROJECT_FILES',
@@ -398,9 +398,8 @@ try {
   assert.equal((await call(desk.GET, new Request('http://check/api'), { id: pid })).status, 200)
   assert.equal((await call(projects.POST, post({ title: 'Still open', stylePresetId: 'manga-bw' }))).status, 200)
   delete env.GENERATION_ENABLED
-  // Slice 19: production always signs in through Clerk, before the flag is
-  // read, and Clerk only runs inside Next — so the routes are not called in
-  // production here (check:ownership holds the sign-in order, in test mode). The flag’s
+  // Slice 19: production always signs in (Better Auth, on its MongoDB) before
+  // the flag is read — so the routes are not called in production here (check:ownership holds the sign-in order, in test mode). The flag’s
   // production default is held directly.
   assert.equal(generationEnabled({ NODE_ENV: 'production' }), false, 'GENERATION_ENABLED unset is closed in production')
   assert.equal(generationEnabled({ NODE_ENV: 'production', GENERATION_ENABLED: 'true' }), true, 'GENERATION_ENABLED=true opens it in production')
@@ -436,14 +435,12 @@ try {
 
   // 10. Slice 23 (#3): every page carries a CSP with a fresh nonce from proxy.ts — scripts only from that nonce and
   // what it loads ('strict-dynamic'), never 'unsafe-inline'; 'unsafe-eval' in development only. Next reads the nonce
-  // from the request's policy and puts it on its own scripts; the root layout hands it to Clerk.
+  // from the request's policy and puts it on its own scripts. Sign-in is the studio's own: no outside host anywhere.
   {
     const { NextRequest } = await import('next/server')
     const { proxy } = await import('../proxy')
     const nextConfig = (await import('../next.config')).default
-    const event = { waitUntil() {} } as unknown as import('next/server').NextFetchEvent
     const APP = 'https://inkdesk.example'
-    const FAPI = 'clerk.inkdesk.example'
     const withEnv = async (vars: Record<string, string | undefined>, fn: () => Promise<void>) => {
       const saved = Object.fromEntries(Object.keys(vars).map((k) => [k, env[k]]))
       for (const [k, v] of Object.entries(vars)) if (v === undefined) delete env[k]
@@ -457,7 +454,7 @@ try {
     }
     const directives = (policy: string) => new Map(policy.split('; ').map((d) => [d.split(' ')[0], d.split(' ').slice(1)]))
     const visit = (url: string, headers: Record<string, string> = {}) =>
-      proxy(new NextRequest(url, { headers: { host: new URL(url).host, accept: 'text/html', 'sec-fetch-dest': 'document', ...headers } }), event)
+      proxy(new NextRequest(url, { headers: { host: new URL(url).host, accept: 'text/html', 'sec-fetch-dest': 'document', ...headers } }))
     /** The page's nonce, after holding the response's policy against what the page's render is handed. */
     const nonceOf = (res: Response, what: string) => {
       const policy = res.headers.get('content-security-policy') ?? ''
@@ -527,36 +524,30 @@ try {
       const { script } = nonceOf(await visit('http://localhost:3000/'), 'development')
       assert.ok(script.includes("'unsafe-eval'"), "development: 'unsafe-eval'")
     })
-    // Production signs in through Clerk (fake keys, offline): Clerk's hosts join the policy, the nonce survives Clerk's own
-    // request headers, and a signed-out visitor sent to sign-in is still answered by the proxy.
-    const fakePk = `pk_live_${Buffer.from(`${FAPI}$`).toString('base64')}`
+    // Production signs in through Better Auth (fake settings, offline): the policy is the same — no outside host joins it,
+    // signed in or out — and a signed-out visitor sent to sign-in is still answered by the proxy.
     await withEnv(
-      { NODE_ENV: 'production', INKDESK_AUTH: 'clerk', NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: fakePk, CLERK_SECRET_KEY: `sk_live_${'c'.repeat(32)}`, APP_URL: APP, CLERK_JWT_KEY: undefined },
+      { NODE_ENV: 'production', INKDESK_AUTH: 'better', BETTER_AUTH_SECRET: 'c'.repeat(32), MONGODB_URI: 'mongodb://check.invalid:27017/', MONGODB_DB: 'check', APP_URL: APP },
       async () => {
-        for (const path of ['/sign-in', '/sign-up/verify', '/s/tok123', '/s/tok123/opengraph-image', '/terms']) {
-          const what = `clerk: ${path}`
-          const res = await visit(`${APP}${path}`)
+        for (const [path, cookie] of [['/sign-in', ''], ['/sign-up', ''], ['/s/tok123', ''], ['/s/tok123/opengraph-image', ''], ['/terms', ''], ['/p/abc', '__Secure-inkdesk.session_token=x'], ['/settings/account', '__Secure-inkdesk.session_token=x']] as const) {
+          const what = `better: ${path}`
+          const res = await visit(`${APP}${path}`, cookie ? { cookie } : {})
           const { policy, script } = nonceOf(res, what)
           assert.ok(!script.includes("'unsafe-eval'"), `${what}: no 'unsafe-eval' in production`)
-          assert.ok(script.includes(`https://${FAPI}`) && script.includes('https://challenges.cloudflare.com'), `${what}: Clerk's hosts kept for browsers without 'strict-dynamic'`)
-          const d = directives(policy)
-          assert.ok(d.get('connect-src')!.includes(`https://${FAPI}`), `${what}: Clerk's API`)
-          assert.ok(d.get('img-src')!.includes('https://img.clerk.com'), `${what}: Clerk's avatars`)
-          assert.deepEqual(d.get('frame-src'), ["'self'", `https://${FAPI}`, 'https://challenges.cloudflare.com'], `${what}: Clerk's frames and Turnstile`)
-          assert.deepEqual(d.get('worker-src'), ["'self'", 'blob:'], `${what}: Clerk's session worker`)
-          assert.equal(res.headers.get('x-middleware-request-x-clerk-auth-status'), 'signed-out', `${what}: Clerk’s own request headers still reach the page`)
+          assert.ok(!/https?:\/\//.test(policy), `${what}: no outside host in the policy`)
+          sameOtherwise(policy, staticPolicy, what)
         }
         const signedOut = await visit(`${APP}/p/abc`)
-        assert.ok([302, 307, 308].includes(signedOut.status), `a signed-out page still goes to sign-in, got ${signedOut.status}`)
+        assert.equal(signedOut.status, 307, `a signed-out page still goes to sign-in, got ${signedOut.status}`)
+        assert.ok(signedOut.headers.get('content-security-policy'), 'and the redirect carries the policy too')
       }
     )
     assert.deepEqual(outbound, [], 'nothing reached the network')
     // Every page renders per request, so each one gets its own nonce: the root layout reads the request's headers
-    // (a static page would carry no nonce, and its scripts would be refused), and gives the nonce to Clerk's script.
+    // (a static page would carry no nonce, and its scripts would be refused).
     const layout = await readFile(join(ROOT, 'app/layout.tsx'), 'utf8')
     assert.match(layout, /await headers\(\)/, 'the root layout reads the request, so no page is prerendered without a nonce')
-    assert.match(layout, /nonce=\{nonce\}/, 'Clerk’s script tag carries the nonce')
-    ok(`CSP: ${PAGES.length} pages in off and test mode and 5 in clerk mode each get a fresh nonce, 'strict-dynamic' and no 'unsafe-inline'; the render is handed both; 'unsafe-eval' only in development; API answers keep the static policy, which allows no inline script`)
+    ok(`CSP: ${PAGES.length} pages in off and test mode and 7 in better mode each get a fresh nonce, 'strict-dynamic' and no 'unsafe-inline'; the render is handed both; 'unsafe-eval' only in development; API answers keep the static policy, which allows no inline script`)
   }
 
   console.log('\n  Request hardening check passed.\n')

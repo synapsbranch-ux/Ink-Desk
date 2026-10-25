@@ -20,9 +20,11 @@ export type Units = Partial<Record<SpendKind, number>>
  * The five request windows (`spec.md`: paid text 10/min, paid image 6/min, uploads 20/hour, edits 120/min, reads 240/min),
  * plus the ones the studio adds: pictures served (`media`) and signed-out callers (`anon`) — and, in slice 21, the two
  * that belong to the public share routes, keyed by client address like `anon`: pictures of a shared manga (`anonMedia`,
- * 600 a minute) and the report form (`report`, 6 an hour; it fails CLOSED, see `requests.ts`).
+ * 600 a minute) and the report form (`report`, 6 an hour; it fails CLOSED, see `requests.ts`). Since the Better Auth
+ * revision (2026-10-24) the studio's own sign-in pages need two more, per client address: attempts to sign in
+ * (`signin`, 10 a minute) and accounts made (`signup`, 5 an hour); both fail CLOSED.
  */
-export const RATE_BUCKETS = ['text', 'image', 'upload', 'edit', 'read', 'media', 'anon', 'anonMedia', 'report'] as const
+export const RATE_BUCKETS = ['text', 'image', 'upload', 'edit', 'read', 'media', 'anon', 'anonMedia', 'report', 'signin', 'signup'] as const
 export type RateBucket = (typeof RATE_BUCKETS)[number]
 
 // --- Money ----------------------------------------------------------------------

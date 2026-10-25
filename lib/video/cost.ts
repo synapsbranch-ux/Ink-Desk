@@ -15,15 +15,10 @@ import type { ShotAspect } from './types'
 export const USD_PER_MTOKEN: Record<string, number> = {
   'bytedance/seedance-2.0': 7.0,
   'bytedance/seedance-2.0-fast': 4.2,
-  'bytedance/seedance-2.0-mini': 3.5,
-  'bytedance/seedance-2.5': 10.7,
 }
 
 /** A model this table does not know is priced as the dearest, so an estimate is never optimistic by accident. */
 const UNKNOWN_MODEL_USD_PER_MTOKEN = Math.max(...Object.values(USD_PER_MTOKEN))
-
-/** What 1080p adds to Seedance 2.0's price (7.7 against 7.0). */
-const FULL_HD_SURCHARGE = 1.1
 
 /** A voice line: ElevenLabs v4 through OpenRouter, $ per character. */
 export const TTS_USD_PER_CHAR = 0.00004
@@ -43,8 +38,8 @@ export function renderDims(aspect: ShotAspect, resolution: string): { w: number;
 export const videoTokens = (dims: { w: number; h: number }, seconds: number): number => (dims.w * dims.h * seconds * 24) / 1024
 
 export function usdPerMToken(model: string, resolution: string): number {
-  const base = USD_PER_MTOKEN[model] ?? UNKNOWN_MODEL_USD_PER_MTOKEN
-  return resolution === '1080p' && model === 'bytedance/seedance-2.0' ? base * FULL_HD_SURCHARGE : base
+  void resolution // 480p and 720p cost the same per token
+  return USD_PER_MTOKEN[model] ?? UNKNOWN_MODEL_USD_PER_MTOKEN
 }
 
 /** One shot at the formula's price (no margin). */

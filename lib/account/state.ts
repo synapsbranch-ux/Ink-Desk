@@ -75,7 +75,7 @@ export async function deleteState(ownerId: string, now = Date.now()): Promise<De
   if (last?.status === 'failed' && last.outcome !== 'cancelled') return { state: 'failed', error: last.error ?? DELETE_FAILED }
   if (last?.status === 'done') return { state: 'done' }
   // The finished job deletes its own record: the account's tombstone is what is left to say it happened. But the tombstone goes on FIRST
-  // and Clerk's user goes last, so a deletion that failed leaves a live, signed-in person with a tombstone too — and its failed record is
+  // and the sign-in goes last, so a deletion that failed leaves a live, signed-in person with a tombstone too — and its failed record is
   // pruned after KEEP_FINISHED_MS (counted from its ending, so always later than the tombstone). Only a tombstone younger than that can
   // be a deletion that finished a moment ago; an older one with no job is nothing under way, and the person may start it again.
   const tombstone = (await store.users.get(ownerId))?.deletedAt

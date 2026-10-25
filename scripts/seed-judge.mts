@@ -4,7 +4,7 @@
 // store's own interfaces, under new ids, so the original stays its owner's and is
 // never written.
 //
-//   npx tsx scripts/seed-judge.mts --from <projectId> --to user_xxx [--with-trailer] [--data-dir data] [--dry-run]
+//   npx tsx scripts/seed-judge.mts --from <projectId> --to <accountId> [--with-trailer] [--data-dir data] [--dry-run]
 //
 // What is copied: the project (its story, library, chapter, plan, cover and
 // pages, its usage readout) with a NEW project id and owner `--to`, and every
@@ -40,14 +40,15 @@ import './server-only.mts' // first: lets server modules load outside Next (SEC-
 import { createHash } from 'node:crypto'
 import { Readable } from 'node:stream'
 import { parseArgs } from 'node:util'
+import { ACCOUNT_ID } from '../lib/auth/config'
 import type { BlobKind } from '../lib/store'
 import type { VideoRecord } from '../lib/share/types'
 import type { Project } from '../lib/types'
 
-const USAGE = 'Usage: npx tsx scripts/seed-judge.mts --from <projectId> --to user_xxx [--with-trailer] [--data-dir data] [--dry-run]'
+const USAGE = 'Usage: npx tsx scripts/seed-judge.mts --from <projectId> --to <accountId> [--with-trailer] [--data-dir data] [--dry-run]'
 
-/** Clerk's user id shape — the only owner a copy may be given. */
-const OWNER = /^user_[A-Za-z0-9]{1,40}$/
+/** An account id (`lib/auth/config.ts > ACCOUNT_ID`) — the only owner a copy may be given. */
+const OWNER = ACCOUNT_ID
 
 /** That a record is a copy, kept on it (the stores keep a record whole). Never the source's ids: the judge's
  *  data export holds the project as stored, and the derived id alone finds the copy again. */
@@ -86,7 +87,7 @@ try {
 const from = args.from ?? ''
 const to = args.to ?? ''
 if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(from)) fail(`--from must be a project id.\n${USAGE}`)
-if (!OWNER.test(to)) fail(`--to must be a Clerk user id (user_…).\n${USAGE}`)
+if (!OWNER.test(to)) fail(`--to must be an account id (as Settings › Account and judge:account print it, or user_… in test mode).\n${USAGE}`)
 const withTrailer = args['with-trailer'] === true
 const dryRun = args['dry-run'] === true
 
@@ -193,7 +194,7 @@ try {
   const pages = source.chapters.flatMap((c) => c.pages)
   const inked = pages.filter((p) => p.panels.length > 0 && p.panels.every((panel) => panel.versions.length > 0)).length
   console.log(`From  ${label(source)} — owner ${sourceOwner}, ${inked} of ${pages.length} page(s) complete`)
-  console.log(`To    ${to}${account ? '' : ' — no account record yet (Clerk’s webhook writes it at sign-up); the copy waits for them'}`)
+  console.log(`To    ${to}${account ? '' : ' — no account record yet (it is written when the account is made); the copy waits for them'}`)
   if (inked < pages.length) console.log('      note: not every page is complete; the copy shows the chapter as it stands')
 
   // --- The project and its pictures ---------------------------------------------------

@@ -1,4 +1,4 @@
-// Who is calling (v3, slice 19). Every route handler asks here first — the
+// Who is calling (v3, slice 19; Better Auth since 2026-10-24). Every route handler asks here first — the
 // proxy's redirect is only optimistic, and Next's own guide says the proxy
 // must never be the only check (`node_modules/next/dist/docs/01-app/02-guides/
 // authentication.md`). See `devpost/spec.md > Revision v3 > Auth (v3)`.
@@ -6,10 +6,11 @@
 //   off    everyone is `local`, the one owner of a single-person desk
 //   test   the `x-inkdesk-test-user` header names the caller (development and
 //          the checks; production refuses the mode at boot and in `authMode`)
-//   clerk  Clerk's session, verified by `clerkMiddleware` in `proxy.ts`
+//   better Better Auth's session, read from its cookie and checked against the
+//          `session` collection on every call (`lib/auth/server.ts`)
 //
-// Clerk is loaded only in clerk mode, so the checks and a local desk never
-// load it.
+// Better Auth is loaded only in better mode, so the checks and a local desk
+// never load it.
 import 'server-only'
 import { limitsEnabled } from '../config'
 import { Refused } from '../errors'
@@ -21,7 +22,7 @@ export const LOCAL_OWNER = 'local'
 /** The header a test-mode caller names itself with. */
 export const TEST_USER_HEADER = 'x-inkdesk-test-user'
 
-/** What a test-mode user id must look like: Clerk's own shape, so nothing downstream can tell the difference. */
+/** What a test-mode user id must look like: a plain id, safe as a key, a folder and a filename — as Better Auth's are. */
 const TEST_USER = /^user_[A-Za-z0-9]{1,40}$/
 
 /** The one sentence a signed-out caller gets, from every route. */
@@ -47,10 +48,38 @@ export async function currentUser(req?: Request): Promise<string | null> {
   const mode = authMode()
   if (mode === 'off') return LOCAL_OWNER
   if (mode === 'test') return testUser(req)
-  // clerk: `auth()` reads what clerkMiddleware verified for this request.
-  const { auth } = await import('@clerk/nextjs/server')
-  const { userId } = await auth()
-  return userId ?? null
+  // better: the session cookie, checked against the database (never trusted on its own).
+  let headers: Headers
+  if (req) headers = req.headers
+  else headers = new Headers(await (await import('next/headers')).headers())
+  const { getAuth } = await import('./server')
+  const session = await getAuth().api.getSession({ headers })
+  if (!session) return null
+  await keepRecord(session.user)
+  return session.user.id
+}
+
+/** When each account's record was last written by this process. */
+const recorded = new Map<string, { at: number; email: string; verified: boolean }>()
+const RECORD_EVERY_MS = 10 * 60_000
+
+/**
+ * The studio's `users` record follows the account (written when it is made, by Better Auth's hook). A hook whose store
+ * write failed is mended here, on the person's next request — at most once every ten minutes per person, or at once
+ * when their address or its verification changed. A failure here never refuses the request: the record only ever
+ * GRANTS (the allowlist, admin), so a missing one is the safe direction.
+ */
+async function keepRecord(user: { id: string; email: string; emailVerified: boolean; createdAt: Date | string }): Promise<void> {
+  const last = recorded.get(user.id)
+  if (last && last.email === user.email && last.verified === user.emailVerified && Date.now() - last.at < RECORD_EVERY_MS) return
+  try {
+    const { recordAccount } = await import('./server')
+    await recordAccount(user)
+    if (recorded.size > 10_000) recorded.clear()
+    recorded.set(user.id, { at: Date.now(), email: user.email, verified: user.emailVerified })
+  } catch (err) {
+    console.warn('[auth] the account record could not be written:', err instanceof Error ? err.message : err)
+  }
 }
 
 /**

@@ -30,7 +30,8 @@
 // account's empty desk can be seen too — with the limits ON (in-process
 // counters, request windows raised) so the quota meter shows as it does for a
 // signed-in person. Sign-in and sign-up are listed but cannot be reached: they
-// render only in clerk mode, which needs real Clerk keys and Clerk's network.
+// render only in better mode, whose accounts live in a MongoDB the check never
+// touches (their layout is plain CSS in app/responsive/surfaces.css).
 //
 // Measured per screen and width (`scripts/responsive-measure.mts`):
 //   sideways-scroll  html/body wider than the viewport (or a masked overflow),
@@ -72,7 +73,7 @@ const started = Date.now()
 
 // --- Nothing real in this process -----------------------------------------------------------
 for (const name of Object.keys(env)) {
-  if (/^(CLERK_|S3_|MONGODB_|DB_|NEXT_PUBLIC_|OPENROUTER_|ANTHROPIC_|ELEVENLABS_|REDIS_|BUCKET_|AWS_|CLOUDFLARE_|CLOUDFARE_|RAILWAY_)/.test(name)) delete env[name]
+  if (/^(BETTER_AUTH_|S3_|MONGODB_|DB_|NEXT_PUBLIC_|OPENROUTER_|ANTHROPIC_|ELEVENLABS_|REDIS_|BUCKET_|AWS_|CLOUDFLARE_|CLOUDFARE_|RAILWAY_)/.test(name)) delete env[name]
 }
 for (const name of ['APP_URL', 'ADMIN_URL', 'COMPILE_WORKER_URL', 'ADMIN_EMAILS', 'ALLOWLIST_EMAILS', 'INKDESK_AUTH', 'INKDESK_DATA_DIR', 'NODE_ENV']) delete env[name]
 
@@ -279,7 +280,7 @@ function claimDistDir(): { dir: string; release: () => void } {
 }
 
 /** Credentials and switches blanked even when no .env file names them (the parent's scrub, above, by name). */
-const ALWAYS_BLANK = ['OPENROUTER_API_KEY', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'ELEVENLABS_API_KEY', 'CLERK_SECRET_KEY', 'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY', 'DB_URL', 'MONGODB_URI', 'REDIS_URL', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY', 'APP_URL', 'ALLOWLIST_EMAILS', 'GENERATION_ENABLED']
+const ALWAYS_BLANK = ['OPENROUTER_API_KEY', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'ELEVENLABS_API_KEY', 'BETTER_AUTH_SECRET', 'DB_URL', 'MONGODB_URI', 'REDIS_URL', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY', 'APP_URL', 'ALLOWLIST_EMAILS', 'GENERATION_ENABLED']
 
 /** Every name any `.env*` file in `dir` sets (`.env.example` included). */
 function envFileNames(dir: string): string[] {
@@ -366,7 +367,7 @@ async function envLeak(): Promise<string | null> {
   const dir = await mkdtemp(join(tmpdir(), 'inkdesk-responsive-env-'))
   try {
     writeFileSync(join(dir, '.env'), 'OPENROUTER_API_KEY=sk-or-pin\nANTHROPIC_API_KEY=sk-ant-pin\nDB_URL=mongodb://example.invalid/pin\nALLOWLIST_EMAILS=pin@example.com\nINKDESK_STORAGE=cloud\n')
-    writeFileSync(join(dir, '.env.development.local'), 'CLERK_SECRET_KEY=sk_test_pin\nA_LEARNER_TOKEN=pin\n')
+    writeFileSync(join(dir, '.env.development.local'), 'BETTER_AUTH_SECRET=pin-pin-pin-pin-pin-pin-pin-pin-pin\nA_LEARNER_TOKEN=pin\n')
     const script = `const { loadEnvConfig } = require(${JSON.stringify(join(ROOT, 'node_modules/@next/env'))}); loadEnvConfig(${JSON.stringify(dir)}, true, { info() {}, error() {} }); process.stdout.write(JSON.stringify(process.env))`
     const child = spawn(process.execPath, ['-e', script], { cwd: dir, env: serverEnv(join(dir, 'desk'), '.next-env-check', 0, dir), stdio: ['ignore', 'pipe', 'pipe'] })
     let text = ''

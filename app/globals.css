@@ -315,16 +315,6 @@ h3 {
     transform: translateX(100%);
   }
 }
-.sketch-label {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  font-family: var(--font-heading), Georgia, serif;
-  font-size: 20px;
-  font-style: italic;
-  color: var(--neutral-700);
-}
 
 /* Manga speed lines while art is drawn — the mockup's loader: a conic dash
    screen radiating from the figure's centre (`--cx`/`--cy`, set inline by the

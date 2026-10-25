@@ -5,10 +5,10 @@
 //
 //   MongoDB  <database>.projects   { _id: <project id>, rev: n, project: Project }
 //   MongoDB  <database>.jobs       { _id: <job id>, rev: n, activeKey?: <key>, ...the job's fields } (v3, slice 18)
-//   MongoDB  <database>.users      { _id: <Clerk user id>, email, createdAt, updatedAt, deletedAt } (v3, slice 19)
+//   MongoDB  <database>.users      { _id: <account id>, email, createdAt, updatedAt, deletedAt } (v3, slice 19)
 //   MongoDB  <database>.shares     { _id: <token>, activeProject?: <project id>, ...the share's fields } (v3, slice 21)
 //   MongoDB  <database>.reports    { _id: <uuid>, token, reason, note, ipHash, at, handledAt } (v3, slice 21)
-//   MongoDB  <database>.settings   { _id: <Clerk user id>, defaultStyle, readingDirection, voices?, updatedAt } (v3, slice 21)
+//   MongoDB  <database>.settings   { _id: <account id>, defaultStyle, readingDirection, voices?, updatedAt } (v3, slice 21)
 //   MongoDB  <database>.videos     { _id: <video id>, rev: n, ownerId, projectId, ...the video's fields } (v3, slice 21; slice 22 fills it)
 //   bucket   <project-files bucket>/<prefix><kind>-<uuid>.<ext>   the same ids the local store writes,
 //            under S3_KEY_PREFIX (default `inkdesk/`), never at the bucket's root (SEC-13)
