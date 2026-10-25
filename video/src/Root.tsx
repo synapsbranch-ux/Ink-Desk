@@ -3,6 +3,7 @@ import { CUT, MOTION_PREVIEW } from './cut'
 import { Demo, type FullProps } from './Demo'
 import { InkWipe } from './InkWipe'
 import { Intro } from './Intro'
+import { Learned } from './Learned'
 import { Method } from './Method'
 import { MoneyShot } from './MoneyShot'
 import { Outro } from './Outro'
@@ -59,7 +60,7 @@ export const Root: React.FC = () => (
       {...base}
     />
     <Folder name="Pieces">
-      <Composition id="Intro" component={Intro} defaultProps={{ durationInFrames: seconds(19) }} durationInFrames={seconds(19)} {...base} />
+      <Composition id="Intro" component={Intro} defaultProps={{ durationInFrames: seconds(14) }} durationInFrames={seconds(14)} {...base} />
       <Composition
         id="Section"
         component={Section}
@@ -70,11 +71,18 @@ export const Root: React.FC = () => (
       <Composition
         id="MoneyShot"
         component={MoneyShot}
+        defaultProps={{ stills: STAND_IN_STILLS, placeholder: true, durationInFrames: seconds(12) }}
+        durationInFrames={seconds(12)}
+        {...base}
+      />
+      <Composition id="Method" component={Method} defaultProps={{ durationInFrames: seconds(22) }} durationInFrames={seconds(22)} {...base} />
+      <Composition
+        id="Learned"
+        component={Learned}
         defaultProps={{ stills: STAND_IN_STILLS, placeholder: true, durationInFrames: seconds(15) }}
         durationInFrames={seconds(15)}
         {...base}
       />
-      <Composition id="Method" component={Method} defaultProps={{ durationInFrames: seconds(15) }} durationInFrames={seconds(15)} {...base} />
       <Composition id="Outro" component={Outro} defaultProps={{ durationInFrames: seconds(10) }} durationInFrames={seconds(10)} {...base} />
       <Composition id="InkWipe" component={InkWipe} defaultProps={{ durationInFrames: 18 }} durationInFrames={18} {...base} />
     </Folder>

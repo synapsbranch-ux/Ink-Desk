@@ -284,7 +284,7 @@ async function narrate(opts: { model: string; voice: string; only: string[]; dry
   } catch (err) {
     fail((err as Error).message)
   }
-  const beats = new Set(CUT.map((s) => s.id))
+  const beats = new Set(CUT.filter((s) => !s.mute).map((s) => s.id)) // the mute final card takes no words
   for (const s of sections) {
     if (!beats.has(s.id)) fail(`The script has a "## ${s.id}" section that is not a beat of the edit (src/cut.ts); rename it to one of: ${[...beats].join(', ')}.`)
   }

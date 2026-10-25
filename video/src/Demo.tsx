@@ -7,6 +7,7 @@ import { Captions } from './Captions'
 import { Footage } from './Footage'
 import { InkWipe } from './InkWipe'
 import { Intro } from './Intro'
+import { Learned } from './Learned'
 import { Method } from './Method'
 import { musicVolumeAt } from './mix'
 import { MoneyShot } from './MoneyShot'
@@ -35,6 +36,8 @@ const ShotView: React.FC<{ shot: ResolvedShot; props: FullProps }> = ({ shot, pr
       return <MoneyShot stills={props.stills} placeholder={props.stillsArePlaceholder} durationInFrames={shot.durationInFrames} />
     case 'method':
       return <Method durationInFrames={shot.durationInFrames} />
+    case 'learned':
+      return <Learned stills={props.stills} placeholder={props.stillsArePlaceholder} durationInFrames={shot.durationInFrames} />
     case 'outro':
       return <Outro durationInFrames={shot.durationInFrames} />
   }

@@ -14,6 +14,7 @@ import {
   MAX_CUE_CHARS,
   narrationKey,
   parseNarration,
+  wordBudget,
   wordCount,
 } from '../video/src/script'
 import {
@@ -36,17 +37,27 @@ const near = (a: number, b: number, msg: string) => assert.ok(Math.abs(a - b) <=
 // Under three minutes at its budget, which is the longest it can ever be:
 // footage is only ever sped up to fit, never slowed down past it.
 assert.ok(budgetSeconds(CUT) < MAX_SECONDS, `the edit is budgeted at ${budgetSeconds(CUT)} s`)
-// The nine beats of scope.md > The Demo Video (v2), at their budgets: 177 s.
-assert.equal(budgetSeconds(CUT), 177, `the edit is budgeted at ${budgetSeconds(CUT)} s, not 177`)
-assert.equal(CUT.length, 9, 'nine beats')
+// The v3 film: eleven spoken beats and the mute final card, at their budgets: 173 s.
+assert.equal(budgetSeconds(CUT), 173, `the edit is budgeted at ${budgetSeconds(CUT)} s, not 173`)
+assert.equal(CUT.length, 12, 'eleven spoken beats and the final card')
 assert.deepEqual(
   CUT.map((s) => s.id),
-  ['intro', 'dashboard', 'library', 'director', 'pages', 'moneyshot', 'reader', 'method', 'outro'],
+  ['intro', 'signin', 'project', 'library', 'director', 'pages', 'moneyshot', 'reader', 'share', 'method', 'learned', 'outro'],
   'the beats, in order',
 )
-// The method beat — how it was made — sits before the outro.
-assert.ok(CUT.findIndex((s) => s.id === 'method') === CUT.findIndex((s) => s.id === 'outro') - 1, 'method comes right before outro')
-assert.deepEqual(beat('method').shots, [{ kind: 'method', seconds: 15 }])
+// How it was made, then what was learned — the last words of the film — then the mute card.
+const index = (id: string) => CUT.findIndex((s) => s.id === id)
+assert.ok(index('method') === index('learned') - 1 && index('learned') === index('outro') - 1, 'method, learned, outro close the film')
+assert.deepEqual(beat('method').shots, [{ kind: 'method', seconds: 22 }])
+assert.deepEqual(beat('learned').shots, [{ kind: 'learned', seconds: 15 }])
+assert.ok(beat('outro').mute === true && CUT.filter((s) => s.mute).length === 1, 'only the final card is mute')
+// The word budgets narration.md quotes, from the beats' seconds.
+const seconds = (id: string) => beat(id).shots.reduce((t, shot) => t + shot.seconds, 0)
+assert.deepEqual(
+  CUT.filter((s) => !s.mute).map((s) => wordBudget(seconds(s.id))),
+  [28, 19, 19, 41, 33, 46, 24, 24, 19, 46, 30],
+  'the word budget of each spoken beat',
+)
 assert.throws(() => beat('nope'), /no beat/)
 assert.ok(budgetSeconds(MOTION_PREVIEW) < budgetSeconds(CUT))
 assert.ok(MOTION_PREVIEW.some((s) => s.shots.some((shot) => shot.kind === 'method')), 'the motion preview shows the method piece')
@@ -64,16 +75,21 @@ for (const seg of CUT) {
 const script = parseNarration(readFileSync(new URL('../video/narration.md', import.meta.url), 'utf8'))
 assert.deepEqual(
   script.map((s) => s.id),
-  CUT.map((s) => s.id),
-  'narration.md has one section per beat of the edit, in order',
+  CUT.filter((s) => !s.mute).map((s) => s.id),
+  'narration.md has one section per spoken beat of the edit, in order, and none for the mute card',
 )
-for (const s of script) assert.ok(s.text.length > 0, `narration.md "## ${s.id}" is empty — every beat is captioned`)
+for (const s of script) assert.ok(s.text.length > 0, `narration.md "## ${s.id}" is empty — every spoken beat is captioned`)
+// …and no section runs past what its beat can carry at a calm pace.
+for (const s of script) {
+  assert.ok(wordCount(s.text) <= wordBudget(seconds(s.id)), `narration.md "## ${s.id}" has ${wordCount(s.text)} words; its beat fits ${wordBudget(seconds(s.id))}`)
+}
 
 // --- Marks → segments, on a synthetic capture ------------------------------
 // A capture where every wait is real: a 3-minute page inking, a 40 s plan.
 const t: Record<MarkName, number> = {
+  'sign-in': 1, // 1 s real < 10 s budget → real speed
   dashboard: 2,
-  'project-created': 14, // 12 s real < 17.5 s budget → real speed
+  'project-created': 14, // 12 s real > 10 s budget → time-lapsed, 1.2×
   'scenario-ready': 30,
   'library-open': 33,
   'import-done': 60,
@@ -86,11 +102,14 @@ const t: Record<MarkName, number> = {
   'redraw-done': 420,
   'chapter-inked': 900,
   'reader-open': 905,
-  'pdf-exported': 915, // 10 s real < 11.5 s → real speed
-  end: 918,
+  'pdf-exported': 914, // 9 s real < 9.5 s → real speed
+  'share-open': 918,
+  'link-copied': 922,
+  'share-public': 926,
+  end: 930,
 }
 const marks: Mark[] = MARKS.map((m) => ({ name: m.name, t: t[m.name] }))
-checkMarks(marks, 920)
+checkMarks(marks, 935)
 const plan = resolvePlan(CUT, marks, true)
 assert.ok(plan.seconds < MAX_SECONDS, `resolved film is ${plan.seconds} s`)
 // Every shot keeps its budget, whatever the capture did: the film is exactly
@@ -109,17 +128,20 @@ const byLabel = (label: string) => {
 }
 // Fits → real speed for its real length, then holds its last frame: the shot
 // keeps its budget, so the beat, the word budget and the captions agree.
-const newProject = byLabel('New project and its style')
-assert.equal(newProject.playbackRate, 1)
-near(sec(newProject.playFrames!), 12, 'a short span plays at its real length')
-near(sec(newProject.durationInFrames), 17.5, 'and holds to its budget')
-assert.equal(newProject.trimBefore, 2 * FPS)
-assert.equal(newProject.trimAfter, 14 * FPS)
-assert.ok(!newProject.missing)
+const signIn = byLabel('Sign in')
+assert.equal(signIn.playbackRate, 1)
+near(sec(signIn.playFrames!), 1, 'a short span plays at its real length')
+near(sec(signIn.durationInFrames), 10, 'and holds to its budget')
+assert.equal(signIn.trimBefore, 1 * FPS)
+assert.equal(signIn.trimAfter, 2 * FPS)
+assert.ok(!signIn.missing)
 // Overruns → time-lapsed to exactly its budget, and the real time is kept.
+const newProject = byLabel('New project and its style')
+near(newProject.playbackRate!, 1.2, 'a slight overrun is sped up just enough')
+near(sec(newProject.durationInFrames), 10, 'into its budget')
 const inking = byLabel('Page 1 inks in')
-assert.equal(inking.playbackRate, 15)
-near(sec(inking.durationInFrames), 12, 'a long wait is time-lapsed into its budget')
+assert.equal(inking.playbackRate, 22.5)
+near(sec(inking.durationInFrames), 8, 'a long wait is time-lapsed into its budget')
 assert.equal(inking.playFrames, inking.durationInFrames, 'a time-lapse fills its shot, no hold')
 assert.equal(inking.realSeconds, 180)
 // Played source frames ≈ shown frames × rate: nothing is invented.
@@ -146,7 +168,7 @@ const short = marks.filter((m) => m.name !== 'chapter-inked')
 const partial = resolvePlan(CUT, short, true)
 const rest = partial.segments.flatMap((s) => s.shots).find((s) => s.kind === 'footage' && s.label === 'The rest of the chapter')
 assert.ok(rest?.missing, 'a shot whose mark was never reached is a slate')
-near(sec(rest.durationInFrames), 5, 'a slate holds its budget')
+near(sec(rest.durationInFrames), 4, 'a slate holds its budget')
 // No capture at all: every footage shot is a slate, the film is its budget.
 const empty = resolvePlan(CUT, [], false)
 assert.ok(empty.segments.flatMap((s) => s.shots).every((s) => s.kind !== 'footage' || s.missing))
@@ -172,12 +194,12 @@ const doc = `# Title
 <!-- a note for the writer, never spoken -->
 ## intro
 Draw a character once. Keep them, in every single panel of every page, from the cover to the last speech bubble on page six!
-## dashboard
+## signin
 [Your words: placeholder.]
 ## library
 `
 const parsed = parseNarration(doc)
-assert.deepEqual(parsed.map((s) => [s.id, s.placeholder]), [['intro', false], ['dashboard', true], ['library', true]])
+assert.deepEqual(parsed.map((s) => [s.id, s.placeholder]), [['intro', false], ['signin', true], ['library', true]])
 assert.ok(!parsed[0].text.includes('note'), 'comments are never spoken')
 assert.throws(() => parseNarration('## a\nx\n## a\ny'), /two sections/)
 // A half-written section that keeps the template's marker is still a draft —
@@ -202,26 +224,29 @@ for (let i = 0; i < introCues.length; i++) {
   if (i > 0) assert.equal(c.startFrame, introCues[i - 1].endFrame, 'cues follow one another without overlap')
 }
 // A measured narration length stretches the cues to it.
-const measured = captionCues(cuesPlan, parsed, { intro: 14 })
+const measured = captionCues(cuesPlan, parsed, { intro: 10 })
 const lastIntro = measured.filter((c) => c.segmentId === 'intro').at(-1)!
-near(sec(lastIntro.endFrame - intro.startFrame), 14 + 0.4, 'cues end with the measured narration')
+near(sec(lastIntro.endFrame - intro.startFrame), 10 + 0.4, 'cues end with the measured narration')
 // …but never past the beat, even when the voice runs long.
 const long = captionCues(cuesPlan, parsed, { intro: 99 })
 assert.ok(long.filter((c) => c.segmentId === 'intro').every((c) => c.endFrame <= intro.startFrame + intro.durationInFrames))
 // Placeholders are captioned as written (so a draft can be timed); empty is not.
-assert.ok(cues.some((c) => c.segmentId === 'dashboard' && c.text.startsWith('[')))
+assert.ok(cues.some((c) => c.segmentId === 'signin' && c.text.startsWith('[')))
 assert.ok(!cues.some((c) => c.segmentId === 'library'))
 
-// The real script, placeholder or not, captions every beat.
+// The real script, placeholder or not, captions every spoken beat — and never the mute card.
 const real = captionCues(cuesPlan, script, {})
-for (const seg of CUT) assert.ok(real.some((c) => c.segmentId === seg.id), `beat "${seg.id}" has a caption`)
+for (const seg of CUT) {
+  if (seg.mute) assert.ok(!real.some((c) => c.segmentId === seg.id), `the mute "${seg.id}" has no caption`)
+  else assert.ok(real.some((c) => c.segmentId === seg.id), `beat "${seg.id}" has a caption`)
+}
 
 // --- The music under the voice ------------------------------------------------
 // A pure function of the frame: silent at the first frame, the base level
 // away from the voice, ducked under a clip, silent again at the last frame.
-const film = 177 * FPS
+const film = 173 * FPS
 const clipA: NarrationClip = { segmentId: 'intro', src: 'narration/intro.mp3', startFrame: 12, seconds: 10 }
-const clipB: NarrationClip = { segmentId: 'dashboard', src: 'narration/dashboard.mp3', startFrame: 600, seconds: 6 }
+const clipB: NarrationClip = { segmentId: 'signin', src: 'narration/signin.mp3', startFrame: 600, seconds: 6 }
 const clips = [clipA, clipB]
 const vol = (frame: number) => musicVolumeAt(frame, clips, film)
 const close = (a: number, b: number, msg: string) => assert.ok(Math.abs(a - b) < 1e-9, `${msg}: ${a} vs ${b}`)
@@ -255,4 +280,4 @@ assert.notEqual(k, narrationKey('Hello.', 'sarah', 'elevenlabs/eleven-v4'), 'a c
 assert.notEqual(k, narrationKey('Hello.', 'george', 'elevenlabs/eleven-flash-v2.5'), 'a changed model is new audio')
 assert.equal(wordCount('  one two\nthree '), 3)
 
-console.log(`  Demo timeline check passed — the edit is ${budgetSeconds(CUT)} s, ${CUT.length} beats, every one captioned.`)
+console.log(`  Demo timeline check passed — the edit is ${budgetSeconds(CUT)} s, ${CUT.length} beats, every spoken one captioned within its budget.`)

@@ -26,6 +26,7 @@ export const NARRATION_LEAD_SECONDS = 0.4
  * name; the recorder must write exactly these names.
  */
 export const MARKS = [
+  { name: 'sign-in', when: 'the sign-in card is on screen, before the email is typed (only when the capture signs in)' },
   { name: 'dashboard', when: 'the dashboard is on screen, before anything is clicked' },
   { name: 'project-created', when: 'the studio for the new project has opened on Story' },
   { name: 'scenario-ready', when: 'the scenario is on the desk (sample pasted or typed) and Story is complete' },
@@ -41,6 +42,9 @@ export const MARKS = [
   { name: 'chapter-inked', when: 'every planned page and the cover are inked' },
   { name: 'reader-open', when: 'Ink & Publish is on screen with the cover' },
   { name: 'pdf-exported', when: 'the PDF export has finished' },
+  { name: 'share-open', when: 'the Share dialog is on screen, before Share publicly is pressed' },
+  { name: 'link-copied', when: 'the public link is made and Copy link was pressed' },
+  { name: 'share-public', when: 'the public page is open with no account, its Report button on screen' },
   { name: 'end', when: 'the last frame worth keeping' },
 ] as const
 
@@ -75,10 +79,15 @@ export type Shot =
   | { kind: 'footage'; from: MarkName; to: MarkName; seconds: number; label: string }
   | { kind: 'moneyshot'; seconds: number }
   | { kind: 'method'; seconds: number }
+  | { kind: 'learned'; seconds: number }
   | { kind: 'outro'; seconds: number }
 
-/** One segment of the edit = one section of narration.md (same id). */
-export type Segment = { id: string; label: string; shots: Shot[] }
+/**
+ * One segment of the edit = one section of narration.md (same id) — unless it
+ * is `mute`: nothing is spoken over the final card, so narration.md has no
+ * section for it and no captions are cut for it.
+ */
+export type Segment = { id: string; label: string; shots: Shot[]; mute?: boolean }
 
 export type ResolvedShot = Shot & {
   startFrame: number

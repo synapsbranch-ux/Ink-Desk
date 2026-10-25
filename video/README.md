@@ -9,7 +9,7 @@ not faked.
 ```
 video/
   narration.md         the script — the narration and the captions, one section per beat (drafted for you; rewrite any line)
-  src/cut.ts           the edit: the beats, their shots and their budgets (≈ 2:57)
+  src/cut.ts           the edit: the beats, their shots and their budgets (≈ 2:53: eleven spoken beats and a mute final card)
   music/generate.mts   generates the background music with a music model through OpenRouter (prompt.txt beside it)
   music/compose.mts    composes the background music in code — an original track, the same bytes every run
   timeline.json        written by the capture: when each moment happened in the footage
@@ -49,7 +49,17 @@ picture becomes the locked sheet — and change the title, the bubble's words or
 the panel to redraw there if you like. `--short` films page 1 only (a test,
 ≈ $0.10 at `low`); `--stop-after scenario-ready` films only the free part;
 `--out <dir>` writes everything to another folder; `--url` points at another
-port. A run replaces the previous capture only when it succeeds; a run that
+port.
+
+Two beats are v3's: **sign-in** and **share**. With `CAPTURE_EMAIL` and
+`CAPTURE_PASSWORD` set in the shell (`CAPTURE_EMAIL=… CAPTURE_PASSWORD=… npm run
+video:capture -- --quality high`), the recorder opens on the sign-in card,
+marks `sign-in`, signs in as that account and goes on to the dashboard; without
+them (a local desk with `INKDESK_AUTH=off`) it starts on the dashboard and the
+sign-in beat is a slate. After the PDF it opens Share publicly, copies the
+link, clears its own cookies and opens the link as a visitor — the public page
+with Report (`share-open`, `link-copied`, `share-public`). A share that cannot
+be filmed is reported and leaves a slate, never a lost capture. A run replaces the previous capture only when it succeeds; a run that
 fails or is stopped with Ctrl+C keeps what it filmed in
 `video/public/capture/failed-<time>/` (with its own `timeline.json`) and
 leaves the previous capture and `video/timeline.json` untouched — clear those
@@ -63,7 +73,7 @@ long at `high` — the edit time-lapses them and says so on screen.
 `cd video && npx tsx capture/clock-check.mts --out /tmp/clock` re-proves the
 clock at any time, for free.
 
-**2. Narrate** — the words are in `video/narration.md`, one section per beat with its word budget; rewrite any line you like (the draft was written for you to change), pick a premade voice, then:
+**2. Narrate** — the words are in `video/narration.md`, one section per spoken beat with its word budget (the final card is mute and has none); rewrite any line you like (the draft was written for you to change), pick a premade voice, then:
 
 ```bash
 npm run video:narrate -- --samples              # hear all twelve voices first → video/out/voices/ (≈ $0.02)

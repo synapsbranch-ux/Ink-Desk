@@ -146,11 +146,15 @@ export function prepare(): Prepared {
   const narrationPath = join(VIDEO, 'narration.md')
   if (!existsSync(narrationPath)) fail('video/narration.md is missing.')
   const sections = parseNarration(readFileSync(narrationPath, 'utf8'))
-  const ids = new Set(CUT.map((s) => s.id))
   for (const seg of CUT) {
-    if (!sections.some((s) => s.id === seg.id)) fail(`narration.md has no "## ${seg.id}" section — every beat is captioned.`)
+    if (seg.mute) continue // the final card is silent: no section, no captions
+    if (!sections.some((s) => s.id === seg.id)) fail(`narration.md has no "## ${seg.id}" section — every spoken beat is captioned.`)
   }
-  for (const s of sections) if (!ids.has(s.id)) fail(`narration.md has a "## ${s.id}" section that is not a beat of the edit (src/cut.ts).`)
+  for (const s of sections) {
+    const seg = CUT.find((c) => c.id === s.id)
+    if (!seg) fail(`narration.md has a "## ${s.id}" section that is not a beat of the edit (src/cut.ts).`)
+    if (seg.mute) fail(`narration.md has a "## ${s.id}" section, but that beat is mute (src/cut.ts): nothing is spoken over the final card.`)
+  }
   const placeholders = sections.filter((s) => s.placeholder).map((s) => s.id)
   if (placeholders.length) draft.push(`narration.md still has placeholders in: ${placeholders.join(', ')}.`)
 

@@ -1,4 +1,4 @@
-// The capture: Playwright drives the REAL running app through the v2 journey
+// The capture: Playwright drives the REAL running app through the v3 journey
 // on a fresh project and records it — spec.md > The Demo Video Pipeline (v2).
 // Every generation is real; the waits are long because the art is, and the
 // edit time-lapses them (src/timeline.ts), it never fakes them.
@@ -32,6 +32,15 @@
 // --stop-after <mark> ends the capture a beat after that mark, as a success:
 // e.g. `--stop-after scenario-ready` films only what costs nothing — the
 // Library's cast proposal right after it is the first paid call.
+//
+// Two beats are v3's: sign-in and share. With CAPTURE_EMAIL and CAPTURE_PASSWORD
+// set in the shell, the film opens on the sign-in card (the `sign-in` mark) and
+// signs in as that account; without them (a local desk, INKDESK_AUTH=off) it
+// opens on the dashboard and the sign-in beat is a slate in the edit. After
+// the PDF the recorder opens Share publicly, copies the link, clears its own
+// cookies and opens the link as a visitor — the public page with Report
+// (`share-open`, `link-copied`, `share-public`). A share that cannot be filmed
+// is reported and leaves a slate; it never costs the capture.
 //
 // A run records into its own folder beside the capture, public/capture/run-<time>/,
 // and only moves its footage, stills/, chapter.pdf and timeline over the
@@ -447,6 +456,27 @@ async function journey(seed: ReturnType<typeof readSeed>): Promise<void> {
   const rail = page.getByRole('navigation', { name: 'Stations' })
   const heading = (name: string) => page.getByRole('heading', { level: 1, name, exact: true })
 
+  // v3: the studio is behind sign-in. Only when the shell says who to sign in
+  // as; a desk without sign-in starts on the dashboard, and the beat is a slate.
+  const email = process.env.CAPTURE_EMAIL
+  const password = process.env.CAPTURE_PASSWORD
+  if (email && password) {
+    step = 'signing in'
+    await page.goto(`${BASE}/sign-in`, { waitUntil: 'load' })
+    await heading('Sign in').waitFor()
+    await page.waitForLoadState('networkidle').catch(() => {})
+    await glide(W * 0.5, H * 0.42)
+    await mark('sign-in')
+    await pause(BEAT * 1.2)
+    await typeVisibly(page.getByLabel('Email'), email)
+    await pause(BEAT * 0.4)
+    await typeVisibly(page.getByLabel('Password'), password)
+    await pause(BEAT * 0.4)
+    await press(page.getByRole('button', { name: /^(Sign in|Signing in…)$/ }))
+    await heading('Your manga, one project each').waitFor({ timeout: 60_000 })
+    await pause(BEAT * 0.6)
+  }
+
   step = 'opening the dashboard'
   await page.goto(BASE, { waitUntil: 'load' })
   await heading('Your manga, one project each').waitFor()
@@ -710,6 +740,45 @@ async function journey(seed: ReturnType<typeof readSeed>): Promise<void> {
   )
   await mark('pdf-exported')
   await pause(BEAT * 2.5)
+
+  step = 'sharing publicly'
+  // The share beat: the dialog, Share publicly, Copy link, then the public page
+  // as a visitor sees it — this browser's cookies are cleared first, so the
+  // link opens with no account and its Report button on screen. A share that
+  // cannot be filmed (a missing control, a refused link) leaves a slate in the
+  // edit, never a lost capture: everything paid for is already in the footage,
+  // so the failure is reported and the journey still ends.
+  try {
+    await press(page.getByRole('button', { name: 'Share publicly…', exact: true }))
+    const share = page.getByRole('dialog', { name: 'Share publicly' })
+    await share.waitFor()
+    await share.getByRole('button', { name: /^(Share publicly|Making the link…)$/ }).waitFor({ timeout: 30_000 })
+    await pause(BEAT * 0.8)
+    await mark('share-open')
+    await pause(BEAT * 0.8)
+    await press(share.getByRole('button', { name: 'Share publicly', exact: true }))
+    const link = share.getByLabel('Link')
+    await link.waitFor({ timeout: 60_000 })
+    // The visit stays on the server being filmed, whatever domain the link names.
+    const target = `${BASE}${new URL(await link.inputValue(), BASE).pathname}`
+    if (!/\/s\/[^/]+$/.test(target)) throw new Error(`the share link reads "${await link.inputValue()}"`)
+    await pause(BEAT * 0.8)
+    await press(share.getByRole('button', { name: /^(Copy link|Copied)$/ }))
+    await mark('link-copied')
+    await pause(BEAT * 1.4)
+    await page.context().clearCookies()
+    await page.goto(target, { waitUntil: 'load' })
+    await page.getByRole('button', { name: 'Report', exact: true }).waitFor({ timeout: 30_000 })
+    await page.waitForLoadState('networkidle').catch(() => {})
+    await glide(W * 0.5, H * 0.5)
+    await mark('share-public')
+    await pause(BEAT * 2.5)
+  } catch (err) {
+    if (failure) throw failure
+    if (err instanceof StoppedAfter) throw err
+    console.error(`  ! The share beat was not filmed: ${(err as Error).message}. The edit shows a slate there; the rest of the capture stands.`)
+  }
+
   await mark('end')
   await pause(BEAT)
 }
