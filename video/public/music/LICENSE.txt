@@ -1,6 +1,6 @@
 Ink Desk demo music — track.mp3
 
-Generated on 2026-10-14 by google/lyria-3-pro-preview through OpenRouter, from the prompt in video/music/prompt.txt; 175.0 s; $0.08 (the generation id was not recorded for this first piece).
+Generated on 2026-10-25 by google/lyria-3-pro-preview through OpenRouter (generation gen-1792902647-hL2BUrxBIOel7BNPKivq), from the prompt in video/music/prompt.txt (sha256 3c4d625fee437b95); 169.9 s.
 
 Generated for this project and used as its background music under the
 generating service's terms for generated content; it is not a recording or a
