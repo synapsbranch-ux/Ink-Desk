@@ -1,6 +1,6 @@
 ---
 doc: security-report
-status: in progress — slice 21 fixes recorded
+status: complete — before and after audits recorded; Better Auth and no-sign-up revisions added 2026-10-24
 ---
 
 # Ink Desk — Security and Stability Report
