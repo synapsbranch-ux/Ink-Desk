@@ -1039,7 +1039,9 @@ async function cardReady(card: Locator, name: string): Promise<boolean | string>
   if (notice) return `${name}’s card says: ${notice}`
   if ((await card.getAttribute('aria-busy')) === 'true') return false
   const sheet = card.getByRole('img', { name: `${name}’s model sheet` })
-  return (await sheet.isVisible()) && (await imageLoaded(sheet)) && (await card.locator('.dna-text, .dna-toggle').first().isVisible())
+  // The DNA is there when its words show, or its fold button does (the button is
+  // hidden at desktop width, so the two are asked separately).
+  return (await sheet.isVisible()) && (await imageLoaded(sheet)) && ((await card.locator('.dna-text').isVisible()) || (await card.locator('.dna-toggle').isVisible()))
 }
 
 function escape(s: string): string {
