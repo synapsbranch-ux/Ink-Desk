@@ -51,3 +51,8 @@ next-env.d.ts
 /data/videos/
 /data/outputs/
 
+# Account records of a running local desk (data/users/<id>.json, mirrored from
+# the sign-in, slice 19) — reachable by anyone once sign-up is open, so never
+# part of the public record. 6-ship, 2026-10-25.
+/data/users/
+
