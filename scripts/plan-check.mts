@@ -163,6 +163,11 @@ const planOut = (a: string, b: string, count: number) => {
   for (let p = 1; p <= count; p++) out[`page${p}`] = pageOut(a, b, p)
   return out
 }
+/** The same plan as the model sends it now (`chapterPlanWireSchema`): the pages in an array. */
+const wireOut = (a: string, b: string, count: number) => ({
+  coverBrief: 'Kaito alone on the post tower at dawn, the city behind him.',
+  pages: Array.from({ length: count }, (_, i) => pageOut(a, b, i + 1)),
+})
 
 /** A project with a saved scenario, two characters locked with real sheets. */
 async function lockedProject(title: string, scenarioText = SAMPLE_SCENARIO): Promise<{ pid: string; ids: [string, string] }> {
@@ -276,7 +281,7 @@ try {
   // 4. The Director's call. ---------------------------------------------------------------
   {
     const costBefore = (await read()).costUsd
-    answer('plan', planOut(lead, counterpart, 3))
+    answer('plan', wireOut(lead, counterpart, 3))
     desk = await writePlan(pid, 3, false)
     const call = chats.splice(0)
     assert.equal(call.length, 1, 'one text call, no summary for a scenario this short')
@@ -491,7 +496,7 @@ try {
     assert.ok(longText.length > SCENARIO_WHOLE_CHARS)
     const second = await lockedProject('A Long One', longText)
     answer('summary', { summary: '1. Kaito finds the letter. 2. Mio reads the seal. 3. The dawn.' })
-    answer('plan', planOut(second.ids[0], second.ids[1], 4))
+    answer('plan', wireOut(second.ids[0], second.ids[1], 4))
     const planned = await writePlan(second.pid, 4, false)
     const [sum, planCall] = chats.splice(0)
     assert.equal(sum.response_format.json_schema.name, 'summary', 'the summary first')
@@ -574,9 +579,9 @@ try {
 
     // A fallback reply the schema refuses was still billed: counted, then the retry's too.
     const spare = await lockedProject('Spare')
-    const bad = planOut(spare.ids[1], spare.ids[0], 3) // the slots swapped — refused by the schema
+    const bad = { coverBrief: 'no pages at all' } // refused by the schema
     answer('plan', bad)
-    answer('plan', planOut(spare.ids[0], spare.ids[1], 3))
+    answer('plan', wireOut(spare.ids[0], spare.ids[1], 3))
     const planned = await writePlan(spare.pid, 3, false)
     assert.equal(chats.splice(0).length, 2, 'one refused reply, one retry')
     assert.ok(Math.abs(planned.costUsd - 0.02) < 1e-9, 'both billed replies are in the spend')

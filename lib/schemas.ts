@@ -115,6 +115,54 @@ export function chapterPlanSchema(lockedIds: readonly [string, string], pageCoun
   return z.object(shape) as unknown as z.ZodType<ChapterPlanOutput>
 }
 
+/**
+ * The plan as it is sent to the model. The API now refuses the named-field
+ * schema above even at three pages ("compiled grammar is too large"), so the
+ * wire shape defines one page once and lists them in an array. The page count
+ * and each slot's character are not in the grammar; `planFromWire` holds the
+ * reply to them before anything reaches the desk.
+ */
+export function chapterPlanWireSchema() {
+  const line = z.object({
+    characterId: z.string().describe('The id of the character in this panel, fixed by the layout.'),
+    action: z.string().describe('What this character does and their expression, one or two sentences, a single still frame.'),
+    camera: z.string().describe('The angle for this panel’s shot, one short sentence.'),
+    background: z.string().describe('The setting as seen from this camera, one sentence, no lettering of any kind.'),
+    dialogue: z.string().describe('One line this character says out loud, under twelve words. No quotation marks.'),
+  })
+  return z.object({
+    coverBrief: z
+      .string()
+      .describe(
+        'The cover illustration, one paragraph: the lead character alone, their pose and expression, the setting behind them, the light and the mood. Drawable, no lettering of any kind.'
+      ),
+    pages: z
+      .array(z.object({ panel1: line, panel2: line, panel3: line, panel4: line }))
+      .describe('The pages of the chapter, in order, exactly as many as asked.'),
+  })
+}
+export type ChapterPlanWire = z.infer<ReturnType<typeof chapterPlanWireSchema>>
+
+/**
+ * The wire reply → `{ coverBrief, page1 … pageN }`. Extra pages are dropped;
+ * too few throws. Each panel's character is set from the layout, so the
+ * alternation never depends on the model copying an id.
+ */
+export function planFromWire(wire: ChapterPlanWire, lockedIds: readonly [string, string], pageCount: number): ChapterPlanOutput {
+  if (wire.pages.length < pageCount) {
+    throw new Error(`the plan came back with ${wire.pages.length} pages; ${pageCount} were asked for`)
+  }
+  const out: Record<string, unknown> = { coverBrief: wire.coverBrief }
+  wire.pages.slice(0, pageCount).forEach((page, p) => {
+    const lines = [page.panel1, page.panel2, page.panel3, page.panel4]
+    const fixed = Object.fromEntries(
+      lines.map((line, i) => [`panel${i + 1}`, { ...line, characterId: lockedIds[PANEL_LAYOUT[i].cast] }])
+    )
+    out[`page${p + 1}`] = fixed
+  })
+  return out as ChapterPlanOutput
+}
+
 /** `{ coverBrief, page1, page2, … }` — one page script per page. */
 export type ChapterPlanOutput = { coverBrief: string } & { [page: `page${number}`]: PageScriptOutput }
 

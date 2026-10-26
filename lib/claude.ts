@@ -8,7 +8,7 @@
 // package the way Next's server does.
 import 'server-only'
 import { ask, type AskImage, type TextMeter } from './llm'
-import { ProviderError } from './errors'
+import { ProviderError, Refused } from './errors'
 import {
   castPrompt,
   dnaFromPicturePrompt,
@@ -26,7 +26,10 @@ import {
 } from './prompts'
 import {
   CastSchema,
-  chapterPlanSchema,
+  chapterPlanWireSchema,
+  planFromWire,
+  PAGE_COUNT_MAX,
+  PAGE_COUNT_MIN,
   CharacterProposalSchema,
   DnaSchema,
   pageScriptSchema,
@@ -128,7 +131,7 @@ export async function summarizeScenario(text: string, notes: string, meter?: Tex
  * names anyone else, or a plan of the wrong length, never reaches the desk.
  * Up to four ticked shelf references travel as pictures ahead of the prompt.
  */
-export function writeChapterPlan(
+export async function writeChapterPlan(
   source: PlanSource,
   cast: readonly [LockedCharacter, LockedCharacter],
   style: { label: string; blurb: string },
@@ -138,9 +141,17 @@ export function writeChapterPlan(
 ): Promise<ChapterPlanOutput> {
   // ~110 tokens a panel line in the measured page scripts; 2× headroom, plus the brief.
   const maxTokens = 1024 + pageCount * 4 * 220
-  return ask(chapterPlanSchema([cast[0].id, cast[1].id], pageCount), planPrompt(source, cast, style, pageCount), maxTokens, {
+  if (!Number.isInteger(pageCount) || pageCount < PAGE_COUNT_MIN || pageCount > PAGE_COUNT_MAX) {
+    throw new Refused(`A chapter plan has ${PAGE_COUNT_MIN} to ${PAGE_COUNT_MAX} pages.`, 400)
+  }
+  const wire = await ask(chapterPlanWireSchema(), planPrompt(source, cast, style, pageCount), maxTokens, {
     label: 'plan',
     images: references.length ? references : undefined,
     meter,
   })
+  try {
+    return planFromWire(wire, [cast[0].id, cast[1].id], pageCount)
+  } catch (err) {
+    throw new ProviderError('The AI didn’t answer just now. Try again in a moment.', 'provider', err)
+  }
 }
